@@ -1,10 +1,11 @@
 #!/usr/bin/env node
+import * as fs from "node:fs"
+import path from "node:path"
+import process from "node:process"
+import { discoverModules } from "@repo/discovery-workflow"
 import { featurePlanningWorkflow } from "@repo/feature-planning-workflow"
 import { executeCreateModuleWorkflow } from "@repo/module-management-workflow"
 import { Command } from "commander"
-import * as fs from "fs"
-import * as path from "path"
-import process from "process"
 
 const program = new Command()
 
@@ -45,6 +46,22 @@ program
 		const workingDir = findMonorepoRoot(process.cwd())
 		await executeCreateModuleWorkflow({ moduleName, rootPath: workingDir })
 		console.log("Module layout created successfully.")
+	})
+
+program
+	.command("list-modules")
+	.description("List all discoverable modules")
+	.action(async () => {
+		const workingDir = findMonorepoRoot(process.cwd())
+		const modules = discoverModules(workingDir)
+
+		console.log(`\nFound ${modules.length} module(s):\n`)
+		if (modules.length === 0) {
+			console.log("  (No modules found in /modules)")
+		} else {
+			modules.forEach((m) => console.log(`  - ${m.name.padEnd(20)} v${m.version}`))
+		}
+		console.log("") // Final empty space
 	})
 
 program.parse(process.argv)

@@ -12,6 +12,7 @@
 		"cli": "tsx src/index.ts"
 	},
 	"dependencies": {
+		"@repo/discovery-workflow": "workspace:*",
 		"@repo/feature-planning-workflow": "workspace:*",
 		"@repo/module-management-workflow": "workspace:*",
 		"@repo/protocol": "workspace:*",
@@ -20,9 +21,9 @@
 	"devDependencies": {
 		"@repo/typescript-config": "workspace:*",
 		"@types/node": "^22.19.15",
-		"typescript": "^5.9.2",
+		"esbuild": "0.28.1",
 		"tsup": "^8.3.5",
-		"tsx": "^4.19.2"
+		"tsx": "^4.19.2",
+		"typescript": "^5.9.2"
 	}
 }
-
