@@ -1,7 +1,7 @@
 "use workflow"
 
-import * as fs from "fs"
-import * as path from "path"
+import * as fs from "node:fs"
+import path from "node:path"
 
 export interface CreateModuleConfig {
 	moduleName: string
