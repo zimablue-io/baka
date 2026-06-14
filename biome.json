@@ -1,0 +1,140 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.5.0/schema.json",
+	"vcs": {
+		"enabled": false,
+		"clientKind": "git",
+		"useIgnoreFile": false
+	},
+	"files": {
+		"ignoreUnknown": false,
+		"includes": [
+			"**/*.js",
+			"**/*.mjs",
+			"**/*.cjs",
+			"**/*.ts",
+			"**/*.tsx",
+			"**/*.css",
+			"**/*.md",
+			"**/*.mdx",
+			"**/*.json",
+			"**/*.yaml",
+			"**/*.yml",
+			"!**/node_modules",
+			"!**/.next",
+			"!**/dist",
+			"!**/storybook-static",
+			"!**/coverage",
+			"!**/cypress/videos",
+			"!**/cypress/screenshots",
+			"!**/.turbo",
+			"!pnpm-lock.yaml"
+		]
+	},
+	"formatter": {
+		"enabled": true,
+		"indentStyle": "tab"
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"recommended": true,
+			"correctness": {
+				"noUnusedImports": "error",
+				"useUniqueElementIds": "warn"
+			},
+			"complexity": {
+				"noBannedTypes": "error",
+				"noExcessiveCognitiveComplexity": {
+					"level": "warn",
+					"options": {
+						"maxAllowedComplexity": 20
+					}
+				},
+				"noExcessiveLinesPerFunction": {
+					"level": "warn",
+					"options": {
+						"maxLines": 200,
+						"skipBlankLines": true
+					}
+				},
+				"noExcessiveNestedTestSuites": "warn",
+				"noUselessCatch": "warn",
+				"noUselessConstructor": "warn",
+				"noUselessEmptyExport": "warn",
+				"noUselessFragments": "warn",
+				"noUselessLabel": "warn",
+				"noUselessLoneBlockStatements": "warn",
+				"noUselessRename": "warn",
+				"noUselessStringConcat": "warn",
+				"noUselessSwitchCase": "warn",
+				"noUselessTernary": "warn",
+				"noUselessThisAlias": "warn",
+				"noUselessTypeConstraint": "warn",
+				"noUselessUndefinedInitialization": "warn",
+				"noVoid": "warn",
+				"useFlatMap": "warn",
+				"useLiteralKeys": "warn",
+				"useOptionalChain": "warn",
+				"useRegexLiterals": "warn",
+				"useSimpleNumberKeys": "warn",
+				"useSimplifiedLogicExpression": "warn",
+				"useWhile": "warn"
+			},
+			"style": {
+				"noRestrictedImports": {
+					"level": "error",
+					"options": {
+						"patterns": [
+							{
+								"group": ["**/packages/**"],
+								"message": "Do not import through relative `packages/*` paths. Use the workspace alias instead (for example `@repo/common`)."
+							}
+						]
+					}
+				}
+			}
+		}
+	},
+	"javascript": {
+		"formatter": {
+			"quoteStyle": "double",
+			"lineWidth": 120,
+			"indentWidth": 2,
+			"semicolons": "asNeeded"
+		}
+	},
+	"assist": {
+		"enabled": true,
+		"actions": {
+			"source": {
+				"organizeImports": "on"
+			}
+		}
+	},
+	"overrides": [
+		{
+			"includes": ["**/*.css"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noUnknownAtRules": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["scripts/**/*.mjs"],
+			"linter": {
+				"rules": {
+					"complexity": {
+						"noExcessiveCognitiveComplexity": "off",
+						"noExcessiveLinesPerFunction": "off"
+					},
+					"suspicious": {
+						"noAssignInExpressions": "off"
+					}
+				}
+			}
+		}
+	]
+}
