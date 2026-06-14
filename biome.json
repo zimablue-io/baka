@@ -34,67 +34,6 @@
 		"enabled": true,
 		"indentStyle": "tab"
 	},
-	"linter": {
-		"enabled": true,
-		"rules": {
-			"recommended": true,
-			"correctness": {
-				"noUnusedImports": "error",
-				"useUniqueElementIds": "warn"
-			},
-			"complexity": {
-				"noBannedTypes": "error",
-				"noExcessiveCognitiveComplexity": {
-					"level": "warn",
-					"options": {
-						"maxAllowedComplexity": 20
-					}
-				},
-				"noExcessiveLinesPerFunction": {
-					"level": "warn",
-					"options": {
-						"maxLines": 200,
-						"skipBlankLines": true
-					}
-				},
-				"noExcessiveNestedTestSuites": "warn",
-				"noUselessCatch": "warn",
-				"noUselessConstructor": "warn",
-				"noUselessEmptyExport": "warn",
-				"noUselessFragments": "warn",
-				"noUselessLabel": "warn",
-				"noUselessLoneBlockStatements": "warn",
-				"noUselessRename": "warn",
-				"noUselessStringConcat": "warn",
-				"noUselessSwitchCase": "warn",
-				"noUselessTernary": "warn",
-				"noUselessThisAlias": "warn",
-				"noUselessTypeConstraint": "warn",
-				"noUselessUndefinedInitialization": "warn",
-				"noVoid": "warn",
-				"useFlatMap": "warn",
-				"useLiteralKeys": "warn",
-				"useOptionalChain": "warn",
-				"useRegexLiterals": "warn",
-				"useSimpleNumberKeys": "warn",
-				"useSimplifiedLogicExpression": "warn",
-				"useWhile": "warn"
-			},
-			"style": {
-				"noRestrictedImports": {
-					"level": "error",
-					"options": {
-						"patterns": [
-							{
-								"group": ["**/packages/**"],
-								"message": "Do not import through relative `packages/*` paths. Use the workspace alias instead (for example `@repo/common`)."
-							}
-						]
-					}
-				}
-			}
-		}
-	},
 	"javascript": {
 		"formatter": {
 			"quoteStyle": "double",
