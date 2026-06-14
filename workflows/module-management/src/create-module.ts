@@ -1,3 +1,5 @@
+"use workflow"
+
 import * as fs from "fs"
 import * as path from "path"
 
@@ -6,28 +8,26 @@ export interface CreateModuleConfig {
 	rootPath: string
 }
 
-export async function executeCreateModuleWorkflow(config: CreateModuleConfig): Promise<boolean> {
-	const targetPath = path.join(config.rootPath, "modules", config.moduleName)
-
-	if (fs.existsSync(targetPath)) {
-		throw new Error(`Execution halted: Module path already exists at reference layout: ${targetPath}`)
-	}
-
-	// Create structure safely
+async function createModuleDirectoryDurable(targetPath: string) {
+	"use step"
 	fs.mkdirSync(targetPath, { recursive: true })
 	fs.mkdirSync(path.join(targetPath, "scripts"), { recursive: true })
 	fs.mkdirSync(path.join(targetPath, "templates"), { recursive: true })
+	return true
+}
 
+async function writeModuleFilesDurable(targetPath: string, moduleName: string) {
+	"use step"
 	const manifestTemplate = `import { ModuleManifest } from '@repo/protocol';
 
 export const Manifest: ModuleManifest = {
-  name: '${config.moduleName}',
+  name: '${moduleName}',
   version: '1.0.0',
   dependencies: [],
   actions: [
     {
       id: 'init',
-      description: 'Default boilerplate initialization routine for ${config.moduleName}',
+      description: 'Default boilerplate initialization routine for ${moduleName}',
       params: []
     }
   ]
@@ -35,7 +35,7 @@ export const Manifest: ModuleManifest = {
 `
 
 	const packageJsonTemplate = `{
-  "name": "@repo/module-${config.moduleName}",
+  "name": "@repo/module-${moduleName}",
   "version": "1.0.0",
   "private": true,
   "main": "./manifest.ts",
@@ -47,6 +47,18 @@ export const Manifest: ModuleManifest = {
 
 	fs.writeFileSync(path.join(targetPath, "manifest.ts"), manifestTemplate)
 	fs.writeFileSync(path.join(targetPath, "package.json"), packageJsonTemplate)
+	return true
+}
+
+export async function executeCreateModuleWorkflow(config: CreateModuleConfig): Promise<boolean> {
+	const targetPath = path.join(config.rootPath, "modules", config.moduleName)
+
+	if (fs.existsSync(targetPath)) {
+		throw new Error(`Execution halted: Module path already exists at reference layout: ${targetPath}`)
+	}
+
+	await createModuleDirectoryDurable(targetPath)
+	await writeModuleFilesDurable(targetPath, config.moduleName)
 
 	return true
 }

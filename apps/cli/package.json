@@ -2,17 +2,27 @@
 	"name": "cli",
 	"version": "1.0.0",
 	"private": true,
-	"main": "./dist/index.js",
 	"type": "module",
+	"bin": {
+		"pi-cli": "./dist/index.js"
+	},
 	"scripts": {
-		"build": "tsc",
-		"start": "tsc && node ./dist/index.js"
+		"build": "tsup src/index.ts --format esm --out-dir dist --minify --clean",
+		"dev": "tsx src/index.ts",
+		"cli": "tsx src/index.ts"
 	},
 	"dependencies": {
-		"@repo/protocol": "workspace:*"
+		"@repo/feature-planning-workflow": "workspace:*",
+		"@repo/module-management-workflow": "workspace:*",
+		"@repo/protocol": "workspace:*",
+		"commander": "^15.0.0"
 	},
 	"devDependencies": {
-		"typescript": "^5.4.0",
-		"@types/node": "^20.0.0"
+		"@repo/typescript-config": "workspace:*",
+		"@types/node": "^22.19.15",
+		"typescript": "^5.9.2",
+		"tsup": "^8.3.5",
+		"tsx": "^4.19.2"
 	}
 }
+

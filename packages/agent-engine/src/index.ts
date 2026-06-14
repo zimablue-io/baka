@@ -1,4 +1,10 @@
-import { OrchestrationState, StepResponse, WorkflowStep } from "@repo/protocol"
+import { AgentRole, OrchestrationState, StepResponse, WorkflowStep } from "@repo/protocol"
+
+// Importing PI Engine API types (mocked or required at runtime via Extension API)
+// In a production context, this would rely on the PI Extension API injected at runtime
+interface PIProvider {
+	invoke: (prompt: string, schema: any) => Promise<any>
+}
 
 interface PlanningInput {
 	intent: string
@@ -14,41 +20,53 @@ interface PlanningOutput {
 	}>
 }
 
-export const runGemmaPlanningStep: WorkflowStep<PlanningInput, PlanningOutput, null> = {
-	name: "run-gemma-planning-step",
+// Generic Orchestrator Step
+export const orchestratePlanningStep: WorkflowStep<PlanningInput, PlanningOutput, null> = {
+	name: "orchestrate-planning-step",
+	role: AgentRole.ORCHESTRATOR,
 
 	execute: async (input, state): Promise<StepResponse<PlanningOutput, null>> => {
 		try {
-			// In a real system call, this transmits a compacted, grammar-bound schema mapping directly to Gemma 4 via IPC/Stdio
-			// We are mocking the execution channel using programmatic analysis matching the strict structure.
+			// In production, we get access to the PI Extension API instance
+			const pi = (global as any).pi as PIProvider
+			if (!pi) throw new Error("PI Provider not initialized")
 
-			const matchedSteps: PlanningOutput["resolvedSteps"] = []
+			// 1. Construct prompt
+			const prompt = `
+Task: Decompose intent into deterministic module actions.
+Intent: ${input.intent}
+Available Modules: ${input.availableModules.join(", ")}
+Rules: 
+- Respond strictly in the required JSON schema format.
+- Use only available modules and actions.
+`
 
-			if (input.intent.toLowerCase().includes("auth")) {
-				matchedSteps.push({
-					id: "step_1_init_base",
-					module: "next-base",
-					action: "init",
-					params: {},
-				})
-				matchedSteps.push({
-					id: "step_2_inject_auth",
-					module: "auth",
-					action: "init_better_auth",
-					params: { providers: "github,google" },
-				})
-			} else {
-				matchedSteps.push({
-					id: "step_1_init_base",
-					module: "next-base",
-					action: "init",
-					params: {},
-				})
-			}
+			// 2. Execute via PI provider with schema validation
+			// This delegates raw LLM interaction to the configured PI provider
+			const response = await pi.invoke(prompt, {
+				type: "object",
+				properties: {
+					resolvedSteps: {
+						type: "array",
+						items: {
+							type: "object",
+							properties: {
+								id: { type: "string" },
+								module: { type: "string" },
+								action: { type: "string" },
+								params: { type: "object" },
+							},
+							required: ["id", "module", "action", "params"],
+						},
+					},
+				},
+				required: ["resolvedSteps"],
+			})
 
+			// 3. Parse and return
 			return {
 				success: true,
-				output: { resolvedSteps: matchedSteps },
+				output: { resolvedSteps: response.resolvedSteps },
 				compensationData: null,
 			}
 		} catch (err: any) {
@@ -56,13 +74,13 @@ export const runGemmaPlanningStep: WorkflowStep<PlanningInput, PlanningOutput, n
 				success: false,
 				output: { resolvedSteps: [] },
 				compensationData: null,
-				error: err.message || "Gemma processing frame execution failure.",
+				error: err.message || "Orchestration execution failure.",
 			}
 		}
 	},
 
 	compensate: async (_data, _state): Promise<void> => {
-		// Planning operations do not mutate external files and carry no modification state side effects.
 		return Promise.resolve()
 	},
 }
+

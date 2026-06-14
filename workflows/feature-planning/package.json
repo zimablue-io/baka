@@ -1,5 +1,5 @@
 {
-	"name": "@repo/agent-engine",
+	"name": "@repo/feature-planning-workflow",
 	"version": "1.0.0",
 	"private": true,
 	"main": "./src/index.ts",
@@ -9,7 +9,9 @@
 	},
 	"dependencies": {
 		"@repo/protocol": "workspace:*",
-		"@earendil-works/pi-coding-agent": "0.79.3"
+		"@repo/agent-engine": "workspace:*",
+		"@repo/ast-tooling": "workspace:*",
+		"workflow": "4.4.0"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "workspace:*",

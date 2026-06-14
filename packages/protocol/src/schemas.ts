@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { ENGINE_STATUS } from "./constants"
+import { AgentRole } from "./types"
 
 export const ModuleActionParamSchema = z.object({
 	name: z.string(),
@@ -25,6 +26,7 @@ export const OrchestrationStateSchema = z.object({
 	userIntent: z.string(),
 	targetDirectory: z.string(),
 	status: z.nativeEnum(ENGINE_STATUS),
+	currentRole: z.nativeEnum(AgentRole).optional(),
 	executionPlan: z.object({
 		steps: z.array(
 			z.object({
@@ -37,4 +39,5 @@ export const OrchestrationStateSchema = z.object({
 		currentStepIndex: z.number(),
 	}),
 	logs: z.array(z.string()),
+	artifacts: z.record(z.any()).default({}),
 })

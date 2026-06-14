@@ -1,46 +1,50 @@
-import { executeUserIntentWorkflow } from "../../../workflows/feature-planning/plan-intent.js"
-import { executeCreateModuleWorkflow } from "../../../workflows/module-management/create-module.js"
+#!/usr/bin/env node
+import { featurePlanningWorkflow } from "@repo/feature-planning-workflow"
+import { executeCreateModuleWorkflow } from "@repo/module-management-workflow"
+import { Command } from "commander"
+import * as fs from "fs"
+import * as path from "path"
+import process from "process"
 
-async function runCliConsole() {
-	const args = process.argv.slice(2)
-	const coreCommand = args[0]
+const program = new Command()
 
-	if (!coreCommand) {
-		console.log('Usage guidelines:\n  pnpm cli plan "<intent>"\n  pnpm cli scaffold "<module_name>"')
-		process.exit(1)
-	}
-
-	const workingDir = process.cwd()
-
-	try {
-		if (coreCommand === "plan") {
-			const intentValue = args[1] || "Set up core typescript application with default configurations"
-			console.log(`Executing Agent Plan Routine for: "${intentValue}"`)
-
-			const finalOutcomeState = await executeUserIntentWorkflow(intentValue, workingDir)
-
-			console.log("\n--- Execution State Log Output ---")
-			console.log(`Final Engine Status: ${finalOutcomeState.status}`)
-			console.log("Logs:")
-			finalOutcomeState.logs.forEach((logLine) => console.log(` > ${logLine}`))
-		} else if (coreCommand === "scaffold") {
-			const moduleNameValue = args[1]
-			if (!moduleNameValue) {
-				console.error("Error: Please supply a concrete configuration module name targeting /modules.")
-				process.exit(1)
-			}
-
-			console.log(`Scaffolding module framework slice inside workspace directories: ${moduleNameValue}`)
-			await executeCreateModuleWorkflow({ moduleName: moduleNameValue, rootPath: workingDir })
-			console.log("Module layout created successfully.")
-		} else {
-			console.error(`Unknown parameter routing call argument: ${coreCommand}`)
-			process.exit(1)
+// Helper to find the monorepo root (where package.json exists)
+function findMonorepoRoot(startDir: string): string {
+	let currentDir = startDir
+	while (currentDir !== path.parse(currentDir).root) {
+		if (fs.existsSync(path.join(currentDir, "pnpm-workspace.yaml"))) {
+			return currentDir
 		}
-	} catch (globalFaultError: any) {
-		console.error("Fatal execution trap error inside engine run block:", globalFaultError.message)
-		process.exit(1)
+		currentDir = path.dirname(currentDir)
 	}
+	return startDir // Fallback to cwd if root not found
 }
 
-runCliConsole()
+program.name("pi-cli").description("PI Engine CLI for module scaffolding and workflow orchestration").version("1.0.0")
+
+program
+	.command("plan")
+	.description("Plan a new feature intent")
+	.argument("[intent]", "The feature intent to plan", "Set up core typescript application with default configurations")
+	.action(async (intent) => {
+		console.log(`Executing Agent Plan Routine for: "${intent}"`)
+		const workingDir = findMonorepoRoot(process.cwd())
+		const finalOutcomeState = await featurePlanningWorkflow(intent, workingDir)
+		console.log("\n--- Execution State Log Output ---")
+		console.log(`Final Engine Status: ${finalOutcomeState.status}`)
+		console.log("Logs:")
+		finalOutcomeState.logs.forEach((logLine: string) => console.log(` > ${logLine}`))
+	})
+
+program
+	.command("scaffold")
+	.description("Scaffold a new module")
+	.argument("<module_name>", "The name of the module to scaffold")
+	.action(async (moduleName) => {
+		console.log(`Scaffolding module: ${moduleName}`)
+		const workingDir = findMonorepoRoot(process.cwd())
+		await executeCreateModuleWorkflow({ moduleName, rootPath: workingDir })
+		console.log("Module layout created successfully.")
+	})
+
+program.parse(process.argv)

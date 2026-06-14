@@ -1,6 +1,30 @@
-# System Blueprint & Operational Architecture
 
-This document serves as the immutable specification and engineering blueprint for the action-bound, deterministic orchestration engine. This system rejects free-form LLM code generation within the application codebase. Instead, it enforces a strict division of labor: a compact, high-reasoning LLM acts as an action-routing plane, while a local, transaction-safe Workflow DAG acts as the execution plane.
+## Usage
+
+### Development
+
+To trigger workflows interactively, use the CLI:
+
+```bash
+# Plan a new feature
+pnpm cli plan "<intent>"
+
+# Scaffold a new module
+pnpm cli scaffold "<module_name>"
+```
+
+#### CLI Alias
+Add this to your `.bashrc` or `.zshrc` for quick access:
+
+```bash
+alias pi-cli='pnpm --prefix apps/cli run cli --'
+```
+
+### Creating a Test Module
+To verify the engine, create a test module:
+```bash
+pi-cli scaffold test-module
+```
 
 ## Technical Specifications
 - Monorepo Engine: Turborepo managed with strict pnpm workspaces. 
