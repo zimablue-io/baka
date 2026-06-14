@@ -7,13 +7,17 @@
 	"exports": {
 		".": "./src/index.ts"
 	},
+	"scripts": {
+		"build": "tsc",
+		"test": "vitest run"
+	},
 	"dependencies": {
-		"@repo/protocol": "workspace:*",
-		"workflow": "4.4.0"
+		"workflow": "4.4.0",
+		"@repo/protocol": "workspace:*"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "workspace:*",
-		"@types/node": "^22.19.15",
-		"typescript": "^5.9.2"
+		"typescript": "^5.4.0",
+		"vitest": "^4.1.8"
 	}
 }
