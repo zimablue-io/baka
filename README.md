@@ -1,159 +1,97 @@
-# Turborepo starter
+# System Blueprint & Operational Architecture
 
-This Turborepo starter is maintained by the Turborepo core team.
+This document serves as the immutable specification and engineering blueprint for the action-bound, deterministic orchestration engine. This system rejects free-form LLM code generation within the application codebase. Instead, it enforces a strict division of labor: a compact, high-reasoning LLM acts as an action-routing plane, while a local, transaction-safe Workflow DAG acts as the execution plane.
 
-## Using this example
+## Technical Specifications
+- Monorepo Engine: Turborepo managed with strict pnpm workspaces. 
+- Runtime Dependency: Node.js (v20+) or Bun running entirely via native local script invocation.
+- Target Core Stack: TypeScript, Next.js v16, Turborepo, Shadcn UI + Radix Base UI, Tailwind CSS.
+- Target Domain Additions: Better-Auth, Neon DB, Supabase Storage, Sanity CMS.
 
-Run the following command:
-
-```sh
-npx create-turbo@latest
+## Directory Architecture
+```
+.
+├── apps/
+│   └── cli/
+│       ├── package.json
+│       ├── tsconfig.json
+│       └── src/
+│           └── index.ts
+├── workflows/
+│   ├── feature-planning/
+│   │   └── plan-intent.ts
+│   └── module-management/
+│       └── create-module.ts
+├── packages/
+│   ├── protocol/
+│   │   ├── package.json
+│   │   ├── tsconfig.json
+│   │   └── src/
+│   │       ├── index.ts
+│   │       ├── constants.ts
+│   │       ├── schemas.ts
+│   │       └── types.ts
+│   ├── agent-engine/
+│   │   ├── package.json
+│   │   ├── tsconfig.json
+│   │   └── src/
+│   │       └── index.ts
+│   └── ast-tooling/
+│       ├── package.json
+│       ├── tsconfig.json
+│       └── src/
+│           └── index.ts
+├── modules/
+│   └── README.md
+├── pnpm-workspace.yaml
+├── turbo.json
+└── package.json
 ```
 
-## What's inside?
+## Multi-Agent Architecture Specification (AGENTS.md)
+This document defines the roles, bounded actions, stream constraints, and validation boundaries of the intelligent routing plane.
 
-This Turborepo includes the following packages/apps:
+## Agent System Overview
+The system operates on an isolated, deterministic execution loop. Agents do not write free-form code into user workspaces. Instead, they act as state-transition functions that parse user intent, match it against static structural schemas inside the modules/ folder, and return precise, validated JSON execution blocks.
 
-### Apps and Packages
-
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
-
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
-
-### Utilities
-
-This Turborepo has some additional tools already setup for you:
-
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
-
-### Build
-
-To build all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo build
+## The Agent Topology
+```
+                  +-----------------------+
+                  |  Human Prompt Input   |
+                  +-----------+-----------+
+                              |
+                              v
+                  +-----------------------+
+                  |      Orchestrator     |
+                  +-----------+-----------+
+                              |
+            +-----------------+-----------------+
+            |                                   |
+            v                                   v
++-----------------------+           +-----------------------+
+|  Gemma Action Router  |           |   Pattern Verifier    |
+| (Context Compacted)   |           |  (Grammar Constraint) |
++-----------------------+           +-----------------------+
 ```
 
-Without global `turbo`, use your package manager:
+## Agent Definitions
+1. The Context-Compacted Action Router
+- Core Model Variant: gemma4:e4b (or equivalent lightweight local model runner).
+- System Boundary: Zero raw text generation allowed. Must stream outputs wrapped inside forced grammar boundaries or strict JSON objects matching the structural JSON validation schema.
+- Responsibilities:
+  - Ingest the compiled metadata maps from modules/*/manifest.ts.
+  - Traverse the target application tree to map module requirements.
+  - Emit an immutable sequence of step IDs and parameters matching exactly what the module scripts expect.
 
-```sh
-cd my-turborepo
-npx turbo build
-pnpm dlx turbo build
-pnpm exec turbo build
-```
+2. The Structural Pattern Verifier
+- Core Model Variant: Fast, low-latency utility model combined with a native Abstract Syntax Tree (AST) checker.
+- System Boundary: Operates exclusively post-execution.
+- Responsibilities:
+  - Analyze the generated system code modification before saving changes to disk.
+  - Compare the output layout structurally against the module's blueprint definitions.
+  - Provide feedback metrics to the top-level orchestration workflow if a step needs compensation/rollback.
 
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo build --filter=docs
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo build --filter=docs
-pnpm exec turbo build --filter=docs
-pnpm exec turbo build --filter=docs
-```
-
-### Develop
-
-To develop all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo dev
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo dev
-pnpm exec turbo dev
-pnpm exec turbo dev
-```
-
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo dev --filter=web
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo dev --filter=web
-pnpm exec turbo dev --filter=web
-pnpm exec turbo dev --filter=web
-```
-
-### Remote Caching
-
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
-
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
-
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo login
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo login
-pnpm exec turbo login
-pnpm exec turbo login
-```
-
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
-
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo link
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo link
-pnpm exec turbo link
-pnpm exec turbo link
-```
-
-## Useful Links
-
-Learn more about the power of Turborepo:
-
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
+## Context Compaction and Stream Bounding
+To run this safely on a lightweight local engine, the system utilizes strict operational limits:
+1. Token Pruning: The directory structure is passed as a flat dependency tree definition string. Raw code contents are never fed to the planning model.
+2. Grammar Forcing: Output generation is locked directly to regex parameters via the execution runtime. If the model attempts to generate a conversational explanation (e.g., "Sure, I can help you add that module..."), the token validation system aborts the execution frame and re-evaluates the query.
