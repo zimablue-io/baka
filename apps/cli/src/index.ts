@@ -18,7 +18,7 @@ import {
 	runModuleTest,
 	runModuleValidate,
 } from "./commands/module"
-import { runModuleDesign, runModuleConsistency } from "./commands/module-design"
+import { runModuleDesign, runModuleConsistency } from "./commands/module-design/index.js"
 
 function die(code: number, msg: string): never {
 	process.stderr.write(`baka: ${msg}\n`)
