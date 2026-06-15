@@ -37,7 +37,7 @@ export function HowItWorks() {
 					<svg
 						role="img"
 						aria-label="Three-tier flow: user intent flows into the Orchestrator LLM, which picks from the catalog and dispatches to the Worker. The Worker hands the file tree to the Validator, which returns Pass or Fail."
-						viewBox="0 0 900 200"
+						viewBox="-10 0 970 200"
 						className="mx-auto h-auto w-full max-w-3xl"
 					>
 						<defs>
@@ -106,10 +106,8 @@ export function HowItWorks() {
 				<div className="grid gap-px bg-neutral-800/60 lg:grid-cols-3">
 					{TIERS.map((tier) => (
 						<div key={tier.name} className="bg-neutral-950 p-6 sm:p-8">
-							<div className="flex items-baseline justify-between">
-								<h3 className={cn("text-lg font-semibold", tier.accent)}>{tier.name}</h3>
-								<span className="font-mono text-xs uppercase tracking-wider text-neutral-500">{tier.role}</span>
-							</div>
+							<h3 className={cn("text-lg font-semibold", tier.accent)}>{tier.name}</h3>
+							<p className="mt-2 font-mono text-xs uppercase tracking-wider text-neutral-500">{tier.role}</p>
 							<p className="mt-4 text-sm leading-relaxed text-neutral-400">{tier.body}</p>
 						</div>
 					))}
