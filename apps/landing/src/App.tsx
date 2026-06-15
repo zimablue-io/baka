@@ -1,3 +1,4 @@
+import { Analytics } from "@vercel/analytics/react"
 import { GetStarted } from "./components/GetStarted"
 import { Hero } from "./components/Hero"
 import { HowItWorks } from "./components/HowItWorks"
@@ -18,6 +19,7 @@ export function App() {
 				<GetStarted />
 			</main>
 			<SiteFooter />
+			<Analytics />
 		</div>
 	)
 }
