@@ -29,3 +29,5 @@ export {
 	userSettingsPath,
 } from "./package-manager"
 export type { BakaSettings, InstallOptions, ParsedSource, PackageSourceType } from "./package-manager"
+export { cleanupConsistency, runConsistencyTest } from "./consistency"
+export type { ConsistencyOptions, ConsistencyResult, PerRunResult } from "./consistency"

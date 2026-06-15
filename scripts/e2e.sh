@@ -128,4 +128,39 @@ if [[ "$recorded" -lt 1 ]]; then
 fi
 ok "parseSource accepts all documented source shapes"
 
+step "12. module design renderers produce valid output"
+# The pure renderers (manifest, action, validator, preferences, template)
+# are unit-tested in @repo/agent-engine (module-design.test.ts) and the
+# consistency runner is unit-tested in @repo/ast-tooling
+# (consistency.test.ts). Here we just confirm those unit tests are part of
+# the vitest sweep.
+if ! pnpm --filter @repo/agent-engine run test > /tmp/ae-test 2>&1; then
+	cat /tmp/ae-test
+	fail "@repo/agent-engine unit tests failed"
+fi
+if ! grep -q "module-design" /tmp/ae-test; then
+	cat /tmp/ae-test
+	fail "module-design renderer tests did not run"
+fi
+ok "module-design renderers pass unit tests (manifest, action, validator, prefs, template)"
+
+if ! pnpm --filter @repo/ast-tooling run test > /tmp/at-test 2>&1; then
+	cat /tmp/at-test
+	fail "@repo/ast-tooling unit tests failed"
+fi
+if ! grep -q "consistency" /tmp/at-test; then
+	cat /tmp/at-test
+	fail "consistency runner tests did not run"
+fi
+ok "consistency runner passes unit tests (file-tree, hash, plan-param divergences)"
+
+step "13. chat REPL --help shows the new commands"
+if ! baka module --help 2>&1 | grep -q "create <name>"; then
+	fail "baka module create is not exposed"
+fi
+if ! baka module --help 2>&1 | grep -q "consistency"; then
+	fail "baka module consistency is not exposed"
+fi
+ok "baka module create and baka module consistency are exposed"
+
 printf "\n\033[1;32mall gates passed\033[0m\n"

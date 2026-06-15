@@ -14,11 +14,11 @@ import { runApplyCommand, runListPlans, runPlanCommand, runValidateCommand } fro
 import { runProvidersAdd, runProvidersList, runProvidersRemove, runProvidersUse } from "./commands/providers"
 import {
 	runModuleEdit,
-	runModuleInit,
 	runModuleListActions,
 	runModuleTest,
 	runModuleValidate,
 } from "./commands/module"
+import { runModuleDesign, runModuleConsistency } from "./commands/module-design"
 
 function die(code: number, msg: string): never {
 	process.stderr.write(`baka: ${msg}\n`)
@@ -111,15 +111,37 @@ providersCmd
 const moduleCmd = program.command("module").description("Author, validate, and test modules")
 
 moduleCmd
-	.command("init <name>")
-	.description("Create a new module with the action-centric layout")
+	.command("create <name>")
+	.description("Design a new module through a chat-driven double-diamond flow (Discover -> Define -> Develop -> Deliver). Re-run to resume.")
 	.action(async (name) => {
+		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		try {
-			await runModuleInit(name)
+			await runModuleDesign(name, { cwd })
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
 			if (message.includes("User force closed")) return
-			die(BAKA_EXIT_CODE.USER_ERROR, message)
+			die(BAKA_EXIT_CODE.ENGINE_ERROR, message)
+		}
+	})
+
+moduleCmd
+	.command("consistency <name>")
+	.description("Run the 5x consistency test on a designed module")
+	.option("-a, --action <id>", "the action id to test (default: first action)")
+	.option("-i, --intent <text>", "the user intent to plan against (default: action's testIntent)")
+	.option("-n, --n <count>", "number of runs (default: 5)", "5")
+	.action(async (name, opts) => {
+		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
+		try {
+			await runModuleConsistency(name, {
+				cwd,
+				actionId: opts.action,
+				intent: opts.intent,
+				n: Number(opts.n ?? 5),
+			})
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err)
+			die(BAKA_EXIT_CODE.ENGINE_ERROR, message)
 		}
 	})
 

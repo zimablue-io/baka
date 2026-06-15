@@ -35,14 +35,19 @@ export function loadAction<TInput, TOutput, TCompensationData>(
 	}
 	const jiti = createJiti(moduleRoot, { interopDefault: true })
 	const mod = jiti(actionPath) as Record<string, unknown>
-	const expectedName = `${actionId}Action`
-	const candidate = mod[expectedName] ?? mod.default
-	if (!candidate || typeof candidate !== "object") {
-		throw new Error(`action file ${actionPath} must export a WorkflowStep value named \`${expectedName}\` (or as the default export)`)
+	// Try the new shape (just the action id) first, then the legacy
+	// `${actionId}Action` shape that older modules (e.g. baka-base) use.
+	const candidates = [`${actionId}`, `${actionId}Action`, "default"]
+	let step: WorkflowStep<TInput, TOutput, TCompensationData> | undefined
+	for (const name of candidates) {
+		const c = mod[name] as { execute?: unknown; compensate?: unknown } | undefined
+		if (c && typeof c.execute === "function" && typeof c.compensate === "function") {
+			step = c as WorkflowStep<TInput, TOutput, TCompensationData>
+			break
+		}
 	}
-	const step = candidate as WorkflowStep<TInput, TOutput, TCompensationData>
-	if (typeof step.execute !== "function" || typeof step.compensate !== "function") {
-		throw new Error(`action file ${actionPath} does not conform to WorkflowStep (missing execute/compensate)`)
+	if (!step) {
+		throw new Error(`action file ${actionPath} must export a WorkflowStep value named \`${actionId}\`, \`${actionId}Action\`, or as the default export`)
 	}
 	return { step, manifest, actionId }
 }

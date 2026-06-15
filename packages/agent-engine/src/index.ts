@@ -1,10 +1,12 @@
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
+import { homedir } from "node:os"
 import {
 	AgentRole,
 	BAKA_ENV_PREFIX,
 	BAKA_EXIT_CODE,
 	BAKA_PROJECT_PATHS,
+	BAKA_USER_DIR,
 	type LLMMessage,
 	type LLMProvider,
 	type LLMRequest,
@@ -316,7 +318,46 @@ function buildPlanningPrompt(intent: string, modules: ModuleManifest[]): string 
 		})
 		.join("\n\n")
 
-	return `Intent: ${intent}\n\nModule catalog (use only these modules and actions):\n\n${catalog || "  (empty - no modules are installed)"}`
+	const prefs = loadModulePreferences(modules)
+	return `Intent: ${intent}\n\nModule catalog (use only these modules and actions):\n\n${catalog || "  (empty - no modules are installed)"}\n\n${prefs}`
+}
+
+/**
+ * Loads PREFERENCES.md for any module in the catalog that has one, and
+ * returns a section to append to the planning prompt. This is what makes
+ * the user's design choices sticky across all agent sessions.
+ */
+function loadModulePreferences(modules: ModuleManifest[]): string {
+	const lines: string[] = []
+	for (const m of modules) {
+		// Try the cwd first (caller is responsible for setting it), then the
+		// user marketplace. We can't always know the project root from here
+		// (the orchestrator step is provider-agnostic), so we look in the
+		// current working directory and the baka user dir.
+		const candidates = [
+			join(process.cwd(), "modules", m.name, "PREFERENCES.md"),
+			join(process.cwd(), BAKA_PROJECT_PATHS.ROOT, "modules", m.name, "PREFERENCES.md"),
+			join(homedir(), ".local", "share", BAKA_USER_DIR, "modules", m.name, "PREFERENCES.md"),
+		]
+		for (const path of candidates) {
+			if (existsSync(path)) {
+				const body = readFileSync(path, "utf-8")
+				lines.push(`### Module-specific preferences for \`${m.name}\` (from ${path})`)
+				lines.push("")
+				lines.push(body.trim())
+				lines.push("")
+				lines.push(
+					`When you plan an action from module \`${m.name}\`, you MUST honor these preferences: ` +
+						`use the conventions, respect the anti-patterns, and follow the examples. ` +
+						`If a plan you produce would violate them, choose a different action or param.`,
+				)
+				lines.push("")
+				break
+			}
+		}
+	}
+	if (lines.length === 0) return ""
+	return "## Module-specific preferences\n\n" + lines.join("\n")
 }
 
 /**
@@ -376,3 +417,15 @@ export function createInitialOrchestrationState(intent: string, targetDirectory:
 
 // Re-export the exit code enum for callers that want to use it
 export { BAKA_EXIT_CODE }
+
+// Re-export the module-design factory and the Zod-typed structured payload.
+export {
+	createModuleDesignStep,
+	renderActionStubSource,
+	renderManifestSource,
+	renderPreferencesFile,
+	renderTemplateStubSource,
+	renderValidatorStubSource,
+	DesignTurnPayloadSchema,
+} from "./module-design"
+export type { DesignTurnInput, DesignTurnOutput, DesignTurnPayload } from "./module-design"
