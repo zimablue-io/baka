@@ -8,10 +8,12 @@
 		".": "./src/index.ts"
 	},
 	"scripts": {
-		"build": "tsc"
+		"build": "tsc",
+		"check-types": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@repo/protocol": "workspace:*"
+		"@repo/protocol": "workspace:*",
+		"jiti": "^2.7.0"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "workspace:*",

@@ -9,17 +9,20 @@
 	},
 	"scripts": {
 		"build": "tsc",
+		"check-types": "tsc --noEmit",
 		"test": "vitest run"
 	},
 	"dependencies": {
 		"workflow": "4.4.0",
 		"@repo/protocol": "workspace:*",
 		"@repo/agent-engine": "workspace:*",
-		"@repo/ast-tooling": "workspace:*"
+		"@repo/ast-tooling": "workspace:*",
+		"@repo/discovery-workflow": "workspace:*"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "workspace:*",
-		"typescript": "^5.4.0",
+		"@types/node": "^22.19.15",
+		"typescript": "^5.9.2",
 		"vitest": "^4.1.8"
 	}
 }

@@ -9,11 +9,14 @@
 	},
 	"dependencies": {
 		"@repo/protocol": "workspace:*",
-		"@earendil-works/pi-coding-agent": "0.79.3"
+		"zod": "^3.23.0"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "workspace:*",
 		"@types/node": "^22.19.15",
 		"typescript": "^5.9.2"
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit"
 	}
 }
