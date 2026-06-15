@@ -1,0 +1,114 @@
+^D[brief: a SSOT for all things next.js v16 app router related, server-first, server actions, etc.]
+
+Hi! I have some questions to scope this module.
+
+Questions:
+  [domain] What is the target framework version?
+        why: to bound the API surface
+
+
+[phase: DISCOVER]
+[commands]
+  /exit         quit the session (state is saved; resume with `baka module create <name>`)
+  /save         persist the current state
+  /show prefs   show the PREFERENCES.md draft
+  /show actions show the proposed action roster
+  /show <id>    show details of an action
+  /rewind       pop the last user/assistant pair
+  /back <p>     jump to phase p (DISCOVER|DEFINE|DEVELOP|DELIVER)
+  /skip         advance to the next phase (skips the LLM)
+  /consistency [n] [intent]  run the 5x consistency test on the first action
+  /help         show this help
+> next.js v16 with the app router, server-first
+
+Got it.
+
+[LLM has synthesized PREFERENCES.md]
+
+[phase: DEFINE]
+> ok
+
+Proposed action roster.
+
+Proposed actions:
+  - scaffold: Scaffold a Next.js 16 app router project
+        the baseline for everything else
+
+
+[DEFINE] LLM proposed action roster:
+  - scaffold: Scaffold a Next.js 16 app router project
+        the baseline for everything else
+
+[prompt: approve the roster? (yes / no <reason>)]
+> ok
+
+[phase: DEFINE]
+> ok
+
+Designed the scaffold action.
+
+  scaffold:
+    params: 1
+      - name (string, required): project name
+    requiresReasoning: false
+    compensatesWith: (none)
+    validators: 
+    testIntent: "scaffold a Next.js 16 app router project"
+
+
+[DEVELOP] Designed action(s):
+  scaffold: Scaffold a Next.js 16 app router project
+    params: 1, validators: 0, requiresReasoning=false
+    testIntent: "scaffold a Next.js 16 app router project"
+
+[prompt: approve the design? (yes / edit <text>)]
+> ok
+
+[phase: DEVELOP]
+> ok
+
+Designed the scaffold action.
+
+  scaffold:
+    params: 1
+      - name (string, required): project name
+    requiresReasoning: false
+    compensatesWith: (none)
+    validators: 
+    testIntent: "scaffold a Next.js 16 app router project"
+
+
+[DEVELOP] Designed action(s):
+  scaffold: Scaffold a Next.js 16 app router project
+    params: 1, validators: 0, requiresReasoning=false
+    testIntent: "scaffold a Next.js 16 app router project"
+
+[prompt: approve the design? (yes / edit <text>)]
+> ok
+
+[phase: DEVELOP]
+> ok
+
+Designed the scaffold action.
+
+  scaffold:
+    params: 1
+      - name (string, required): project name
+    requiresReasoning: false
+    compensatesWith: (none)
+    validators: 
+    testIntent: "scaffold a Next.js 16 app router project"
+
+
+[DEVELOP] Designed action(s):
+  scaffold: Scaffold a Next.js 16 app router project
+    params: 1, validators: 0, requiresReasoning=false
+    testIntent: "scaffold a Next.js 16 app router project"
+
+[prompt: approve the design? (yes / edit <text>)]
+> /exit
+
+[phase: DEVELOP]
+
+[session saved to /var/folders/v9/n3y9cym92p5fsn7qvysrqtzr0000gn/T/baka-manual-XXXXXX.dK2KPZNiBN/modules/nextjs/.design-state.json; resume with `baka module create nextjs`]
+
