@@ -9,7 +9,7 @@ export function Hero() {
 					{BRAND} {BRAND_KANJI}
 				</p>
 				<h1 className="max-w-4xl text-balance text-4xl font-semibold tracking-tight text-neutral-50 sm:text-5xl lg:text-6xl">
-					Sometimes, being dumb is better.
+					Sometimes, dumber is better.
 				</h1>
 				<p className="mt-6 max-w-2xl text-pretty text-lg text-neutral-400 sm:text-xl">
 					A pattern-enforcement layer for LLM-assisted development. The LLM picks from a finite, declared action space —
