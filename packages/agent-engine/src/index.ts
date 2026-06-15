@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs"
-import { join } from "node:path"
 import { homedir } from "node:os"
+import { join } from "node:path"
 import {
 	AgentRole,
 	BAKA_ENV_PREFIX,
@@ -174,19 +174,13 @@ import { OpenAICompatibleProvider } from "./openai-compatible.js"
 export { OpenAICompatibleProvider }
 
 export function createLLMProvider(config: ResolvedLLMConfig): LLMProvider {
-	// The user-configured provider name lives in config.providerOptions.name,
-	// set by `loadLLMConfig`. We currently ship only the openai-compatible
-	// adapter; additional adapters register themselves via createLLMProvider
-	// dispatch in later phases.
-	const providerName = (config.providerOptions?.name as string | undefined) ?? "openai-compatible"
-	switch (providerName) {
-		case "openai-compatible":
-			return new OpenAICompatibleProvider(config)
-		default:
-			throw new Error(
-				`baka: unknown provider "${providerName}". Run \`baka providers list\` to see installed providers, or \`baka providers add\` to register one.`,
-			)
-	}
+	// The user-configured provider name (e.g. "llama_cpp", "ollama", "openai")
+	// is a friendly alias, not a class name. The wire format is what matters,
+	// and right now we only ship the OpenAI-compatible adapter (llama.cpp,
+	// Ollama, vLLM, LM Studio, OpenAI, etc. all speak the same /v1/chat
+	// shape). If we ever ship a non-OpenAI adapter (Anthropic, Gemini), the
+	// dispatch lives here. For now, the friendly name is informational.
+	return new OpenAICompatibleProvider(config)
 }
 
 // ---------------------------------------------------------------------------
@@ -249,7 +243,7 @@ export function createOrchestratePlanningStep(
 							"You may only use modules and actions that appear in the provided module catalog. " +
 							"Each step is {id, module, action, params} where params is a flat object whose keys are the exact param names declared in the catalog. " +
 							"Param values are JSON primitives (string, number, boolean) or arrays of strings. " +
-							"Do not wrap values in extra objects (e.g. {\"name\": {\"value\": \"x\"}} is wrong; {\"name\": \"x\"} is right). " +
+							'Do not wrap values in extra objects (e.g. {"name": {"value": "x"}} is wrong; {"name": "x"} is right). ' +
 							"Respond with a single JSON object matching the schema; do not include any prose, markdown fences, or commentary.",
 					},
 					{
@@ -415,8 +409,7 @@ export function createInitialOrchestrationState(intent: string, targetDirectory:
 	}
 }
 
-// Re-export the exit code enum for callers that want to use it
-export { BAKA_EXIT_CODE }
+export type { DesignTurnInput, DesignTurnOutput, DesignTurnPayload } from "./module-design"
 
 // Re-export the module-design factory and the Zod-typed structured payload.
 export {
@@ -428,4 +421,5 @@ export {
 	renderValidatorStubSource,
 	DesignTurnPayloadSchema,
 } from "./module-design"
-export type { DesignTurnInput, DesignTurnOutput, DesignTurnPayload } from "./module-design"
+// Re-export the exit code enum for callers that want to use it
+export { BAKA_EXIT_CODE }
