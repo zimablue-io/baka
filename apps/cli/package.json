@@ -10,7 +10,11 @@
 		"build": "tsup",
 		"check-types": "tsc --noEmit",
 		"dev": "tsx src/index.ts",
-		"baka": "tsx src/index.ts"
+		"baka": "tsx src/index.ts",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"test:coverage": "vitest run --coverage",
+		"test:real-llm": "RUN_REAL_LLM=1 vitest run test/baka-module-create.test.ts"
 	},
 	"dependencies": {
 		"@inquirer/prompts": "^8.5.2",
@@ -27,9 +31,11 @@
 	"devDependencies": {
 		"@repo/typescript-config": "workspace:*",
 		"@types/node": "^22.19.15",
+		"@vitest/coverage-v8": "4.1.8",
 		"esbuild": "0.28.1",
 		"tsup": "^8.3.5",
 		"tsx": "^4.19.2",
-		"typescript": "^5.9.2"
+		"typescript": "^5.9.2",
+		"vitest": "^4.1.8"
 	}
 }
