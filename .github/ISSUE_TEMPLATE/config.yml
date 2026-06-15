@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security issues
+    url: https://github.com/zimablue/baka/security/advisories/new
+    about: Please report security vulnerabilities privately using GitHub Security Advisories or email security@zimablue.io.
+  - name: Documentation
+    url: https://github.com/zimablue/baka/tree/main/docs
+    about: Read the design docs, philosophy, and agent guide.
