@@ -14,6 +14,7 @@
 		"baka": "pnpm --filter baka baka",
 		"mcp": "pnpm --filter @baka/mcp-server dev"
 	},
+	"license": "MIT",
 	"devDependencies": {
 		"@biomejs/biome": "2.5.0",
 		"@types/node": "^22.19.15",

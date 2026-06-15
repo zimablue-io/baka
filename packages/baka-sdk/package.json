@@ -1,6 +1,7 @@
 {
 	"name": "baka-sdk",
 	"version": "0.1.0",
+	"license": "MIT",
 	"private": true,
 	"description": "Public types and helpers for authoring baka modules. The only boundary module authors import from.",
 	"main": "./src/index.ts",

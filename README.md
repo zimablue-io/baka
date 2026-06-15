@@ -1,4 +1,6 @@
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
 ## Usage
 
 ### For coding agents (Claude Code, Cursor, Codex, Cline, Zed, etc.)
@@ -108,3 +110,7 @@ The system operates on an isolated, deterministic execution loop. Agents do not 
 
 ## Provider Boundary
 All provider knowledge (HTTP clients, API keys, model names) is sealed inside `packages/agent-engine/`. Workflows, the CLI, and `ast-tooling` only ever import the `LLMProvider` interface from `packages/protocol/`. The user picks the provider (llama.cpp, Ollama, vLLM, OpenAI, anything speaking the OpenAI chat-completions API) via `baka init`; the engine never dictates it.
+
+## License
+
+[MIT](./LICENSE) — Copyright (c) 2026 zima blue ([zimablue.io](https://zimablue.io)).
