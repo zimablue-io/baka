@@ -1,11 +1,12 @@
 {
-  "files": [],
-  "references": [
-    { "path": "packages/protocol" },
-    { "path": "packages/agent-engine" },
-    { "path": "packages/ast-tooling" },
-    { "path": "workflows/feature-planning" },
-    { "path": "workflows/module-management" },
-    { "path": "apps/cli" }
-  ]
+	"files": [],
+	"references": [
+		{ "path": "packages/protocol" },
+		{ "path": "packages/agent-engine" },
+		{ "path": "packages/ast-tooling" },
+		{ "path": "workflows/feature-planning" },
+		{ "path": "workflows/module-management" },
+		{ "path": "apps/cli" },
+		{ "path": "apps/api" }
+	]
 }

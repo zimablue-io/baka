@@ -1,0 +1,151 @@
+{
+	"$schema": "https://baka.foo/schemas/catalog.v1.json",
+	"name": "baka-built-in",
+	"version": "1.0.0",
+	"description": "First-party baka modules that ship with the engine.",
+	"owner": {
+		"name": "The baka maintainers",
+		"email": "maintainers@baka.foo"
+	},
+	"homepage": "https://github.com/lefamoffat/baka/tree/main/modules",
+	"modules": [
+		{
+			"name": "baka-base",
+			"version": "0.1.0",
+			"description": "Minimal hello-world TypeScript project scaffold. Use this as the foundation for any new app.",
+			"dependencies": [],
+			"conflictsWith": [],
+			"actions": [
+				{
+					"id": "scaffold",
+					"description": "Create a fresh TypeScript project (package.json, tsconfig.json, src/index.ts, README.md).",
+					"requiresReasoning": false,
+					"filePatterns": [
+						"package.json",
+						"tsconfig.json",
+						"src/index.ts",
+						"README.md"
+					],
+					"validators": ["hasConsoleLog"],
+					"params": [
+						{
+							"name": "name",
+							"type": "string",
+							"required": true,
+							"description": "Project name (kebab-case)."
+						},
+						{
+							"name": "description",
+							"type": "string",
+							"required": false,
+							"description": "Short project description."
+						},
+						{
+							"name": "moduleType",
+							"type": "enum",
+							"required": false,
+							"description": "Module system.",
+							"enumValues": ["esm", "commonjs"]
+						}
+					]
+				},
+				{
+					"id": "add-script",
+					"description": "Add or update a script entry in package.json. Idempotent.",
+					"requiresReasoning": false,
+					"filePatterns": ["package.json"],
+					"validators": [],
+					"params": [
+						{
+							"name": "name",
+							"type": "string",
+							"required": true,
+							"description": "Script name (e.g. 'build')."
+						},
+						{
+							"name": "command",
+							"type": "string",
+							"required": true,
+							"description": "Script command (e.g. 'tsc')."
+						}
+					]
+				},
+				{
+					"id": "add-dependency",
+					"description": "Add a runtime or dev dependency to package.json with a pinned version range.",
+					"requiresReasoning": false,
+					"filePatterns": ["package.json"],
+					"validators": [],
+					"params": [
+						{
+							"name": "name",
+							"type": "string",
+							"required": true,
+							"description": "Package name (e.g. 'zod')."
+						},
+						{
+							"name": "version",
+							"type": "string",
+							"required": true,
+							"description": "Version range (e.g. '^3.23.0')."
+						},
+						{
+							"name": "dev",
+							"type": "boolean",
+							"required": false,
+							"description": "Add to devDependencies (default false)."
+						}
+					]
+				}
+			],
+			"moduleValidators": ["hasPackageJson", "tsconfigPresent"],
+			"source": "./modules/baka-base",
+			"author": { "name": "The baka maintainers" },
+			"license": "MIT",
+			"tags": ["base", "typescript", "scaffold", "hello-world"],
+			"category": "base",
+			"keywords": ["scaffolding", "boilerplate", "starter"],
+			"accent": "#F5E6A8"
+		},
+		{
+			"name": "ts-style",
+			"version": "0.1.0",
+			"description": "TypeScript style enforcer. Bundles validators that block any, warn on console.log, and require explicit return types on exported functions.",
+			"dependencies": ["baka-base"],
+			"conflictsWith": [],
+			"actions": [
+				{
+					"id": "install-config",
+					"description": "Drop a strict tsconfig.json and biome.json into the target project.",
+					"requiresReasoning": false,
+					"filePatterns": ["tsconfig.json", "biome.json"],
+					"validators": [],
+					"params": [
+						{
+							"name": "strict",
+							"type": "boolean",
+							"required": false,
+							"description": "Apply maximum strictness (default true)."
+						}
+					]
+				},
+				{
+					"id": "lint",
+					"description": "Run the project's linter (biome) and report findings.",
+					"requiresReasoning": false,
+					"filePatterns": [],
+					"validators": [],
+					"params": []
+				}
+			],
+			"moduleValidators": ["noAnyTypes", "noConsoleLog", "explicitReturnTypes"],
+			"source": "./modules/ts-style",
+			"author": { "name": "The baka maintainers" },
+			"license": "MIT",
+			"tags": ["linter", "typescript", "style", "biome"],
+			"category": "pattern",
+			"keywords": ["code-quality", "linting", "formatting"],
+			"accent": "#F5E6A8"
+		}
+	]
+}

@@ -17,6 +17,7 @@
 		"test:real-llm": "RUN_REAL_LLM=1 vitest run test/baka-module-create.test.ts"
 	},
 	"dependencies": {
+		"@baka/api": "workspace:*",
 		"@inquirer/prompts": "^8.5.2",
 		"@repo/agent-engine": "workspace:*",
 		"@repo/ast-tooling": "workspace:*",

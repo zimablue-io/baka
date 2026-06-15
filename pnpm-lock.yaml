@@ -58,6 +58,9 @@ importers:
 
   apps/cli:
     dependencies:
+      '@baka/api':
+        specifier: workspace:*
+        version: link:../api
       '@inquirer/prompts':
         specifier: ^8.5.2
         version: 8.5.2(@types/node@22.19.21)

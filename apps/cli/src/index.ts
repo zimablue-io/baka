@@ -4,11 +4,21 @@ import { BAKA_EXIT_CODE } from "@repo/protocol"
 import { Command } from "commander"
 import { runConfigGet, runConfigList, runConfigPath, runConfigSet, runConfigUnset } from "./commands/config"
 import { runInit } from "./commands/init"
-import { runInstallCommand, runListPackagesCommand, runRemoveCommand, runUpdateCommand } from "./commands/marketplace"
+import {
+	runInstallCommand,
+	runListPackagesCommand,
+	runMarketplaceAdd,
+	runMarketplaceList,
+	runMarketplaceRemove,
+	runMarketplaceUpdate,
+	runRemoveCommand,
+	runUpdateCommand,
+} from "./commands/marketplace"
 import { runModuleEdit, runModuleListActions, runModuleTest, runModuleValidate } from "./commands/module"
 import { runModuleConsistency, runModuleDesign } from "./commands/module-design/index.js"
 import { runApplyCommand, runListPlans, runPlanCommand, runValidateCommand } from "./commands/plan"
 import { runProvidersAdd, runProvidersList, runProvidersRemove, runProvidersUse } from "./commands/providers"
+import { runSearchCommand } from "./commands/search"
 
 function die(code: number, msg: string): never {
 	process.stderr.write(`baka: ${msg}\n`)
@@ -278,7 +288,7 @@ program
 
 program
 	.command("install <source>")
-	.description("Install a module package from npm, git, or a local path")
+	.description("Install a module package. Accepts npm:..., git:..., local paths, or a bare module name (resolved via the marketplace API).")
 	.option("-l, --local", "install to the project scope (default) vs. user scope")
 	.option("-u, --user", "install to the user scope (~/.local/share/baka/modules/)")
 	.action(async (source, opts) => {
@@ -326,6 +336,45 @@ program
 		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		try {
 			await runUpdateCommand(cwd)
+		} catch (err) {
+			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+		}
+	})
+
+// `baka marketplace add | list | remove | update` ---------------------------
+
+const marketplaceCatalogCmd = program
+	.command("marketplace")
+	.description("Manage your subscribed community marketplace catalogs")
+
+marketplaceCatalogCmd
+	.command("add <url>")
+	.description("Subscribe to a community catalog URL")
+	.action((url) => runMarketplaceAdd(url))
+
+marketplaceCatalogCmd
+	.command("list")
+	.description("List your subscribed community catalogs")
+	.action(() => runMarketplaceList())
+
+marketplaceCatalogCmd
+	.command("remove <url>")
+	.description("Unsubscribe from a community catalog URL")
+	.action((url) => runMarketplaceRemove(url))
+
+marketplaceCatalogCmd
+	.command("update")
+	.description("Re-fetch subscribed catalogs (no-op in v1; catalogs are fetched on demand)")
+	.action(() => runMarketplaceUpdate())
+
+// `baka search <query>` -----------------------------------------------------
+
+program
+	.command("search <query>")
+	.description("Search modules across the built-in catalog + your subscribed community catalogs")
+	.action(async (query) => {
+		try {
+			await runSearchCommand(query)
 		} catch (err) {
 			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
 		}

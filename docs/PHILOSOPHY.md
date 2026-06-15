@@ -90,3 +90,7 @@ Adding or removing an action is one directory operation. Each action is a self-c
 ## Why "baka"
 
 The point of this project is to make LLMs *stupid on purpose*. The same auth, the same error handling, the same TypeScript style, every time, on every project, on whatever model the user plugs in. The LLM is the orchestrator, not the author. 馬鹿.
+
+## Process rule
+
+Ship what's needed for the current task. Do not architect for a future replacement that may never come. When a new requirement actually lands, design and build it then. No v0 stubs, no "for now" abstractions, no parallel implementations waiting to be merged.
