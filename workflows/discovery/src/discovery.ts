@@ -1,10 +1,14 @@
-import * as fs from "node:fs"
-import path from "node:path"
 import type { ModuleManifest } from "@repo/protocol"
+import { ModuleManifestSchema } from "@repo/protocol"
+import * as fs from "fs"
+import { createJiti } from "jiti"
+import * as path from "path"
+
+const jiti = createJiti(process.cwd())
 
 /**
  * Discovers modules at runtime by scanning the modules/ directory.
- * This is a utility function used by workflows, not a package.
+ * Loads and validates manifests using JITI to support TS files.
  */
 export function discoverModules(rootDir: string): ModuleManifest[] {
 	const modulesDir = path.join(rootDir, "modules")
@@ -19,15 +23,21 @@ export function discoverModules(rootDir: string): ModuleManifest[] {
 		const manifestPath = path.join(modulesDir, moduleName, "manifest.ts")
 
 		if (fs.existsSync(manifestPath)) {
-			// NOTE: In a real environment, we'd need to handle ESM imports of these TS files.
-			// For now, we assume a structured scan or pre-compiled manifest JSON.
-			// As a first step, we simply detect the presence.
-			discoveredManifests.push({
-				name: moduleName,
-				version: "1.0.0",
-				dependencies: [],
-				actions: [], // Action details would be populated by reading/parsing the manifest.ts
-			})
+			try {
+				// Dynamically load the manifest using jiti
+				const module = jiti(manifestPath)
+				if (module.Manifest) {
+					// Validate manifest against schema
+					const parsed = ModuleManifestSchema.safeParse(module.Manifest)
+					if (parsed.success) {
+						discoveredManifests.push(parsed.data)
+					} else {
+						console.error(`Invalid manifest for module ${moduleName}:`, parsed.error)
+					}
+				}
+			} catch (e) {
+				console.error(`Failed to load manifest for module ${moduleName}:`, e)
+			}
 		}
 	}
 

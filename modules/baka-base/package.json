@@ -1,0 +1,27 @@
+{
+	"name": "@baka-mod/baka-base",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Minimal hello-world TypeScript project scaffold. Foundation for any new app.",
+	"keywords": ["baka-module"],
+	"main": "./manifest.ts",
+	"types": "./manifest.ts",
+	"scripts": {
+		"check-types": "tsc --noEmit"
+	},
+	"dependencies": {
+		"baka-sdk": "workspace:*"
+	},
+	"devDependencies": {
+		"@repo/typescript-config": "workspace:*",
+		"@types/node": "^22.19.15",
+		"typescript": "^5.9.2"
+	},
+	"peerDependencies": {
+		"baka": "*"
+	},
+	"baka": {
+		"version": "^0.1.0",
+		"category": "base"
+	}
+}

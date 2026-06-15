@@ -1,22 +1,28 @@
 {
-	"name": "cli",
-	"version": "1.0.0",
+	"name": "baka",
+	"version": "0.1.0",
 	"private": true,
 	"type": "module",
 	"bin": {
-		"pi-cli": "./dist/index.js"
+		"baka": "./dist/index.js"
 	},
 	"scripts": {
-		"build": "tsup src/index.ts --format esm --out-dir dist --minify --clean",
+		"build": "tsup",
+		"check-types": "tsc --noEmit",
 		"dev": "tsx src/index.ts",
-		"cli": "tsx src/index.ts"
+		"baka": "tsx src/index.ts"
 	},
 	"dependencies": {
+		"@inquirer/prompts": "^8.5.2",
+		"@repo/agent-engine": "workspace:*",
+		"@repo/ast-tooling": "workspace:*",
 		"@repo/discovery-workflow": "workspace:*",
 		"@repo/feature-planning-workflow": "workspace:*",
 		"@repo/module-management-workflow": "workspace:*",
 		"@repo/protocol": "workspace:*",
-		"commander": "^15.0.0"
+		"commander": "^15.0.0",
+		"conf": "^15.1.0",
+		"jiti": "^2.7.0"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "workspace:*",

@@ -1,64 +1,31 @@
-import type { StepResponse, WorkflowStep } from "@repo/protocol"
-import { AgentRole } from "@repo/protocol"
+// The other packages in this monorepo (workflows/*) re-export via single named
+// re-exports. `export * from` is intentionally NOT used because it does not
+// load under Node's strict ESM resolver when this file is consumed via the
+// package's `exports` field. Keep this in lockstep with the other packages.
 
-interface AstTransformationInput {
-	moduleName: string
-	actionName: string
-	parameters: Record<string, any>
-	targetDirectory: string
-}
-
-interface AstRollbackData {
-	targetDirectory: string
-	moduleName: string
-	actionName: string
-	parameters: Record<string, any>
-}
-
-// Deterministic Worker Step: Dispatches actions to pre-defined modules
-export const executeAstTransformationStep: WorkflowStep<AstTransformationInput, boolean, AstRollbackData> = {
-	name: "execute-ast-transformation-step",
-	role: AgentRole.WORKER,
-
-	execute: async (input, _state): Promise<StepResponse<boolean, AstRollbackData>> => {
-		try {
-			// In production, this Worker maps the requested action to a
-			// pre-defined, deterministic module implementation (e.g., a CLI tool, script, or template).
-			// It does NOT perform arbitrary AST/file manipulation.
-
-			console.log(`Worker: Executing ${input.moduleName}:${input.actionName} with params:`, input.parameters)
-
-			// Logic to invoke module-specific action
-			// Example: await moduleRegistry.get(input.moduleName).run(input.actionName, input.parameters)
-
-			return {
-				success: true,
-				output: true,
-				compensationData: {
-					targetDirectory: input.targetDirectory,
-					moduleName: input.moduleName,
-					actionName: input.actionName,
-					parameters: input.parameters,
-				},
-			}
-		} catch (err: any) {
-			return {
-				success: false,
-				output: false,
-				compensationData: {
-					targetDirectory: input.targetDirectory,
-					moduleName: input.moduleName,
-					actionName: input.actionName,
-					parameters: input.parameters,
-				},
-				error: err.message || "Module action execution failure.",
-			}
-		}
-	},
-
-	compensate: async (data, _state): Promise<void> => {
-		// Rollback: trigger the inverse action on the specific module
-		console.log(`Worker: Compensating ${data.moduleName}:${data.actionName}`)
-		return Promise.resolve()
-	},
-}
+export { ModuleRegistry } from "./registry"
+export { loadAction, loadActionValidator, loadModuleValidator, loadSharedHelper } from "./action-loader"
+export type { LoadedAction, ModuleValidatorFn, ActionValidatorFn } from "./action-loader"
+export { executeWorkerStep } from "./worker"
+export type { WorkerInput, WorkerRollbackData } from "./worker"
+export { runSaga } from "./saga"
+export type { SagaStep, SagaResult, CompletedStep } from "./saga"
+export { runValidators } from "./validator"
+export { loadPlan, listPlans, plansDir, savePlan } from "./plan-io"
+export type { SavedPlan } from "./plan-io"
+export { StructuredLog } from "./structured-log"
+export type { LogEntry, LogLevel } from "./structured-log"
+export {
+	installSource,
+	listInstalledPackages,
+	parseSource,
+	projectModulesDir,
+	projectSettingsPath,
+	readProjectSettings,
+	readUserSettings,
+	removeSource,
+	updateAll,
+	userModulesDir,
+	userSettingsPath,
+} from "./package-manager"
+export type { BakaSettings, InstallOptions, ParsedSource, PackageSourceType } from "./package-manager"

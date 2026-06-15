@@ -1,5 +1,5 @@
 {
-	"name": "coding",
+	"name": "baka",
 	"private": true,
 	"scripts": {
 		"build": "turbo run build",
@@ -9,7 +9,9 @@
 		"check-types": "turbo run check-types",
 		"test": "turbo run test",
 		"clean": "find . -name 'dist' -type d -exec rm -rf {} +",
-		"cli": "pnpm --filter cli cli"
+		"setup": "./scripts/setup.sh",
+		"postinstall": "pnpm --filter baka run build",
+		"baka": "pnpm --filter baka baka"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.0",

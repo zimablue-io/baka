@@ -36,3 +36,11 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+
+# Baka runtime state
+.baka/
+docs/superpowers/
+
+# Editor / scratch
+.tmp/
+*.swp

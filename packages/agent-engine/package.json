@@ -9,14 +9,17 @@
 	},
 	"dependencies": {
 		"@repo/protocol": "workspace:*",
+		"conf": "^15.1.0",
 		"zod": "^3.23.0"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "workspace:*",
 		"@types/node": "^22.19.15",
-		"typescript": "^5.9.2"
+		"typescript": "^5.9.2",
+		"vitest": "^4.1.8"
 	},
 	"scripts": {
-		"check-types": "tsc --noEmit"
+		"check-types": "tsc --noEmit",
+		"test": "vitest run"
 	}
 }

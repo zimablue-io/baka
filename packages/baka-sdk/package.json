@@ -1,0 +1,22 @@
+{
+	"name": "baka-sdk",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Public types and helpers for authoring baka modules. The only boundary module authors import from.",
+	"main": "./src/index.ts",
+	"types": "./src/index.ts",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@repo/protocol": "workspace:*"
+	},
+	"devDependencies": {
+		"@repo/typescript-config": "workspace:*",
+		"@types/node": "^22.19.15",
+		"typescript": "^5.9.2"
+	}
+}

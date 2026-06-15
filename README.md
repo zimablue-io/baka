@@ -7,27 +7,27 @@ To trigger workflows interactively, use the CLI:
 
 ```bash
 # Plan a new feature
-pnpm cli plan "<intent>"
+pnpm baka plan "<intent>"
 
 # Scaffold a new module
-pnpm cli scaffold "<module_name>"
+pnpm baka scaffold "<module_name>"
 ```
 
 #### CLI Alias
 Add this to your `.bashrc` or `.zshrc` for quick access:
 
 ```bash
-alias pi-cli='pnpm --prefix apps/cli run cli --'
+alias baka='pnpm --prefix . baka --'
 ```
 
 ### Creating a Test Module
 To verify the engine, create a test module:
 ```bash
-pi-cli scaffold test-module
+baka scaffold test-module
 ```
 
 ## Technical Specifications
-- Monorepo Engine: Turborepo managed with strict pnpm workspaces. 
+- Monorepo Engine: Turborepo managed with strict pnpm workspaces.
 - Runtime Dependency: Node.js (v20+) or Bun running entirely via native local script invocation.
 - Target Core Stack: TypeScript, Next.js v16, Turborepo, Shadcn UI + Radix Base UI, Tailwind CSS.
 - Target Domain Additions: Better-Auth, Neon DB, Supabase Storage, Sanity CMS.
@@ -36,36 +36,21 @@ pi-cli scaffold test-module
 ```
 .
 ├── apps/
-│   └── cli/
+│   └── cli/                 # The baka binary
 │       ├── package.json
 │       ├── tsconfig.json
 │       └── src/
 │           └── index.ts
-├── workflows/
+├── workflows/               # Engine orchestration for THIS project
 │   ├── feature-planning/
 │   │   └── plan-intent.ts
 │   └── module-management/
 │       └── create-module.ts
-├── packages/
-│   ├── protocol/
-│   │   ├── package.json
-│   │   ├── tsconfig.json
-│   │   └── src/
-│   │       ├── index.ts
-│   │       ├── constants.ts
-│   │       ├── schemas.ts
-│   │       └── types.ts
-│   ├── agent-engine/
-│   │   ├── package.json
-│   │   ├── tsconfig.json
-│   │   └── src/
-│   │       └── index.ts
-│   └── ast-tooling/
-│       ├── package.json
-│       ├── tsconfig.json
-│       └── src/
-│           └── index.ts
-├── modules/
+├── packages/                # Engine tools
+│   ├── protocol/            # SSOT: types, schemas, LLMProvider interface
+│   ├── agent-engine/        # The ONLY package that knows what an LLMProvider is
+│   └── ast-tooling/         # File/AST operations, module registry
+├── modules/                 # User-defined patterns (action-centric layout)
 │   └── README.md
 ├── pnpm-workspace.yaml
 ├── turbo.json
@@ -73,7 +58,7 @@ pi-cli scaffold test-module
 ```
 
 ## Multi-Agent Architecture Specification (AGENTS.md)
-This document defines the roles, bounded actions, stream constraints, and validation boundaries of the intelligent routing plane.
+This document defines the roles, bounded actions, stream constraints, and validation boundaries of the intelligent routing plane. See `docs/PHILOSOPHY.md` for the locked-in design philosophy.
 
 ## Agent System Overview
 The system operates on an isolated, deterministic execution loop. Agents do not write free-form code into user workspaces. Instead, they act as state-transition functions that parse user intent, match it against static structural schemas inside the modules/ folder, and return precise, validated JSON execution blocks.
@@ -86,36 +71,23 @@ The system operates on an isolated, deterministic execution loop. Agents do not 
                               |
                               v
                   +-----------------------+
-                  |      Orchestrator     |
+                  |  Orchestrator (LLM)   |
                   +-----------+-----------+
                               |
             +-----------------+-----------------+
             |                                   |
             v                                   v
 +-----------------------+           +-----------------------+
-|  Gemma Action Router  |           |   Pattern Verifier    |
-| (Context Compacted)   |           |  (Grammar Constraint) |
+|  Worker (dumb auto)   |           |  Validator (TS rules) |
+|  (small LLM when      |           |  (deterministic, no   |
+|   requiresReasoning)  |           |   LLM in hot path)    |
 +-----------------------+           +-----------------------+
 ```
 
-## Agent Definitions
-1. The Context-Compacted Action Router
-- Core Model Variant: gemma4:e4b (or equivalent lightweight local model runner).
-- System Boundary: Zero raw text generation allowed. Must stream outputs wrapped inside forced grammar boundaries or strict JSON objects matching the structural JSON validation schema.
-- Responsibilities:
-  - Ingest the compiled metadata maps from modules/*/manifest.ts.
-  - Traverse the target application tree to map module requirements.
-  - Emit an immutable sequence of step IDs and parameters matching exactly what the module scripts expect.
+## Tier Rules
+1. **Orchestrator** (LLM) — high-reasoning planning. Receives user intent + the module manifest catalog. Emits a validated sequence of `{module, action, params}` steps. Cannot invent modules or actions; the catalog is the only allowed source.
+2. **Worker** (dumb automation by default) — executes one declared action. When the action's manifest sets `requiresReasoning: true`, a small-LLM assist is invoked using the action's `templates/*.hbs` rendered with the action's params. The output of the LLM assist is the body of an explicitly-typed file or block defined by the module.
+3. **Validator** (deterministic TypeScript) — runs the module's `validators/*.ts` and `_shared/validators/*.ts` functions against the resulting file tree. No LLM is involved. Returns `Pass` or `Fail(diff[])` with structured diagnostics.
 
-2. The Structural Pattern Verifier
-- Core Model Variant: Fast, low-latency utility model combined with a native Abstract Syntax Tree (AST) checker.
-- System Boundary: Operates exclusively post-execution.
-- Responsibilities:
-  - Analyze the generated system code modification before saving changes to disk.
-  - Compare the output layout structurally against the module's blueprint definitions.
-  - Provide feedback metrics to the top-level orchestration workflow if a step needs compensation/rollback.
-
-## Context Compaction and Stream Bounding
-To run this safely on a lightweight local engine, the system utilizes strict operational limits:
-1. Token Pruning: The directory structure is passed as a flat dependency tree definition string. Raw code contents are never fed to the planning model.
-2. Grammar Forcing: Output generation is locked directly to regex parameters via the execution runtime. If the model attempts to generate a conversational explanation (e.g., "Sure, I can help you add that module..."), the token validation system aborts the execution frame and re-evaluates the query.
+## Provider Boundary
+All provider knowledge (HTTP clients, API keys, model names) is sealed inside `packages/agent-engine/`. Workflows, the CLI, and `ast-tooling` only ever import the `LLMProvider` interface from `packages/protocol/`. The user picks the provider (llama.cpp, Ollama, vLLM, OpenAI, anything speaking the OpenAI chat-completions API) via `baka init`; the engine never dictates it.

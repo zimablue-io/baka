@@ -1,85 +1,49 @@
-"use workflow"
+import { createInitialOrchestrationState, createOrchestratePlanningStep } from "@repo/agent-engine"
+import { ModuleRegistry, executeWorkerStep, runSaga } from "@repo/ast-tooling"
+import { discoverModules } from "@repo/discovery-workflow"
+import { ENGINE_STATUS, type LLMProvider, type OrchestrationState, type WorkflowStep } from "@repo/protocol"
 
-import { orchestratePlanningStep } from "@repo/agent-engine"
-import { executeAstTransformationStep } from "@repo/ast-tooling"
-import type { OrchestrationState } from "@repo/protocol"
-import { ENGINE_STATUS } from "@repo/protocol"
-
-async function orchestratePlanningDurable(state: OrchestrationState) {
-	"use step"
-	return await orchestratePlanningStep.execute(
-		{
-			intent: state.userIntent,
-			availableModules: ["next-base", "auth", "database", "cms"],
-		},
-		state,
-	)
-}
-
-async function executeWorkerDurable(
-	stepId: string,
-	module: string,
-	action: string,
-	params: Record<string, any>,
-	state: OrchestrationState,
-) {
-	"use step"
-	return await executeAstTransformationStep.execute(
-		{
-			moduleName: module,
-			actionName: action,
-			parameters: params,
-			targetDirectory: state.targetDirectory,
-		},
-		state,
-	)
-}
-
-export async function featurePlanningWorkflow(intent: string, rootDir: string): Promise<OrchestrationState> {
-	let globalState: OrchestrationState = {
-		userIntent: intent,
-		targetDirectory: rootDir,
-		status: ENGINE_STATUS.PLANNING,
-		executionPlan: { steps: [], currentStepIndex: 0 },
-		logs: ["Starting durable orchestration planning flow."],
-		artifacts: {},
+export async function featurePlanningWorkflow(
+	intent: string,
+	rootDir: string,
+	provider: LLMProvider,
+): Promise<OrchestrationState> {
+	const state: OrchestrationState = {
+		...createInitialOrchestrationState(intent, rootDir),
+		logs: ["Starting baka orchestration flow."],
 	}
 
-	// Step 1: Query Orchestrator layer as a durable step
-	const planningResult = await orchestratePlanningDurable(globalState)
-
+	// 1. PLANNING — the Orchestrator LLM picks a sequence of {module, action, params}.
+	const modules = discoverModules(rootDir)
+	state.logs.push(`[plan] discovered ${modules.length} module(s)`)
+	const orchestratorStep = createOrchestratePlanningStep(provider)
+	const planningResult = await orchestratorStep.execute(
+		{ intent, availableModules: modules },
+		state,
+		{ llmProvider: provider },
+	)
 	if (!planningResult.success) {
-		globalState.status = ENGINE_STATUS.FAILED
-		globalState.logs.push(`Planning failed: ${planningResult.error}`)
-		return globalState
+		state.status = ENGINE_STATUS.FAILED
+		state.logs.push(`[plan] orchestrator failed: ${planningResult.error}`)
+		return state
 	}
 
-	globalState.executionPlan.steps = planningResult.output.resolvedSteps
-	globalState.status = ENGINE_STATUS.EXECUTING
+	const plan = planningResult.output
+	state.executionPlan.steps = plan.resolvedSteps
+	state.logs.push(`[plan] resolved ${plan.resolvedSteps.length} step(s)`)
 
-	// Step 2: Loop through steps sequentially using Worker layer as durable steps
-	for (let i = 0; i < globalState.executionPlan.steps.length; i++) {
-		globalState.executionPlan.currentStepIndex = i
-		const currentStep = globalState.executionPlan.steps[i]
-
-		globalState.logs.push(`Executing operation: ${currentStep.module}:${currentStep.action}`)
-
-		const executionResult = await executeWorkerDurable(
-			currentStep.id,
-			currentStep.module,
-			currentStep.action,
-			currentStep.params,
-			globalState,
-		)
-
-		if (!executionResult.success) {
-			globalState.status = ENGINE_STATUS.FAILED
-			globalState.logs.push(`Execution error: ${executionResult.error}`)
-			return globalState
+	// 2. EXECUTING — the SAGA runs the steps with compensation on failure.
+	//    For Phase 3 the registry only knows the single Worker step. Phase 5
+	//    wires up per-module worker variants. Both share the same SAGA.
+	const registry = new ModuleRegistry(rootDir)
+	registry.discover(false)
+	const stepsByKey = new Map<string, WorkflowStep<unknown, unknown, unknown>>()
+	for (const m of registry.all()) {
+		for (const a of m.actions) {
+			stepsByKey.set(`${m.name}:${a.id}`, executeWorkerStep as unknown as WorkflowStep<unknown, unknown, unknown>)
 		}
 	}
 
-	globalState.status = ENGINE_STATUS.SUCCESS
-	globalState.logs.push("System application tree synchronized successfully.")
-	return globalState
+	const saga = await runSaga(plan, state, { llmProvider: provider }, stepsByKey)
+	return saga.state
 }

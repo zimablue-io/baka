@@ -1,7 +1,9 @@
+// Engine state machine
 export const ENGINE_STATUS = {
 	IDLE: "IDLE",
 	PLANNING: "PLANNING",
 	EXECUTING: "EXECUTING",
+	VALIDATING: "VALIDATING",
 	COMPENSATING: "COMPENSATING",
 	SUCCESS: "SUCCESS",
 	FAILED: "FAILED",
@@ -9,11 +11,58 @@ export const ENGINE_STATUS = {
 
 export type EngineStatus = (typeof ENGINE_STATUS)[keyof typeof ENGINE_STATUS]
 
-export const WORKSPACE_MODULES = {
-	NEXT_BASE: "next-base",
-	AUTH: "auth",
-	DATABASE: "database",
-	CMS: "cms",
+// Structured exit codes for the CLI. Picked up by the baka binary and forwarded to process.exit.
+export const BAKA_EXIT_CODE = {
+	SUCCESS: 0,
+	USER_ERROR: 1,
+	ENGINE_ERROR: 2,
+	PROVIDER_ERROR: 3,
+	VALIDATION_ERROR: 4,
 } as const
 
-export type WorkspaceModule = (typeof WORKSPACE_MODULES)[keyof typeof WORKSPACE_MODULES]
+export type BakaExitCode = (typeof BAKA_EXIT_CODE)[keyof typeof BAKA_EXIT_CODE]
+
+// Names of the providers shipped with baka. Users can register more via baka providers add.
+export const BAKA_PROVIDER = {
+	OPENAI_COMPATIBLE: "openai-compatible",
+	PI_ADAPTER: "pi-adapter",
+} as const
+
+export type BakaProviderName = (typeof BAKA_PROVIDER)[keyof typeof BAKA_PROVIDER]
+
+// Reserved module categories used in docs and error messages. The set of installed
+// modules is discovered at runtime from modules/*/manifest.ts; these constants
+// exist only for documentation and example prompts, never for enforcement.
+export const MODULE_CATEGORY = {
+	BASE: "base",
+	FRAMEWORK: "framework",
+	AUTH: "auth",
+	DATA: "data",
+	UI: "ui",
+	PATTERN: "pattern",
+} as const
+
+export type ModuleCategory = (typeof MODULE_CATEGORY)[keyof typeof MODULE_CATEGORY]
+
+// Env var prefix. All user-facing env vars start with BAKA_.
+// ASSEMBLE_* is the historical alias; not supported.
+export const BAKA_ENV_PREFIX = "BAKA_"
+
+// Reserved subpaths under the project root for per-project state.
+export const BAKA_PROJECT_PATHS = {
+	ROOT: ".baka",
+	LOCAL_CONFIG: ".baka/local.json",
+	STATE: ".baka/state",
+	PLANS: ".baka/plans",
+	LOGS: ".baka/logs",
+} as const
+
+// XDG-aware user paths are computed at runtime by the config loader in agent-engine.
+// These are the directory names used under $XDG_CONFIG_HOME / $XDG_DATA_HOME.
+export const BAKA_USER_DIR = "baka" as const
+
+// Feature flag: enables the optional pi-coding-agent adapter in agent-engine.
+// Off by default; users opt in by setting BAKA_USE_PI_ADAPTER=1.
+export const BAKA_FEATURE_FLAGS = {
+	PI_ADAPTER: "BAKA_USE_PI_ADAPTER",
+} as const

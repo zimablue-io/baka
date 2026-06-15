@@ -1,0 +1,10 @@
+{
+	"extends": "@repo/typescript-config/base.json",
+	"compilerOptions": {
+		"baseUrl": ".",
+		"paths": {
+			"baka-sdk": ["../../packages/baka-sdk/src"]
+		}
+	},
+	"include": ["manifest.ts", "**/action.ts", "_shared/**/*.ts", "<each-action-folder>/validators/**/*.ts"]
+}

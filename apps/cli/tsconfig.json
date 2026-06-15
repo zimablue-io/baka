@@ -1,5 +1,9 @@
 {
 	"extends": "@repo/typescript-config/base.json",
-	"include": ["src"],
-	"exclude": ["node_modules"]
+	"compilerOptions": {
+		"module": "ESNext",
+		"moduleResolution": "Bundler"
+	},
+	"include": ["src", "tsup.config.ts"],
+	"exclude": ["node_modules", "dist"]
 }
