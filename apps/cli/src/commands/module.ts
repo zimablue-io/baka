@@ -1,9 +1,9 @@
-import { existsSync, mkdirSync, writeFileSync, rmSync, cpSync, readdirSync } from "node:fs"
-import { join } from "node:path"
 import { spawn } from "node:child_process"
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { BAKA_EXIT_CODE, type ModuleManifest, ModuleManifestSchema } from "@repo/protocol"
 import { createJiti } from "jiti"
-import { ModuleManifestSchema, BAKA_EXIT_CODE, type ModuleManifest } from "@repo/protocol"
 
 function die(code: number, msg: string): never {
 	process.stderr.write(`baka: ${msg}\n`)
@@ -17,12 +17,20 @@ function die(code: number, msg: string): never {
 // `baka module validate <name>`
 // ---------------------------------------------------------------------------
 
-export function runModuleValidate(name: string): void {
+export function runModuleValidate(name: string, opts: { json?: boolean } = {}): void {
 	if (!name) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka module validate <name>")
 
 	const cwd = process.cwd()
 	const root = join(cwd, "modules", name)
-	if (!existsSync(root)) die(BAKA_EXIT_CODE.USER_ERROR, `module not found at ${root}`)
+	if (!existsSync(root)) {
+		if (opts.json) {
+			console.log(
+				JSON.stringify({ module: name, valid: false, errors: [`module not found at ${root}`], warnings: [] }, null, 2),
+			)
+			process.exit(BAKA_EXIT_CODE.USER_ERROR)
+		}
+		die(BAKA_EXIT_CODE.USER_ERROR, `module not found at ${root}`)
+	}
 
 	const errors: string[] = []
 	const warnings: string[] = []
@@ -78,6 +86,14 @@ export function runModuleValidate(name: string): void {
 
 	// README recommendation
 	if (!existsSync(join(root, "README.md"))) warnings.push("README.md is missing")
+
+	if (opts.json) {
+		console.log(JSON.stringify({ module: name, valid: errors.length === 0, errors, warnings }, null, 2))
+		if (errors.length > 0) {
+			process.exit(BAKA_EXIT_CODE.VALIDATION_ERROR)
+		}
+		return
+	}
 
 	if (errors.length > 0) {
 		console.log(`module "${name}": INVALID`)
@@ -198,7 +214,12 @@ export async function runModuleTest(name: string, actionId: string, inputJson: s
 		// Try the new shape (just the action id) first, then the legacy
 		// `${actionId}Action` shape that older modules (e.g. baka-base) use.
 		const candidates = [`${actionId}`, `${actionId}Action`, "default"]
-		let step: { execute: (input: unknown, state: unknown) => Promise<{ success: boolean; output: unknown; error?: string }>; compensate: (data: unknown, state: unknown) => Promise<void> } | undefined
+		let step:
+			| {
+					execute: (input: unknown, state: unknown) => Promise<{ success: boolean; output: unknown; error?: string }>
+					compensate: (data: unknown, state: unknown) => Promise<void>
+			  }
+			| undefined
 		let matched = ""
 		for (const c of candidates) {
 			const candidate = mod[c] as { execute?: unknown } | undefined
@@ -209,7 +230,10 @@ export async function runModuleTest(name: string, actionId: string, inputJson: s
 			}
 		}
 		if (!step || typeof step.execute !== "function") {
-			die(BAKA_EXIT_CODE.USER_ERROR, `${actionPath} must export an \`ActionFn\` named \`${actionId}\` (or \`${actionId}Action\` for legacy modules)`)
+			die(
+				BAKA_EXIT_CODE.USER_ERROR,
+				`${actionPath} must export an \`ActionFn\` named \`${actionId}\` (or \`${actionId}Action\` for legacy modules)`,
+			)
 		}
 		void matched
 		const state = {

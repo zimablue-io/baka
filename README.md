@@ -1,7 +1,19 @@
 
 ## Usage
 
-### Development
+### For coding agents (Claude Code, Cursor, Codex, Cline, Zed, etc.)
+
+The project ships an MCP config at `.factory/mcp.json` that registers `baka-mcp` over stdio. Droid loads it automatically on session start — no `droid mcp add` needed. To add or remove MCP servers for the team, edit that file and commit the change. The `baka-mcp` binary resolves its working directory from `process.cwd()` at startup, so opening a Droid session anywhere in the repo will discover the project's modules and validators.
+
+For other MCP-aware hosts (Claude Code, Cursor, Codex, Zed, etc.) configure the server with:
+
+```json
+{ "command": "baka-mcp" }
+```
+
+Once connected, the agent sees one MCP tool per declared action plus `baka_plan`, `baka_apply`, `baka_validate`, and `baka_list_actions`. See `SKILL.md` at the repo root for the full contract.
+
+### For humans and shell scripts
 
 To trigger workflows interactively, use the CLI:
 
@@ -9,9 +21,14 @@ To trigger workflows interactively, use the CLI:
 # Plan a new feature
 pnpm baka plan "<intent>"
 
+# Plan with machine-readable output (for piping into jq)
+pnpm baka plan "<intent>" --json
+
 # Scaffold a new module
 pnpm baka scaffold "<module_name>"
 ```
+
+The CLI and the MCP server share the same engine: same workflows, same validators, same plan schema. `--json` flags on the CLI emit the same shape the MCP tools return.
 
 #### CLI Alias
 Add this to your `.bashrc` or `.zshrc` for quick access:
@@ -36,22 +53,22 @@ baka scaffold test-module
 ```
 .
 ├── apps/
-│   └── cli/                 # The baka binary
-│       ├── package.json
-│       ├── tsconfig.json
-│       └── src/
-│           └── index.ts
+│   ├── cli/                 # The baka binary (user-facing CLI)
+│   └── mcp/                 # The baka-mcp binary (MCP server over stdio for coding agents)
 ├── workflows/               # Engine orchestration for THIS project
 │   ├── feature-planning/
 │   │   └── plan-intent.ts
-│   └── module-management/
-│       └── create-module.ts
+│   ├── module-management/
+│   │   └── create-module.ts
+│   └── discovery/
 ├── packages/                # Engine tools
 │   ├── protocol/            # SSOT: types, schemas, LLMProvider interface
 │   ├── agent-engine/        # The ONLY package that knows what an LLMProvider is
 │   └── ast-tooling/         # File/AST operations, module registry
 ├── modules/                 # User-defined patterns (action-centric layout)
 │   └── README.md
+├── SKILL.md                 # Declarative agent contract (Claude Code, Codex, Cursor, etc.)
+├── docs/                    # Philosophy, agent guide, specs
 ├── pnpm-workspace.yaml
 ├── turbo.json
 └── package.json

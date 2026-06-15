@@ -1,9 +1,9 @@
-import { BAKA_EXIT_CODE } from "@repo/protocol"
 import { createLLMProvider, loadLLMConfig, validateLLMConfig } from "@repo/agent-engine"
-import { ModuleRegistry, runSaga, runValidators, savePlan, loadPlan, listPlans, StructuredLog } from "@repo/ast-tooling"
+import { listPlans, loadPlan, ModuleRegistry, runSaga, runValidators, StructuredLog, savePlan } from "@repo/ast-tooling"
+import { discoverModules } from "@repo/discovery-workflow"
 import { featurePlanningWorkflow } from "@repo/feature-planning-workflow"
 import type { LLMProvider, OrchestrationState, WorkflowStep } from "@repo/protocol"
-import { discoverModules } from "@repo/discovery-workflow"
+import { BAKA_EXIT_CODE } from "@repo/protocol"
 
 function die(code: number, msg: string): never {
 	process.stderr.write(`baka: ${msg}\n`)
@@ -15,6 +15,7 @@ interface PlanOpts {
 	cwd?: string
 	dryRun?: boolean
 	save?: boolean
+	json?: boolean
 }
 
 export async function runPlanCommand(intent: string, opts: PlanOpts): Promise<void> {
@@ -37,6 +38,23 @@ export async function runPlanCommand(intent: string, opts: PlanOpts): Promise<vo
 	log.write({ level: "info", source: "baka.plan", message: "starting plan", intent, runId })
 
 	const state = await featurePlanningWorkflow(intent, cwd, provider)
+
+	// JSON mode: emit the same shape the MCP `baka_plan` tool returns, then
+	// exit. Suppress the human-formatted output so agents can pipe stdout
+	// straight into `jq`.
+	if (opts.json) {
+		const result = {
+			status: state.status === "FAILED" ? "FAILED" : "SUCCESS",
+			steps: state.executionPlan.steps,
+			logs: state.logs,
+		}
+		console.log(JSON.stringify(result, null, 2))
+		if (state.status === "FAILED") {
+			process.exit(BAKA_EXIT_CODE.ENGINE_ERROR)
+		}
+		return
+	}
+
 	console.log(`\nplan: ${state.executionPlan.steps.length} step(s)`)
 	for (const step of state.executionPlan.steps) {
 		console.log(`  - ${step.module}:${step.action}`)
@@ -103,14 +121,18 @@ export function runListPlans(cwd: string): void {
 	console.log("")
 }
 
-export async function runApplyCommand(planFile: string, cwd: string): Promise<void> {
+export async function runApplyCommand(
+	planFile: string,
+	cwd: string,
+	opts: { json?: boolean; provider?: string } = {},
+): Promise<void> {
 	const plan = loadPlan(planFile)
 	const runId = `apply-${Date.now()}`
 	const log = new StructuredLog(runId)
 	log.write({ level: "info", source: "baka.apply", message: "loading plan", file: planFile, intent: plan.meta.intent })
 
 	// Build the LLM provider for the requiresReasoning steps.
-	const config = await loadLLMConfig({ cwd, providerName: plan.meta.providerName })
+	const config = await loadLLMConfig({ cwd, providerName: opts.provider ?? plan.meta.providerName })
 	const provider = createLLMProvider(config)
 
 	// Reuse the SAGA: the workflow package exposes runSaga indirectly via
@@ -137,10 +159,6 @@ export async function runApplyCommand(planFile: string, cwd: string): Promise<vo
 	const saga = await runSagaImpl(plan, state, { llmProvider: provider }, stepsByKey)
 	log.write({ level: "info", source: "baka.apply", message: "saga finished", status: saga.state.status })
 
-	if (saga.failed) {
-		die(BAKA_EXIT_CODE.ENGINE_ERROR, `apply failed: ${saga.failed.error}`)
-	}
-
 	// Post-apply: run validators, including action-level ones that need the
 	// compensation data each step returned (so they can assert on what was
 	// actually produced, not just the structural shape).
@@ -149,6 +167,26 @@ export async function runApplyCommand(planFile: string, cwd: string): Promise<vo
 		actionResults.set(`${c.module}:${c.action}`, { compensationData: c.compensationData })
 	}
 	const validation = await runValidators(cwd, saga.state, actionResults)
+
+	const completedSteps = saga.completed.map((c) => ({ id: c.id, module: c.module, action: c.action }))
+
+	if (opts.json) {
+		// Same shape as the MCP `baka_apply` tool.
+		const status = saga.failed ? "FAILED" : validation.kind === "fail" ? "VALIDATION_FAILED" : "SUCCESS"
+		const result = { status, completedSteps, failed: saga.failed, validation, logs: saga.state.logs }
+		console.log(JSON.stringify(result, null, 2))
+		if (saga.failed) {
+			process.exit(BAKA_EXIT_CODE.ENGINE_ERROR)
+		}
+		if (validation.kind === "fail") {
+			process.exit(BAKA_EXIT_CODE.VALIDATION_ERROR)
+		}
+		return
+	}
+
+	if (saga.failed) {
+		die(BAKA_EXIT_CODE.ENGINE_ERROR, `apply failed: ${saga.failed.error}`)
+	}
 	if (validation.kind === "fail") {
 		console.log("\napply: VALIDATION FAILED")
 		for (const d of validation.diagnostics) {
@@ -159,9 +197,8 @@ export async function runApplyCommand(planFile: string, cwd: string): Promise<vo
 	console.log("\napply: success (validators passed)")
 }
 
-export async function runValidateCommand(cwd: string): Promise<void> {
+export async function runValidateCommand(cwd: string, opts: { json?: boolean } = {}): Promise<void> {
 	const modules = discoverModules(cwd)
-	console.log(`discovered ${modules.length} module(s)`)
 	const state: OrchestrationState = {
 		userIntent: "(validate)",
 		targetDirectory: cwd,
@@ -171,6 +208,17 @@ export async function runValidateCommand(cwd: string): Promise<void> {
 		artifacts: {},
 	}
 	const result = await runValidators(cwd, state)
+
+	if (opts.json) {
+		// Same shape as the MCP `baka_validate` tool.
+		console.log(JSON.stringify({ modulesDiscovered: modules.length, validation: result }, null, 2))
+		if (result.kind === "fail") {
+			process.exit(BAKA_EXIT_CODE.VALIDATION_ERROR)
+		}
+		return
+	}
+
+	console.log(`discovered ${modules.length} module(s)`)
 	if (result.kind === "pass") {
 		console.log("\nvalidation: PASS")
 		return

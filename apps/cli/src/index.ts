@@ -1,24 +1,14 @@
 #!/usr/bin/env node
-import { Command } from "commander"
-import { BAKA_EXIT_CODE } from "@repo/protocol"
 import { ModuleRegistry } from "@repo/ast-tooling"
+import { BAKA_EXIT_CODE } from "@repo/protocol"
+import { Command } from "commander"
 import { runConfigGet, runConfigList, runConfigPath, runConfigSet, runConfigUnset } from "./commands/config"
 import { runInit } from "./commands/init"
-import {
-	runInstallCommand,
-	runListPackagesCommand,
-	runRemoveCommand,
-	runUpdateCommand,
-} from "./commands/marketplace"
+import { runInstallCommand, runListPackagesCommand, runRemoveCommand, runUpdateCommand } from "./commands/marketplace"
+import { runModuleEdit, runModuleListActions, runModuleTest, runModuleValidate } from "./commands/module"
+import { runModuleConsistency, runModuleDesign } from "./commands/module-design/index.js"
 import { runApplyCommand, runListPlans, runPlanCommand, runValidateCommand } from "./commands/plan"
 import { runProvidersAdd, runProvidersList, runProvidersRemove, runProvidersUse } from "./commands/providers"
-import {
-	runModuleEdit,
-	runModuleListActions,
-	runModuleTest,
-	runModuleValidate,
-} from "./commands/module"
-import { runModuleDesign, runModuleConsistency } from "./commands/module-design/index.js"
 
 function die(code: number, msg: string): never {
 	process.stderr.write(`baka: ${msg}\n`)
@@ -112,7 +102,9 @@ const moduleCmd = program.command("module").description("Author, validate, and t
 
 moduleCmd
 	.command("create <name>")
-	.description("Design a new module through a chat-driven double-diamond flow (Discover -> Define -> Develop -> Deliver). Re-run to resume.")
+	.description(
+		"Design a new module through a chat-driven double-diamond flow (Discover -> Define -> Develop -> Deliver). Re-run to resume.",
+	)
 	.action(async (name) => {
 		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		try {
@@ -145,7 +137,11 @@ moduleCmd
 		}
 	})
 
-moduleCmd.command("validate <name>").description("Check a module's manifest and layout").action(runModuleValidate)
+moduleCmd
+	.command("validate <name>")
+	.description("Check a module's manifest and layout")
+	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp manifest resource)")
+	.action((name, opts) => runModuleValidate(name, { json: opts.json }))
 moduleCmd.command("list-actions <name>").description("Show a module's actions").action(runModuleListActions)
 
 moduleCmd
@@ -176,10 +172,30 @@ moduleCmd
 program
 	.command("list-modules")
 	.description("List all discoverable modules (in-tree + project + user marketplace scopes)")
-	.action(() => {
+	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp `baka://modules` resource)")
+	.action((opts) => {
 		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		const registry = new ModuleRegistry(cwd)
 		const { modules, diagnostics } = registry.discover(false)
+		if (opts.json) {
+			console.log(
+				JSON.stringify(
+					{
+						modules: modules.map((m) => ({
+							name: m.name,
+							version: m.version,
+							description: m.description,
+							actions: m.actions.length,
+							uri: `baka://module/${m.name}/manifest`,
+						})),
+						diagnostics,
+					},
+					null,
+					2,
+				),
+			)
+			return
+		}
 		console.log(`\nFound ${modules.length} module(s):\n`)
 		if (modules.length === 0) {
 			for (const d of diagnostics) console.log(`  (${d.severity}) ${d.message}`)
@@ -202,6 +218,7 @@ program
 	.option("--dry-run", "preview the plan without executing")
 	.option("--save", "persist the plan to .baka/plans/")
 	.option("--execute", "execute the plan after planning (Phase 7)")
+	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp `baka_plan` tool)")
 	.action(async (intent, opts) => {
 		const globalOpts = program.opts<{ provider?: string; cwd?: string }>()
 		try {
@@ -210,6 +227,7 @@ program
 				cwd: globalOpts.cwd,
 				dryRun: opts.dryRun,
 				save: opts.save,
+				json: opts.json,
 			})
 		} catch (err) {
 			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
@@ -231,10 +249,11 @@ program
 program
 	.command("apply <plan-file>")
 	.description("Apply a saved plan (executes the steps with SAGA compensation)")
-	.action(async (planFile) => {
+	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp `baka_apply` tool)")
+	.action(async (planFile, opts) => {
 		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		try {
-			await runApplyCommand(planFile, cwd)
+			await runApplyCommand(planFile, cwd, { json: opts.json })
 		} catch (err) {
 			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
 		}
@@ -245,10 +264,11 @@ program
 program
 	.command("validate")
 	.description("Run all module validators against the current project")
-	.action(async () => {
+	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp `baka_validate` tool)")
+	.action(async (opts) => {
 		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		try {
-			await runValidateCommand(cwd)
+			await runValidateCommand(cwd, { json: opts.json })
 		} catch (err) {
 			die(BAKA_EXIT_CODE.VALIDATION_ERROR, err instanceof Error ? err.message : String(err))
 		}

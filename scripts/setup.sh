@@ -76,7 +76,43 @@ if [ ! -e "node_modules/.bin/baka" ]; then
 fi
 ok "node_modules/.bin/baka symlink present"
 
-# 5. runnable?
+# 5. MCP server bin target exists? Build if not.
+MCP_DIST="$REPO_ROOT/apps/mcp/dist/index.js"
+if [ ! -f "$MCP_DIST" ]; then
+	log "building @baka/mcp-server (bin target missing)"
+	pnpm --filter @baka/mcp-server build --silent
+fi
+if [ ! -f "$MCP_DIST" ]; then
+	fail "build did not produce $MCP_DIST"
+fi
+ok "baka-mcp built at apps/mcp/dist/index.js"
+
+# 6. symlink in node_modules/.bin?
+if [ ! -e "node_modules/.bin/baka-mcp" ]; then
+	if [ -z "${BAKA_SETUP_SKIP_INSTALL:-}" ]; then
+		warn "node_modules/.bin/baka-mcp missing; re-linking workspace"
+		pnpm install --silent
+	fi
+	if [ ! -e "node_modules/.bin/baka-mcp" ]; then
+		log "pnpm did not link the bin (known workspace-bin quirk); creating symlink manually"
+		mkdir -p node_modules/.bin
+		ln -sf "$PWD/apps/mcp/dist/index.js" node_modules/.bin/baka-mcp
+	fi
+fi
+if [ ! -e "node_modules/.bin/baka-mcp" ]; then
+	fail "node_modules/.bin/baka-mcp still missing; cannot create symlink."
+fi
+ok "node_modules/.bin/baka-mcp symlink present"
+
+# 7. MCP server runnable? (file present and shebang is valid node)
+MCP_BIN="$REPO_ROOT/node_modules/.bin/baka-mcp"
+if [ -x "$MCP_BIN" ] && head -1 "$MCP_BIN" | grep -q "^#!/usr/bin/env node"; then
+	ok "baka-mcp is runnable (stdio JSON-RPC server)"
+else
+	warn "baka-mcp symlink exists but is not an executable node script; runtime calls may fail"
+fi
+
+# 8. CLI runnable?
 if "$REPO_ROOT/node_modules/.bin/baka" --version >/dev/null 2>&1; then
 	VERSION="$("$REPO_ROOT/node_modules/.bin/baka" --version)"
 	ok "baka ${VERSION} is runnable"

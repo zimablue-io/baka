@@ -11,7 +11,8 @@
 		"clean": "find . -name 'dist' -type d -exec rm -rf {} +",
 		"setup": "./scripts/setup.sh",
 		"postinstall": "pnpm --filter baka run build",
-		"baka": "pnpm --filter baka baka"
+		"baka": "pnpm --filter baka baka",
+		"mcp": "pnpm --filter @baka/mcp-server dev"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.0",
