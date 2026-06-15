@@ -6,21 +6,21 @@ import { SITE } from "@/lib/site"
 export function Hero() {
 	return (
 		<section id="top" className="border-b border-neutral-800/60">
-			<div className="mx-auto max-w-6xl px-6 py-24 sm:py-32 lg:py-30">
-				<div className="mx-10 mb-10 flex items-center gap-3">
+			<div className="mx-auto max-w-6xl px-6 py-24 sm:py-32 lg:py-20">
+				<div className="mx-10 mb-5 flex items-center gap-3">
 					<img
 						src={logoLight}
 						alt="baka"
 						width={424}
 						height={388}
-						className="hidden h-20 w-auto sm:h-24 lg:size-72 dark:block"
+						className="hidden h-20 w-auto sm:size-32 lg:size-72 dark:block"
 					/>
 					<img
 						src={logoDark}
 						alt="baka"
 						width={424}
 						height={388}
-						className="block h-20 w-auto sm:h-24 lg:size-72 dark:hidden"
+						className="block h-20 w-auto sm:size-32 lg:size-72 dark:hidden"
 					/>
 				</div>
 				<h1 className="max-w-4xl text-balance text-4xl font-semibold tracking-tight text-neutral-50 sm:text-5xl lg:text-6xl">
