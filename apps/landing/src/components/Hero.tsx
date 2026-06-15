@@ -1,13 +1,28 @@
+import logoDark from "@/assets/logo-dark.png"
+import logoLight from "@/assets/logo-light.png"
 import { cn } from "@/lib/cn"
-import { BRAND, BRAND_KANJI, SITE } from "@/lib/site"
+import { SITE } from "@/lib/site"
 
 export function Hero() {
 	return (
 		<section id="top" className="border-b border-neutral-800/60">
-			<div className="mx-auto max-w-6xl px-6 py-24 sm:py-32 lg:py-40">
-				<p className="mb-6 font-mono text-sm uppercase tracking-widest text-neutral-500">
-					{BRAND} {BRAND_KANJI}
-				</p>
+			<div className="mx-auto max-w-6xl px-6 py-24 sm:py-32 lg:py-30">
+				<div className="mx-10 mb-10 flex items-center gap-3">
+					<img
+						src={logoLight}
+						alt="baka"
+						width={424}
+						height={388}
+						className="hidden h-20 w-auto sm:h-24 lg:size-72 dark:block"
+					/>
+					<img
+						src={logoDark}
+						alt="baka"
+						width={424}
+						height={388}
+						className="block h-20 w-auto sm:h-24 lg:size-72 dark:hidden"
+					/>
+				</div>
 				<h1 className="max-w-4xl text-balance text-4xl font-semibold tracking-tight text-neutral-50 sm:text-5xl lg:text-6xl">
 					Sometimes, dumber is better.
 				</h1>
