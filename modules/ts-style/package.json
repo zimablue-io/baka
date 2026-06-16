@@ -3,7 +3,9 @@
 	"version": "0.1.0",
 	"private": true,
 	"description": "TypeScript style enforcer. Bundles validators that block any, warn on console.log, and require explicit return types.",
-	"keywords": ["baka-module"],
+	"keywords": [
+		"baka-module"
+	],
 	"main": "./manifest.ts",
 	"types": "./manifest.ts",
 	"scripts": {

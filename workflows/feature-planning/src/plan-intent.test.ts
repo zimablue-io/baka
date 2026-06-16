@@ -64,11 +64,13 @@ vi.mock("@repo/ast-tooling", () => ({
 		}),
 		compensate: vi.fn(),
 	},
-	runSaga: vi.fn().mockImplementation(async (plan: { resolvedSteps: unknown[] }, state: { status: string; logs: string[] }) => {
-		state.status = "SUCCESS"
-		state.logs.push("[saga] all 0 steps completed")
-		return { state, completed: [], failed: null }
-	}),
+	runSaga: vi
+		.fn()
+		.mockImplementation(async (plan: { resolvedSteps: unknown[] }, state: { status: string; logs: string[] }) => {
+			state.status = "SUCCESS"
+			state.logs.push("[saga] all 0 steps completed")
+			return { state, completed: [], failed: null }
+		}),
 }))
 
 describe("featurePlanningWorkflow", () => {

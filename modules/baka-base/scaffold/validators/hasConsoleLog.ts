@@ -9,10 +9,7 @@ import type { OrchestrationState, ValidationDiagnostic } from "baka-sdk"
  * call. The action's compensation data carries `createdFiles` (the absolute
  * paths the action wrote); we look for the index entry there.
  */
-export async function hasConsoleLog(
-	state: OrchestrationState,
-	actionData: unknown,
-): Promise<ValidationDiagnostic[]> {
+export async function hasConsoleLog(state: OrchestrationState, actionData: unknown): Promise<ValidationDiagnostic[]> {
 	const diagnostics: ValidationDiagnostic[] = []
 	const created = (actionData as { createdFiles?: string[] } | null | undefined)?.createdFiles ?? []
 	const indexFile = created.find((f) => f.endsWith("src/index.ts")) ?? join(state.targetDirectory, "src", "index.ts")

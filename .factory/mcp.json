@@ -1,10 +1,10 @@
 {
-  "mcpServers": {
-    "baka": {
-      "type": "stdio",
-      "command": "baka-mcp",
-      "disabled": false,
-      "timeoutMs": 120000
-    }
-  }
+	"mcpServers": {
+		"baka": {
+			"type": "stdio",
+			"command": "baka-mcp",
+			"disabled": false,
+			"timeoutMs": 120000
+		}
+	}
 }

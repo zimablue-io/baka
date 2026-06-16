@@ -7,7 +7,15 @@ export default defineConfig({
 			provider: "v8",
 			reporter: ["text", "html", "json-summary"],
 			include: ["src/**/*.ts"],
-			exclude: ["src/**/*.test.ts", "src/index.ts", "src/commands/init.ts", "src/commands/config.ts", "src/commands/marketplace.ts", "src/commands/plan.ts", "src/commands/providers.ts"],
+			exclude: [
+				"src/**/*.test.ts",
+				"src/index.ts",
+				"src/commands/init.ts",
+				"src/commands/config.ts",
+				"src/commands/marketplace.ts",
+				"src/commands/plan.ts",
+				"src/commands/providers.ts",
+			],
 			thresholds: {
 				lines: 70,
 				functions: 70,

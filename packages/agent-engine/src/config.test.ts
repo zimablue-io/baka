@@ -1,7 +1,7 @@
-import { describe, expect, it, beforeEach } from "vitest"
 import { existsSync, rmSync } from "node:fs"
-import { join } from "node:path"
 import { homedir } from "node:os"
+import { join } from "node:path"
+import { beforeEach, describe, expect, it } from "vitest"
 import { loadLLMConfig, validateLLMConfig } from "./index"
 
 const TEST_HOME = join(homedir(), ".config", "baka-test")
@@ -68,26 +68,30 @@ describe("loadLLMConfig", () => {
 
 describe("validateLLMConfig", () => {
 	it("throws on missing baseUrl and model", () => {
-		expect(() => validateLLMConfig({
-			baseUrl: "",
-			apiKey: "",
-			model: "",
-			temperature: 0,
-			maxTokens: 1,
-			timeoutMs: 1,
-			providerOptions: {},
-		})).toThrow(/missing LLM config/)
+		expect(() =>
+			validateLLMConfig({
+				baseUrl: "",
+				apiKey: "",
+				model: "",
+				temperature: 0,
+				maxTokens: 1,
+				timeoutMs: 1,
+				providerOptions: {},
+			}),
+		).toThrow(/missing LLM config/)
 	})
 
 	it("passes on a complete config", () => {
-		expect(() => validateLLMConfig({
-			baseUrl: "http://x",
-			apiKey: "",
-			model: "m",
-			temperature: 0,
-			maxTokens: 1,
-			timeoutMs: 1,
-			providerOptions: {},
-		})).not.toThrow()
+		expect(() =>
+			validateLLMConfig({
+				baseUrl: "http://x",
+				apiKey: "",
+				model: "m",
+				temperature: 0,
+				maxTokens: 1,
+				timeoutMs: 1,
+				providerOptions: {},
+			}),
+		).not.toThrow()
 	})
 })

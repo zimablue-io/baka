@@ -58,11 +58,10 @@ export async function runConsistencyInSandbox(args: RunConsistencyArgs): Promise
 	}
 }
 
-export function createModuleSandbox(args: {
-	moduleName: string
-	moduleDir: string
-	cwd: string
-}): { tempDir: string; cleanup: () => void } {
+export function createModuleSandbox(args: { moduleName: string; moduleDir: string; cwd: string }): {
+	tempDir: string
+	cleanup: () => void
+} {
 	const tempDir = join(tmpdir(), `baka-design-${args.moduleName}-${Date.now()}`)
 	mkdirSync(join(tempDir, ".baka", "modules"), { recursive: true })
 	symlinkSync(args.moduleDir, join(tempDir, ".baka", "modules", args.moduleName), "dir")

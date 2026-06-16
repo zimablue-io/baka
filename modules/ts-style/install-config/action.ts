@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import type { StepResponse, WorkflowStep, OrchestrationState } from "baka-sdk"
+import type { StepResponse, WorkflowStep } from "baka-sdk"
 import { AgentRole } from "baka-sdk"
 
 export interface InstallConfigInput {
@@ -82,14 +82,16 @@ function renderTsConfig(strict: boolean): string {
 }
 
 function renderBiome(): string {
-	return JSON.stringify(
-		{
-			$schema: "https://biomejs.dev/schemas/1.9.0/schema.json",
-			linter: { enabled: true, rules: { recommended: true } },
-			formatter: { enabled: true, indentStyle: "tab", indentWidth: 4 },
-			javascript: { formatter: { quoteStyle: "double", semicolons: "asNeeded", trailingCommas: "all" } },
-		},
-		null,
-		"\t",
-	) + "\n"
+	return (
+		JSON.stringify(
+			{
+				$schema: "https://biomejs.dev/schemas/1.9.0/schema.json",
+				linter: { enabled: true, rules: { recommended: true } },
+				formatter: { enabled: true, indentStyle: "tab", indentWidth: 4 },
+				javascript: { formatter: { quoteStyle: "double", semicolons: "asNeeded", trailingCommas: "all" } },
+			},
+			null,
+			"\t",
+		) + "\n"
+	)
 }

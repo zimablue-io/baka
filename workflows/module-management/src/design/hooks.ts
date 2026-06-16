@@ -30,7 +30,9 @@ export interface StandardSchemaV1<Input, Output> {
 	readonly "~standard": {
 		readonly version: 1
 		readonly vendor: string
-		readonly validate: (value: unknown) =>
+		readonly validate: (
+			value: unknown,
+		) =>
 			| { value: Output; issues?: undefined }
 			| { issues: ReadonlyArray<{ message: string; path?: ReadonlyArray<PropertyKey> }> }
 		readonly types?: {
@@ -145,7 +147,9 @@ export function defineHook<TInput, TOutput = TInput>(opts?: {
 // it to a Standard Schema v1 record.
 // ---------------------------------------------------------------------------
 
-export function zodSchema<TInput, TOutput>(schema: z.ZodType<TOutput, z.ZodTypeDef, TInput>): StandardSchemaV1<TInput, TOutput> {
+export function zodSchema<TInput, TOutput>(
+	schema: z.ZodType<TOutput, z.ZodTypeDef, TInput>,
+): StandardSchemaV1<TInput, TOutput> {
 	return {
 		"~standard": {
 			version: 1,

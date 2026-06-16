@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import type { StepResponse, WorkflowStep, OrchestrationState } from "baka-sdk"
+import type { OrchestrationState, StepResponse, WorkflowStep } from "baka-sdk"
 import { AgentRole } from "baka-sdk"
 
 export interface ScaffoldInput {
@@ -81,26 +81,28 @@ export const scaffoldAction: WorkflowStep<ScaffoldInput, boolean, ScaffoldCompen
 }
 
 function renderPackageJson(name: string, description: string, moduleType: "esm" | "commonjs"): string {
-	return JSON.stringify(
-		{
-			name,
-			version: "0.1.0",
-			private: true,
-			description,
-			type: moduleType === "esm" ? "module" : "commonjs",
-			scripts: {
-				build: "tsc",
-				start: "node dist/index.js",
-				check: "tsc --noEmit",
+	return (
+		JSON.stringify(
+			{
+				name,
+				version: "0.1.0",
+				private: true,
+				description,
+				type: moduleType === "esm" ? "module" : "commonjs",
+				scripts: {
+					build: "tsc",
+					start: "node dist/index.js",
+					check: "tsc --noEmit",
+				},
+				devDependencies: {
+					"@types/node": "^22.0.0",
+					typescript: "^5.9.0",
+				},
 			},
-			devDependencies: {
-				"@types/node": "^22.0.0",
-				typescript: "^5.9.0",
-			},
-		},
-		null,
-		"\t",
-	) + "\n"
+			null,
+			"\t",
+		) + "\n"
+	)
 }
 
 function renderTsConfig(moduleType: "esm" | "commonjs"): string {

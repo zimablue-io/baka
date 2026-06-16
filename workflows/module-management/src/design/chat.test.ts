@@ -4,7 +4,7 @@ import { join } from "node:path"
 import type { LLMMessage, LLMProvider, LLMRequest, LLMResponse } from "@repo/protocol"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { applyBack, applyPayload, loadSession, runChatLoop, runLLMTurn, saveSession } from "./chat"
-import { defineApprovalHook, developApprovalHook, deliverApprovalHook } from "./hooks"
+import { defineApprovalHook, deliverApprovalHook, developApprovalHook } from "./hooks"
 import type { DesignTurnPayload } from "./payload"
 import { createInitialState, setPhase, withHistory } from "./state"
 
@@ -762,10 +762,10 @@ describe("runChatLoop — the user always sees the LLM's first response before b
 
 	test("on a resumed session, the bootstrap does not fire (no duplicate LLM call)", async () => {
 		// Pre-populate a state file with phase=DEFINE and a turn of history.
-		const state = withHistory(
-			setPhase(createInitialState({ moduleName: "x", brief: "old brief" }), "DEFINE"),
-			{ role: "user", content: "previous turn" },
-		)
+		const state = withHistory(setPhase(createInitialState({ moduleName: "x", brief: "old brief" }), "DEFINE"), {
+			role: "user",
+			content: "previous turn",
+		})
 		saveSession(state, tmpDir)
 		const provider = new FakeLLMProvider()
 		provider.script = [makeDefinePayload([{ id: "scaffold", description: "S", rationale: "R" }], true)]

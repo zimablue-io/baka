@@ -16,7 +16,13 @@ export const Manifest: ModuleManifest = {
 			params: [
 				{ name: "name", type: "string", required: true, description: "Project name (kebab-case)." },
 				{ name: "description", type: "string", required: false, description: "Short project description." },
-				{ name: "moduleType", type: "enum", required: false, description: "Module system.", enumValues: ["esm", "commonjs"] },
+				{
+					name: "moduleType",
+					type: "enum",
+					required: false,
+					description: "Module system.",
+					enumValues: ["esm", "commonjs"],
+				},
 			],
 		},
 		{

@@ -1,9 +1,16 @@
-import { describe, expect, it, afterEach } from "vitest"
-import { ENGINE_STATUS, type LLMProvider, type OrchestrationState, type ResolvedPlan, type StepResponse, type WorkflowStep } from "@repo/protocol"
-import { runSaga } from "./saga"
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import {
+	ENGINE_STATUS,
+	type LLMProvider,
+	type OrchestrationState,
+	type ResolvedPlan,
+	type StepResponse,
+	type WorkflowStep,
+} from "@repo/protocol"
+import { afterEach, describe, expect, it } from "vitest"
+import { runSaga } from "./saga"
 
 const cleanup: string[] = []
 afterEach(() => {
@@ -74,7 +81,9 @@ export const doThingAction: WorkflowStep<Input, boolean, Data> = {
 	return { root, moduleName, actionId }
 }
 
-function planWith(steps: Array<{ id: string; module: string; action: string; params: Record<string, unknown> }>): ResolvedPlan {
+function planWith(
+	steps: Array<{ id: string; module: string; action: string; params: Record<string, unknown> }>,
+): ResolvedPlan {
 	return { resolvedSteps: steps }
 }
 
@@ -127,7 +136,12 @@ describe("Worker end-to-end (jiti + SAGA)", () => {
 		stepsByKey.set("other:fail", {
 			name: "fail",
 			role: "worker" as never,
-			execute: async (): Promise<StepResponse<unknown, unknown>> => ({ success: false, output: null, compensationData: null, error: "boom" }),
+			execute: async (): Promise<StepResponse<unknown, unknown>> => ({
+				success: false,
+				output: null,
+				compensationData: null,
+				error: "boom",
+			}),
 			compensate: async () => {},
 		} as WorkflowStep<unknown, unknown, unknown>)
 

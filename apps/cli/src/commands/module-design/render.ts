@@ -32,10 +32,7 @@ export function renderPhaseHeader(phase: string): string {
  * prompt) the slash command help block. This is what makes the REPL
  * feel like a guided conversation instead of a bare prompt.
  */
-export function renderFirstPromptContext(
-	state: DesignSessionState,
-	options: { showHelp: boolean },
-): string {
+export function renderFirstPromptContext(state: DesignSessionState, options: { showHelp: boolean }): string {
 	const parts: string[] = [""]
 	parts.push(renderPhaseHeader(state.phase))
 	if (state.brief && !state.brief.startsWith("__brief_")) {

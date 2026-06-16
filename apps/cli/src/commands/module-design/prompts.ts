@@ -64,7 +64,10 @@ function buildDefaultDeps(): PromptDeps {
 	}
 }
 
-export async function promptUser(state: DesignSessionState, deps: PromptDeps = buildDefaultDeps()): Promise<string | null> {
+export async function promptUser(
+	state: DesignSessionState,
+	deps: PromptDeps = buildDefaultDeps(),
+): Promise<string | null> {
 	const showHelp = deps.shouldShowHelp()
 	console.log(renderFirstPromptContext(state, { showHelp }))
 	if (showHelp) deps.markHelpShown()
@@ -120,11 +123,7 @@ export async function promptDeliverApproval(
 	resume(parseDeliverApproval(answer))
 }
 
-async function readAnswer(
-	question: string,
-	emptyHint: string,
-	deps: PromptDeps,
-): Promise<string | null> {
+async function readAnswer(question: string, emptyHint: string, deps: PromptDeps): Promise<string | null> {
 	if (isE2EMode()) {
 		console.log(`[prompt: ${question}]`)
 		const text = deps.e2eSource.next()

@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process"
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { createHash } from "node:crypto"
-import { join } from "node:path"
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 // ---------------------------------------------------------------------------
 // Consistency test
@@ -126,10 +126,13 @@ async function runOnce(args: RunOnceArgs): Promise<RunResult> {
 	let planActions: string[] = []
 	let planParams: Record<string, unknown> = {}
 	try {
-		const parsed = JSON.parse(planJson) as { resolvedSteps?: Array<{ module?: string; action?: string; params?: Record<string, unknown> }> }
+		const parsed = JSON.parse(planJson) as {
+			resolvedSteps?: Array<{ module?: string; action?: string; params?: Record<string, unknown> }>
+		}
 		planSteps = parsed.resolvedSteps?.length ?? 0
 		planActions = (parsed.resolvedSteps ?? []).map((s) => `${s.module ?? "?"}:${s.action ?? "?"}`)
-		planParams = (parsed.resolvedSteps ?? []).find((s) => s.module === moduleName && s.action === actionId)?.params ?? {}
+		planParams =
+			(parsed.resolvedSteps ?? []).find((s) => s.module === moduleName && s.action === actionId)?.params ?? {}
 	} catch {
 		/* leave defaults */
 	}
@@ -161,8 +164,15 @@ async function runBakaPlan(bakaBin: string, projectRoot: string, intent: string,
 	return planPath
 }
 
-async function runBakaApply(bakaBin: string, projectRoot: string, planPath: string, runDir: string): Promise<{ exitCode: number; output: string }> {
-	const { exitCode, stdout, stderr } = await execWithStderr(bakaBin, ["apply", planPath, "--cwd", projectRoot], { cwd: runDir })
+async function runBakaApply(
+	bakaBin: string,
+	projectRoot: string,
+	planPath: string,
+	runDir: string,
+): Promise<{ exitCode: number; output: string }> {
+	const { exitCode, stdout, stderr } = await execWithStderr(bakaBin, ["apply", planPath, "--cwd", projectRoot], {
+		cwd: runDir,
+	})
 	return { exitCode, output: `${stdout}\n${stderr}` }
 }
 
@@ -185,7 +195,11 @@ function exec(cmd: string, args: string[], opts: { cwd: string }): Promise<strin
 	})
 }
 
-function execWithStderr(cmd: string, args: string[], opts: { cwd: string }): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+function execWithStderr(
+	cmd: string,
+	args: string[],
+	opts: { cwd: string },
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
 	return new Promise((resolveProm) => {
 		const child = spawn(cmd, args, { cwd: opts.cwd })
 		let stdout = ""
@@ -206,7 +220,9 @@ function hashTree(root: string): { files: string[]; hashes: Record<string, strin
 	// recursive walk. We exclude the plan.json file itself and the .baka
 	// scratch dir (it contains the plan, not the produced module artefacts).
 	const { spawnSync } = require("node:child_process") as typeof import("node:child_process")
-	const findRes = spawnSync("find", [root, "-type", "f", "!", "-path", "*/.baka/*", "!", "-name", "plan.json"], { encoding: "utf-8" })
+	const findRes = spawnSync("find", [root, "-type", "f", "!", "-path", "*/.baka/*", "!", "-name", "plan.json"], {
+		encoding: "utf-8",
+	})
 	const files = (findRes.stdout || "")
 		.split("\n")
 		.map((f) => f.trim())
@@ -238,10 +254,14 @@ export function computeDivergencesForTest(perRun: RunResult[]): string[] {
 	for (let i = 1; i < perRun.length; i++) {
 		const r = perRun[i] as RunResult
 		if (r.planActions.join("|") !== ref.planActions.join("|")) {
-			divergences.push(`run ${i}: plan actions differ. ref=${JSON.stringify(ref.planActions)} got=${JSON.stringify(r.planActions)}`)
+			divergences.push(
+				`run ${i}: plan actions differ. ref=${JSON.stringify(ref.planActions)} got=${JSON.stringify(r.planActions)}`,
+			)
 		}
 		if (JSON.stringify(r.planParams) !== JSON.stringify(ref.planParams)) {
-			divergences.push(`run ${i}: plan params differ. ref=${JSON.stringify(ref.planParams)} got=${JSON.stringify(r.planParams)}`)
+			divergences.push(
+				`run ${i}: plan params differ. ref=${JSON.stringify(ref.planParams)} got=${JSON.stringify(r.planParams)}`,
+			)
 		}
 		if (r.files.join("|") !== ref.files.join("|")) {
 			divergences.push(`run ${i}: file tree differs. ref=${JSON.stringify(ref.files)} got=${JSON.stringify(r.files)}`)

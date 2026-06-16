@@ -1,5 +1,5 @@
 import { createInitialOrchestrationState, createOrchestratePlanningStep } from "@repo/agent-engine"
-import { ModuleRegistry, executeWorkerStep, runSaga } from "@repo/ast-tooling"
+import { executeWorkerStep, ModuleRegistry, runSaga } from "@repo/ast-tooling"
 import { discoverModules } from "@repo/discovery-workflow"
 import { ENGINE_STATUS, type LLMProvider, type OrchestrationState, type WorkflowStep } from "@repo/protocol"
 
@@ -17,11 +17,9 @@ export async function featurePlanningWorkflow(
 	const modules = discoverModules(rootDir)
 	state.logs.push(`[plan] discovered ${modules.length} module(s)`)
 	const orchestratorStep = createOrchestratePlanningStep(provider)
-	const planningResult = await orchestratorStep.execute(
-		{ intent, availableModules: modules },
-		state,
-		{ llmProvider: provider },
-	)
+	const planningResult = await orchestratorStep.execute({ intent, availableModules: modules }, state, {
+		llmProvider: provider,
+	})
 	if (!planningResult.success) {
 		state.status = ENGINE_STATUS.FAILED
 		state.logs.push(`[plan] orchestrator failed: ${planningResult.error}`)

@@ -1,7 +1,7 @@
-import { describe, expect, test } from "vitest"
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { describe, expect, test } from "vitest"
 import { computeDivergencesForTest, renderConsistencyTraceForTest } from "./consistency"
 
 function makeRun(idx: number, files: string[], hashes: Record<string, string>) {
@@ -59,10 +59,7 @@ describe("consistency runner", () => {
 	test("renderConsistencyTraceForTest writes a CONSISTENCY-TRACE.json file", () => {
 		const dir = join(tmpdir(), `baka-consistency-test-${Date.now()}`)
 		mkdirSync(dir, { recursive: true })
-		const runs = [
-			makeRun(0, ["/a/x.ts"], { "/a/x.ts": "aaa" }),
-			makeRun(1, ["/a/x.ts"], { "/a/x.ts": "aaa" }),
-		]
+		const runs = [makeRun(0, ["/a/x.ts"], { "/a/x.ts": "aaa" }), makeRun(1, ["/a/x.ts"], { "/a/x.ts": "aaa" })]
 		const result = {
 			passed: true,
 			moduleName: "test-mod",

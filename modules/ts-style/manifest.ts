@@ -3,7 +3,8 @@ import type { ModuleManifest } from "baka-sdk"
 export const Manifest: ModuleManifest = {
 	name: "ts-style",
 	version: "0.1.0",
-	description: "TypeScript style enforcer. Bundles validators that block `any`, warn on console.log, and require explicit return types on exported functions.",
+	description:
+		"TypeScript style enforcer. Bundles validators that block `any`, warn on console.log, and require explicit return types on exported functions.",
 	dependencies: ["baka-base"],
 	conflictsWith: [],
 	actions: [
@@ -19,7 +20,8 @@ export const Manifest: ModuleManifest = {
 		},
 		{
 			id: "lint",
-			description: "Run the project's linter (biome) and report findings. Stub for Phase 6; full impl wires the validator chain in Phase 8.",
+			description:
+				"Run the project's linter (biome) and report findings. Stub for Phase 6; full impl wires the validator chain in Phase 8.",
 			requiresReasoning: false,
 			filePatterns: [],
 			validators: [],

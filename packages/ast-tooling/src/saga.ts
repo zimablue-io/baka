@@ -108,11 +108,7 @@ export async function runSaga(
 	return { state, completed, failed: null }
 }
 
-async function rollback(
-	completed: CompletedStep[],
-	state: OrchestrationState,
-	ctx: StepContext,
-): Promise<void> {
+async function rollback(completed: CompletedStep[], state: OrchestrationState, ctx: StepContext): Promise<void> {
 	state.status = ENGINE_STATUS.COMPENSATING
 	state.logs.push(`[saga] rolling back ${completed.length} step(s) in reverse`)
 	for (let i = completed.length - 1; i >= 0; i--) {

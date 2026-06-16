@@ -1,5 +1,12 @@
+import {
+	AgentRole,
+	type LLMMessage,
+	type LLMProvider,
+	type LLMRequest,
+	type StepResponse,
+	type WorkflowStep,
+} from "@repo/protocol"
 import { z } from "zod"
-import { AgentRole, type LLMMessage, type LLMProvider, type LLMRequest, type StepResponse, type WorkflowStep } from "@repo/protocol"
 
 // ---------------------------------------------------------------------------
 // Module design — the chat-driven double-diamond flow
@@ -66,11 +73,15 @@ const DesignedTemplateSchema = z.object({
 const DesignedActionSchema = z.object({
 	id: z.string().describe("matches a ProposedAction id"),
 	params: z.array(DesignedParamSchema).describe("parameter schema for this action"),
-	requiresReasoning: z.boolean().describe("true if this action should call the LLM at run time to fill handlebars templates"),
+	requiresReasoning: z
+		.boolean()
+		.describe("true if this action should call the LLM at run time to fill handlebars templates"),
 	compensatesWith: z.string().nullable().describe("id of the action that compensates this one, or null"),
 	validators: z.array(DesignedValidatorSchema).describe("action-level validators"),
 	templates: z.array(DesignedTemplateSchema).optional().describe("required when requiresReasoning: true"),
-	testIntent: z.string().describe("a representative user intent that should trigger this action; used for the consistency test"),
+	testIntent: z
+		.string()
+		.describe("a representative user intent that should trigger this action; used for the consistency test"),
 })
 
 const DevelopPayloadSchema = z.object({
@@ -225,7 +236,9 @@ function contextSummary(input: DesignTurnInput): string {
 	if (input.designedActions && input.designedActions.length > 0) {
 		lines.push("Already designed actions:")
 		for (const a of input.designedActions) {
-			lines.push(`  - ${a.id}: ${a.params.length} params, ${a.validators.length} validators, requiresReasoning=${a.requiresReasoning}`)
+			lines.push(
+				`  - ${a.id}: ${a.params.length} params, ${a.validators.length} validators, requiresReasoning=${a.requiresReasoning}`,
+			)
 		}
 	}
 	return lines.join("\n")
@@ -301,14 +314,19 @@ ${safeBody}
  * Pure function: no LLM, no file I/O. Used by the DELIVER phase and by
  * unit tests.
  */
-export function renderManifestSource(moduleName: string, description: string, deps: string[], actions: Array<{
-	id: string
-	description: string
-	params: Array<{ name: string; type: string; required: boolean; description: string; enumValues?: string[] }>
-	requiresReasoning: boolean
-	compensatesWith: string | null
-	validators: Array<{ id: string; purpose: string }>
-}>): string {
+export function renderManifestSource(
+	moduleName: string,
+	description: string,
+	deps: string[],
+	actions: Array<{
+		id: string
+		description: string
+		params: Array<{ name: string; type: string; required: boolean; description: string; enumValues?: string[] }>
+		requiresReasoning: boolean
+		compensatesWith: string | null
+		validators: Array<{ id: string; purpose: string }>
+	}>,
+): string {
 	const manifest = {
 		name: moduleName,
 		version: "0.1.0",
@@ -366,9 +384,7 @@ export function renderActionStubSource(action: {
 				return "unknown"
 		}
 	}
-	const paramFields = action.params
-		.map((p) => `\t${p.name}${p.required ? "" : "?"}: ${paramsType(p)}`)
-		.join("\n")
+	const paramFields = action.params.map((p) => `\t${p.name}${p.required ? "" : "?"}: ${paramsType(p)}`).join("\n")
 
 	return `import type { ActionFn, CompensationFn } from "baka-sdk"
 

@@ -29,7 +29,9 @@ export async function runValidators(
 	const actionValidatorCount = registry
 		.all()
 		.reduce((n, m) => n + m.actions.reduce((a, ac) => a + (ac.validators?.length ?? 0), 0), 0)
-	state.logs.push(`[validate] running ${moduleValidatorCount} module validator(s) and ${actionValidatorCount} action validator(s)`)
+	state.logs.push(
+		`[validate] running ${moduleValidatorCount} module validator(s) and ${actionValidatorCount} action validator(s)`,
+	)
 
 	const allDiagnostics: ValidationDiagnostic[] = [...structural]
 

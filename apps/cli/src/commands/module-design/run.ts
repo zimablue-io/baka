@@ -10,30 +10,20 @@ import { join } from "node:path"
 import { input as inquirerInput } from "@inquirer/prompts"
 import { createLLMProvider, loadLLMConfig, validateLLMConfig } from "@repo/agent-engine"
 import {
+	type ChatLoopHooks,
+	type ChatLoopResult,
 	createInitialState,
 	invalidModuleNameMessage,
 	isValidModuleName,
 	loadSession,
 	runChatLoop,
 	saveSession,
-	type ChatLoopHooks,
-	type ChatLoopResult,
 } from "@repo/module-management-workflow"
 import { BAKA_EXIT_CODE, type LLMProvider } from "@repo/protocol"
 import { createModuleSandbox, runConsistencyInSandbox } from "./consistency"
 import { isE2EMode } from "./e2e-input"
-import {
-	promptDefineApproval,
-	promptDevelopApproval,
-	promptDeliverApproval,
-	promptUser,
-} from "./prompts"
-import {
-	renderBriefEcho,
-	renderConsistencyResult,
-	renderPayload,
-	renderResumeContext,
-} from "./render"
+import { promptDefineApproval, promptDeliverApproval, promptDevelopApproval, promptUser } from "./prompts"
+import { renderBriefEcho, renderConsistencyResult, renderPayload, renderResumeContext } from "./render"
 
 const STATE_FILE = ".design-state.json"
 
@@ -70,12 +60,13 @@ export async function runModuleDesign(
 		console.log(`\n[resuming design session for ${name} — phase: ${existing.phase}]\n`)
 		console.log(renderResumeContext(existing))
 	} else {
-		const brief = isE2EMode() && process.env.BAKA_E2E_BRIEF
-			? process.env.BAKA_E2E_BRIEF
-			: await deps.input({
-					message: `In one or two sentences, what should the module "${name}" do?`,
-					validate: (v) => (v.trim().length > 5 ? true : "give me a bit more"),
-				})
+		const brief =
+			isE2EMode() && process.env.BAKA_E2E_BRIEF
+				? process.env.BAKA_E2E_BRIEF
+				: await deps.input({
+						message: `In one or two sentences, what should the module "${name}" do?`,
+						validate: (v) => (v.trim().length > 5 ? true : "give me a bit more"),
+					})
 		console.log(renderBriefEcho(brief))
 		const fresh = createInitialState({ moduleName: name, brief })
 		saveSession(fresh, moduleDir)
@@ -102,8 +93,7 @@ export async function runModuleDesign(
 			console.error(`[the LLM did not respond to the brief; type your answer anyway and the LLM will retry]\n`)
 		},
 		onStateChanged: (state) => saveSession(state, moduleDir),
-		runConsistency: (n, intent) =>
-			runConsistencyInSandbox({ n, intent, moduleName: name, moduleDir, cwd: opts.cwd }),
+		runConsistency: (n, intent) => runConsistencyInSandbox({ n, intent, moduleName: name, moduleDir, cwd: opts.cwd }),
 	}
 
 	const result: ChatLoopResult = await runChatLoop({

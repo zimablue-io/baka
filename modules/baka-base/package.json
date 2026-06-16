@@ -3,7 +3,9 @@
 	"version": "0.1.0",
 	"private": true,
 	"description": "Minimal hello-world TypeScript project scaffold. Foundation for any new app.",
-	"keywords": ["baka-module"],
+	"keywords": [
+		"baka-module"
+	],
 	"main": "./manifest.ts",
 	"types": "./manifest.ts",
 	"scripts": {

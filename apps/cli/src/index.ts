@@ -288,7 +288,9 @@ program
 
 program
 	.command("install <source>")
-	.description("Install a module package. Accepts npm:..., git:..., local paths, or a bare module name (resolved via the marketplace API).")
+	.description(
+		"Install a module package. Accepts npm:..., git:..., local paths, or a bare module name (resolved via the marketplace API).",
+	)
 	.option("-l, --local", "install to the project scope (default) vs. user scope")
 	.option("-u, --user", "install to the user scope (~/.local/share/baka/modules/)")
 	.action(async (source, opts) => {

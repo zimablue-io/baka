@@ -1,4 +1,3 @@
-import { z } from "zod"
 import {
 	BAKA_EXIT_CODE,
 	type LLMMessage,
@@ -7,6 +6,7 @@ import {
 	type LLMResponse,
 	type ResolvedLLMConfig,
 } from "@repo/protocol"
+import { z } from "zod"
 
 // ---------------------------------------------------------------------------
 // OpenAI-compatible chat completions provider
@@ -138,7 +138,10 @@ async function fetchWithTimeout(
 		return (await res.json()) as WireResponse
 	} catch (err) {
 		if ((err as Error).name === "AbortError") {
-			throw makeError(BAKA_EXIT_CODE.PROVIDER_ERROR, `openai-compatible: request to ${url} timed out after ${timeout}ms`)
+			throw makeError(
+				BAKA_EXIT_CODE.PROVIDER_ERROR,
+				`openai-compatible: request to ${url} timed out after ${timeout}ms`,
+			)
 		}
 		throw err
 	} finally {
@@ -237,7 +240,9 @@ function toJsonSchema(schema: z.ZodType): Record<string, unknown> {
 	return { type: "object" }
 }
 
-function toUsage(wire: { prompt_tokens?: number; completion_tokens?: number } | undefined): import("@repo/protocol").LLMUsage {
+function toUsage(
+	wire: { prompt_tokens?: number; completion_tokens?: number } | undefined,
+): import("@repo/protocol").LLMUsage {
 	return {
 		promptTokens: wire?.prompt_tokens ?? 0,
 		completionTokens: wire?.completion_tokens ?? 0,

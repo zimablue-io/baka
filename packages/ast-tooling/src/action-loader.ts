@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
 import { join } from "node:path"
+import type { ModuleManifest, OrchestrationState, ValidationDiagnostic, WorkflowStep } from "@repo/protocol"
 import { createJiti } from "jiti"
-import type { ModuleManifest, StepResponse, WorkflowStep, OrchestrationState, ValidationDiagnostic } from "@repo/protocol"
 
 export interface LoadedAction<TInput, TOutput, TCompensationData> {
 	step: WorkflowStep<TInput, TOutput, TCompensationData>
@@ -47,7 +47,9 @@ export function loadAction<TInput, TOutput, TCompensationData>(
 		}
 	}
 	if (!step) {
-		throw new Error(`action file ${actionPath} must export a WorkflowStep value named \`${actionId}\`, \`${actionId}Action\`, or as the default export`)
+		throw new Error(
+			`action file ${actionPath} must export a WorkflowStep value named \`${actionId}\`, \`${actionId}Action\`, or as the default export`,
+		)
 	}
 	return { step, manifest, actionId }
 }
@@ -110,11 +112,7 @@ export function loadActionValidator(
  * relative path) or via `import { foo } from "<id>"` if the loader is
  * told where to look.
  */
-export function loadSharedHelper<T = unknown>(
-	projectRoot: string,
-	moduleRoot: string,
-	helperId: string,
-): T {
+export function loadSharedHelper<T = unknown>(projectRoot: string, moduleRoot: string, helperId: string): T {
 	const path = join(moduleRoot, "_shared", "helpers", `${helperId}.ts`)
 	if (!existsSync(path)) {
 		throw new Error(`shared helper not found: ${path}`)

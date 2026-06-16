@@ -34,7 +34,10 @@ describe("module-design renderers", () => {
 		// Parse it back as JSON to ensure shape is valid.
 		const match = src.match(/export const Manifest: ModuleManifest = (\{[\s\S]*\})/)
 		expect(match).toBeTruthy()
-		const parsed = JSON.parse((match as RegExpMatchArray)[1] as string) as { name: string; actions: Array<{ id: string }> }
+		const parsed = JSON.parse((match as RegExpMatchArray)[1] as string) as {
+			name: string
+			actions: Array<{ id: string }>
+		}
 		expect(parsed.name).toBe("test-mod")
 		expect(parsed.actions[0]?.id).toBe("scaffold")
 	})

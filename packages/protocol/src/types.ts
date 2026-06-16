@@ -44,7 +44,11 @@ export interface StepContext {
 export interface WorkflowStep<TInput, TOutput, TCompensationData> {
 	name: string
 	role: AgentRole
-	execute: (input: TInput, state: OrchestrationState, ctx?: StepContext) => Promise<StepResponse<TOutput, TCompensationData>>
+	execute: (
+		input: TInput,
+		state: OrchestrationState,
+		ctx?: StepContext,
+	) => Promise<StepResponse<TOutput, TCompensationData>>
 	compensate: (data: TCompensationData, state: OrchestrationState, ctx?: StepContext) => Promise<void>
 }
 

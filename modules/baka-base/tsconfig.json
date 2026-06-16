@@ -6,5 +6,10 @@
 			"baka-sdk": ["../../packages/baka-sdk/src"]
 		}
 	},
-	"include": ["manifest.ts", "**/action.ts", "_shared/**/*.ts", "<each-action-folder>/validators/**/*.ts"]
+	"include": [
+		"manifest.ts",
+		"**/action.ts",
+		"_shared/**/*.ts",
+		"<each-action-folder>/validators/**/*.ts"
+	]
 }

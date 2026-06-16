@@ -1,5 +1,4 @@
-import { input, select, confirm } from "@inquirer/prompts"
-import { BAKA_EXIT_CODE } from "@repo/protocol"
+import { confirm, input, select } from "@inquirer/prompts"
 import {
 	deleteProvider,
 	getActiveProviderName,
@@ -10,6 +9,7 @@ import {
 	setApiKey,
 	setProvider,
 } from "@repo/agent-engine"
+import { BAKA_EXIT_CODE } from "@repo/protocol"
 
 function die(code: number, msg: string): never {
 	process.stderr.write(`baka: ${msg}\n`)
@@ -22,7 +22,8 @@ const DEFAULT_MODEL = "gemma4:e4b-it"
 export async function runProvidersAdd(): Promise<void> {
 	const name = await input({
 		message: "Provider name:",
-		validate: (v) => (v.trim() === "" ? "required" : /^[a-z0-9_-]+$/i.test(v) || "letters, digits, _ and - only") || true,
+		validate: (v) =>
+			(v.trim() === "" ? "required" : /^[a-z0-9_-]+$/i.test(v) || "letters, digits, _ and - only") || true,
 	})
 	if (getProvider(name)) {
 		die(BAKA_EXIT_CODE.USER_ERROR, `provider "${name}" already exists`)
@@ -43,7 +44,7 @@ export async function runProvidersAdd(): Promise<void> {
 		default: "8192",
 		validate: (v) => {
 			const n = Number(v)
-			return Number.isInteger(n) && n > 0 || "must be a positive integer"
+			return (Number.isInteger(n) && n > 0) || "must be a positive integer"
 		},
 	})
 	const timeoutStr = await input({
@@ -51,7 +52,7 @@ export async function runProvidersAdd(): Promise<void> {
 		default: "120000",
 		validate: (v) => {
 			const n = Number(v)
-			return Number.isInteger(n) && n > 0 || "must be a positive integer"
+			return (Number.isInteger(n) && n > 0) || "must be a positive integer"
 		},
 	})
 	const { password } = await import("@inquirer/prompts")

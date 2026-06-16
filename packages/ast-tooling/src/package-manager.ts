@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync, cpSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, isAbsolute, join, resolve } from "node:path"
 import { BAKA_PROJECT_PATHS, BAKA_USER_DIR } from "@repo/protocol"
@@ -38,11 +38,14 @@ export function parseSource(raw: string): ParsedSource {
 
 	if (trimmed.startsWith("npm:")) {
 		const spec = trimmed.slice(4)
-		const pinned = /@[\dvx^~]/.test(spec) || /@latest/.test(spec) === false && /@/.test(spec)
+		const pinned = /@[\dvx^~]/.test(spec) || (/@latest/.test(spec) === false && /@/.test(spec))
 		// Extract package name (everything before the last @ that's followed by a version char)
 		const m = spec.match(/^(@?[^@]+(?:[^@]))(?:@([^@]+))?$/)
 		// Simpler: name is the part after the first @, up to the first @ that's followed by a version
-		const name = spec.split("@").slice(0, spec.startsWith("@") ? 2 : 1).join("@")
+		const name = spec
+			.split("@")
+			.slice(0, spec.startsWith("@") ? 2 : 1)
+			.join("@")
 		return {
 			raw: trimmed,
 			type: "npm",
@@ -96,7 +99,11 @@ function npmNameToDirName(name: string): string {
 function gitNameToDirName(url: string): string {
 	// "github.com/user/repo" or "https://github.com/user/repo" -> "repo"
 	// Strip protocol and trailing slashes
-	const stripped = url.replace(/^https?:\/\//, "").replace(/^ssh:\/\//, "").replace(/\.git$/, "").replace(/\/$/, "")
+	const stripped = url
+		.replace(/^https?:\/\//, "")
+		.replace(/^ssh:\/\//, "")
+		.replace(/\.git$/, "")
+		.replace(/\/$/, "")
 	const parts = stripped.split("/")
 	return parts[parts.length - 1] || "module"
 }
@@ -170,7 +177,10 @@ export interface InstallOptions {
 	modulesDir: string
 }
 
-export async function installSource(source: string, opts: InstallOptions): Promise<{ moduleName: string; modulePath: string }> {
+export async function installSource(
+	source: string,
+	opts: InstallOptions,
+): Promise<{ moduleName: string; modulePath: string }> {
 	const parsed = parseSource(source)
 
 	// 1. Add to settings (project or user).
@@ -271,18 +281,30 @@ export async function updateAll(cwd: string): Promise<Array<{ source: string; up
 	const user = readUserSettings()
 	const results: Array<{ source: string; updated: boolean; reason?: string }> = []
 	for (const raw of project.packages) {
-		results.push(await updateOne(raw, { scope: "project", cwd, settingsPath: projectSettingsPath(cwd), modulesDir: projectModulesDir(cwd) }))
+		results.push(
+			await updateOne(raw, {
+				scope: "project",
+				cwd,
+				settingsPath: projectSettingsPath(cwd),
+				modulesDir: projectModulesDir(cwd),
+			}),
+		)
 	}
 	for (const raw of user.packages) {
 		// Project takes priority: if the same module name is in both, skip the user entry.
 		const projectNames = new Set(project.packages.map((s) => safeParseName(s)))
 		if (projectNames.has(safeParseName(raw))) continue
-		results.push(await updateOne(raw, { scope: "user", cwd, settingsPath: userSettingsPath(), modulesDir: userModulesDir() }))
+		results.push(
+			await updateOne(raw, { scope: "user", cwd, settingsPath: userSettingsPath(), modulesDir: userModulesDir() }),
+		)
 	}
 	return results
 }
 
-async function updateOne(source: string, opts: InstallOptions): Promise<{ source: string; updated: boolean; reason?: string }> {
+async function updateOne(
+	source: string,
+	opts: InstallOptions,
+): Promise<{ source: string; updated: boolean; reason?: string }> {
 	const parsed = parseSource(source)
 	if (parsed.pinned) {
 		// Pinned sources are reconciled (moved to the existing ref) but never

@@ -1,8 +1,15 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
-import { join, resolve } from "node:path"
+import { existsSync, readdirSync } from "node:fs"
 import { homedir } from "node:os"
+import { join, resolve } from "node:path"
+import {
+	BAKA_PROJECT_PATHS,
+	BAKA_USER_DIR,
+	type ModuleManifest,
+	ModuleManifestSchema,
+	type ValidationDiagnostic,
+	type ValidationResult,
+} from "@repo/protocol"
 import { createJiti } from "jiti"
-import { BAKA_PROJECT_PATHS, BAKA_USER_DIR, ModuleManifestSchema, type ModuleManifest, type ValidationDiagnostic, type ValidationResult } from "@repo/protocol"
 
 export class ModuleRegistry {
 	private readonly byName = new Map<string, ModuleManifest>()
@@ -52,7 +59,11 @@ export class ModuleRegistry {
 				const moduleRoot = join(dir, entry.name)
 				const manifestPath = join(moduleRoot, "manifest.ts")
 				if (!existsSync(manifestPath)) {
-					diagnostics.push({ severity: "warning", rule: "manifest-missing", message: `${entry.name} has no manifest.ts; skipping` })
+					diagnostics.push({
+						severity: "warning",
+						rule: "manifest-missing",
+						message: `${entry.name} has no manifest.ts; skipping`,
+					})
 					continue
 				}
 
@@ -71,62 +82,70 @@ export class ModuleRegistry {
 					continue
 				}
 
-			if (!rawManifest) {
-				diagnostics.push({ severity: "error", rule: "manifest-export", message: `${entry.name}: manifest.ts did not export \`Manifest\`` })
-				if (strict) throw new Error(diagnostics[diagnostics.length - 1].message)
-				continue
-			}
-
-			const parsed = ModuleManifestSchema.safeParse(rawManifest)
-			if (!parsed.success) {
-				diagnostics.push({
-					severity: "error",
-					rule: "manifest-shape",
-					message: `${entry.name}: manifest does not match schema: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
-				})
-				if (strict) throw new Error(parsed.error.message)
-				continue
-			}
-
-			// Layout enforcement (per spec section 4)
-			for (const action of parsed.data.actions) {
-				const actionTs = join(moduleRoot, action.id, "action.ts")
-				if (!existsSync(actionTs)) {
+				if (!rawManifest) {
 					diagnostics.push({
 						severity: "error",
-						rule: "action-missing",
-						message: `${entry.name}: action "${action.id}" is missing ${action.id}/action.ts`,
+						rule: "manifest-export",
+						message: `${entry.name}: manifest.ts did not export \`Manifest\``,
 					})
+					if (strict) throw new Error(diagnostics[diagnostics.length - 1].message)
+					continue
 				}
-				if (action.requiresReasoning) {
-					const tpl = join(moduleRoot, action.id, "templates")
-					if (!existsSync(tpl)) {
-						diagnostics.push({
-							severity: "error",
-							rule: "templates-missing",
-							message: `${entry.name}: action "${action.id}" has requiresReasoning: true but no templates/ folder`,
-						})
-					}
-				}
-				for (const ruleId of action.validators ?? []) {
-					const rulePath = join(moduleRoot, action.id, "validators", `${ruleId}.ts`)
-					if (!existsSync(rulePath)) {
-						diagnostics.push({
-							severity: "error",
-							rule: "action-validator-missing",
-							message: `${entry.name}: action "${action.id}" declares validator "${ruleId}" but ${action.id}/validators/${ruleId}.ts does not exist`,
-						})
-					}
-				}
-			}
 
-			this.byName.set(parsed.data.name, parsed.data)
-			modules.push(parsed.data)
+				const parsed = ModuleManifestSchema.safeParse(rawManifest)
+				if (!parsed.success) {
+					diagnostics.push({
+						severity: "error",
+						rule: "manifest-shape",
+						message: `${entry.name}: manifest does not match schema: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+					})
+					if (strict) throw new Error(parsed.error.message)
+					continue
+				}
+
+				// Layout enforcement (per spec section 4)
+				for (const action of parsed.data.actions) {
+					const actionTs = join(moduleRoot, action.id, "action.ts")
+					if (!existsSync(actionTs)) {
+						diagnostics.push({
+							severity: "error",
+							rule: "action-missing",
+							message: `${entry.name}: action "${action.id}" is missing ${action.id}/action.ts`,
+						})
+					}
+					if (action.requiresReasoning) {
+						const tpl = join(moduleRoot, action.id, "templates")
+						if (!existsSync(tpl)) {
+							diagnostics.push({
+								severity: "error",
+								rule: "templates-missing",
+								message: `${entry.name}: action "${action.id}" has requiresReasoning: true but no templates/ folder`,
+							})
+						}
+					}
+					for (const ruleId of action.validators ?? []) {
+						const rulePath = join(moduleRoot, action.id, "validators", `${ruleId}.ts`)
+						if (!existsSync(rulePath)) {
+							diagnostics.push({
+								severity: "error",
+								rule: "action-validator-missing",
+								message: `${entry.name}: action "${action.id}" declares validator "${ruleId}" but ${action.id}/validators/${ruleId}.ts does not exist`,
+							})
+						}
+					}
+				}
+
+				this.byName.set(parsed.data.name, parsed.data)
+				modules.push(parsed.data)
 			}
 		}
 
 		if (!anyFound) {
-			diagnostics.push({ severity: "warning", rule: "no-modules", message: `no modules found in any scope (tree, project marketplace, or user marketplace)` })
+			diagnostics.push({
+				severity: "warning",
+				rule: "no-modules",
+				message: `no modules found in any scope (tree, project marketplace, or user marketplace)`,
+			})
 		}
 
 		return { modules, diagnostics }
@@ -175,7 +194,11 @@ export class ModuleRegistry {
 			for (const ruleId of m.moduleValidators) {
 				const rulePath = join(this.root, "modules", m.name, "_shared", "validators", `${ruleId}.ts`)
 				if (!existsSync(rulePath)) {
-					diagnostics.push({ severity: "error", rule: ruleId, message: `${m.name}: validator ${ruleId} not found at ${rulePath}` })
+					diagnostics.push({
+						severity: "error",
+						rule: ruleId,
+						message: `${m.name}: validator ${ruleId} not found at ${rulePath}`,
+					})
 				}
 			}
 			// Action-level validator existence check (the runner that actually

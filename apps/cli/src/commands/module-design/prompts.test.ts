@@ -5,29 +5,25 @@
 // the prompt functions print + what decisions they return.
 // ---------------------------------------------------------------------------
 
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import type { DesignSessionState } from "@repo/module-management-workflow"
 import { createInitialState } from "@repo/module-management-workflow"
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { createE2EInputSource, resetDefaultE2EInputSource } from "./e2e-input"
 import {
+	type InputFn,
+	type PromptDeps,
 	promptDefineApproval,
 	promptDeliverApproval,
 	promptDevelopApproval,
 	promptUser,
 	resetHelpShown,
-	type InputFn,
-	type PromptDeps,
 } from "./prompts"
 
 function freshState(brief: string): DesignSessionState {
 	return createInitialState({ moduleName: "x", brief })
 }
 
-function makeDeps(args: {
-	answers?: string[]
-	input?: InputFn
-	showHelp?: boolean
-}): PromptDeps {
+function makeDeps(args: { answers?: string[]; input?: InputFn; showHelp?: boolean }): PromptDeps {
 	return {
 		input: args.input ?? (vi.fn(async () => "ok") as unknown as InputFn),
 		e2eSource: createE2EInputSource(""),

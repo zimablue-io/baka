@@ -1,5 +1,4 @@
 import { input, password, select, confirm } from "@inquirer/prompts"
-import { BAKA_EXIT_CODE } from "@repo/protocol"
 import {
 	getApiKey,
 	getProvider,
@@ -10,6 +9,7 @@ import {
 	setProvider,
 	userConfigPath,
 } from "@repo/agent-engine"
+import { BAKA_EXIT_CODE } from "@repo/protocol"
 
 function die(code: number, msg: string): never {
 	process.stderr.write(`baka: ${msg}\n`)
@@ -36,12 +36,16 @@ export async function runInit(): Promise<void> {
 	const name = await input({
 		message: "Provider name (used by --provider=<name>):",
 		default: existing.length === 0 ? "local" : "",
-		validate: (v) => (v.trim() === "" ? "required" : /^[a-z0-9_-]+$/i.test(v) || "letters, digits, _ and - only") || true,
+		validate: (v) =>
+			(v.trim() === "" ? "required" : /^[a-z0-9_-]+$/i.test(v) || "letters, digits, _ and - only") || true,
 	})
 	if (!name.trim()) die(BAKA_EXIT_CODE.USER_ERROR, "provider name is required")
 
 	if (getProvider(name)) {
-		die(BAKA_EXIT_CODE.USER_ERROR, `provider "${name}" already exists. Use \`baka providers use ${name}\` to switch to it.`)
+		die(
+			BAKA_EXIT_CODE.USER_ERROR,
+			`provider "${name}" already exists. Use \`baka providers use ${name}\` to switch to it.`,
+		)
 	}
 
 	const baseUrl = await input({

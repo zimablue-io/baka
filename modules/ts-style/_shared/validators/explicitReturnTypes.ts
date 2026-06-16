@@ -18,7 +18,10 @@ export async function explicitReturnTypes(state: OrchestrationState) {
 		if (!matches) return
 		for (const m of matches) {
 			// Make sure the captured signature does not end with `): TYPE`.
-			const sig = m.replace(/^\s+/, "").replace(/\{\s*$/, "").trim()
+			const sig = m
+				.replace(/^\s+/, "")
+				.replace(/\{\s*$/, "")
+				.trim()
 			if (!sig.includes(")")) continue
 			if (sig.includes("): ")) continue
 			// Don't double-flag the same signature if the function uses a

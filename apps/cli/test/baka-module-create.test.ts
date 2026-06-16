@@ -24,20 +24,18 @@
 //   - THIS test                                      — subprocess
 // ---------------------------------------------------------------------------
 
-import { afterEach, beforeAll, describe, expect, test } from "vitest"
-import { spawn, type ChildProcess } from "node:child_process"
+import { type ChildProcess, spawn } from "node:child_process"
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http"
+import { afterEach, beforeAll, describe, expect, test } from "vitest"
 
 interface ScriptedResponse {
 	content: string
 }
 
-function startFakeLLM(
-	script: ScriptedResponse[],
-): Promise<{ url: string; close: () => Promise<void>; calls: number }> {
+function startFakeLLM(script: ScriptedResponse[]): Promise<{ url: string; close: () => Promise<void>; calls: number }> {
 	let calls = 0
 	let scriptIdx = 0
 	const server: Server = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -142,9 +140,7 @@ describe("baka module create — fast (fake LLM, real CLI binary)", () => {
 				content: JSON.stringify({
 					phase: "DISCOVER",
 					message: "Welcome! I need a few questions to scope this module.",
-					questions: [
-						{ id: "domain", prompt: "What is the target framework?", whyWeNeedThis: "framing" },
-					],
+					questions: [{ id: "domain", prompt: "What is the target framework?", whyWeNeedThis: "framing" }],
 					finished: false,
 				}),
 			},
@@ -249,9 +245,7 @@ describe("baka module create — fast (fake LLM, real CLI binary)", () => {
 				content: JSON.stringify({
 					phase: "DEFINE",
 					message: "Proposed action roster.",
-					actions: [
-						{ id: "scaffold", description: "Scaffold a TS project", rationale: "sets the baseline" },
-					],
+					actions: [{ id: "scaffold", description: "Scaffold a TS project", rationale: "sets the baseline" }],
 					finished: true,
 				}),
 			},
@@ -303,10 +297,7 @@ describe("baka module create — fast (fake LLM, real CLI binary)", () => {
 		const responsesFile = join(tmpDir, "responses.txt")
 		writeFileSync(responsesFile, "ok\n/exit\n")
 
-		const llm = await startFakeLLM([
-			{ content: "this is not json" },
-			{ content: "this is not json either" },
-		])
+		const llm = await startFakeLLM([{ content: "this is not json" }, { content: "this is not json either" }])
 
 		try {
 			const { stdout, stderr } = await spawnBaka({
@@ -411,20 +402,16 @@ describeIfReal("baka module create — slow (real LLM, real CLI binary)", () => 
 		// different.
 		const cli = join(__dirname, "..", "dist", "index.js")
 		if (!existsSync(cli)) throw new Error(`built CLI not found at ${cli}`)
-		const child: ChildProcess = spawn(
-			"node",
-			[cli, "--cwd", tmpDir, "module", "create", "nextjs"],
-			{
-				env: {
-					...process.env,
-					BAKA_LLM_BASE_URL: REAL_LLM_BASE_URL,
-					BAKA_LLM_MODEL: REAL_LLM_MODEL,
-					BAKA_E2E_BRIEF: "a SSOT for all things next.js v16 app router related, server-first, server actions, etc.",
-					BAKA_E2E_INPUT: responsesFile,
-				},
-				cwd: tmpDir,
+		const child: ChildProcess = spawn("node", [cli, "--cwd", tmpDir, "module", "create", "nextjs"], {
+			env: {
+				...process.env,
+				BAKA_LLM_BASE_URL: REAL_LLM_BASE_URL,
+				BAKA_LLM_MODEL: REAL_LLM_MODEL,
+				BAKA_E2E_BRIEF: "a SSOT for all things next.js v16 app router related, server-first, server actions, etc.",
+				BAKA_E2E_INPUT: responsesFile,
 			},
-		)
+			cwd: tmpDir,
+		})
 		const stdout: string[] = []
 		const stderr: string[] = []
 		child.stdout?.on("data", (b: Buffer) => stdout.push(b.toString()))
