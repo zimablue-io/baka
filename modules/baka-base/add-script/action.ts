@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import type { StepResponse, WorkflowStep, OrchestrationState } from "baka-sdk"
+import type { StepResponse, WorkflowStep } from "baka-sdk"
 import { AgentRole } from "baka-sdk"
 import { readJsonSafe } from "../_shared/helpers/readJsonSafe"
 
@@ -30,7 +30,14 @@ export const addScriptAction: WorkflowStep<AddScriptInput, boolean, AddScriptCom
 			return {
 				success: false,
 				output: false,
-				compensationData: { targetDirectory: target, packageJsonPath, previousContent: "", created: false, scriptName: input.name, previousCommand: null },
+				compensationData: {
+					targetDirectory: target,
+					packageJsonPath,
+					previousContent: "",
+					created: false,
+					scriptName: input.name,
+					previousCommand: null,
+				},
 				error: "package.json not found; run baka-base.scaffold first",
 			}
 		}
@@ -41,7 +48,14 @@ export const addScriptAction: WorkflowStep<AddScriptInput, boolean, AddScriptCom
 			return {
 				success: false,
 				output: false,
-				compensationData: { targetDirectory: target, packageJsonPath, previousContent, created: false, scriptName: input.name, previousCommand: null },
+				compensationData: {
+					targetDirectory: target,
+					packageJsonPath,
+					previousContent,
+					created: false,
+					scriptName: input.name,
+					previousCommand: null,
+				},
 				error: `package.json is not valid JSON or is missing`,
 			}
 		}
@@ -56,7 +70,14 @@ export const addScriptAction: WorkflowStep<AddScriptInput, boolean, AddScriptCom
 			return {
 				success: false,
 				output: false,
-				compensationData: { targetDirectory: target, packageJsonPath, previousContent, created: previousCommand === null, scriptName: input.name, previousCommand },
+				compensationData: {
+					targetDirectory: target,
+					packageJsonPath,
+					previousContent,
+					created: previousCommand === null,
+					scriptName: input.name,
+					previousCommand,
+				},
 				error: err instanceof Error ? err.message : String(err),
 			}
 		}

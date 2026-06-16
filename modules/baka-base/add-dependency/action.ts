@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import type { OrchestrationState, StepResponse, WorkflowStep } from "baka-sdk"
+import type { StepResponse, WorkflowStep } from "baka-sdk"
 import { AgentRole } from "baka-sdk"
 import { readJsonSafe } from "../_shared/helpers/readJsonSafe"
 
