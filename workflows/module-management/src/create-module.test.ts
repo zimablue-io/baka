@@ -1,10 +1,10 @@
-import * as fs from "node:fs"
+import fs from "node:fs"
 import path from "node:path"
 import { describe, expect, it, vi } from "vitest"
 import { executeCreateModuleWorkflow } from "./create-module"
 
-vi.mock("fs")
-vi.mock("path")
+vi.mock("node:fs")
+vi.mock("node:path")
 
 describe("executeCreateModuleWorkflow", () => {
 	it("should create module directory structure", async () => {

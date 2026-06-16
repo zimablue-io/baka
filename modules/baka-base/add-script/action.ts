@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import type { StepResponse, WorkflowStep } from "baka-sdk"
 import { AgentRole } from "baka-sdk"
-import { readJsonSafe } from "../_shared/helpers/readJsonSafe"
+import { readJsonSafe } from "../_shared/helpers/read-json-safe"
 
 export interface AddScriptInput {
 	name: string

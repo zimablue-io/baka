@@ -1,8 +1,8 @@
+import fs from "node:fs"
+import path from "node:path"
 import type { ModuleManifest } from "@repo/protocol"
 import { ModuleManifestSchema } from "@repo/protocol"
-import * as fs from "fs"
 import { createJiti } from "jiti"
-import * as path from "path"
 
 const jiti = createJiti(process.cwd())
 
