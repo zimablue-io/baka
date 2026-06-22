@@ -1,7 +1,7 @@
+import { spawn } from "node:child_process"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
-import { spawn } from "node:child_process"
-import type { StepResponse, WorkflowStep, OrchestrationState } from "baka-sdk"
+import type { StepResponse, WorkflowStep } from "baka-sdk"
 import { AgentRole } from "baka-sdk"
 
 export interface LintInput {
