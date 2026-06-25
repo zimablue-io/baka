@@ -686,14 +686,49 @@ describe("VAL-CLI-040 exit code categories", () => {
 		expect(code, `unexpected code; stderr=${stderr}`).toBe(2)
 	})
 
-	it("validation error -> 4 (baka module validate baka-base emits VALIDATION_ERROR)", async () => {
-		// The baka-base module currently declares moduleValidators whose
-		// shared files don't exist on disk, so validation is expected to
-		// fail and the CLI must surface VALIDATION_ERROR (=4).
-		const { code, stdout } = await spawnCli({ argv: ["module", "validate", "baka-base"] })
-		expect(code).toBe(4)
-		// The validation output should mention baka-base.
-		expect(stdout).toContain("baka-base")
+	it("validation error -> 4 (baka module validate reports structural defects)", async () => {
+		// The `baka module validate <name>` structural check fails (exits 4)
+		// when a module declares an action without an `action.ts` file.
+		// Build a scratch module with a missing action.ts and validate it.
+		// Previously this test exercised `baka module validate baka-base`
+		// to hit exit 4 via a phantom validator-missing bug; that bug is
+		// now fixed in apps/cli/src/commands/module.ts, so the well-formed
+		// baka-base module exits 0 (PASS). To keep this exit-category probe
+		// valid we now use a deliberately broken module under a scratch dir.
+		const scratch = trackDir(makeEmptyDir("baka-cli-smoke-validation-"))
+		const moduleDir = join(scratch, "modules", "broken-mod")
+		mkdirSync(join(moduleDir, "missing-action"), { recursive: true })
+		writeFileSync(
+			join(moduleDir, "manifest.ts"),
+			`export const Manifest = {
+  name: "broken-mod",
+  version: "0.1.0",
+  description: "deliberately broken module for the validation-error smoke test",
+  dependencies: [],
+  conflictsWith: [],
+  actions: [
+    {
+      id: "missing-action",
+      description: "declared action whose action.ts is intentionally absent",
+      requiresReasoning: false,
+      filePatterns: [],
+      validators: [],
+      params: [],
+    },
+  ],
+  moduleValidators: [],
+}
+`,
+			"utf-8",
+		)
+
+		const { code, stdout, stderr } = await spawnCli({
+			argv: ["module", "validate", "broken-mod"],
+			cwd: scratch,
+		})
+		expect(code, `unexpected code; stdout=${stdout}; stderr=${stderr}`).toBe(4)
+		// The validation output should mention the missing action.
+		expect(stdout).toContain("missing-action")
 	})
 })
 

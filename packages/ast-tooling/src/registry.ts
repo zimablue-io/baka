@@ -16,8 +16,13 @@ import { createJiti } from "jiti"
  * filename stem (e.g. "has-package-json"). Validator ids stay camelCase in
  * manifests (matching JS function names) but live as kebab-case .ts files
  * on disk (matching the codebase's filename convention).
+ *
+ * Exported because sibling tooling (e.g. `apps/cli/src/commands/module.ts`)
+ * needs to resolve validator filenames when reading manifests directly.
+ * Keeping the conversion in one place ensures registry-side and CLI-side
+ * checks agree on the path.
  */
-function validatorFilename(id: string): string {
+export function validatorFilename(id: string): string {
 	return id.replace(/[A-Z]/g, (m, offset) => (offset > 0 ? "-" : "") + m.toLowerCase())
 }
 

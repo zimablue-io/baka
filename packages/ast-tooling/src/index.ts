@@ -31,7 +31,7 @@ export {
 } from "./package-manager"
 export type { SavedPlan } from "./plan-io"
 export { listPlans, loadPlan, plansDir, savePlan } from "./plan-io"
-export { ModuleRegistry } from "./registry"
+export { ModuleRegistry, validatorFilename } from "./registry"
 export type { CompletedStep, SagaResult, SagaStep } from "./saga"
 export { runSaga } from "./saga"
 export type { LogEntry, LogLevel } from "./structured-log"

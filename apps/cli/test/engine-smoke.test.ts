@@ -292,20 +292,18 @@ describe("VAL-CLI-010 baka module create <badname>", () => {
 // ===========================================================================
 
 describe("VAL-CLI-011 baka module validate baka-base --json", () => {
-	it("emits {module, valid, errors, warnings}; exit 4 when invalid", async () => {
+	it("emits {module, valid, errors, warnings}; exit 0 for a well-formed module", async () => {
 		const { code, stdout, stderr } = await spawnCli({
 			argv: ["module", "validate", "baka-base", "--json"],
 		})
 
 		// The baka-base manifest declares moduleValidators whose shared files
-		// resolve via kebab-case (has-package-json.ts / tsconfig-present.ts),
-		// so the validator-level checks pass at runtime. The contract says
-		// exit VALIDATION_ERROR (=4) when valid===false; today the module's
-		// declared `moduleValidators` references files that exist, so the
-		// layout check passes. The actual exit code is therefore 0 unless
-		// other diagnostics surface. We assert the documented shape and
-		// the exit semantics, accepting either 0 or 4 here.
-		expect([0, 4], `unexpected exit ${code}; stderr=${stderr}`).toContain(code)
+		// resolve via kebab-case (has-package-json.ts / tsconfig-present.ts).
+		// apps/cli/src/commands/module.ts computes the path via
+		// validatorFilename(ruleId), so a well-formed module passes the
+		// layout check and exits 0. Pre-fix this asserted [0, 4]; the bug
+		// fix tightens it to 0.
+		expect(code, `unexpected exit ${code}; stderr=${stderr}`).toBe(0)
 
 		const parsed = JSON.parse(stdout) as {
 			module: string
@@ -314,15 +312,9 @@ describe("VAL-CLI-011 baka module validate baka-base --json", () => {
 			warnings: string[]
 		}
 		expect(parsed.module).toBe("baka-base")
-		expect(typeof parsed.valid).toBe("boolean")
-		expect(Array.isArray(parsed.errors)).toBe(true)
+		expect(parsed.valid).toBe(true)
+		expect(parsed.errors).toEqual([])
 		expect(Array.isArray(parsed.warnings)).toBe(true)
-		// Shape consistency: valid === (errors.length === 0).
-		expect(parsed.valid).toBe(parsed.errors.length === 0)
-		// If invalid, the exit code is the documented VALIDATION_ERROR (=4).
-		if (!parsed.valid) {
-			expect(code).toBe(4)
-		}
 	})
 })
 
@@ -757,6 +749,12 @@ describe("VAL-CLI-028 baka validate", () => {
 		})
 
 		// Exit code: 0 if all modules pass; 4 (VALIDATION_ERROR) if any fail.
+		// This top-level validate runs the actual validators (noAnyTypes,
+		// explicitReturnTypes, etc.) against the cwd. The current codebase
+		// has known `any` usages and missing return types, so this exits 4
+		// today regardless of the validator-path bug fix in module.ts. We
+		// accept either 0 or 4 here; the per-module bug fix in module.ts is
+		// covered by VAL-CLI-011.
 		expect([0, 4], `unexpected exit ${code}; stderr=${stderr}`).toContain(code)
 		// Always print the discovered count so the user can see what was scanned.
 		expect(stdout).toMatch(/discovered \d+ module\(s\)/)
@@ -775,6 +773,11 @@ describe("VAL-CLI-029 baka validate --json", () => {
 			argv: ["validate", "--json"],
 		})
 
+		// Same reasoning as VAL-CLI-028: the top-level validate runs the
+		// actual validators and the current codebase has known findings,
+		// so this legitimately exits 4 (VALIDATION_ERROR) when run from
+		// BAKA_REPO. The per-module bug fix in module.ts is independent
+		// (see VAL-CLI-011). Accept either exit code here.
 		expect([0, 4], `unexpected exit ${code}; stderr=${stderr}`).toContain(code)
 
 		const parsed = JSON.parse(stdout) as {

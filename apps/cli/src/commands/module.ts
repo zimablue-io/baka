@@ -3,6 +3,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } fro
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { BAKA_EXIT_CODE, type ModuleManifest, ModuleManifestSchema } from "@repo/protocol"
+import { validatorFilename } from "@repo/ast-tooling"
 import { createJiti } from "jiti"
 
 function die(code: number, msg: string): never {
@@ -72,9 +73,12 @@ export function runModuleValidate(name: string, opts: { json?: boolean } = {}): 
 						}
 					}
 					for (const ruleId of parsed.data.moduleValidators ?? []) {
-						const rulePath = join(root, "_shared", "validators", `${ruleId}.ts`)
+						const ruleFile = validatorFilename(ruleId)
+						const rulePath = join(root, "_shared", "validators", `${ruleFile}.ts`)
 						if (!existsSync(rulePath)) {
-							errors.push(`moduleValidator "${ruleId}" is declared but _shared/validators/${ruleId}.ts does not exist`)
+							errors.push(
+								`moduleValidator "${ruleId}" is declared but _shared/validators/${ruleFile}.ts does not exist`,
+							)
 						}
 					}
 				}
