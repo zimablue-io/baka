@@ -44,3 +44,7 @@ docs/superpowers/
 # Editor / scratch
 .tmp/
 *.swp
+
+# Pack output (created by `pnpm pack` / CI smoke)
+*.tgz
+dist-tarballs/

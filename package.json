@@ -5,9 +5,11 @@
 	"scripts": {
 		"build": "turbo run build",
 		"dev": "turbo run dev",
-		"lint": "turbo run lint",
+		"lint": "biome check .",
 		"test": "turbo run test",
 		"check-types": "turbo run check-types",
+		"pack": "rm -rf dist-tarballs && mkdir -p dist-tarballs && pnpm --filter ./apps/cli exec pnpm pack --pack-destination \"$PWD/dist-tarballs\" && pnpm --filter ./apps/mcp exec pnpm pack --pack-destination \"$PWD/dist-tarballs\"",
+		"knip": "pnpm dlx knip@5",
 		"format": "biome format --write .",
 		"format:check": "biome format .",
 		"clean": "find . -name 'dist' -type d -exec rm -rf {} +",

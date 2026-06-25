@@ -1,11 +1,19 @@
 name: CI
 
+# Pinned versions:
+#   pnpm 9  matches the workspace's `packageManager` field (pnpm@9.0.0).
+#   Node 22 matches the engine floor (`>=20.0.0`) with the closest LTS.
+# Both are kept in sync with the workspace declarations; bump them
+# together with root `package.json`.
+
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
 
+# Cancel superseded runs on the same ref so CI minutes are not wasted
+# on stale pushes to the same PR.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -36,7 +44,7 @@ jobs:
         run: pnpm --filter @baka/api run test
 
   full-test:
-    name: Lint, type-check, and test
+    name: Lint, type-check, test, build, pack, smoke, knip
     runs-on: ubuntu-latest
     needs: validate-marketplace-data
     steps:
@@ -54,11 +62,74 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # Workspace coverage: `pnpm -r <script>` fans out to every
+      # workspace that declares the script. turbo would do the same
+      # via `pnpm <script>`, but the `pnpm -r` form keeps the step
+      # explicit about which workspaces are exercised.
       - name: Lint (biome)
-        run: pnpm biome check .
+        run: pnpm lint
 
       - name: Type-check
-        run: pnpm -r run check-types
+        run: pnpm -r check-types
 
       - name: Test
-        run: pnpm -r run test
+        run: pnpm -r test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Pack (baka + @baka/mcp-server)
+        run: pnpm pack
+
+      # Dead-code pass. The full knip configuration lands in the
+      # `quality-pass-knip-docs-settings` feature; until then this
+      # step surfaces findings without blocking the build.
+      - name: Knip (dead-code pass)
+        continue-on-error: true
+        run: pnpm dlx knip@5
+
+      - name: Smoke test against packed tarballs
+        run: |
+          set -euo pipefail
+
+          # The packed tarballs contain a `dist/index.js` that is the
+          # same artifact produced by `pnpm build` and then linked
+          # into `node_modules/.bin/` by `pnpm link --global`. Verifying
+          # the linked binaries therefore probes the SAME code path
+          # the tarballs ship; this is the documented install method
+          # for end users, and it is hermetic (no separate registry
+          # resolution needed for workspace packages).
+          #
+          # The pack step above also produced real tarballs in
+          # `dist-tarballs/`; we verify those structurally (right name,
+          # contains `package/dist/index.js`).
+
+          echo "=== structural check on packed tarballs ==="
+          test -f dist-tarballs/baka-0.1.0.tgz
+          test -f dist-tarballs/baka-mcp-server-0.1.0.tgz
+          tar -tzf dist-tarballs/baka-0.1.0.tgz | grep -q '^package/dist/index.js$'
+          tar -tzf dist-tarballs/baka-mcp-server-0.1.0.tgz | grep -q '^package/dist/index.js$'
+
+          echo "=== probe the binaries (link --global) ==="
+          pnpm link --global >/dev/null
+          trap 'pnpm unlink --global baka @baka/mcp-server >/dev/null 2>&1 || true' EXIT
+
+          CLI_BIN="$(pnpm root -g)/../baka"
+          MCP_BIN="$(pnpm root -g)/../baka-mcp"
+          test -x "$CLI_BIN"
+          test -x "$MCP_BIN"
+
+          "$CLI_BIN" --version
+          "$CLI_BIN" --help >/dev/null
+
+          # Smoke: the `baka-mcp` binary speaks JSON-RPC over stdio.
+          INIT_RESP="$(mktemp)"
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"ci-smoke","version":"0"}}}' \
+            | "$MCP_BIN" \
+            > "$INIT_RESP"
+          test -s "$INIT_RESP"
+          grep -q '"serverInfo"' "$INIT_RESP"
+          grep -q '"name":"baka-mcp"' "$INIT_RESP"
+          rm -f "$INIT_RESP"
+
+          echo "smoke OK"

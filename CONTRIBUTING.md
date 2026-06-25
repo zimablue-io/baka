@@ -70,7 +70,11 @@ The provider boundary is enforced: only `packages/agent-engine` may import a pro
    ```
 
 5. **Fill out the PR template.** Include the rationale, the test plan, and a link to the tracking issue.
-6. **CI must be green.** The PR template mirrors CI; reviewers will wait for it.
+6. **CI must be green before merge.** A failing CI run blocks merge: do not bypass the
+   required status checks or push commits that skip the workflow. The PR template
+   mirrors CI; reviewers will wait for it. If a CI failure is unrelated to your
+   change, fix the underlying cause in a separate PR rather than merging a red
+   build.
 
 ## Commit message format
 
