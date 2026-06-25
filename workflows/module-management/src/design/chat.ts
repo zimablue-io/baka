@@ -6,13 +6,13 @@ import {
 	developApprovalHook,
 	pauseForApproval,
 	runDeliverIfApproved,
-} from "./approval"
-import { runLLMTurn } from "./llm"
-import type { DesignTurnPayload } from "./payload"
-import { applyPayload } from "./payload-apply"
-import { loadSession } from "./session"
-import { advanceOnSkip, handleSlashInLoop, stateModuleName } from "./slash"
-import { createInitialState, type DesignSessionState, rewindLastTurn, setPhase, withHistory } from "./state"
+} from "./approval.js"
+import { runLLMTurn } from "./llm.js"
+import type { DesignTurnPayload } from "./payload.js"
+import { applyPayload } from "./payload-apply.js"
+import { loadSession } from "./session.js"
+import { advanceOnSkip, handleSlashInLoop, stateModuleName } from "./slash.js"
+import { createInitialState, type DesignSessionState, rewindLastTurn, setPhase, withHistory } from "./state.js"
 
 // ---------------------------------------------------------------------------
 // The chat orchestrator. Hooks drive every consequential pause point.

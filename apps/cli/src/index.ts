@@ -15,7 +15,6 @@ import {
 	runUpdateCommand,
 } from "./commands/marketplace"
 import { runModuleEdit, runModuleListActions, runModuleTest, runModuleValidate } from "./commands/module"
-import { runModuleConsistency, runModuleDesign } from "./commands/module-design/index.js"
 import { runApplyCommand, runListPlans, runPlanCommand, runValidateCommand } from "./commands/plan"
 import { runProvidersAdd, runProvidersList, runProvidersRemove, runProvidersUse } from "./commands/providers"
 import { runSearchCommand } from "./commands/search"
@@ -117,6 +116,8 @@ moduleCmd
 	)
 	.action(async (name) => {
 		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
+		// Lazy-load: a broken module-design barrel must not kill sibling subcommands.
+		const { runModuleDesign } = await import("./commands/module-design/index.js")
 		try {
 			await runModuleDesign(name, { cwd })
 		} catch (err) {
@@ -134,6 +135,8 @@ moduleCmd
 	.option("-n, --n <count>", "number of runs (default: 5)", "5")
 	.action(async (name, opts) => {
 		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
+		// Lazy-load: a broken module-design barrel must not kill sibling subcommands.
+		const { runModuleConsistency } = await import("./commands/module-design/index.js")
 		try {
 			await runModuleConsistency(name, {
 				cwd,

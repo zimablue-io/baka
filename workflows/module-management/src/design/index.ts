@@ -7,7 +7,7 @@ export type {
 	RunDeliverResult,
 	RunLLMTurnArgs,
 	RunLLMTurnResult,
-} from "./chat"
+} from "./chat.js"
 export {
 	applyBack,
 	applyPayload,
@@ -17,8 +17,8 @@ export {
 	runLLMTurn,
 	STATE_FILE,
 	saveSession,
-} from "./chat"
-export type { HookDefinition, HookInstance, StandardSchemaV1 } from "./hooks"
+} from "./chat.js"
+export type { HookDefinition, HookInstance, StandardSchemaV1 } from "./hooks.js"
 export {
 	defineApprovalHook,
 	defineHook,
@@ -26,9 +26,9 @@ export {
 	developApprovalHook,
 	userInputHook,
 	zodSchema,
-} from "./hooks"
-export type { DesignedActionSchema, DesignTurnPayload, ProposedAction } from "./payload"
-export { DesignTurnPayloadSchema } from "./payload"
+} from "./hooks.js"
+export type { DesignedActionSchema, DesignTurnPayload, ProposedAction } from "./payload.js"
+export { DesignTurnPayloadSchema } from "./payload.js"
 export {
 	renderActionStubSource,
 	renderManifestSource,
@@ -37,7 +37,7 @@ export {
 	renderTemplateStubSource,
 	renderValidatorStubSource,
 	writeModuleFiles,
-} from "./render"
+} from "./render/index.js"
 export type {
 	DesignedAction,
 	DesignedParam,
@@ -47,7 +47,7 @@ export type {
 	DesignSessionState,
 	RosterEntry,
 	SlashResult,
-} from "./state"
+} from "./state.js"
 export {
 	applySlashCommand,
 	createInitialState,
@@ -57,4 +57,4 @@ export {
 	setPhase,
 	touch,
 	withHistory,
-} from "./state"
+} from "./state.js"
