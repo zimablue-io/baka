@@ -64,15 +64,19 @@ export async function runInstallCommand(
 	let resolvedSource = source
 	try {
 		parseSource(source)
-	} catch {
+	} catch (parseErr) {
 		const resolved = await resolveModuleName(source)
 		if (resolved) {
 			resolvedSource = resolved.source
 			console.log(`resolved "${source}" -> ${resolvedSource} (${resolved.tier})`)
 		} else {
-			// Re-throw the original parse error so the user gets the helpful
-			// "unrecognized source" message.
-			parseSource(source)
+			// Neither a valid source spec (npm:/git:/local/URL) nor a name
+			// resolvable through the marketplace API. The user's input is
+			// malformed — this is a USER_ERROR (1), not an ENGINE_ERROR (2).
+			// Surface the original parse error message so the user sees the
+			// supported formats.
+			const message = parseErr instanceof Error ? parseErr.message : String(parseErr)
+			die(BAKA_EXIT_CODE.USER_ERROR, message)
 		}
 	}
 

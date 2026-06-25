@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { existsSync, readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { ModuleRegistry } from "@repo/ast-tooling"
 import { BAKA_EXIT_CODE } from "@repo/protocol"
 import { Command } from "commander"
@@ -24,16 +27,36 @@ function die(code: number, msg: string): never {
 	process.exit(code)
 }
 
+// Read the CLI's version from its own package.json. Per architecture
+// invariant 7, the root package.json is the version of record and
+// apps/cli/package.json MUST match it. Reading at runtime keeps the dist in
+// sync with whatever version is checked into apps/cli/package.json — no
+// build-time rewrite or hardcoded string to drift from the source.
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const cliPkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8")) as { version: string }
+
 const program = new Command()
 
 program
 	.name("baka")
 	.description("Baka CLI: enforce your patterns by routing LLM intent through declared module actions")
-	.version("0.1.0")
+	.version(cliPkg.version)
 
 program
 	.option("-p, --provider <name>", "use the named provider (overrides active)")
 	.option("--cwd <path>", "use the given directory as the project root", process.cwd())
+
+// Validate --cwd up front: a non-existent path is a USER_ERROR (the user
+// gave us a bad path), not a silent no-op that returns zero results.
+// `preAction` fires before every subcommand action handler; --help /
+// --version don't fire actions so they remain unaffected.
+program.hook("preAction", () => {
+	const opts = program.opts<{ cwd?: string }>()
+	const cwd = opts.cwd ?? process.cwd()
+	if (!existsSync(cwd)) {
+		die(BAKA_EXIT_CODE.USER_ERROR, `cwd does not exist: ${cwd}`)
+	}
+})
 
 // `baka init` -----------------------------------------------------------------
 

@@ -462,23 +462,18 @@ describe("VAL-CLI-017 baka list-modules --json is cwd-scoped", () => {
 // ---------------------------------------------------------------------------
 
 describe("VAL-CLI-018 baka --cwd <nonexistent>", () => {
-	// CONTRACT GAP (2026-06-26):
-	//   The CLI accepts any --cwd value without checking that the path
-	//   exists or is a directory. The current behavior is to silently
-	//   fall through with zero results — which is the wrong category:
-	//   a non-existent path is a USER_ERROR, not a successful no-op.
-	//   The fix lives in apps/cli/src/index.ts (validate the resolved
-	//   cwd via fs.statSync or fs.existsSync and die(1, ...)).
-	//   Tracking: see discovered issues in the handoff.
-
-	it.todo("exits 1 and names the missing path on stderr (blocked on implementation)")
-
-	it("CURRENT BEHAVIOR (documents the gap): exits 0 and silently treats the path as empty", async () => {
-		const { code, stderr } = await spawnCli({
-			argv: ["--cwd", "/no/such/path/for/baka/cli/smoke", "list-modules"],
+	it("exits 1 and names the missing path on stderr (no Node stack frames)", async () => {
+		const missingPath = "/no/such/path/for/baka/cli/smoke"
+		const { code, stdout, stderr } = await spawnCli({
+			argv: ["--cwd", missingPath, "list-modules"],
 		})
-		// Pin the actual behavior so any future fix is loud in the diff.
-		expect(code, `unexpected code; stderr=${stderr}`).toBe(0)
+		expect(code, `unexpected code; stderr=${stderr}`).toBe(1)
+		expect(stderr).toContain("cwd does not exist")
+		expect(stderr).toContain(missingPath)
+		// Stdout must not leak a successful no-op result.
+		expect(stdout).toBe("")
+		// No Node stack frames on stderr.
+		expect(stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
 	})
 })
 
@@ -487,28 +482,18 @@ describe("VAL-CLI-018 baka --cwd <nonexistent>", () => {
 // ---------------------------------------------------------------------------
 
 describe("VAL-CLI-031 baka install <bad-source>", () => {
-	// CONTRACT GAP (2026-06-26):
-	//   Today the CLI classifies an unrecognized source string as
-	//   ENGINE_ERROR (2) because parseSource's failure is caught in the
-	//   outer try/catch inside runInstallCommand. The contract wants
-	//   USER_ERROR (1) since this is user input, not engine state.
-	//   The fix lives in apps/cli/src/commands/marketplace.ts:
-	//   in runInstallCommand, catch the parse error before delegating
-	//   to resolveModuleName and die(BAKA_EXIT_CODE.USER_ERROR, ...)
-	//   explicitly.
-	//   Tracking: see discovered issues in the handoff.
-
-	it.todo("exits 1 with a parse-error stderr (blocked on implementation)")
-
-	it("CURRENT BEHAVIOR (documents the gap): exits 2 with the parse error message", async () => {
+	it("exits 1 with a parse-error stderr message", async () => {
 		const fakeHome = trackDir(makeEmptyDir("baka-install-bad-"))
-		const { code, stderr } = await spawnCliWithFakeHome({
+		const { code, stdout, stderr } = await spawnCliWithFakeHome({
 			argv: ["install", "not-a-real-source"],
 			fakeHome,
 		})
-		// Pin the actual behavior so any future fix is loud in the diff.
-		expect(code, `unexpected code; stderr=${stderr}`).toBe(2)
+		expect(code, `unexpected code; stderr=${stderr}`).toBe(1)
+		// The parse-error explanation should reach the user verbatim.
 		expect(stderr.toLowerCase()).toContain("unrecognized source")
+		// No Node stack frames on stderr.
+		expect(stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
+		expect(stdout).toBe("")
 	})
 })
 
