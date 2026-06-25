@@ -13,6 +13,18 @@ All notable changes to baka are recorded here. Dates use YYYY-MM-DD.
   `apps/cli/dist/index.js`; LLM-bound probes route through a hermetic
   fake harness bound to `127.0.0.1:0`.
 
+### Fixed
+
+- Closed the VAL-CLI-023 contract gap in `apps/cli/src/commands/plan.ts`:
+  `baka plan '<intent>' --save --json` now writes
+  `.baka/plans/<file>.plan.json` AND emits the documented
+  `{status, steps, logs}` JSON contract. The save branch now runs before
+  the JSON-mode early-return, and the JSON output gains optional
+  `planFile` and `savedAt` fields when `--save` is applied. The
+  `--save-alone` workaround in `engine-smoke.test.ts` (VAL-CLI-023,
+  VAL-CLI-025, VAL-CLI-027) was replaced with the contract-true
+  `--save --json` invocation.
+
 ### Changed
 
 - Vitest now runs test files serially in the `baka` package

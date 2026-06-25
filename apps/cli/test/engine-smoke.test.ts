@@ -531,42 +531,59 @@ describe("VAL-CLI-022 baka plan --json", () => {
 // ===========================================================================
 
 describe("VAL-CLI-023 baka plan --save", () => {
-	// KNOWN CONTRACT GAP: `apps/cli/src/commands/plan.ts:55` returns early in
-	// JSON mode before reaching the `opts.save` branch, so `--save --json`
-	// together silently skips the persistence step. We test `--save` alone
-	// (which works) and verify the file lands in .baka/plans/ with the
-	// documented shape.
-	it("writes .baka/plans/*.plan.json when --save is passed (without --json)", async () => {
+	// VAL-CLI-023 contract requires `--save --json` together to write the
+	// .plan.json file AND emit the documented JSON contract. Before the fix,
+	// `apps/cli/src/commands/plan.ts` returned early in JSON mode before
+	// reaching the save branch. The fix moves save before the JSON early-
+	// return and adds `planFile` + `savedAt` fields to the JSON output when
+	// --save was applied.
+	it("writes .baka/plans/*.plan.json AND emits documented JSON when --save --json are passed together", async () => {
 		const scratch = prepareScratchWithModules("baka-plan-save-")
 		const llm = await startSharedFakeLLM([planResponse("probe-save")])
 
 		try {
 			const { code, stdout, stderr } = await spawnCli({
-				argv: ["--cwd", scratch, "plan", "scaffold a TS project", "--save"],
+				argv: ["--cwd", scratch, "plan", "scaffold a TS project", "--save", "--json"],
 				cwd: scratch,
 				env: { BAKA_LLM_BASE_URL: llm.url, BAKA_LLM_MODEL: "fake-llm" },
 			})
 
 			expect(code, `unexpected exit ${code}; stderr=${stderr}`).toBe(0)
 
-			// Verify a plan file was written under .baka/plans/.
-			const plansDirPath = join(scratch, ".baka", "plans")
-			expect(existsSync(plansDirPath), `plans dir not created at ${plansDirPath}`).toBe(true)
-			const planFiles = readdirSyncSafe(plansDirPath).filter((f) => f.endsWith(".plan.json"))
-			expect(planFiles.length, `expected one .plan.json file, got ${planFiles.length}`).toBe(1)
-			const planFile = join(plansDirPath, planFiles[0] as string)
+			// The JSON contract is emitted to stdout with status, steps, logs.
+			const parsed = JSON.parse(stdout) as {
+				status: string
+				steps: Array<{ module: string; action: string; params: Record<string, unknown> }>
+				logs: string[]
+				planFile?: string
+				savedAt?: string
+			}
+			expect(parsed.status).toBe("SUCCESS")
+			expect(Array.isArray(parsed.steps)).toBe(true)
+			expect(parsed.steps.length).toBeGreaterThan(0)
+			expect(Array.isArray(parsed.logs)).toBe(true)
+			// The save fields are populated when --save was applied.
+			expect(typeof parsed.planFile).toBe("string")
+			expect(typeof parsed.savedAt).toBe("string")
+			expect((parsed.planFile as string).endsWith(".plan.json")).toBe(true)
+
+			// The persisted file exists at the path emitted in planFile.
+			const planFile = parsed.planFile as string
+			expect(existsSync(planFile), `plan file not written at ${planFile}`).toBe(true)
 			const plan = JSON.parse(readFileSync(planFile, "utf-8")) as {
 				resolvedSteps: unknown[]
 				meta?: { intent?: string; savedAt?: string }
 			}
 			expect(Array.isArray(plan.resolvedSteps)).toBe(true)
 			expect(plan.resolvedSteps.length).toBeGreaterThan(0)
-			// The intent is preserved in meta (the contract's "intent" key).
 			expect(plan.meta?.intent).toBe("scaffold a TS project")
 			expect(typeof plan.meta?.savedAt).toBe("string")
 
-			// Also verify the stdout summary announces the save.
-			expect(stdout).toContain("saved plan:")
+			// Sanity: the file is also visible under the conventional .baka/plans/ dir.
+			const plansDirPath = join(scratch, ".baka", "plans")
+			expect(planFile.startsWith(plansDirPath), `planFile ${planFile} not under ${plansDirPath}`).toBe(true)
+			const planFiles = readdirSyncSafe(plansDirPath).filter((f) => f.endsWith(".plan.json"))
+			expect(planFiles.length, `expected one .plan.json file, got ${planFiles.length}`).toBe(1)
 		} finally {
 			// close handled by afterEach
 		}
@@ -614,14 +631,16 @@ describe("VAL-CLI-025 baka list-plans", () => {
 		const llm = await startSharedFakeLLM([planResponse("probe-list-plans")])
 
 		try {
-			// Save a plan first. Use --save without --json (see VAL-CLI-023
-			// comment: --save --json is a documented gap in plan.ts:55).
+			// Save a plan first. Use --save --json together (the contract gap
+			// in plan.ts:55 was closed; see VAL-CLI-023).
 			const save = await spawnCli({
-				argv: ["--cwd", scratch, "plan", "scaffold a TS project", "--save"],
+				argv: ["--cwd", scratch, "plan", "scaffold a TS project", "--save", "--json"],
 				cwd: scratch,
 				env: { BAKA_LLM_BASE_URL: llm.url, BAKA_LLM_MODEL: "fake-llm" },
 			})
 			expect(save.code, `save failed: ${save.stderr}`).toBe(0)
+			const saved = JSON.parse(save.stdout) as { planFile?: string }
+			expect(typeof saved.planFile).toBe("string")
 
 			// Now list-plans.
 			const list = await spawnCli({
@@ -661,24 +680,28 @@ describe("VAL-CLI-026 baka apply <missing-plan>", () => {
 
 describe("VAL-CLI-027 baka apply <valid-plan> --json", () => {
 	it("emits the apply contract; status is SUCCESS or VALIDATION_FAILED on a clean scratch tree", async () => {
-		// Use --save without --json for the persistence step (see VAL-CLI-023
-		// comment: --save --json is a documented gap in plan.ts:55). The
-		// apply path itself supports --json and emits the documented shape.
+		// Use --save --json together (the contract gap in plan.ts:55 was
+		// closed; see VAL-CLI-023). The apply path itself supports --json
+		// and emits the documented shape.
 		const scratch = prepareScratchWithModules("baka-apply-")
 		const llm = await startSharedFakeLLM([planResponse("probe-apply")])
 
 		try {
-			// Save a plan.
+			// Save a plan. Use --save --json together so the saved file lands
+			// in .baka/plans/ and the response carries planFile.
 			const save = await spawnCli({
-				argv: ["--cwd", scratch, "plan", "scaffold a TS project", "--save"],
+				argv: ["--cwd", scratch, "plan", "scaffold a TS project", "--save", "--json"],
 				cwd: scratch,
 				env: { BAKA_LLM_BASE_URL: llm.url, BAKA_LLM_MODEL: "fake-llm" },
 			})
 			expect(save.code, `save failed: ${save.stderr}`).toBe(0)
+			const saved = JSON.parse(save.stdout) as { planFile?: string }
+			expect(typeof saved.planFile).toBe("string")
+			const planFile = saved.planFile as string
 
+			// Sanity: the file is visible under the conventional .baka/plans/ dir.
 			const planFiles = readdirSyncSafe(join(scratch, ".baka", "plans")).filter((f) => f.endsWith(".plan.json"))
 			expect(planFiles.length).toBe(1)
-			const planFile = join(scratch, ".baka", "plans", planFiles[0] as string)
 
 			// Apply it.
 			const apply = await spawnCli({

@@ -39,14 +39,36 @@ export async function runPlanCommand(intent: string, opts: PlanOpts): Promise<vo
 
 	const state = await featurePlanningWorkflow(intent, cwd, provider)
 
+	// --save runs BEFORE the JSON-mode early-return so `--save --json` together
+	// emits both the documented JSON contract AND the persisted .plan.json file.
+	// The contract requires both behaviors to coexist (VAL-CLI-023). Save only
+	// on successful plans — matches the previous human-mode semantics where
+	// the FAILED branch exits before reaching the save call.
+	let savedPlanFile: string | null = null
+	if (opts.save && state.status !== "FAILED") {
+		savedPlanFile = savePlan(
+			cwd,
+			intent,
+			{ resolvedSteps: state.executionPlan.steps },
+			config.providerOptions.name as string,
+			config.model,
+		)
+		log.write({ level: "info", source: "baka.plan", message: "saved plan", file: savedPlanFile })
+	}
+
 	// JSON mode: emit the same shape the MCP `baka_plan` tool returns, then
 	// exit. Suppress the human-formatted output so agents can pipe stdout
-	// straight into `jq`.
+	// straight into `jq`. When --save was also set, include `planFile` and
+	// `savedAt` so the JSON output identifies what was persisted.
 	if (opts.json) {
-		const result = {
+		const result: Record<string, unknown> = {
 			status: state.status === "FAILED" ? "FAILED" : "SUCCESS",
 			steps: state.executionPlan.steps,
 			logs: state.logs,
+		}
+		if (savedPlanFile) {
+			result.planFile = savedPlanFile
+			result.savedAt = new Date().toISOString()
 		}
 		console.log(JSON.stringify(result, null, 2))
 		if (state.status === "FAILED") {
@@ -65,16 +87,8 @@ export async function runPlanCommand(intent: string, opts: PlanOpts): Promise<vo
 		die(BAKA_EXIT_CODE.ENGINE_ERROR, "planning failed; see logs for details")
 	}
 
-	if (opts.save) {
-		const file = savePlan(
-			cwd,
-			intent,
-			{ resolvedSteps: state.executionPlan.steps },
-			config.providerOptions.name as string,
-			config.model,
-		)
-		log.write({ level: "info", source: "baka.plan", message: "saved plan", file })
-		console.log(`\nsaved plan: ${file}`)
+	if (savedPlanFile) {
+		console.log(`\nsaved plan: ${savedPlanFile}`)
 	}
 
 	if (opts.dryRun) {
