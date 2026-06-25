@@ -1,16 +1,42 @@
-import { mkdirSync, rmSync, cpSync, existsSync } from "node:fs"
+import { readdirSync, readFileSync, existsSync, mkdirSync, rmSync, cpSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import Handlebars from "handlebars"
 import { createJiti } from "jiti"
 import {
 	AgentRole,
 	type LLMProvider,
+	type LLMRequest,
 	type ModuleManifest,
 	type OrchestrationState,
 	type StepResponse,
 	type WorkflowStep,
 } from "@repo/protocol"
+import { z } from "zod"
 import { loadAction } from "./action-loader"
+
+/**
+ * Handlebars comment sentinel that opts a template out of LLM reasoning. If a
+ * .hbs file contains `{{!-- no-llm --}}` anywhere, the worker writes the
+ * pre-rendered template content directly to disk without calling the LLM.
+ */
+const NO_LLM_SENTINEL = /\{\{!--\s*no-llm\s*--\}\}/
+
+/**
+ * Shape of the LLM response for a single template render. The schema is
+ * enforced by the provider via constrained decoding when available, and
+ * validated post-hoc by the provider as a fallback.
+ */
+const TEMPLATE_RESPONSE_SCHEMA = z.object({ content: z.string() })
+
+/**
+ * System prompt used when asking the LLM to fill in the body of a template.
+ * The user prompt is the handlebars-pre-rendered template content.
+ */
+const TEMPLATE_SYSTEM_PROMPT =
+	"You are an LLM assistant for the baka engine. The user prompt is a template " +
+	"that was pre-filled with known params. Generate the requested content. " +
+	"Respond with valid JSON matching the schema."
 
 export interface WorkerInput {
 	moduleName: string
@@ -19,35 +45,32 @@ export interface WorkerInput {
 }
 
 /**
- * The Worker reads `state.targetDirectory` for the project root. The SAGA
- * sets this on the state before invoking any step, so individual step
- * inputs only need to carry the orchestrator's chosen params.
+ * Rollback data returned by the Worker. The SAGA passes this to the action's
+ * `compensate` during rollback, and the Worker's own `compensate` removes
+ * the scratch and output directories.
  */
-
 export interface WorkerRollbackData {
 	moduleName: string
 	actionName: string
 	parameters: Record<string, unknown>
 	targetDirectory: string
-	// Whatever the action's WorkflowStep returned as compensationData. The SAGA
-	// passes this to the action's `compensate` during rollback.
+	/** Whatever the action's WorkflowStep returned as compensationData. */
 	actionCompensationData: unknown
-	// The scratch dir we wrote into. Cleaned up after the action compensate runs.
+	/** Scratch dir the action ran in; cleaned up by the Worker's compensate. */
 	scratchDir: string
-	// The output dir we copied scratch into, so the Worker's own compensate can
-	// remove the produced files even if the action compensate throws.
+	/** Output dir the scratch was copied into; cleaned up by the Worker's compensate. */
 	outputDir: string
 }
 
 /**
- * The Worker is the dumb-automations tier: it loads the action the
+ * The Worker is the dumb-automations tier. It loads the action the
  * Orchestrator chose, runs it against a fresh scratch dir, copies the result
  * into the real target tree, and returns the data needed to roll back.
  *
- * If the action advertises `requiresReasoning: true`, the Worker renders the
- * handlebars template into a concrete string by calling the injected
- * LLMProvider; the action itself is still dumb and runs after the LLM has
- * produced the body.
+ * If the action advertises `requiresReasoning: true`, the Worker renders
+ * handlebars templates (under `<module>/<action>/templates/`) into LLM
+ * prompts, calls the injected LLMProvider to fill the body, and passes the
+ * generated content to the action as `renderedTemplates`.
  */
 export const executeWorkerStep: WorkflowStep<WorkerInput, boolean, WorkerRollbackData> = {
 	name: "execute-worker-step",
@@ -72,14 +95,12 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, boolean, WorkerRollbac
 			const action = manifest.actions.find((a) => a.id === input.actionName)
 			if (!action) throw new Error(`action "${input.actionName}" not declared in ${input.moduleName} manifest`)
 
-			// Make templates and validators available by relative path inside the scratch dir.
 			const templatesDir = join(moduleRoot, action.id, "templates")
 			if (existsSync(templatesDir)) cpSync(templatesDir, join(scratchDir, "templates"), { recursive: true })
 
-			// If the action requires reasoning, render templates via the LLM.
 			const enrichedParams: Record<string, unknown> = action.requiresReasoning
-				? await fillReasoningTemplates(input, action, manifest, state, ctx?.llmProvider ?? null)
-				: (input.parameters as Record<string, unknown>)
+				? await fillReasoningTemplates(input, action, state, ctx?.llmProvider ?? null)
+				: input.parameters
 
 			const loaded = loadAction<Record<string, unknown>, unknown, unknown>(
 				targetDirectory,
@@ -89,7 +110,6 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, boolean, WorkerRollbac
 			)
 			const result = await loaded.step.execute(enrichedParams, state, ctx)
 
-			// Overlay the scratch dir into the output location.
 			cpSync(scratchDir, outputDir, { recursive: true })
 
 			return {
@@ -124,7 +144,7 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, boolean, WorkerRollbac
 		}
 	},
 
-	compensate: async (data, _state): Promise<void> => {
+	compensate: async (data) => {
 		try {
 			if (existsSync(data.outputDir)) rmSync(data.outputDir, { recursive: true, force: true })
 		} catch {
@@ -151,32 +171,92 @@ function loadManifest(projectRoot: string, moduleName: string): ModuleManifest {
 }
 
 /**
- * For actions with `requiresReasoning: true`, render the handlebars template
- * into a concrete string via the LLM provider. The LLM is only used to fill
- * in the body of the template; the action itself then runs as if the LLM
- * had no creative input.
+ * For actions with `requiresReasoning: true`, discover handlebars templates
+ * under `<module>/<action>/templates/`, pre-render each with the action
+ * params, then call the LLM to generate the body content. The LLM responses
+ * are collected into `renderedTemplates` keyed by the template path without
+ * `.hbs` (relative to the templates dir).
  *
- * Phase 3 wires the structure; Phase 4 supplies a real LLMProvider. Until
- * then, the call throws so the failure mode is loud.
+ * If no `templates/` dir exists, or no `.hbs` files are present, the
+ * parameters pass through unchanged with an empty `renderedTemplates`.
  */
 async function fillReasoningTemplates(
 	input: WorkerInput,
 	action: { id: string },
-	_manifest: ModuleManifest,
-	_state: OrchestrationState,
+	state: OrchestrationState,
 	provider: LLMProvider | null,
 ): Promise<Record<string, unknown>> {
-	void _state
+	const targetDirectory = state.targetDirectory
+	if (!targetDirectory) {
+		throw new Error("Worker: state.targetDirectory is not set; the SAGA must set it before invoking steps")
+	}
 	if (!provider) {
 		throw new Error(
 			`action "${action.id}" declares requiresReasoning: true, but no LLMProvider was injected into the Worker. ` +
 				`Pass --provider or run \`baka providers use <name>\` first.`,
 		)
 	}
-	// Real implementation: walk input.parameters, for each value that is a
-	// template path (e.g. params.body === "./templates/<id>.hbs"), render via
-	// the LLM and write the rendered body back into the scratch dir under the
-	// same relative path. The action then sees a fully-rendered string.
-	void input
-	throw new Error("requiresReasoning template rendering is wired up in Phase 4")
+
+	const templatesDir = join(targetDirectory, "modules", input.moduleName, action.id, "templates")
+	if (!existsSync(templatesDir)) {
+		return { ...input.parameters, renderedTemplates: {} }
+	}
+
+	const hbsFiles = discoverHbsFiles(templatesDir)
+	if (hbsFiles.length === 0) {
+		return { ...input.parameters, renderedTemplates: {} }
+	}
+
+	const renderedTemplates: Record<string, string> = {}
+	for (const hbsFile of hbsFiles) {
+		const content = readFileSync(hbsFile, "utf-8")
+		const key = relativePath(templatesDir, hbsFile).replace(/\.hbs$/, "")
+		const preRendered = Handlebars.compile(content)(input.parameters)
+
+		renderedTemplates[key] = NO_LLM_SENTINEL.test(content)
+			? preRendered
+			: await callLLM(provider, preRendered)
+	}
+
+	return { ...input.parameters, renderedTemplates }
+}
+
+/**
+ * Call the LLM to fill in the body of a pre-rendered handlebars template.
+ * The template's text becomes the user prompt; the response schema constrains
+ * the model to return `{ content: string }`.
+ */
+async function callLLM(provider: LLMProvider, preRendered: string): Promise<string> {
+	const request: LLMRequest = {
+		model: "",
+		messages: [
+			{ role: "system", content: TEMPLATE_SYSTEM_PROMPT },
+			{ role: "user", content: preRendered },
+		],
+		responseSchema: TEMPLATE_RESPONSE_SCHEMA,
+		temperature: 0.7,
+	}
+	const response = await provider.chat<{ content: string }>(request)
+	return response.content.content.trim()
+}
+
+/** Recursively discover all `.hbs` files under a directory. */
+function discoverHbsFiles(dir: string): string[] {
+	if (!existsSync(dir)) return []
+
+	const results: string[] = []
+	for (const entry of readdirSync(dir, { withFileTypes: true })) {
+		const fullPath = join(dir, entry.name)
+		if (entry.isDirectory()) {
+			results.push(...discoverHbsFiles(fullPath))
+		} else if (entry.isFile() && entry.name.endsWith(".hbs")) {
+			results.push(fullPath)
+		}
+	}
+	return results
+}
+
+/** Compute the relative path of `target` from `base`, using forward slashes. */
+function relativePath(base: string, target: string): string {
+	return target.slice(base.length).split(/\/|\\/).filter(Boolean).join("/")
 }

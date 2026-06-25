@@ -30,6 +30,28 @@ export interface SagaResult {
 }
 
 /**
+ * Compensation shape returned by `executeWorkerStep`. The Worker wraps the
+ * action's own compensation data inside this envelope so the SAGA can roll
+ * back both the action and the Worker's scratch/output directories.
+ */
+interface WorkerCompensationEnvelope {
+	actionCompensationData?: unknown
+}
+
+/**
+ * Unwrap a Worker step's compensation data to expose the inner action's
+ * compensation data. Validators read this directly (e.g. to inspect
+ * `createdFiles`), so they should not have to know about the Worker's
+ * envelope shape.
+ */
+function unwrapWorkerCompensation(raw: unknown): unknown {
+	if (raw && typeof raw === "object" && "actionCompensationData" in raw) {
+		return (raw as WorkerCompensationEnvelope).actionCompensationData
+	}
+	return raw
+}
+
+/**
  * The SAGA orchestrator. Runs the plan step by step, tracks completed steps,
  * and on failure rolls them back in reverse order. The rollback call always
  * runs (it is wrapped in a try/catch) so that one bad compensate does not
@@ -53,53 +75,40 @@ export async function runSaga(
 		state.executionPlan.currentStepIndex = i
 		state.logs.push(`[saga] step ${i + 1}/${plan.resolvedSteps.length}: ${planStep.module}:${planStep.action}`)
 
-		const key = `${planStep.module}:${planStep.action}`
-		const step = stepsByKey.get(key)
+		// Normalize the module name by stripping the version suffix the planner
+		// emits (e.g. "sdd v0.1.0" → "sdd") since worker steps are keyed by name only.
+		const moduleName = planStep.module.split(" v")[0] ?? planStep.module
+		const step = stepsByKey.get(`${moduleName}:${planStep.action}`)
 		if (!step) {
-			const err = `no worker step registered for ${key}`
-			state.logs.push(`[saga] ${err}`)
-			const failed = { id: planStep.id, error: err }
-			await rollback(completed, state, ctx)
-			state.status = ENGINE_STATUS.FAILED
-			return { state, completed, failed }
+			const message = `no worker step registered for ${moduleName}:${planStep.action}`
+			return fail(state, completed, planStep.id, message, ctx)
 		}
 
 		let result: StepResponse<unknown, unknown>
 		try {
-			// Wrap the step's input so it carries the module/action names from
-			// the plan step plus the orchestrator's chosen params as `parameters`.
-			// Worker steps are keyed by `module:action` in the registry; this
-			// wrap lets the same step type handle every action in a plan.
-			const wrappedInput = {
-				moduleName: planStep.module,
-				actionName: planStep.action,
-				parameters: planStep.params,
-			}
-			result = await step.execute(wrappedInput, state, ctx)
+			result = await step.execute(
+				{ moduleName, actionName: planStep.action, parameters: planStep.params },
+				state,
+				ctx,
+			)
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
 			state.logs.push(`[saga] step ${planStep.id} threw: ${message}`)
-			const failed = { id: planStep.id, error: message }
-			await rollback(completed, state, ctx)
-			state.status = ENGINE_STATUS.FAILED
-			return { state, completed, failed }
+			return fail(state, completed, planStep.id, message, ctx)
 		}
 
 		if (!result.success) {
 			const message = result.error ?? "step returned success: false"
 			state.logs.push(`[saga] step ${planStep.id} failed: ${message}`)
-			const failed = { id: planStep.id, error: message }
-			await rollback(completed, state, ctx)
-			state.status = ENGINE_STATUS.FAILED
-			return { state, completed, failed }
+			return fail(state, completed, planStep.id, message, ctx)
 		}
 
 		completed.push({
 			id: planStep.id,
-			module: planStep.module,
+			module: moduleName,
 			action: planStep.action,
 			step,
-			compensationData: result.compensationData,
+			compensationData: unwrapWorkerCompensation(result.compensationData),
 		})
 	}
 
@@ -108,11 +117,25 @@ export async function runSaga(
 	return { state, completed, failed: null }
 }
 
+async function fail(
+	state: OrchestrationState,
+	completed: CompletedStep[],
+	stepId: string,
+	message: string,
+	ctx: StepContext,
+): Promise<SagaResult> {
+	state.logs.push(`[saga] ${message}`)
+	await rollback(completed, state, ctx)
+	state.status = ENGINE_STATUS.FAILED
+	return { state, completed, failed: { id: stepId, error: message } }
+}
+
 async function rollback(completed: CompletedStep[], state: OrchestrationState, ctx: StepContext): Promise<void> {
 	state.status = ENGINE_STATUS.COMPENSATING
 	state.logs.push(`[saga] rolling back ${completed.length} step(s) in reverse`)
 	for (let i = completed.length - 1; i >= 0; i--) {
 		const c = completed[i]
+		if (!c) continue
 		state.logs.push(`[saga] compensating ${c.module}:${c.action}`)
 		try {
 			await c.step.compensate(c.compensationData, state, ctx)

@@ -169,7 +169,7 @@ export function validateLLMConfig(config: ResolvedLLMConfig): void {
 // Provider factory
 // ---------------------------------------------------------------------------
 
-import { OpenAICompatibleProvider } from "./openai-compatible.js"
+import { OpenAICompatibleProvider } from "./providers/openai-compatible.js"
 
 export { OpenAICompatibleProvider }
 

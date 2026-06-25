@@ -5,12 +5,28 @@
 // invokes from the DELIVER phase.
 // ---------------------------------------------------------------------------
 
-import { mkdirSync, rmSync, symlinkSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import type { DesignSessionState } from "@repo/module-management-workflow"
 import { type ConsistencyResult, runConsistencyTest } from "@repo/ast-tooling"
-import { loadSession } from "@repo/module-management-workflow"
+
+// Minimal inline equivalent of loadSession — avoids tsx ESM static-analysis
+// issue when Node can't verify named exports from a .ts package entry.
 import { renderConsistencyResult } from "./render"
+
+const STATE_FILE = ".design-state.json"
+
+function loadSession(moduleDir: string): DesignSessionState | null {
+	const path = join(moduleDir, STATE_FILE)
+	if (!existsSync(path)) return null
+	try {
+		return JSON.parse(readFileSync(path, "utf-8")) as DesignSessionState
+	}
+	catch {
+		return null
+	}
+}
 
 export interface RunConsistencyArgs {
 	n: number

@@ -11,6 +11,16 @@ import {
 } from "@repo/protocol"
 import { createJiti } from "jiti"
 
+/**
+ * Convert a camelCase validator id (e.g. "hasPackageJson") to its kebab-case
+ * filename stem (e.g. "has-package-json"). Validator ids stay camelCase in
+ * manifests (matching JS function names) but live as kebab-case .ts files
+ * on disk (matching the codebase's filename convention).
+ */
+function validatorFilename(id: string): string {
+	return id.replace(/[A-Z]/g, (m, offset) => (offset > 0 ? "-" : "") + m.toLowerCase())
+}
+
 export class ModuleRegistry {
 	private readonly byName = new Map<string, ModuleManifest>()
 	private readonly root: string
@@ -124,12 +134,12 @@ export class ModuleRegistry {
 						}
 					}
 					for (const ruleId of action.validators ?? []) {
-						const rulePath = join(moduleRoot, action.id, "validators", `${ruleId}.ts`)
+						const rulePath = join(moduleRoot, action.id, "validators", `${validatorFilename(ruleId)}.ts`)
 						if (!existsSync(rulePath)) {
 							diagnostics.push({
 								severity: "error",
 								rule: "action-validator-missing",
-								message: `${entry.name}: action "${action.id}" declares validator "${ruleId}" but ${action.id}/validators/${ruleId}.ts does not exist`,
+								message: `${entry.name}: action "${action.id}" declares validator "${ruleId}" but ${action.id}/validators/${validatorFilename(ruleId)}.ts does not exist`,
 							})
 						}
 					}
@@ -192,7 +202,7 @@ export class ModuleRegistry {
 		const diagnostics: ValidationDiagnostic[] = []
 		for (const m of this.all()) {
 			for (const ruleId of m.moduleValidators) {
-				const rulePath = join(this.root, "modules", m.name, "_shared", "validators", `${ruleId}.ts`)
+				const rulePath = join(this.root, "modules", m.name, "_shared", "validators", `${validatorFilename(ruleId)}.ts`)
 				if (!existsSync(rulePath)) {
 					diagnostics.push({
 						severity: "error",
@@ -206,12 +216,12 @@ export class ModuleRegistry {
 			// only does structural checks).
 			for (const action of m.actions) {
 				for (const ruleId of action.validators ?? []) {
-					const rulePath = join(this.root, "modules", m.name, action.id, "validators", `${ruleId}.ts`)
+					const rulePath = join(this.root, "modules", m.name, action.id, "validators", `${validatorFilename(ruleId)}.ts`)
 					if (!existsSync(rulePath)) {
 						diagnostics.push({
 							severity: "error",
 							rule: `${m.name}:${action.id}:${ruleId}`,
-							message: `${m.name}: action "${action.id}" declares validator "${ruleId}" but ${action.id}/validators/${ruleId}.ts does not exist`,
+							message: `${m.name}: action "${action.id}" declares validator "${ruleId}" but ${action.id}/validators/${validatorFilename(ruleId)}.ts does not exist`,
 						})
 					}
 				}

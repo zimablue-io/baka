@@ -3,6 +3,16 @@ import { join } from "node:path"
 import type { ModuleManifest, OrchestrationState, ValidationDiagnostic, WorkflowStep } from "@repo/protocol"
 import { createJiti } from "jiti"
 
+/**
+ * Convert a camelCase validator id (e.g. "hasPackageJson") to its kebab-case
+ * filename stem (e.g. "has-package-json"). Validator ids stay camelCase in
+ * manifests (matching JS function names) but live as kebab-case .ts files
+ * on disk (matching the codebase's filename convention).
+ */
+function validatorFilename(id: string): string {
+	return id.replace(/[A-Z]/g, (m, offset) => (offset > 0 ? "-" : "") + m.toLowerCase())
+}
+
 export interface LoadedAction<TInput, TOutput, TCompensationData> {
 	step: WorkflowStep<TInput, TOutput, TCompensationData>
 	manifest: ModuleManifest
@@ -63,7 +73,7 @@ export interface ModuleValidatorFn {
 }
 
 export function loadModuleValidator(projectRoot: string, moduleRoot: string, validatorId: string): ModuleValidatorFn {
-	const path = join(moduleRoot, "_shared", "validators", `${validatorId}.ts`)
+	const path = join(moduleRoot, "_shared", "validators", `${validatorFilename(validatorId)}.ts`)
 	if (!existsSync(path)) {
 		throw new Error(`module validator not found: ${path}`)
 	}
@@ -92,7 +102,7 @@ export function loadActionValidator(
 	actionId: string,
 	validatorId: string,
 ): ActionValidatorFn {
-	const path = join(moduleRoot, actionId, "validators", `${validatorId}.ts`)
+	const path = join(moduleRoot, actionId, "validators", `${validatorFilename(validatorId)}.ts`)
 	if (!existsSync(path)) {
 		throw new Error(`action validator not found: ${path}`)
 	}
