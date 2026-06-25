@@ -1,5 +1,13 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js"
+import {
+	ErrorCode,
+	type InitializeRequest,
+	InitializeRequestSchema,
+	LATEST_PROTOCOL_VERSION,
+	McpError,
+	SUPPORTED_PROTOCOL_VERSIONS,
+} from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod"
 import { createContext, getModules, type ServerContext } from "./context.js"
 import { DESIGN_MODULE_DESCRIPTION, DESIGN_MODULE_PROMPT_NAME, designModuleMessages } from "./prompts/design-module.js"
@@ -38,8 +46,128 @@ export function startServer(opts: StartServerOptions): McpServer {
 	registerResources(server, ctx)
 	registerPrompts(server)
 
+	// One structured stderr log line per successful `tools/call`. The MCP
+	// SDK does not surface stderr logs out of the box, but the validation
+	// contract (VAL-MCP-025) requires one structured line per call. Logs
+	// are tagged with the tool name and a per-call id; stdout is untouched
+	// (the JSON-RPC stream lives there).
+	installToolCallLogging(server)
+
+	// Concurrent initialize requests are rejected cleanly (VAL-MCP-023).
+	// The MCP SDK's default behavior is to accept subsequent inits; the
+	// contract requires rejection. We replace the init handler with one
+	// that tracks state and throws InvalidRequest on the second call.
+	installInitializeGuard(server)
+
 	return server
 }
+
+// ---------------------------------------------------------------------------
+// Stderr tool-call logging (VAL-MCP-025)
+// ---------------------------------------------------------------------------
+
+interface ToolResultLike {
+	isError?: boolean
+}
+
+function logToolCall(toolName: string, callId: string, status: "ok" | "error", extra?: Record<string, unknown>): void {
+	const entry = {
+		ts: new Date().toISOString(),
+		level: status === "ok" ? "info" : "error",
+		source: "baka-mcp.tool",
+		message: "tool call",
+		tool: toolName,
+		callId,
+		status,
+		...(extra ?? {}),
+	}
+	try {
+		process.stderr.write(`${JSON.stringify(entry)}\n`)
+	} catch {
+		// Logging must never throw; a write failure here would propagate up
+		// and break the MCP response path.
+	}
+}
+
+function newCallId(): string {
+	return `call-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+/**
+ * Wrap each registered tool's callback so that one structured stderr log
+ * line is emitted per invocation. Logs tagged with the tool name (so the
+ * validator can grep for it) and a per-call id.
+ */
+function installToolCallLogging(server: McpServer): void {
+	// The MCP SDK's tools/call handler dispatches into the registered
+	// tool callbacks. We can't replace the dispatch from here without
+	// re-implementing validation, so we hook into the McpServer's
+	// tool registry by wrapping each callback at registration time.
+	// (The MCP server has no public "wrap all" API; the alternative is
+	// to override `CallToolRequestSchema`, which would force us to
+	// re-implement schema validation. The wrap-each-callback approach
+	// is the minimal, behavior-preserving one.)
+	const registered = (server as unknown as { _registeredTools?: Record<string, { handler: unknown }> })._registeredTools
+	if (!registered) return
+	for (const [name, entry] of Object.entries(registered)) {
+		const original = entry.handler as (input: unknown, extra: unknown) => Promise<unknown>
+		entry.handler = async (input: unknown, extra: unknown) => {
+			const callId = newCallId()
+			try {
+				const result = (await original(input, extra)) as ToolResultLike | undefined
+				const isErr = result?.isError === true
+				logToolCall(name, callId, isErr ? "error" : "ok")
+				return result
+			} catch (err) {
+				logToolCall(name, callId, "error", {
+					error: err instanceof Error ? err.message : String(err),
+				})
+				throw err
+			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Concurrent initialize rejection (VAL-MCP-023)
+// ---------------------------------------------------------------------------
+
+function installInitializeGuard(server: McpServer): void {
+	// The MCP SDK re-registers `InitializeRequestSchema` inside the
+	// Server constructor. Replacing it here is supported by Protocol:
+	// `setRequestHandler` overwrites the existing entry. The capabilities
+	// come from the server's own `getCapabilities()` (public on the base
+	// Protocol class — `Server`'s `getCapabilities` is a thin re-export);
+	// the serverInfo is reconstructed from the same constants the
+	// McpServer was built with.
+	const capabilities = (server.server as unknown as { getCapabilities(): ServerCapabilities }).getCapabilities()
+	server.server.setRequestHandler(InitializeRequestSchema, async (request: InitializeRequest) => {
+		if (initState === "initialized") {
+			throw new McpError(ErrorCode.InvalidRequest, "server already initialized")
+		}
+		initState = "initialized"
+		const requestedVersion = request.params.protocolVersion
+		const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.includes(requestedVersion)
+			? requestedVersion
+			: LATEST_PROTOCOL_VERSION
+		return {
+			protocolVersion,
+			capabilities,
+			serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
+		}
+	})
+	server.server.oninitialized = () => {
+		// Stay "initialized" — subsequent initialize calls are rejected
+		// by the guard above. The MCP spec permits this; the validation
+		// contract (VAL-MCP-023) requires it.
+	}
+}
+
+interface ServerCapabilities {
+	[key: string]: unknown
+}
+
+let initState: "pending" | "initialized" = "pending"
 
 // ---------------------------------------------------------------------------
 // Workflow-level tools
