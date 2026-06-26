@@ -35,6 +35,67 @@ All notable changes to baka are recorded here. Dates use YYYY-MM-DD.
   `-p <provider>` non-mutation guarantee. All probes spawn the built
   `apps/cli/dist/index.js`; LLM-bound probes route through a hermetic
   fake harness bound to `127.0.0.1:0`.
+- `knip.jsonc` at the repo root (M3-F3). The config declares every
+  workspace's entry and project globs, ignores module action / validator
+  files loaded dynamically via `jiti`
+  (`packages/ast-tooling/src/action-loader.ts`), suppresses the
+  `workflow` dependency that is consumed through the `"use workflow"`
+  and `"use step"` directives, and turns on
+  `ignoreExportsUsedInFile` to silence internal-only re-exports.
+  `pnpm knip` now exits 0 (VAL-CI-008).
+- Project-local `PostToolUse` hook in `.factory/settings.json`
+  (M3-F4, VAL-DOC-015). A thin Node helper at
+  `.factory/hooks/biome-format.mjs` runs `biome check --write` on every
+  `Edit|Write|MultiEdit` of a formattable file (TS / TSX / JS / JSON).
+  Universal hooks (SessionStart, UserPromptSubmit, Stop) remain
+  inherited from `~/.factory/settings.json` via the documented
+  extension-only merge; the project-local file now contributes one
+  real hook instead of `{}`.
+
+### Fixed
+
+- `packages/ast-tooling/test/marketplace-catalogs.test.ts` was moved to
+  `packages/ast-tooling/src/marketplace-catalogs.test.ts` (M3
+  scrutiny-flagged dead test). The vitest include glob
+  (`packages/ast-tooling/vitest.config.ts`) is `src/**/*.test.ts`, so
+  the file was silently outside the test suite; `pnpm --filter
+  @repo/ast-tooling test` now runs the full 10 tests (the original 8
+  plus the two added during recon).
+- `VALIDATOR` member of `AgentRole` (`packages/protocol/src/types.ts`)
+  is now tagged `@lintignore` so it stays in the public protocol
+  shape without surfacing as a knip finding. The enum is part of the
+  public API contract; removing the member would be a breaking change.
+
+### Changed
+
+- `apps/mcp/src/resources/modules.ts`: `MODULE_MANIFEST_TEMPLATE` is
+  tagged `@lintignore` and kept as a backwards-compat alias for
+  `MODULE_MANIFEST_TEMPLATE_METADATA`.
+- `packages/agent-engine/src/config/store.ts`: `CURRENT_PLATFORM` and
+  `IS_WINDOWS` are tagged `@lintignore`. They are part of the package's
+  public surface for downstream consumers that need cross-platform
+  config paths; nothing in the monorepo reads them today.
+- `packages/protocol/src/constants.ts`: the `EngineStatus`,
+  `BakaExitCode`, `BakaProviderName`, and `ModuleCategory` types are
+  tagged `@lintignore`. They are the `keyof typeof` companion to
+  public protocol constants; external tools (dashboards, scripts)
+  consume them by name.
+- `apps/cli/package.json` and `apps/mcp/package.json`: the recon pass
+  removed dead dependencies and devDependencies
+  (`conf`, `esbuild`, `@repo/module-management-workflow` in apps/mcp,
+  `jiti` in apps/mcp). These were declared but not imported; `pnpm
+  knip` was the validation gate that confirmed the removals.
+
+## [Unreleased] - 2026-06-25
+
+### Added
+
+- Engine-surface smoke test suite at `apps/cli/test/engine-smoke.test.ts`
+  covering `baka module *` (create, validate, list-actions, test), the
+  `plan`/`list-plans`/`apply`/`validate` flow, and the cross-area
+  `-p <provider>` non-mutation guarantee. All probes spawn the built
+  `apps/cli/dist/index.js`; LLM-bound probes route through a hermetic
+  fake harness bound to `127.0.0.1:0`.
 
 ### Fixed
 
