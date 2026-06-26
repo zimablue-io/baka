@@ -8,7 +8,7 @@
 		"lint": "biome check .",
 		"test": "turbo run test",
 		"check-types": "turbo run check-types",
-		"pack": "rm -rf dist-tarballs && mkdir -p dist-tarballs && pnpm --filter ./apps/cli exec pnpm pack --pack-destination \"$PWD/dist-tarballs\" && pnpm --filter ./apps/mcp exec pnpm pack --pack-destination \"$PWD/dist-tarballs\"",
+		"pack": "rm -rf dist-tarballs && mkdir -p dist-tarballs && node scripts/pack.mjs baka --out \"$PWD/dist-tarballs\" && node scripts/pack.mjs @baka/mcp-server --out \"$PWD/dist-tarballs\"",
 		"knip": "pnpm dlx knip@5",
 		"format": "biome format --write .",
 		"format:check": "biome format .",

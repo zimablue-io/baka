@@ -6,6 +6,60 @@ All notable changes to baka are recorded here. Dates use YYYY-MM-DD.
 
 ### Added
 
+- Clean, installable tarballs for `baka` and `@baka/mcp-server`
+  (M4-F2). `pnpm pack` produces `baka-<version>.tgz` and
+  `@baka-mcp-server-<version>.tgz` with the right `package.json`,
+  `bin`, `dist/`, `README.md`, and `LICENSE` — and without
+  `test/`, `src/`, `tsconfig.json`, `tsup.config.ts`, `vitest.config.ts`,
+  `.turbo/`, dev dependencies, or workspace-only `dependencies`
+  (`@repo/*`, `@baka/*`, `baka-sdk`). The tsup config in
+  `apps/cli/tsup.config.ts` now bundles `baka-sdk` (not just
+  `@repo/*`) so the dist is self-contained. The
+  `scripts/pack.mjs` wrapper rewrites the published manifest
+  (drops workspace deps, devDeps, and the `private: true`
+  guard) for the duration of the pack, then restores the
+  source `package.json`.
+- `files` field in `apps/cli/package.json` and
+  `apps/mcp/package.json` restricting the published contents
+  to `dist`, `README.md`, and `LICENSE`. Each app directory
+  carries a copy of the root `README.md` and `LICENSE` so the
+  field resolves at pack time.
+- `scripts/unlink-global.sh`: idempotently removes the global
+  `baka` and `baka-mcp` shims, regardless of which pnpm version
+  (or install method) created them. Falls back from
+  `pnpm unlink --global <pkg>` to `pnpm uninstall -g <pkg>` to
+  a direct `rm -f` of the shim file, in that order. Used by
+  the README uninstall section and the VAL-CROSS-008
+  uninstall round-trip.
+- `pnpm pack` now invokes `scripts/pack.mjs` for both
+  workspaces, replacing the old direct `pnpm pack --filter`
+  invocation. The wrapper is the canonical entry point for
+  any tarball build.
+
+### Verified (M4-F2 + M4-F3)
+
+- `pnpm install -g` of both tarballs puts `baka` and
+  `baka-mcp` on PATH (`which` returns real paths).
+- `pnpm link --global` from the repo root achieves the same
+  effect without installing from a tarball.
+- `baka --help` and `baka-mcp initialize` work from `/tmp`,
+  `$HOME`, and the repo root after link (cwd-independent).
+- Re-running `pnpm link --global` is idempotent (single
+  symlink per binary, no duplicate).
+- Uninstall round-trip: unlink empties `which`; re-link
+  restores; both binaries work after re-link.
+- Clean-room install in `/tmp/baka-cleanroom` (no baka
+  repo, no prior install): both tarballs install
+  globally, `baka --version` returns 0.1.0, `baka-mcp
+  initialize` returns the documented serverInfo.
+- PATH-not-set failure: `PATH=/usr/bin:/bin baka` returns
+  `command not found` with exit 127, the documented POSIX
+  failure mode.
+
+## [Unreleased] - 2026-06-26
+
+### Added
+
 - MCP end-to-end test suite at `apps/mcp/test/mcp-e2e.test.ts` that
   spawns `apps/mcp/dist/index.js` over stdio and exercises every
   JSON-RPC surface: `initialize`, `tools/list`, `tools/call`

@@ -7,6 +7,11 @@
 	"bin": {
 		"baka": "./dist/index.js"
 	},
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE"
+	],
 	"scripts": {
 		"build": "tsup",
 		"check-types": "tsc --noEmit",
@@ -27,14 +32,12 @@
 		"@repo/module-management-workflow": "workspace:*",
 		"@repo/protocol": "workspace:*",
 		"commander": "^15.0.0",
-		"conf": "^15.1.0",
 		"jiti": "^2.7.0"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "workspace:*",
 		"@types/node": "^22.19.15",
 		"@vitest/coverage-v8": "4.1.8",
-		"esbuild": "0.28.1",
 		"tsup": "^8.3.5",
 		"tsx": "^4.19.2",
 		"typescript": "^5.9.2",

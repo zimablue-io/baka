@@ -26,7 +26,7 @@ export default defineConfig({
 	clean: true,
 	sourcemap: true,
 	minify: false,
-	noExternal: [/^@repo\//],
+	noExternal: [/^@repo\//, /^@baka\//, "baka-sdk"],
 	external: ["jiti"],
 	splitting: false,
 })

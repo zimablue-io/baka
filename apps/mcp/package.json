@@ -7,6 +7,11 @@
 	"bin": {
 		"baka-mcp": "./dist/index.js"
 	},
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE"
+	],
 	"scripts": {
 		"build": "tsup",
 		"check-types": "tsc --noEmit",
@@ -20,9 +25,7 @@
 		"@repo/ast-tooling": "workspace:*",
 		"@repo/discovery-workflow": "workspace:*",
 		"@repo/feature-planning-workflow": "workspace:*",
-		"@repo/module-management-workflow": "workspace:*",
 		"@repo/protocol": "workspace:*",
-		"jiti": "^2.7.0",
 		"zod": "^3.23.0"
 	},
 	"devDependencies": {
