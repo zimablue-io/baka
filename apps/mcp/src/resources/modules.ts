@@ -80,6 +80,7 @@ export const MODULE_MANIFEST_TEMPLATE_METADATA = {
 } as const
 
 // Keep the old constant name as an alias for any external consumers.
+/** @lintignore Kept as a backwards-compat alias for MODULE_MANIFEST_TEMPLATE_METADATA. */
 export const MODULE_MANIFEST_TEMPLATE = {
 	uriTemplate: MODULE_MANIFEST_URI_TEMPLATE_STRING,
 	...MODULE_MANIFEST_TEMPLATE_METADATA,

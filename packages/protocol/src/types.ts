@@ -24,6 +24,7 @@ export type ResolvedPlan = z.infer<typeof ResolvedPlanSchema>
 export enum AgentRole {
 	ORCHESTRATOR = "orchestrator",
 	WORKER = "worker",
+	/** @lintignore Reserved for the planned validator-agent role; the enum shape is part of the public protocol. */
 	VALIDATOR = "validator",
 }
 

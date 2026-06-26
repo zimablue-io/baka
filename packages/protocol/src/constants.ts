@@ -9,6 +9,7 @@ export const ENGINE_STATUS = {
 	FAILED: "FAILED",
 } as const
 
+/** @lintignore Public protocol type — engine state machine values; consumed by external tools (e.g. dashboards). */
 export type EngineStatus = (typeof ENGINE_STATUS)[keyof typeof ENGINE_STATUS]
 
 // Structured exit codes for the CLI. Picked up by the baka binary and forwarded to process.exit.
@@ -20,6 +21,7 @@ export const BAKA_EXIT_CODE = {
 	VALIDATION_ERROR: 4,
 } as const
 
+/** @lintignore Public protocol type — the BAKA_EXIT_CODE union; consumed by external tools that read baka CLI exit codes. */
 export type BakaExitCode = (typeof BAKA_EXIT_CODE)[keyof typeof BAKA_EXIT_CODE]
 
 // Names of the providers shipped with baka. Users can register more via baka providers add.
@@ -28,6 +30,7 @@ export const BAKA_PROVIDER = {
 	PI_ADAPTER: "pi-adapter",
 } as const
 
+/** @lintignore Public protocol type — the BAKA_PROVIDER union; consumed by external tools that switch on provider names. */
 export type BakaProviderName = (typeof BAKA_PROVIDER)[keyof typeof BAKA_PROVIDER]
 
 // Reserved module categories used in docs and error messages. The set of installed
@@ -42,6 +45,7 @@ export const MODULE_CATEGORY = {
 	PATTERN: "pattern",
 } as const
 
+/** @lintignore Public protocol type — the MODULE_CATEGORY union; consumed by external tools and docs for module categorization. */
 export type ModuleCategory = (typeof MODULE_CATEGORY)[keyof typeof MODULE_CATEGORY]
 
 // Env var prefix. All user-facing env vars start with BAKA_.

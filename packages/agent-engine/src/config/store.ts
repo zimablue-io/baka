@@ -163,5 +163,7 @@ export function secretsPath(): string {
 	return credentialsPath()
 }
 
+/** @lintignore Public platform-detection helper; consumed by downstream packages that need cross-platform paths. */
 export const CURRENT_PLATFORM = platform()
+/** @lintignore Public platform-detection helper; consumed by downstream packages that need cross-platform paths. */
 export const IS_WINDOWS = platform() === "win32"

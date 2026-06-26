@@ -1,0 +1,129 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema-jsonc.json",
+
+  // -----------------------------------------------------------------------
+  // Project shape
+  //
+  // This is a pnpm workspace monorepo. knip's auto-discovery picks up
+  // workspaces via `pnpm-workspace.yaml` (apps/*, modules/*, packages/*,
+  // workflows/*) and entry points via each workspace's package.json
+  // `main`/`exports`. We only need to override `project` per workspace
+  // where the default glob (`src/**/*.ts` + `**/*.{test,spec}.ts`) is
+  // wrong (e.g. workflows with vitest configs as files to analyze, or
+  // apps with tsup configs).
+  //
+  // The TypeScript plugin's default entry pattern (`src/index.ts` from
+  // `main`/`exports`) covers apps/cli, apps/mcp, apps/api, packages/*,
+  // and workflows/*. We don't re-declare them; re-declaring triggers a
+  // "redundant entry pattern" config hint.
+  // -----------------------------------------------------------------------
+
+  "workspaces": {
+    "apps/cli": {
+      "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"]
+    },
+
+    "apps/mcp": {
+      "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"]
+    },
+
+    "apps/api": {
+      "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"]
+    },
+
+    "apps/landing": {
+      "project": ["src/**/*.{ts,tsx,js,jsx}"]
+    },
+
+    "packages/agent-engine": {
+      "project": ["src/**/*.{ts,tsx}"]
+    },
+
+    "packages/ast-tooling": {
+      "project": ["src/**/*.{ts,tsx}"]
+    },
+
+    "workflows/feature-planning": {
+      "project": ["src/**/*.{ts,tsx}"]
+    },
+
+    "workflows/module-management": {
+      "project": ["src/**/*.{ts,tsx}"]
+    }
+  },
+
+  // -----------------------------------------------------------------------
+  // Rules & filters
+  // -----------------------------------------------------------------------
+
+  // Treat exports that are used only inside their defining file as "used".
+  // This covers internal types/interfaces that are exported for the file's
+  // own signatures but are not part of the public API. Public types still
+  // show up; only the same-file-only case is suppressed.
+  "ignoreExportsUsedInFile": true,
+
+  // Exclude exports tagged `@lintignore` from the report. Each such
+  // export carries a WHY in its JSDoc so the next reviewer can audit
+  // the keep-list instead of re-discovering the rationale.
+  "tags": ["-lintignore"],
+
+  // -----------------------------------------------------------------------
+  // Ignore lists — every entry below is a deliberate, documented choice.
+  // Each line carries a WHY so the next knip pass is a review, not a hunt.
+  // -----------------------------------------------------------------------
+
+  // Modules are discovered at runtime via `ModuleRegistry.discover()` and
+  // loaded in-process via `jiti` (`packages/ast-tooling/src/action-loader.ts`).
+  // knip cannot trace that dynamic load, so the module action / validator
+  // / helper files look "unused" to a static analyzer even though they
+  // are the entire point of the module system. Suppress just the
+  // file-level "unused files" finding for the jiti-loaded files; the
+  // files themselves are still analyzed for exports/types.
+  //
+  // `.factory/hooks/*.mjs` files are the project-local hook handlers
+  // referenced from `.factory/settings.json`. They are loaded by
+  // Factory's hook runner, not by any in-repo import, so knip cannot
+  // trace them either.
+  "ignoreFiles": [
+    "modules/baka-base/_shared/helpers/**/*.ts",
+    "modules/baka-base/_shared/validators/**/*.ts",
+    "modules/baka-base/scaffold/validators/**/*.ts",
+    "modules/baka-base/*/action.ts",
+    "modules/sdd/*/action.ts",
+    "modules/ts-style/_shared/validators/**/*.ts",
+    "modules/ts-style/*/action.ts",
+    ".factory/hooks/**/*.mjs"
+  ],
+
+  // `tsx` is a transitive devDependency (apps/cli, apps/mcp, apps/api all
+  // reference it in scripts, but the version is hoisted from the per-
+  // workspace devDependency). The duplicate declaration check on
+  // apps/api is real (not declared there) and tracked in CHANGELOG.md.
+  "ignoreBinaries": ["tsx"],
+
+  // The `workflow` package (vespa/workflows SDK) is consumed via the
+  // `"use workflow"` and `"use step"` directives in
+  // `workflows/module-management/src/create-module.ts`. These are
+  // transformer directives, not regular imports, so knip cannot see
+  // them. The package is genuinely required: removing it breaks the
+  // workflow SDK's macro step compilation.
+  //
+  // The `@repo/agent-engine` and `@repo/ast-tooling` declarations in
+  // `workflows/module-management/package.json` are declared for future
+  // composition (the workflow barrel may re-export through them) but
+  // no source file in that workspace imports from them directly today.
+  // pnpm's `why` confirms the workspace links; we keep them declared
+  // so adding a downstream consumer doesn't need a package.json edit.
+  //
+  // The vitest hoisting in root devDependencies is intentional — turbo
+  // runs `pnpm -r test`, which fans out to each workspace's own vitest
+  // install. The root-level declaration is a fallback for the root's
+  // own scripts.
+  "ignoreDependencies": ["workflow", "@repo/agent-engine", "@repo/ast-tooling", "vitest"],
+
+  // The `VALIDATOR` member of `AgentRole` is reserved for a planned
+  // validator-agent role that has not landed yet; the enum shape is
+  // part of the public protocol and cannot be changed without a major
+  // version bump. Keep the member, suppress the report.
+  "ignoreMembers": ["VALIDATOR"]
+}
