@@ -16,7 +16,8 @@
 		"setup": "./scripts/setup.sh",
 		"postinstall": "pnpm --filter baka run build",
 		"baka": "pnpm --filter baka baka",
-		"mcp": "pnpm --filter @baka/mcp-server dev"
+		"mcp": "pnpm --filter @baka/mcp-server dev",
+		"link:global": "pnpm --filter baka --filter @baka/mcp-server exec pnpm link --global"
 	},
 	"license": "MIT",
 	"devDependencies": {

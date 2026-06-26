@@ -24,7 +24,7 @@ usage: scripts/release.sh [--dry-run] <version>
 
 Bump the version in root package.json, apps/cli/package.json, and
 apps/mcp/package.json to <version> (semver, e.g. 1.2.3 or 1.2.3-rc.1).
-Then run \`pnpm pack\` to write installable tarballs to dist-tarballs/.
+Then run \`pnpm run pack\` to write installable tarballs to dist-tarballs/.
 Then print the global-install command.
 
 Options:
@@ -115,7 +115,7 @@ if [ "$DRY_RUN" = true ]; then
 	printf "\n=== would run ===\n"
 	printf "  pnpm --filter baka build\n"
 	printf "  pnpm --filter @baka/mcp-server build\n"
-	printf "  pnpm pack\n"
+	printf "  pnpm run pack\n"
 
 	printf "\n=== install command (after the real run) ===\n"
 	printf "  pnpm install -g %s/baka-%s.tgz %s/@baka-mcp-server-%s.tgz\n" \
@@ -147,7 +147,7 @@ pnpm --filter @baka/mcp-server build
 
 # Pack both workspaces via the canonical scripts/pack.mjs wrapper.
 printf "\n=== packing tarballs ===\n"
-pnpm pack
+pnpm run pack
 
 # Print the install command and a pointer to the publish step.
 printf "\n=== install command ===\n"

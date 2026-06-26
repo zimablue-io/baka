@@ -29,10 +29,16 @@ From a fresh clone of this repository:
 git clone https://github.com/zimablue/baka.git
 cd baka
 pnpm install
-pnpm link --global
+pnpm link:global
 ```
 
-`pnpm link --global` puts both `baka` and `baka-mcp` on your `PATH`. Verify:
+`pnpm link:global` runs the canonical per-workspace pattern
+(`pnpm --filter baka --filter @baka/mcp-server exec pnpm link --global`)
+and puts both `baka` and `baka-mcp` on your `PATH`. This form works
+under pnpm 9 and pnpm 10 (bare `pnpm link --global` from the repo
+root can be a silent no-op when the workspace is registered as
+`private: true`; the per-workspace `exec` form is the one that
+actually publishes the bin shim). Verify:
 
 ```bash
 which baka       # -> a symlink under the pnpm global bin dir
@@ -40,7 +46,7 @@ which baka-mcp   # -> a symlink under the pnpm global bin dir
 baka --version   # prints 0.1.0
 ```
 
-The link is idempotent: re-running `pnpm link --global` is a no-op. `pnpm install` is also idempotent (the repo's `postinstall` hook rebuilds the CLI on every install, so the symlink target always exists).
+The link is idempotent: re-running `pnpm link:global` is a no-op. `pnpm install` is also idempotent (the repo's `postinstall` hook rebuilds the CLI on every install, so the symlink target always exists).
 
 ### Installing from a tarball
 
@@ -115,7 +121,7 @@ To reinstall after uninstall:
 
 ```bash
 pnpm install
-pnpm link --global
+pnpm link:global
 ```
 
 ## Troubleshooting

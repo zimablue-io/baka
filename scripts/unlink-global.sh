@@ -53,10 +53,15 @@ fi
 PNPM_BIN_DIR="$(pnpm root -g 2>/dev/null | xargs dirname 2>/dev/null || true)"
 
 # Common global bin dirs (macOS/Linux). Cover Homebrew pnpm, corepack pnpm,
-# and `pnpm config set global-bin-dir <path>` overrides.
+# and `pnpm config set global-bin-dir <path>` overrides. The deeper
+# `global/<major>/node_modules/.bin` path is the pnpm 9 layout where the
+# shim symlinks actually live when pnpm 9 uses its content-addressable
+# store; without it, the canonical uninstall would orphan the shims.
 CANDIDATE_BIN_DIRS=(
   "/Users/lefamoffat/Library/pnpm"
   "$HOME/Library/pnpm"
+  "/Users/lefamoffat/Library/pnpm/global/5/node_modules/.bin"
+  "$HOME/Library/pnpm/global/5/node_modules/.bin"
   "/usr/local/bin"
   "/opt/homebrew/bin"
   "$HOME/.local/share/pnpm"

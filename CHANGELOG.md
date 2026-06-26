@@ -4,6 +4,40 @@ All notable changes to baka are recorded here. Dates use YYYY-MM-DD.
 
 ## [Unreleased] - 2026-06-26
 
+### Fixed
+
+- `scripts/release.sh` invoked bare `pnpm pack`, which shadows the
+  `pack` script in root `package.json` and produces a leaky tarball
+  at the repo root (workspace deps that 404 on the npm registry).
+  The actual pack call and the `--dry-run` plan text now both use
+  `pnpm run pack` (the canonical wrapper that strips `workspace:*`
+  deps and writes `dist-tarballs/`). The help text was updated for
+  the same reason.
+- `scripts/unlink-global.sh` did not include the pnpm 9 layout shim
+  path (`/Users/lefamoffat/Library/pnpm/global/5/node_modules/.bin`)
+  in `CANDIDATE_BIN_DIRS`, so the canonical uninstall script
+  orphaned the shims when pnpm 9 placed them in the content-
+  addressable store layout. The path is now covered (for both the
+  hard-coded `/Users/lefamoffat` and the `$HOME`-prefixed form) so
+  the script clears any orphan pnpm 9 shim on every pnpm version.
+- The README install section documented `pnpm link --global`, which
+  is a silent no-op when the workspace packages are
+  `private: true`. The install flow now uses a new `pnpm
+  link:global` script in root `package.json` that runs the
+  per-workspace pattern
+  (`pnpm --filter baka --filter @baka/mcp-server exec pnpm link
+  --global`) and works under both pnpm 9 and pnpm 10.
+
+### Added
+
+- `link:global` script in root `package.json`:
+  `pnpm --filter baka --filter @baka/mcp-server exec pnpm link
+  --global`. The canonical per-workspace form that puts both
+  `baka` and `baka-mcp` on `PATH` and survives the `private:
+  true` guard that suppresses the top-level `pnpm link --global`.
+
+## [Unreleased] - 2026-06-26
+
 ### Added
 
 - Clean, installable tarballs for `baka` and `@baka/mcp-server`
