@@ -1,6 +1,4 @@
-import { BAKA_EXIT_CODE } from "@repo/protocol"
 import {
-	getConfigPath,
 	getConfigValue,
 	listConfigKeys,
 	secretsPath,
@@ -8,6 +6,7 @@ import {
 	unsetConfigValue,
 	userConfigPath,
 } from "@repo/agent-engine"
+import { BAKA_EXIT_CODE } from "@repo/protocol"
 
 function die(code: number, msg: string): never {
 	process.stderr.write(`baka: ${msg}\n`)

@@ -65,7 +65,7 @@ export const addScriptAction: WorkflowStep<AddScriptInput, boolean, AddScriptCom
 		parsed.scripts = { ...scripts, [input.name]: input.command }
 
 		try {
-			writeFileSync(packageJsonPath, JSON.stringify(parsed, null, "\t") + "\n", "utf-8")
+			writeFileSync(packageJsonPath, `${JSON.stringify(parsed, null, "\t")}\n`, "utf-8")
 		} catch (err) {
 			return {
 				success: false,

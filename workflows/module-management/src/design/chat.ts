@@ -1,6 +1,5 @@
 import type { LLMProvider } from "@repo/protocol"
 import {
-	type DeliverOutcome,
 	defineApprovalHook,
 	deliverApprovalHook,
 	developApprovalHook,
@@ -262,7 +261,7 @@ async function runOneTurn(args: {
 			state,
 			token: `define-${turns}`,
 			hook: defineApprovalHook,
-			autoApprove: (s) => ({ approved: true, note: "auto-approved" }),
+			autoApprove: (_s) => ({ approved: true, note: "auto-approved" }),
 		})
 		if (!approval.approved) {
 			state = setPhase(state, "DEFINE")

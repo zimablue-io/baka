@@ -62,7 +62,7 @@ export const addDependencyAction: WorkflowStep<AddDependencyInput, boolean, AddD
 		parsed[bucket] = { ...existing, [input.name]: input.version }
 
 		try {
-			writeFileSync(packageJsonPath, JSON.stringify(parsed, null, "\t") + "\n", "utf-8")
+			writeFileSync(packageJsonPath, `${JSON.stringify(parsed, null, "\t")}\n`, "utf-8")
 		} catch (err) {
 			return {
 				success: false,

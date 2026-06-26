@@ -90,7 +90,7 @@ const providersCmd = program.command("providers").description("Manage LLM provid
 providersCmd
 	.command("add [name]")
 	.description("Add a new provider (interactive)")
-	.action(async (name) => {
+	.action(async (_name) => {
 		try {
 			await runProvidersAdd()
 		} catch (err) {

@@ -1,17 +1,17 @@
 {
-  "$comment": "Project-specific hooks only. Universal hooks (SessionStart, UserPromptSubmit, Stop) are inherited from ~/.factory/settings.json via Factory's extension-only merge.",
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node .factory/hooks/biome-format.mjs",
-            "args": []
-          }
-        ]
-      }
-    ]
-  }
+	"$comment": "Project-specific hooks only. Universal hooks (SessionStart, UserPromptSubmit, Stop) are inherited from ~/.factory/settings.json via Factory's extension-only merge.",
+	"hooks": {
+		"PostToolUse": [
+			{
+				"matcher": "Edit|Write|MultiEdit",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "node .factory/hooks/biome-format.mjs",
+						"args": []
+					}
+				]
+			}
+		]
+	}
 }

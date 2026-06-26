@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync } from "node:fs"
-import { join } from "node:path"
 import { homedir, platform } from "node:os"
+import { join } from "node:path"
 import { BAKA_USER_DIR } from "@repo/protocol"
 
 export type LogLevel = "info" | "warn" | "error" | "debug"
@@ -35,7 +35,7 @@ export class StructuredLog {
 	}
 
 	write(entry: Omit<LogEntry, "ts">): void {
-		const line = JSON.stringify({ ts: new Date().toISOString(), ...entry }) + "\n"
+		const line = `${JSON.stringify({ ts: new Date().toISOString(), ...entry })}\n`
 		try {
 			appendFileSync(this.resolve(), line, "utf-8")
 		} catch {

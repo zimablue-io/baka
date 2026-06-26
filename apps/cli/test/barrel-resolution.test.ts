@@ -87,10 +87,9 @@ describe("@repo/module-management-workflow barrel resolution (tsx, static import
 		// Under the broken barrel, tsx's static import silently turns
 		// the star re-export of `./design` into undefined symbols, so
 		// this line fails.
-		expect(
-			result.stdout,
-			`Expected loadSession=function in tsx stdout, got:\n${result.stdout}`,
-		).toContain("loadSession=function")
+		expect(result.stdout, `Expected loadSession=function in tsx stdout, got:\n${result.stdout}`).toContain(
+			"loadSession=function",
+		)
 
 		// executeCreateModuleWorkflow is the other named export the
 		// barrel contract promises. Pin it down too so a partial fix

@@ -87,7 +87,7 @@ function spawnCli(args: {
 
 		const timer = setTimeout(() => {
 			child.kill("SIGKILL")
-			resolve({ code: null, stdout, stderr: stderr + `\n[test: killed after ${args.timeoutMs ?? 30_000}ms timeout]` })
+			resolve({ code: null, stdout, stderr: `${stderr}\n[test: killed after ${args.timeoutMs ?? 30_000}ms timeout]` })
 		}, args.timeoutMs ?? 30_000)
 
 		child.on("close", (code) => {
@@ -404,7 +404,7 @@ describe("VAL-CLI-016 baka list-modules --json shape", () => {
 		const byName = Object.fromEntries(parsed.modules.map((m) => [m.name, m]))
 		expect(byName["baka-base"]?.uri).toBe("baka://module/baka-base/manifest")
 		expect(byName["baka-base"]?.actions).toBe(3)
-		expect(byName["sdd"]?.actions).toBe(2)
+		expect(byName.sdd?.actions).toBe(2)
 		expect(byName["ts-style"]?.actions).toBe(2)
 
 		for (const m of parsed.modules) {

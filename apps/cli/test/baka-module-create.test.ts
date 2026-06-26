@@ -356,7 +356,7 @@ describeIfReal("baka module create — slow (real LLM, real CLI binary)", () => 
 		const { execSync } = await import("node:child_process")
 		try {
 			execSync(`curl -fsS --max-time 5 ${REAL_LLM_BASE_URL}/v1/models > /dev/null`)
-		} catch (err) {
+		} catch (_err) {
 			throw new Error(
 				`LLM is not reachable at ${REAL_LLM_BASE_URL}. Start your local llama-server or set REAL_LLM_BASE_URL.`,
 			)
@@ -418,7 +418,7 @@ describeIfReal("baka module create — slow (real LLM, real CLI binary)", () => 
 		child.stderr?.on("data", (b: Buffer) => stderr.push(b.toString()))
 		await new Promise<void>((resolve) => child.on("close", () => resolve()))
 		const out = stdout.join("")
-		const err = stderr.join("")
+		const _err = stderr.join("")
 
 		// 1. The brief was captured.
 		expect(out).toContain("a SSOT for all things next.js v16 app router")

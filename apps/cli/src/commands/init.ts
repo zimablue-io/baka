@@ -1,6 +1,5 @@
-import { input, password, select, confirm } from "@inquirer/prompts"
+import { confirm, input, password } from "@inquirer/prompts"
 import {
-	getApiKey,
 	getProvider,
 	listProviders,
 	secretsPath,

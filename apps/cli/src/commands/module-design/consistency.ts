@@ -8,8 +8,8 @@
 import { mkdirSync, rmSync, symlinkSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { loadSession } from "@repo/module-management-workflow"
 import { type ConsistencyResult, runConsistencyTest } from "@repo/ast-tooling"
+import { loadSession } from "@repo/module-management-workflow"
 
 import { renderConsistencyResult } from "./render"
 

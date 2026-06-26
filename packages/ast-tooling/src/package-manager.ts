@@ -38,7 +38,7 @@ export function parseSource(raw: string): ParsedSource {
 
 	if (trimmed.startsWith("npm:")) {
 		const spec = trimmed.slice(4)
-		const pinned = /@[\dvx^~]/.test(spec) || (/@latest/.test(spec) === false && /@/.test(spec))
+		const _pinned = /@[\dvx^~]/.test(spec) || (/@latest/.test(spec) === false && /@/.test(spec))
 		// Extract package name (everything before the last @ that's followed by a version char)
 		const m = spec.match(/^(@?[^@]+(?:[^@]))(?:@([^@]+))?$/)
 		// Simpler: name is the part after the first @, up to the first @ that's followed by a version
@@ -149,7 +149,7 @@ function readSettingsFrom(path: string): BakaSettings {
 
 function writeSettingsTo(path: string, settings: BakaSettings): void {
 	mkdirSync(dirname(path), { recursive: true })
-	writeFileSync(path, JSON.stringify(settings, null, "\t") + "\n", "utf-8")
+	writeFileSync(path, `${JSON.stringify(settings, null, "\t")}\n`, "utf-8")
 }
 
 // ---------------------------------------------------------------------------

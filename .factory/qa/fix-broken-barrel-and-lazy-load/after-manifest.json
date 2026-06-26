@@ -1,46 +1,46 @@
 {
-  "taskSlug": "fix-broken-barrel-and-lazy-load",
-  "writtenBy": "qa-battle-tester",
-  "writtenAt": "2026-06-25T22:00:46.000Z",
-  "diffReviewed": "HEAD (working tree, 5 files staged for commit: workflows/module-management/src/index.ts, workflows/module-management/src/design/index.ts, workflows/module-management/src/design/chat.ts, apps/cli/src/index.ts, apps/cli/src/commands/module-design/consistency.ts)",
-  "findings": [
-    {
-      "test": "/Users/lefamoffat/Documents/projects/baka/apps/cli/test/barrel-completeness.test.ts",
-      "file": "/Users/lefamoffat/Documents/projects/baka/workflows/module-management/src/index.ts",
-      "line": 32,
-      "severity": "high",
-      "description": "Top-level barrel's explicit value re-export list omits `applySlashCommand`. The original barrel used `export * from \"./design\"`, which re-exported `applySlashCommand` (a function exported from `design/index.ts`'s `./state.js` block). The hand-written replacement list drops this name, so any consumer that does `import { applySlashCommand } from \"@repo/module-management-workflow\"` now gets `undefined`. This is a silent backward-compatibility regression.",
-      "consequence": "Any external consumer (or future in-repo caller) that imports `applySlashCommand` from the workflow package will get `undefined` and crash at call time. Today no in-repo consumer imports it through the barrel (state.test.ts and slash.test.ts import directly from `./state` and `./slash`), so the regression is latent but real.",
-      "ruleRef": null,
-      "writerResolution": "Fixed: added `applySlashCommand` to the value re-export block in workflows/module-management/src/index.ts. Battle-test now passes (barrel-completeness.test.ts: 2/2). Verified via independent tsx probe: applySlashCommand=function alongside all other design symbols."
-    }
-  ],
-  "investigatedCandidates": 7,
-  "validFindings": 1,
-  "discardedWithReason": [
-    {
-      "candidate": "Bottom of chat.ts (lines 342-350) re-exports types and values from extension-less paths (`from \"./approval\"`, `from \"./llm\"`, `from \"./payload-apply\"`, `from \"./phase-utils\"`, `from \"./session\"`).",
-      "reason": "Style inconsistency with the diff's other \"./X.js\" extensions, but each target file exists as a .ts file in design/, so tsx resolves the extension-less paths correctly. No runtime defect — verified by the barrel-resolution.test.ts passing and the workflow's own vitest suite (94 tests) running green."
-    },
-    {
-      "candidate": "workflows/feature-planning/src/index.ts and workflows/discovery/src/index.ts have the same extension-less inner-re-export pattern (`from \"./plan-intent\"`, `from \"./discovery\"`).",
-      "reason": "Same resolution logic as chat.ts bottom: each target exists as a `.ts` file so tsx resolves them. Out of scope for this fix (only module-management was named in the task), and not broken at runtime. Flagging for the writing agent's awareness but not a defect."
-    },
-    {
-      "candidate": "workflows/module-management/src/design/render/index.ts has extension-less internal re-exports (`from \"./docs\"`, `from \"./stubs\"`, `from \"./write\"`).",
-      "reason": "Each target file exists as `.ts` so tsx resolves them. Pre-existing pattern not touched by the writer; works at runtime."
-    },
-    {
-      "candidate": "apps/mcp/package.json declares `@repo/module-management-workflow` as a dependency but no source file in apps/mcp imports from it.",
-      "reason": "Unused dependency. Not a runtime defect — pnpm tolerates unused workspace deps without breaking the build. Housekeeping, not battle-test territory. The MCP server doesn't import any module-design symbols and therefore doesn't need a lazy-load invariant."
-    },
-    {
-      "candidate": "apps/cli/dist/index.js may have a top-level `init_module_design2` call that defeats the lazy-load boundary.",
-      "reason": "Verified preserved. The dist contains two `init_module_design*` symbols: `init_module_design` for `packages/agent-engine/src/module-design.ts` (agent-engine's own module-design, which the CLI legitimately needs at boot) and `init_module_design2` for `src/commands/module-design/index.ts` (the CLI's lazy subgraph). `init_module_design2` is only invoked inside the `.action()` callbacks via `Promise.resolve().then(() => (init_module_design2(), module_design_exports))`. Confirmed by `node apps/cli/dist/index.js --help` / `list-modules --json` / `config list` all exiting 0."
-    },
-    {
-      "candidate": "The dynamic import string `await import(\"./commands/module-design/index.js\")` might lack the `.js` extension and break under tsx.",
-      "reason": "Verified: the CLI source uses `./commands/module-design/index.js` (with .js) in both the `module create` and `module consistency` action callbacks. Resolves correctly under tsx and is preserved by tsup in the dist. Already implicitly checked by the spec-writer's lazy-load-invariant.test.ts."
-    }
-  ]
+	"taskSlug": "fix-broken-barrel-and-lazy-load",
+	"writtenBy": "qa-battle-tester",
+	"writtenAt": "2026-06-25T22:00:46.000Z",
+	"diffReviewed": "HEAD (working tree, 5 files staged for commit: workflows/module-management/src/index.ts, workflows/module-management/src/design/index.ts, workflows/module-management/src/design/chat.ts, apps/cli/src/index.ts, apps/cli/src/commands/module-design/consistency.ts)",
+	"findings": [
+		{
+			"test": "/Users/lefamoffat/Documents/projects/baka/apps/cli/test/barrel-completeness.test.ts",
+			"file": "/Users/lefamoffat/Documents/projects/baka/workflows/module-management/src/index.ts",
+			"line": 32,
+			"severity": "high",
+			"description": "Top-level barrel's explicit value re-export list omits `applySlashCommand`. The original barrel used `export * from \"./design\"`, which re-exported `applySlashCommand` (a function exported from `design/index.ts`'s `./state.js` block). The hand-written replacement list drops this name, so any consumer that does `import { applySlashCommand } from \"@repo/module-management-workflow\"` now gets `undefined`. This is a silent backward-compatibility regression.",
+			"consequence": "Any external consumer (or future in-repo caller) that imports `applySlashCommand` from the workflow package will get `undefined` and crash at call time. Today no in-repo consumer imports it through the barrel (state.test.ts and slash.test.ts import directly from `./state` and `./slash`), so the regression is latent but real.",
+			"ruleRef": null,
+			"writerResolution": "Fixed: added `applySlashCommand` to the value re-export block in workflows/module-management/src/index.ts. Battle-test now passes (barrel-completeness.test.ts: 2/2). Verified via independent tsx probe: applySlashCommand=function alongside all other design symbols."
+		}
+	],
+	"investigatedCandidates": 7,
+	"validFindings": 1,
+	"discardedWithReason": [
+		{
+			"candidate": "Bottom of chat.ts (lines 342-350) re-exports types and values from extension-less paths (`from \"./approval\"`, `from \"./llm\"`, `from \"./payload-apply\"`, `from \"./phase-utils\"`, `from \"./session\"`).",
+			"reason": "Style inconsistency with the diff's other \"./X.js\" extensions, but each target file exists as a .ts file in design/, so tsx resolves the extension-less paths correctly. No runtime defect — verified by the barrel-resolution.test.ts passing and the workflow's own vitest suite (94 tests) running green."
+		},
+		{
+			"candidate": "workflows/feature-planning/src/index.ts and workflows/discovery/src/index.ts have the same extension-less inner-re-export pattern (`from \"./plan-intent\"`, `from \"./discovery\"`).",
+			"reason": "Same resolution logic as chat.ts bottom: each target exists as a `.ts` file so tsx resolves them. Out of scope for this fix (only module-management was named in the task), and not broken at runtime. Flagging for the writing agent's awareness but not a defect."
+		},
+		{
+			"candidate": "workflows/module-management/src/design/render/index.ts has extension-less internal re-exports (`from \"./docs\"`, `from \"./stubs\"`, `from \"./write\"`).",
+			"reason": "Each target file exists as `.ts` so tsx resolves them. Pre-existing pattern not touched by the writer; works at runtime."
+		},
+		{
+			"candidate": "apps/mcp/package.json declares `@repo/module-management-workflow` as a dependency but no source file in apps/mcp imports from it.",
+			"reason": "Unused dependency. Not a runtime defect — pnpm tolerates unused workspace deps without breaking the build. Housekeeping, not battle-test territory. The MCP server doesn't import any module-design symbols and therefore doesn't need a lazy-load invariant."
+		},
+		{
+			"candidate": "apps/cli/dist/index.js may have a top-level `init_module_design2` call that defeats the lazy-load boundary.",
+			"reason": "Verified preserved. The dist contains two `init_module_design*` symbols: `init_module_design` for `packages/agent-engine/src/module-design.ts` (agent-engine's own module-design, which the CLI legitimately needs at boot) and `init_module_design2` for `src/commands/module-design/index.ts` (the CLI's lazy subgraph). `init_module_design2` is only invoked inside the `.action()` callbacks via `Promise.resolve().then(() => (init_module_design2(), module_design_exports))`. Confirmed by `node apps/cli/dist/index.js --help` / `list-modules --json` / `config list` all exiting 0."
+		},
+		{
+			"candidate": "The dynamic import string `await import(\"./commands/module-design/index.js\")` might lack the `.js` extension and break under tsx.",
+			"reason": "Verified: the CLI source uses `./commands/module-design/index.js` (with .js) in both the `module create` and `module consistency` action callbacks. Resolves correctly under tsx and is preserved by tsup in the dist. Already implicitly checked by the spec-writer's lazy-load-invariant.test.ts."
+		}
+	]
 }

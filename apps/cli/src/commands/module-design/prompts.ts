@@ -8,14 +8,14 @@
 
 import { input as inquirerInput } from "@inquirer/prompts"
 import type { DesignSessionState } from "@repo/module-management-workflow"
-import { getDefaultE2EInputSource, isE2EMode, type E2EInputSource } from "./e2e-input"
+import { type E2EInputSource, getDefaultE2EInputSource, isE2EMode } from "./e2e-input"
 import {
-	parseDefineApproval,
-	parseDeliverApproval,
-	parseDevelopApproval,
 	type DefineApproval,
 	type DeliverApproval,
 	type DevelopApproval,
+	parseDefineApproval,
+	parseDeliverApproval,
+	parseDevelopApproval,
 } from "./parse"
 import {
 	renderDefineApprovalQuestion,
@@ -35,7 +35,7 @@ export interface PromptDeps {
 	markHelpShown: () => void
 }
 
-const defaultDeps: PromptDeps = {
+const _defaultDeps: PromptDeps = {
 	input: inquirerInput as InputFn,
 	e2eSource: getDefaultE2EInputSource(),
 	shouldShowHelp: () => false,

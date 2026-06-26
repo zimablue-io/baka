@@ -5,8 +5,9 @@
 // to know what to do next.
 // ---------------------------------------------------------------------------
 
-import { describe, expect, test } from "vitest"
 import type { DesignSessionState, DesignTurnPayload } from "@repo/module-management-workflow"
+import { createInitialState, setPhase, withHistory } from "@repo/module-management-workflow"
+import { describe, expect, test } from "vitest"
 import {
 	renderBriefEcho,
 	renderConsistencyResult,
@@ -19,7 +20,6 @@ import {
 	renderResumeContext,
 	SLASH_HELP,
 } from "./render"
-import { createInitialState, setPhase, withHistory } from "@repo/module-management-workflow"
 
 function freshState(brief: string): DesignSessionState {
 	return createInitialState({ moduleName: "x", brief })
@@ -50,7 +50,7 @@ describe("renderFirstPromptContext — the user always sees context before the f
 	test("truncates briefs over 100 characters with an ellipsis", () => {
 		const long = "a".repeat(150)
 		const out = renderFirstPromptContext(freshState(long), { showHelp: false })
-		expect(out).toContain("[brief: " + "a".repeat(100) + "...]")
+		expect(out).toContain(`[brief: ${"a".repeat(100)}...]`)
 	})
 
 	test("omits the brief echo when the brief is a synthetic placeholder (no leakage)", () => {

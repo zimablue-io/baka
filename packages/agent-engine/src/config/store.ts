@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, promises as fs, readFileSync } from "node:fs"
+import { chmodSync, existsSync, promises as fs } from "node:fs"
 import { homedir, platform } from "node:os"
 import { dirname, join } from "node:path"
 import { BAKA_USER_DIR } from "@repo/protocol"

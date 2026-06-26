@@ -351,7 +351,7 @@ function loadModulePreferences(modules: ModuleManifest[]): string {
 		}
 	}
 	if (lines.length === 0) return ""
-	return "## Module-specific preferences\n\n" + lines.join("\n")
+	return `## Module-specific preferences\n\n${lines.join("\n")}`
 }
 
 /**

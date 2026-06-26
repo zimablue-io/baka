@@ -63,12 +63,11 @@ describe("consistency.ts loadSession shim removal", () => {
 		// After the fix, loadSession must come from the workflow package
 		// via a single, explicit named import. We match the shape:
 		//   import { ..., loadSession, ... } from "@repo/module-management-workflow"
-		const importPattern =
-			/import\s*\{[^}]*\bloadSession\b[^}]*\}\s*from\s*["']@repo\/module-management-workflow["']/
+		const importPattern = /import\s*\{[^}]*\bloadSession\b[^}]*\}\s*from\s*["']@repo\/module-management-workflow["']/
 		const hasImport = importPattern.test(stripped)
 		expect(
 			hasImport,
-			"consistency.ts does not import loadSession from \"@repo/module-management-workflow\"; " +
+			'consistency.ts does not import loadSession from "@repo/module-management-workflow"; ' +
 				"the real workflow loadSession should replace the inline shim.",
 		).toBe(true)
 	})

@@ -84,7 +84,7 @@ function spawnCli(args: {
 
 		const timer = setTimeout(() => {
 			child.kill("SIGKILL")
-			resolve({ code: null, stdout, stderr: stderr + `\n[test: killed after ${args.timeoutMs ?? 30_000}ms timeout]` })
+			resolve({ code: null, stdout, stderr: `${stderr}\n[test: killed after ${args.timeoutMs ?? 30_000}ms timeout]` })
 		}, args.timeoutMs ?? 30_000)
 
 		child.on("close", (code) => {

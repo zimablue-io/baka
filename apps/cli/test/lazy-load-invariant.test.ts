@@ -96,8 +96,7 @@ describe("CLI top-level source lazy-load invariant", () => {
 		const dynamicImportForRunModuleDesign = /await\s+import\(\s*["'][^"']*commands\/module-design[^"']*["']\s*\)/
 
 		const hasDynamicImport = dynamicImportForRunModuleDesign.test(stripped)
-		const referencesRunModuleDesign =
-			/\brunModuleDesign\b/.test(stripped) || /\brunModuleDesign\b/.test(raw)
+		const referencesRunModuleDesign = /\brunModuleDesign\b/.test(stripped) || /\brunModuleDesign\b/.test(raw)
 
 		expect(
 			hasDynamicImport && referencesRunModuleDesign,
@@ -110,7 +109,8 @@ describe("CLI top-level source lazy-load invariant", () => {
 		// Same invariant for runModuleConsistency.
 		const dynamicImportForRunModuleConsistency = /await\s+import\(\s*["'][^"']*commands\/module-design[^"']*["']\s*\)/
 		const hasDynamicImport = dynamicImportForRunModuleConsistency.test(stripped)
-		const referencesRunModuleConsistency = /\brunModuleConsistency\b/.test(stripped) || /\brunModuleConsistency\b/.test(raw)
+		const referencesRunModuleConsistency =
+			/\brunModuleConsistency\b/.test(stripped) || /\brunModuleConsistency\b/.test(raw)
 
 		expect(
 			hasDynamicImport && referencesRunModuleConsistency,

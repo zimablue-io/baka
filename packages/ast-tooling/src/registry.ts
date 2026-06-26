@@ -221,7 +221,14 @@ export class ModuleRegistry {
 			// only does structural checks).
 			for (const action of m.actions) {
 				for (const ruleId of action.validators ?? []) {
-					const rulePath = join(this.root, "modules", m.name, action.id, "validators", `${validatorFilename(ruleId)}.ts`)
+					const rulePath = join(
+						this.root,
+						"modules",
+						m.name,
+						action.id,
+						"validators",
+						`${validatorFilename(ruleId)}.ts`,
+					)
 					if (!existsSync(rulePath)) {
 						diagnostics.push({
 							severity: "error",

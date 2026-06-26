@@ -86,11 +86,7 @@ export async function runSaga(
 
 		let result: StepResponse<unknown, unknown>
 		try {
-			result = await step.execute(
-				{ moduleName, actionName: planStep.action, parameters: planStep.params },
-				state,
-				ctx,
-			)
+			result = await step.execute({ moduleName, actionName: planStep.action, parameters: planStep.params }, state, ctx)
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
 			state.logs.push(`[saga] step ${planStep.id} threw: ${message}`)

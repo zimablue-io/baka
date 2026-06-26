@@ -40,7 +40,7 @@ export function readCatalogSubscriptions(path: string = userCatalogsPath()): Cat
 
 export function writeCatalogSubscriptions(subs: CatalogSubscriptions, path: string = userCatalogsPath()): void {
 	mkdirSync(dirname(path), { recursive: true })
-	writeFileSync(path, JSON.stringify(subs, null, "\t") + "\n", "utf-8")
+	writeFileSync(path, `${JSON.stringify(subs, null, "\t")}\n`, "utf-8")
 }
 
 export function addCatalogSubscription(url: string, path: string = userCatalogsPath()): boolean {

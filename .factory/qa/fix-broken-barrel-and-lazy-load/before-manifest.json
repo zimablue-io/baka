@@ -1,39 +1,39 @@
 {
-  "taskSlug": "fix-broken-barrel-and-lazy-load",
-  "writtenBy": "qa-spec-writer",
-  "writtenAt": "2026-06-25T21:43:35.000Z",
-  "tests": [
-    {
-      "file": "/Users/lefamoffat/Documents/projects/baka/apps/cli/test/barrel-resolution.test.ts",
-      "covers": ["happy-path", "edge-case", "integration"],
-      "expectedFailure": "Under tsx with a STATIC `import * as m from \"@repo/module-management-workflow\"`, the barrel's `export * from \"./design\"` (no extension) fails to resolve and yields undefined for every design symbol. Observed: loadSession=undefined, executeCreateModuleWorkflow=function. Test asserts loadSession=function and executeCreateModuleWorkflow=function via a tsx subprocess that runs from apps/cli (where the workspace symlink resolves).",
-      "runCommand": "cd /Users/lefamoffat/Documents/projects/baka/apps/cli && pnpm test test/barrel-resolution.test.ts"
-    },
-    {
-      "file": "/Users/lefamoffat/Documents/projects/baka/apps/cli/test/lazy-load-invariant.test.ts",
-      "covers": ["happy-path", "integration"],
-      "expectedFailure": "apps/cli/src/index.ts has a top-level eager import `import { runModuleConsistency, runModuleDesign } from \"./commands/module-design/index.js\"` (line 18). Tests assert (a) no top-level `import { ... runModuleConsistency ... } from ...`, (b) no top-level `import { ... runModuleDesign ... } from ...`, (c) the literal string `from \"./commands/module-design/index.js\"` does not appear in non-comment code, (d) `await import(...)` for runModuleDesign is present inside the module create .action() callback, (e) `await import(...)` for runModuleConsistency is present inside the module consistency .action() callback.",
-      "runCommand": "cd /Users/lefamoffat/Documents/projects/baka/apps/cli && pnpm test test/lazy-load-invariant.test.ts"
-    },
-    {
-      "file": "/Users/lefamoffat/Documents/projects/baka/apps/cli/test/no-inline-loadsession-shim.test.ts",
-      "covers": ["happy-path", "integration"],
-      "expectedFailure": "apps/cli/src/commands/module-design/consistency.ts declares an inline `function loadSession(moduleDir: string): DesignSessionState | null { ... }` shim (lines 14-25) and does NOT import loadSession from @repo/module-management-workflow. Tests assert (a) no `function loadSession(` declaration, (b) the source contains `import { ..., loadSession, ... } from \"@repo/module-management-workflow\"`.",
-      "runCommand": "cd /Users/lefamoffat/Documents/projects/baka/apps/cli && pnpm test test/no-inline-loadsession-shim.test.ts"
-    }
-  ],
-  "coverage": {
-    "happy-path": true,
-    "edge-cases": [
-      "extensionless barrel re-export under strict ESM (tsx static import)",
-      "subprocess-based resolution check (vitest in-process dynamic import is lenient and would not catch the bug)"
-    ],
-    "security": [
-      "lazy-load invariant: a broken subcommand barrel (e.g. throw on import) must not kill baka list-modules / --help / etc."
-    ],
-    "integration": [
-      "CLI top-level source (apps/cli/src/index.ts) does not eagerly pull in the module-design subgraph",
-      "consistency.ts uses the single-source-of-truth loadSession from @repo/module-management-workflow"
-    ]
-  }
+	"taskSlug": "fix-broken-barrel-and-lazy-load",
+	"writtenBy": "qa-spec-writer",
+	"writtenAt": "2026-06-25T21:43:35.000Z",
+	"tests": [
+		{
+			"file": "/Users/lefamoffat/Documents/projects/baka/apps/cli/test/barrel-resolution.test.ts",
+			"covers": ["happy-path", "edge-case", "integration"],
+			"expectedFailure": "Under tsx with a STATIC `import * as m from \"@repo/module-management-workflow\"`, the barrel's `export * from \"./design\"` (no extension) fails to resolve and yields undefined for every design symbol. Observed: loadSession=undefined, executeCreateModuleWorkflow=function. Test asserts loadSession=function and executeCreateModuleWorkflow=function via a tsx subprocess that runs from apps/cli (where the workspace symlink resolves).",
+			"runCommand": "cd /Users/lefamoffat/Documents/projects/baka/apps/cli && pnpm test test/barrel-resolution.test.ts"
+		},
+		{
+			"file": "/Users/lefamoffat/Documents/projects/baka/apps/cli/test/lazy-load-invariant.test.ts",
+			"covers": ["happy-path", "integration"],
+			"expectedFailure": "apps/cli/src/index.ts has a top-level eager import `import { runModuleConsistency, runModuleDesign } from \"./commands/module-design/index.js\"` (line 18). Tests assert (a) no top-level `import { ... runModuleConsistency ... } from ...`, (b) no top-level `import { ... runModuleDesign ... } from ...`, (c) the literal string `from \"./commands/module-design/index.js\"` does not appear in non-comment code, (d) `await import(...)` for runModuleDesign is present inside the module create .action() callback, (e) `await import(...)` for runModuleConsistency is present inside the module consistency .action() callback.",
+			"runCommand": "cd /Users/lefamoffat/Documents/projects/baka/apps/cli && pnpm test test/lazy-load-invariant.test.ts"
+		},
+		{
+			"file": "/Users/lefamoffat/Documents/projects/baka/apps/cli/test/no-inline-loadsession-shim.test.ts",
+			"covers": ["happy-path", "integration"],
+			"expectedFailure": "apps/cli/src/commands/module-design/consistency.ts declares an inline `function loadSession(moduleDir: string): DesignSessionState | null { ... }` shim (lines 14-25) and does NOT import loadSession from @repo/module-management-workflow. Tests assert (a) no `function loadSession(` declaration, (b) the source contains `import { ..., loadSession, ... } from \"@repo/module-management-workflow\"`.",
+			"runCommand": "cd /Users/lefamoffat/Documents/projects/baka/apps/cli && pnpm test test/no-inline-loadsession-shim.test.ts"
+		}
+	],
+	"coverage": {
+		"happy-path": true,
+		"edge-cases": [
+			"extensionless barrel re-export under strict ESM (tsx static import)",
+			"subprocess-based resolution check (vitest in-process dynamic import is lenient and would not catch the bug)"
+		],
+		"security": [
+			"lazy-load invariant: a broken subcommand barrel (e.g. throw on import) must not kill baka list-modules / --help / etc."
+		],
+		"integration": [
+			"CLI top-level source (apps/cli/src/index.ts) does not eagerly pull in the module-design subgraph",
+			"consistency.ts uses the single-source-of-truth loadSession from @repo/module-management-workflow"
+		]
+	}
 }

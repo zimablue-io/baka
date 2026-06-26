@@ -112,7 +112,7 @@ export const compensate: CompensationFn<${compType}> = async (data) => {
 `
 }
 
-export function renderValidatorStubSource(validatorId: string, purpose: string): string {
+export function renderValidatorStubSource(_validatorId: string, purpose: string): string {
 	return `import type { ActionValidatorFn } from "baka-sdk"
 
 /**

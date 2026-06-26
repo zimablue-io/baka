@@ -65,12 +65,12 @@ function renderTsConfig(strict: boolean): string {
 			moduleResolution: "Bundler",
 			esModuleInterop: true,
 			skipLibCheck: true,
-			strict: strict ? true : false,
-			noUncheckedIndexedAccess: strict ? true : false,
-			noImplicitOverride: strict ? true : false,
-			exactOptionalPropertyTypes: strict ? true : false,
-			noFallthroughCasesInSwitch: strict ? true : false,
-			noPropertyAccessFromIndexSignature: strict ? true : false,
+			strict: !!strict,
+			noUncheckedIndexedAccess: !!strict,
+			noImplicitOverride: !!strict,
+			exactOptionalPropertyTypes: !!strict,
+			noFallthroughCasesInSwitch: !!strict,
+			noPropertyAccessFromIndexSignature: !!strict,
 			outDir: "dist",
 			rootDir: "src",
 			declaration: true,
@@ -78,20 +78,18 @@ function renderTsConfig(strict: boolean): string {
 		},
 		include: ["src", "modules"],
 	}
-	return JSON.stringify(base, null, "\t") + "\n"
+	return `${JSON.stringify(base, null, "\t")}\n`
 }
 
 function renderBiome(): string {
-	return (
-		JSON.stringify(
-			{
-				$schema: "https://biomejs.dev/schemas/1.9.0/schema.json",
-				linter: { enabled: true, rules: { recommended: true } },
-				formatter: { enabled: true, indentStyle: "tab", indentWidth: 4 },
-				javascript: { formatter: { quoteStyle: "double", semicolons: "asNeeded", trailingCommas: "all" } },
-			},
-			null,
-			"\t",
-		) + "\n"
-	)
+	return `${JSON.stringify(
+		{
+			$schema: "https://biomejs.dev/schemas/1.9.0/schema.json",
+			linter: { enabled: true, rules: { recommended: true } },
+			formatter: { enabled: true, indentStyle: "tab", indentWidth: 4 },
+			javascript: { formatter: { quoteStyle: "double", semicolons: "asNeeded", trailingCommas: "all" } },
+		},
+		null,
+		"\t",
+	)}\n`
 }

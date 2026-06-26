@@ -34,7 +34,7 @@ export interface LoadedAction<TInput, TOutput, TCompensationData> {
  * workspace symlink).
  */
 export function loadAction<TInput, TOutput, TCompensationData>(
-	projectRoot: string,
+	_projectRoot: string,
 	moduleRoot: string,
 	manifest: ModuleManifest,
 	actionId: string,
@@ -68,11 +68,11 @@ export function loadAction<TInput, TOutput, TCompensationData>(
  * Loads a module-level validator (a function that takes a state and returns
  * a list of diagnostics). Used by `baka validate`.
  */
-export interface ModuleValidatorFn {
-	(state: OrchestrationState): Promise<Array<{ severity: "error" | "warning"; rule: string; message: string }>>
-}
+export type ModuleValidatorFn = (
+	state: OrchestrationState,
+) => Promise<Array<{ severity: "error" | "warning"; rule: string; message: string }>>
 
-export function loadModuleValidator(projectRoot: string, moduleRoot: string, validatorId: string): ModuleValidatorFn {
+export function loadModuleValidator(_projectRoot: string, moduleRoot: string, validatorId: string): ModuleValidatorFn {
 	const path = join(moduleRoot, "_shared", "validators", `${validatorFilename(validatorId)}.ts`)
 	if (!existsSync(path)) {
 		throw new Error(`module validator not found: ${path}`)
@@ -92,12 +92,10 @@ export function loadModuleValidator(projectRoot: string, moduleRoot: string, val
  * action completes, with access to the state so they can assert
  * post-execution invariants against the produced files.
  */
-export interface ActionValidatorFn {
-	(state: OrchestrationState, actionData: unknown): Promise<ValidationDiagnostic[]>
-}
+export type ActionValidatorFn = (state: OrchestrationState, actionData: unknown) => Promise<ValidationDiagnostic[]>
 
 export function loadActionValidator(
-	projectRoot: string,
+	_projectRoot: string,
 	moduleRoot: string,
 	actionId: string,
 	validatorId: string,
@@ -122,7 +120,7 @@ export function loadActionValidator(
  * relative path) or via `import { foo } from "<id>"` if the loader is
  * told where to look.
  */
-export function loadSharedHelper<T = unknown>(projectRoot: string, moduleRoot: string, helperId: string): T {
+export function loadSharedHelper<T = unknown>(_projectRoot: string, moduleRoot: string, helperId: string): T {
 	const path = join(moduleRoot, "_shared", "helpers", `${helperId}.ts`)
 	if (!existsSync(path)) {
 		throw new Error(`shared helper not found: ${path}`)

@@ -8,11 +8,6 @@
 // Modules should `import { WorkflowStep, AgentRole } from "baka-sdk"`, never
 // reach into `@repo/protocol` or the engine internals.
 
-export {
-	AgentRole,
-	BAKA_EXIT_CODE,
-	BAKA_USER_DIR,
-} from "@repo/protocol"
 export type {
 	LLMMessage,
 	LLMProvider,
@@ -30,7 +25,14 @@ export type {
 	ValidationResult,
 	WorkflowStep,
 } from "@repo/protocol"
-export { ModuleActionParamSchema, ModuleActionSchema, ModuleManifestSchema } from "@repo/protocol"
+export {
+	AgentRole,
+	BAKA_EXIT_CODE,
+	BAKA_USER_DIR,
+	ModuleActionParamSchema,
+	ModuleActionSchema,
+	ModuleManifestSchema,
+} from "@repo/protocol"
 
 // ---------------------------------------------------------------------------
 // Runtime helpers

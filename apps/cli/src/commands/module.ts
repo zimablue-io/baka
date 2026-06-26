@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process"
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { BAKA_EXIT_CODE, type ModuleManifest, ModuleManifestSchema } from "@repo/protocol"
 import { validatorFilename } from "@repo/ast-tooling"
+import { BAKA_EXIT_CODE, type ModuleManifest, ModuleManifestSchema } from "@repo/protocol"
 import { createJiti } from "jiti"
 
 function die(code: number, msg: string): never {

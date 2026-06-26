@@ -71,15 +71,14 @@ function loadDesignBarrelExportNames(): { values: string[]; types: string[] } {
 	const valueBlock = /export\s*\{([^}]+)\}\s*from\s*["'][^"']+["']/g
 	const typeBlock = /export\s+type\s*\{([^}]+)\}\s*from\s*["'][^"']+["']/g
 
-	let m: RegExpExecArray | null
-	while ((m = valueBlock.exec(src)) !== null) {
-		for (const raw of m[1].split(",")) {
+	for (const match of src.matchAll(valueBlock)) {
+		for (const raw of match[1].split(",")) {
 			const name = raw.trim()
 			if (name) values.push(name)
 		}
 	}
-	while ((m = typeBlock.exec(src)) !== null) {
-		for (const raw of m[1].split(",")) {
+	for (const match of src.matchAll(typeBlock)) {
+		for (const raw of match[1].split(",")) {
 			const name = raw.trim()
 			if (name) types.push(name)
 		}
@@ -93,8 +92,8 @@ const { values: VALUE_NAMES, types: TYPE_NAMES } = loadDesignBarrelExportNames()
 const PROBE_SOURCE = [
 	"// Probe script: enumerate every named export from the workflow barrel.",
 	'import * as m from "@repo/module-management-workflow"',
-	"const values = [" + VALUE_NAMES.map((n) => JSON.stringify(n)).join(",") + "]",
-	"const types = [" + TYPE_NAMES.map((n) => JSON.stringify(n)).join(",") + "]",
+	`const values = [${VALUE_NAMES.map((n) => JSON.stringify(n)).join(",")}]`,
+	`const types = [${TYPE_NAMES.map((n) => JSON.stringify(n)).join(",")}]`,
 	"for (const n of values) console.log(`V|${n}|${typeof m[n]}`)",
 	"for (const n of types) console.log(`T|${n}|${typeof m[n]}`)",
 	"",
@@ -139,7 +138,7 @@ describe("@repo/module-management-workflow barrel completeness", () => {
 		expect(
 			missing,
 			`Top-level barrel is missing these value re-exports from design/:\n  - ${missing.join("\n  - ")}\n` +
-				`The barrel fix replaced "export * from \"./design\"" with an explicit list and dropped these names.`,
+				`The barrel fix replaced "export * from "./design"" with an explicit list and dropped these names.`,
 		).toEqual([])
 	}, 30_000)
 

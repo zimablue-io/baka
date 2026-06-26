@@ -4,10 +4,10 @@
 // wrong, the tests cannot drive the CLI.
 // ---------------------------------------------------------------------------
 
-import { afterEach, beforeEach, describe, expect, test } from "vitest"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { afterEach, beforeEach, describe, expect, test } from "vitest"
 import { createE2EInputSource, isE2EMode, readResponses, resetDefaultE2EInputSource } from "./e2e-input"
 
 describe("readResponses", () => {

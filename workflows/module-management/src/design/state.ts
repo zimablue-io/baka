@@ -125,7 +125,7 @@ export type SlashResult =
 export function applySlashCommand(
 	text: string,
 	state: DesignSessionState,
-	hook: {
+	_hook: {
 		runConsistency: (
 			n: number,
 			intent: string,

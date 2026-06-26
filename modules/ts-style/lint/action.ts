@@ -4,9 +4,7 @@ import { join } from "node:path"
 import type { StepResponse, WorkflowStep } from "baka-sdk"
 import { AgentRole } from "baka-sdk"
 
-export interface LintInput {
-	// intentionally empty
-}
+export type LintInput = {}
 
 export interface LintCompensationData {
 	targetDirectory: string

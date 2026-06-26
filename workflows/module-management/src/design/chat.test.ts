@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { LLMMessage, LLMProvider, LLMRequest, LLMResponse } from "@repo/protocol"
+import type { LLMProvider, LLMRequest, LLMResponse } from "@repo/protocol"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { applyBack, applyPayload, loadSession, runChatLoop, runLLMTurn, saveSession } from "./chat"
 import { defineApprovalHook, deliverApprovalHook, developApprovalHook } from "./hooks"
@@ -620,7 +620,7 @@ describe("runChatLoop — the full double-diamond flow", () => {
 					let i = 0
 					return async () => userInputs[i++] ?? null
 				})(),
-				onDefineApproval: (state, resume) => {
+				onDefineApproval: (_state, resume) => {
 					approvalCalls++
 					if (approvalCalls === 1) {
 						// First roster: reject with a note.
@@ -673,8 +673,8 @@ describe("runChatLoop — the full double-diamond flow", () => {
 					let i = 0
 					return async () => userInputs[i++] ?? null
 				})(),
-				onDefineApproval: (state, resume) => resume({ approved: true }),
-				onDevelopApproval: (state, resume) => resume({ approved: true }),
+				onDefineApproval: (_state, resume) => resume({ approved: true }),
+				onDevelopApproval: (_state, resume) => resume({ approved: true }),
 				onDeliverApproval: (_state, resume) => resume({ approved: false }),
 				onStateChanged: vi.fn(),
 				runConsistency: vi.fn(),

@@ -1,8 +1,6 @@
-import { readdirSync, readFileSync, existsSync, mkdirSync, rmSync, cpSync } from "node:fs"
-import { join } from "node:path"
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
-import Handlebars from "handlebars"
-import { createJiti } from "jiti"
+import { join } from "node:path"
 import {
 	AgentRole,
 	type LLMProvider,
@@ -12,6 +10,8 @@ import {
 	type StepResponse,
 	type WorkflowStep,
 } from "@repo/protocol"
+import Handlebars from "handlebars"
+import { createJiti } from "jiti"
 import { z } from "zod"
 import { loadAction } from "./action-loader"
 
@@ -213,9 +213,7 @@ async function fillReasoningTemplates(
 		const key = relativePath(templatesDir, hbsFile).replace(/\.hbs$/, "")
 		const preRendered = Handlebars.compile(content)(input.parameters)
 
-		renderedTemplates[key] = NO_LLM_SENTINEL.test(content)
-			? preRendered
-			: await callLLM(provider, preRendered)
+		renderedTemplates[key] = NO_LLM_SENTINEL.test(content) ? preRendered : await callLLM(provider, preRendered)
 	}
 
 	return { ...input.parameters, renderedTemplates }
