@@ -6,6 +6,19 @@ All notable changes to baka are recorded here. Dates use YYYY-MM-DD.
 
 ### Fixed
 
+- `apps/mcp/src/server.ts` hardcoded `const SERVER_VERSION = "0.1.0"`,
+  so the MCP server's `initialize` response kept returning the stale
+  `0.1.0` after `scripts/release.sh <version>` bumped the version.
+  This silently broke VAL-CROSS-005 (versioning round-trip) and would
+  have broken VAL-MCP-002 after any version bump. `SERVER_VERSION` is
+  now read from `apps/mcp/package.json` at runtime via
+  `import.meta.url`, mirroring the CLI's established pattern
+  (`apps/cli/src/index.ts:30-36`). A focused regression test at
+  `apps/mcp/test/version-source.test.ts` asserts both behaviorally
+  (spawn the dist, send `initialize`, compare to package.json) and
+  structurally (the dist must not contain the pre-fix hardcode token).
+  Documented in `library/codebase-conventions.md` as the canonical
+  "versioning source-of-truth" pattern for both CLI and MCP.
 - `scripts/release.sh` invoked bare `pnpm pack`, which shadows the
   `pack` script in root `package.json` and produces a leaky tarball
   at the repo root (workspace deps that 404 on the npm registry).

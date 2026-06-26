@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js"
 import {
@@ -31,7 +34,34 @@ import {
 import { runAction, runApply, runListActions, runPlan, runValidate } from "./tools/workflow.js"
 
 const SERVER_NAME = "baka-mcp"
-const SERVER_VERSION = "0.1.0"
+
+// Read the MCP server's version from its own package.json at runtime.
+//
+// This mirrors apps/cli/src/index.ts:30-36 exactly. The single-source
+// invariant (architecture invariant 7: root package.json drives
+// apps/cli/package.json AND apps/mcp/package.json, both bundled
+// servers report matching versions) is preserved by reading the
+// version from the local package.json instead of hardcoding it. After
+// `scripts/release.sh <version>` bumps the three package.json files
+// together, the dist artifact's `initialize` response reports the new
+// version on the very next build — no separate string to drift.
+//
+// Why runtime read over build-time `tsup define`:
+// - Matches the CLI's established pattern (consistency).
+// - tsup preserves `import.meta.url` in the bundle, so
+//   `fileURLToPath(import.meta.url)` resolves to the dist file's own
+//   path at runtime. Verified at apps/cli/dist/index.js:25912.
+// - Avoids a build-time substitution that could silently disagree
+//   with the source package.json if the build is re-run against a
+//   stale source.
+//
+// `__dirname` resolves to:
+// - `apps/mcp/dist` in built mode (`pnpm --filter @baka/mcp-server build`).
+// - `apps/mcp/src` in dev mode (`pnpm --filter @baka/mcp-server dev`).
+// Either way, `../package.json` points at `apps/mcp/package.json`.
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const serverPkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8")) as { version: string }
+const SERVER_VERSION = serverPkg.version
 
 export interface StartServerOptions {
 	cwd: string
