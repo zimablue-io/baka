@@ -1,6 +1,169 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
+# baka
+
+Baka is a deterministic orchestration engine for LLM-assisted development. The LLM cannot invent code, files, or structure — it picks from a finite, declared action space (the module catalog). The same intent + the same modules always produce the same plan.
+
+## Install
+
+Baka ships as two binaries: the `baka` CLI and the `baka-mcp` MCP server. They are independent (you can use either or both), share the same engine, and are installed together.
+
+### Prerequisites
+
+- **Node.js 20 or later** (the engine floor). `node --version` should print `v20.x` or higher.
+- **pnpm 8 or later** (the workspace manager). The repo pins `pnpm@9.0.0` via `packageManager`.
+
+Verify both are present before installing:
+
+```bash
+node --version   # v20.x or higher
+pnpm --version   # 8.x or higher (9.x recommended)
+```
+
+### One-command install
+
+From a fresh clone of this repository:
+
+```bash
+git clone https://github.com/zimablue/baka.git
+cd baka
+pnpm install
+pnpm link --global
+```
+
+`pnpm link --global` puts both `baka` and `baka-mcp` on your `PATH`. Verify:
+
+```bash
+which baka       # -> a symlink under the pnpm global bin dir
+which baka-mcp   # -> a symlink under the pnpm global bin dir
+baka --version   # prints 0.1.0
+```
+
+The link is idempotent: re-running `pnpm link --global` is a no-op. `pnpm install` is also idempotent (the repo's `postinstall` hook rebuilds the CLI on every install, so the symlink target always exists).
+
+### Installing from a tarball
+
+If you have a built tarball (e.g. from `dist-tarballs/baka-0.1.0.tgz` and `dist-tarballs/@baka-mcp-server-0.1.0.tgz`) and you do not want to clone the repo:
+
+```bash
+pnpm install -g ./baka-0.1.0.tgz ./@baka-mcp-server-0.1.0.tgz
+which baka
+which baka-mcp
+```
+
+Tarballs are produced by `scripts/release.sh` (see [Publishing](./docs/PUBLISHING.md) for the canonical release flow).
+
+### After install
+
+Add the baka MCP server to your user-level Factory config (`~/.factory/mcp.json`) so it attaches in every session:
+
+```json
+{
+  "mcpServers": {
+    "baka": {
+      "type": "stdio",
+      "command": "baka-mcp",
+      "timeoutMs": 120000
+    }
+  }
+}
+```
+
+That single entry is enough to make `baka_plan`, `baka_apply`, `baka_validate`, and `baka_list_actions` available in every coding-agent session, regardless of the working directory.
+
+## Quickstart
+
+After install, the canonical first-run sequence is:
+
+```bash
+# 1. Configure an LLM provider (interactive; runs once per machine).
+baka init
+
+# 2. Discover what baka can do in the current project.
+baka list-modules
+# Found 3 module(s):
+#   baka-base (3 actions): scaffold, add-script, add-dependency
+#   sdd (2 actions): init-constitution, create-feature
+#   ts-style (2 actions): install-config, lint
+
+# 3. Plan a feature. The LLM picks from the discovered module catalog.
+baka plan "scaffold a TypeScript project with biome + vitest"
+
+# Same call, machine-readable (mirrors the MCP tool shape):
+baka plan "scaffold a TypeScript project" --json
+```
+
+Every command accepts `--json` and emits the same shape as the corresponding MCP tool. Use `--json` from CI, scripts, and pipes; the human-readable default is for the terminal.
+
+## Uninstall
+
+```bash
+pnpm unlink --global baka @baka/mcp-server
+which baka       # empty
+which baka-mcp   # empty
+```
+
+The `pnpm unlink` step is enough on most pnpm versions. If the shims persist (pnpm version drift between content-addressable stores), `scripts/unlink-global.sh` falls back from `pnpm uninstall -g` to deleting the shim files directly. It is idempotent and safe to re-run.
+
+```bash
+scripts/unlink-global.sh            # removes both
+scripts/unlink-global.sh baka       # removes only the CLI
+```
+
+To reinstall after uninstall:
+
+```bash
+pnpm install
+pnpm link --global
+```
+
+## Troubleshooting
+
+### `command not found: baka` after install
+
+The pnpm global bin directory is not on `PATH`. pnpm prints its location after `pnpm link --global`:
+
+```bash
+pnpm link --global
+# ... look for: "You can now run: baka / baka-mcp"
+```
+
+Add that directory to your shell `PATH`. On macOS with Homebrew pnpm it is typically `~/Library/pnpm`; with corepack it is `~/.local/share/pnpm`. Persist it by adding a line to `~/.zshrc` or `~/.bashrc`:
+
+```bash
+export PATH="$HOME/Library/pnpm:$PATH"
+```
+
+Verify the recovery:
+
+```bash
+command -v baka   # exits 0 with a path; exits 1 if missing
+baka --version    # works once PATH is fixed
+```
+
+### `baka plan` fails with "no provider configured"
+
+Run `baka init` to register an LLM provider. The engine refuses to call any provider until at least one is configured. Quick check:
+
+```bash
+baka providers list    # shows registered providers and the active marker (*)
+baka init              # interactive: provider name, model, base URL, API key
+```
+
+If `baka init` is not viable (CI, headless boxes), set the env vars directly: `BAKA_LLM_PROVIDER`, `BAKA_LLM_MODEL`, `BAKA_LLM_BASE_URL`, `BAKA_LLM_API_KEY`. The CLI/MCP read them on every startup.
+
+### Broken barrel / import-time crash in one subcommand
+
+Baka's CLI lazy-loads every subcommand action via dynamic `import()`. A bad import in one subcommand (e.g. a typo in a barrel re-export) must NOT crash the others. If a sibling subcommand still crashes:
+
+1. Identify the failing subcommand: run each sibling (`baka --help`, `baka list-modules --json`, `baka plan --help`, `baka config list`, `baka init --help`) and see which one errors.
+2. Open the failing barrel (usually `workflows/<name>/src/index.ts` or `apps/cli/src/commands/<name>/index.ts`) and check the re-exports. The canonical fix for the historic `workflows/module-management/src/index.ts` bug was adding the explicit `.ts` extension to the re-export target.
+3. Rebuild: `pnpm build`. The lazy-load invariant is preserved by `tsup` (dynamic imports survive bundling).
+4. If a subcommand still fails on import, report it as a regression — the engine should isolate the failure, not propagate it.
+
+The CI smoke step (`pnpm --filter baka build` + `baka --version` + JSON-RPC `initialize`) catches the obvious barrel bugs before they reach `main`.
+
 ## Usage
 
 ### For coding agents (Claude Code, Cursor, Codex, Cline, Zed, etc.)
@@ -110,6 +273,14 @@ The system operates on an isolated, deterministic execution loop. Agents do not 
 
 ## Provider Boundary
 All provider knowledge (HTTP clients, API keys, model names) is sealed inside `packages/agent-engine/`. Workflows, the CLI, and `ast-tooling` only ever import the `LLMProvider` interface from `packages/protocol/`. The user picks the provider (llama.cpp, Ollama, vLLM, OpenAI, anything speaking the OpenAI chat-completions API) via `baka init`; the engine never dictates it.
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full contribution guide. CI must be green before merge: lint, type-check, test, build, pack, and the smoke step (linked-binary probe of `baka` and `baka-mcp`) all run on every PR. A failing CI run blocks merge — do not bypass the required status checks or push commits that skip the workflow.
+
+## Release
+
+To cut a new version, run `scripts/release.sh <semver>` from a clean tree. The script bumps the version in `package.json`, `apps/cli/package.json`, and `apps/mcp/package.json` consistently; runs `pnpm pack` for both workspaces; and prints the global-install command. It refuses to run on a dirty tree and supports `--dry-run` for plan-only output. The script does not push to npm — the publish step is a separate manual flow documented in [docs/PUBLISHING.md](./docs/PUBLISHING.md).
 
 ## License
 
