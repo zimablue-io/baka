@@ -7,7 +7,7 @@ import {
 	readCatalogSubscriptions,
 	removeCatalogSubscription,
 	writeCatalogSubscriptions,
-} from "../src/marketplace-catalogs"
+} from "./marketplace-catalogs"
 
 let tmpDir: string
 let catalogsPath: string
