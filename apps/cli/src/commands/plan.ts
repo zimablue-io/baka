@@ -20,6 +20,30 @@ interface PlanOpts {
 
 export async function runPlanCommand(intent: string, opts: PlanOpts): Promise<void> {
 	const cwd = opts.cwd ?? process.cwd()
+	// Empty intent is a user-shape error that should be caught at the
+	// cheapest possible step (string-length check) BEFORE the LLM config
+	// probe. Surfacing it later as a "missing LLM config" error hides the
+	// real cause and forces the user to debug the wrong layer. The
+	// contract (VAL-DOG-012) requires either a FAILED JSON plan with a
+	// `no module matched: empty intent` diagnostic OR an exit of
+	// `BAKA_EXIT_CODE.ENGINE_ERROR` (2). We emit both: a parsed JSON
+	// envelope with the documented diagnostic, plus exit 2 to match the
+	// existing FAILED-JSON path so log scrapers / orchestrators route on a
+	// consistent exit code for "no steps resolved". No LLM I/O is performed.
+	if (intent.trim() === "") {
+		const diagnostic = "no module matched: empty intent"
+		if (opts.json) {
+			const result: Record<string, unknown> = {
+				status: "FAILED",
+				steps: [],
+				logs: [diagnostic],
+			}
+			console.log(JSON.stringify(result, null, 2))
+		} else {
+			console.log(`baka: ${diagnostic}`)
+		}
+		process.exit(BAKA_EXIT_CODE.ENGINE_ERROR)
+	}
 	const config = await loadLLMConfig({ cwd, providerName: opts.provider })
 	try {
 		validateLLMConfig(config)

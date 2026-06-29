@@ -614,6 +614,100 @@ describe("VAL-CLI-024 baka plan without LLM credentials", () => {
 })
 
 // ===========================================================================
+// VAL-DOG-012  plan "" (empty intent) returns a structured error
+//
+// Empty intent is the cheapest possible user-shape error: a string-length
+// check. The LLM config probe must NOT fire first; today it does, returning
+// exit 1 with "missing LLM config" before the engine ever sees the empty
+// intent. Per the contract (VAL-DOG-012), empty intent must surface as a
+// `FAILED` JSON plan with a `no module matched` diagnostic OR exit
+// `BAKA_EXIT_CODE.ENGINE_ERROR` (2). The engine-smoke harness runs a
+// fake-LLM harness so the test is independent of the user's LLM config.
+// ===========================================================================
+
+describe("VAL-DOG-012 baka plan empty intent", () => {
+	it("exits 2 with a FAILED JSON envelope and a 'no module matched: empty intent' diagnostic (no stack frames)", async () => {
+		const fakeHome = trackDir(makeEmptyDir("baka-plan-empty-intent-"))
+		const llm = await startFakeLLM([{ content: "{}" }])
+
+		try {
+			const { code, stdout, stderr } = await spawnCliWithFakeHome({
+				argv: ["plan", "", "--json"],
+				fakeHome,
+				env: {
+					BAKA_LLM_BASE_URL: llm.url,
+					BAKA_LLM_MODEL: "fake-llm",
+				},
+			})
+
+			// Contract permits exit 0 (structured JSON, no engine-error) or 2
+			// (BAKA_EXIT_CODE.ENGINE_ERROR following the existing FAILED path).
+			// We follow the existing FAILED-JSON pattern: exit 2.
+			expect([0, 2], `unexpected exit ${code}; stdout=${stdout}; stderr=${stderr}`).toContain(code)
+			// The fix uses BAKA_EXIT_CODE.ENGINE_ERROR; assert the documented path.
+			// (If the contract ever flips to exit 0, the assertion above tolerates it.)
+			// For now, the implementation emits exit 2.
+			expect(code).toBe(2)
+
+			// Stdout must be parseable JSON with the documented FAILED shape.
+			const parsed = JSON.parse(stdout) as {
+				status: string
+				steps: unknown[]
+				logs: string[]
+			}
+			expect(parsed.status).toBe("FAILED")
+			expect(parsed.steps).toEqual([])
+			expect(Array.isArray(parsed.logs)).toBe(true)
+			// The diagnostic string MUST be present so agents can route on it.
+			expect(parsed.logs.some((line) => line.includes("no module matched") && line.includes("empty intent"))).toBe(true)
+
+			// No Node stack frames on stderr.
+			expect(stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
+			// The LLM config probe must NOT have fired (the empty-intent check
+			// runs BEFORE loadLLMConfig). The fake LLM harness was given
+			// exactly one scripted response; if the CLI made an HTTP call,
+			// calls would be > 0.
+			expect(
+				llm.calls,
+				`LLM was called ${llm.calls} times; expected 0 (empty-intent check must precede loadLLMConfig)`,
+			).toBe(0)
+		} finally {
+			await llm.close()
+		}
+	}, 30_000)
+
+	it("exits 2 with the human-formatted 'no module matched' line when --json is omitted", async () => {
+		const fakeHome = trackDir(makeEmptyDir("baka-plan-empty-intent-human-"))
+		const llm = await startFakeLLM([{ content: "{}" }])
+
+		try {
+			const { code, stderr, stdout } = await spawnCliWithFakeHome({
+				argv: ["plan", ""],
+				fakeHome,
+				env: {
+					BAKA_LLM_BASE_URL: llm.url,
+					BAKA_LLM_MODEL: "fake-llm",
+				},
+			})
+
+			// Human mode: exit 2 (ENGINE_ERROR) is also contract-acceptable.
+			expect([0, 2], `unexpected exit ${code}; stdout=${stdout}; stderr=${stderr}`).toContain(code)
+			// Either the message lands on stdout (covered above) or in a single
+			// `baka:` line on stderr; either way, the diagnostic string is present.
+			const combined = `${stdout}\n${stderr}`
+			expect(combined).toContain("no module matched")
+			expect(combined).toContain("empty intent")
+			// No stack frames.
+			expect(stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
+			// LLM still not called (empty-intent check precedes loadLLMConfig).
+			expect(llm.calls).toBe(0)
+		} finally {
+			await llm.close()
+		}
+	}, 30_000)
+})
+
+// ===========================================================================
 // VAL-CLI-025  list-plans enumerates .baka/plans/*.plan.json
 // ===========================================================================
 

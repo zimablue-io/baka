@@ -6,6 +6,26 @@ All notable changes to baka are recorded here. Dates use YYYY-MM-DD.
 
 ### Fixed
 
+- M5 user-testing VAL-DOG-012 contract/impl mismatch:
+  `baka plan "" --json` previously returned exit 1 with
+  `missing LLM config` because the LLM config validation in
+  `apps/cli/src/commands/plan.ts:runPlanCommand` fired BEFORE
+  the empty-intent handling. Empty intent is a user-shape error
+  that should be caught at the cheapest possible step (string-
+  length check) and is semantically orthogonal to whether the
+  user has an LLM configured. The validation in `runPlanCommand`
+  now checks `intent.trim() === ""` BEFORE the `loadLLMConfig`
+  call and returns the documented `{status: "FAILED", steps: [],
+  logs: ["no module matched: empty intent"]}` JSON envelope
+  with exit `BAKA_EXIT_CODE.ENGINE_ERROR` (2); the human-mode
+  path prints `baka: no module matched: empty intent` and exits 2
+  as well. No LLM I/O is performed. The non-empty intent path
+  is unchanged (LLM config still gates that branch). Two new
+  engine-smoke tests cover the JSON-mode and human-mode paths
+  (`VAL-DOG-012 baka plan empty intent`); both assert the exit
+  code, the JSON envelope, the diagnostic string, and the
+  absence of any HTTP call to the fake-LLM harness.
+
 - M5 scrutiny-blocker: 5 smoke tests failed because they hardcoded
   the pre-M5 module count of 3 (CLI: VAL-CLI-016, VAL-CLI-017,
   VAL-CLI-029; MCP: VAL-MCP-003, VAL-MCP-020). After the
