@@ -4,8 +4,8 @@ import {
 	type ValidationDiagnostic,
 	type ValidationResult,
 } from "@repo/protocol"
-import { loadActionValidator, loadModuleValidator } from "./action-loader"
-import { ModuleRegistry } from "./registry"
+import { loadActionValidator, loadModuleValidator } from "./action-loader.js"
+import { ModuleRegistry } from "./registry.js"
 
 /**
  * Run all module-level and action-level validators (and the registry's

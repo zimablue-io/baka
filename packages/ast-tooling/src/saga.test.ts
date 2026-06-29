@@ -7,7 +7,7 @@ import {
 	type WorkflowStep,
 } from "@repo/protocol"
 import { describe, expect, it } from "vitest"
-import { runSaga } from "./saga"
+import { runSaga } from "./saga.js"
 
 function freshState(): OrchestrationState {
 	return {

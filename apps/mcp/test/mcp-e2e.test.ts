@@ -11,7 +11,7 @@
 //
 //   VAL-MCP-001   initialize returns serverInfo.name === "baka-mcp"
 //   VAL-MCP-002   serverInfo.version matches apps/mcp/package.json
-//   VAL-MCP-003   tools/list enumerates engine + per-action (11 tools)
+//   VAL-MCP-003   tools/list enumerates engine + per-action (12 tools after M5)
 //   VAL-MCP-004   every inputSchema has type/properties/required
 //   VAL-MCP-005   per-action required arrays reflect manifest
 //                  (sdd init-constitution: ["productName","summary"])
@@ -356,7 +356,7 @@ describe("VAL-MCP-002 serverInfo.version", () => {
 // ---------------------------------------------------------------------------
 
 describe("VAL-MCP-003..006 tools/list", () => {
-	it("returns 11 tools: 4 engine + 7 per-action (3 baka-base + 2 sdd + 2 ts-style)", async () => {
+	it("returns 12 tools: 4 engine + 8 per-action (3 baka-base + 2 sdd + 2 ts-style + 1 better-chat-boundaries)", async () => {
 		const state = spawnMcp({})
 		try {
 			await initialize(state)
@@ -365,7 +365,7 @@ describe("VAL-MCP-003..006 tools/list", () => {
 			expect(resp?.error).toBeUndefined()
 			const result = resp?.result as { tools: Array<{ name: string; inputSchema: Record<string, unknown> }> }
 			const names = result.tools.map((t) => t.name).sort()
-			expect(result.tools.length).toBe(11)
+			expect(result.tools.length).toBe(12)
 
 			// The four engine tools.
 			expect(names).toContain("baka_plan")
@@ -381,6 +381,8 @@ describe("VAL-MCP-003..006 tools/list", () => {
 			expect(names).toContain("baka_sdd_create_feature")
 			expect(names).toContain("baka_ts_style_install_config")
 			expect(names).toContain("baka_ts_style_lint")
+			// M5 dogfood: better-chat-boundaries validate action is exposed as a per-action tool.
+			expect(names).toContain("baka_better_chat_boundaries_validate")
 		} finally {
 			await shutdown(state)
 		}
@@ -776,14 +778,14 @@ describe("VAL-MCP-019 malformed JSON-RPC resilience", () => {
 // ---------------------------------------------------------------------------
 
 describe("VAL-MCP-020 cwd sensitivity", () => {
-	it("sees 11 tools in BAKA_REPO and 4 engine tools in an empty dir", async () => {
+	it("sees 12 tools in BAKA_REPO and 4 engine tools in an empty dir", async () => {
 		const stateRepo = spawnMcp({ cwd: BAKA_REPO })
 		try {
 			await initialize(stateRepo)
 			const id = sendRpc(stateRepo, "tools/list")
 			const resp = await waitForResponse(stateRepo, id, 5_000)
 			const result = resp?.result as { tools: Array<{ name: string }> }
-			expect(result.tools.length).toBe(11)
+			expect(result.tools.length).toBe(12)
 			const names = result.tools.map((t) => t.name)
 			expect(names).toContain("baka_baka_base_scaffold")
 		} finally {

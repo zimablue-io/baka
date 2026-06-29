@@ -14,7 +14,7 @@ import {
 import Handlebars from "handlebars"
 import { createJiti } from "jiti"
 import { z } from "zod"
-import { loadAction } from "./action-loader"
+import { loadAction } from "./action-loader.js"
 
 /**
  * Handlebars comment sentinel that opts a template out of LLM reasoning. If a

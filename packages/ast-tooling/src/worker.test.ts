@@ -10,7 +10,7 @@ import {
 	type WorkflowStep,
 } from "@repo/protocol"
 import { afterEach, describe, expect, it } from "vitest"
-import { runSaga } from "./saga"
+import { runSaga } from "./saga.js"
 
 const cleanup: string[] = []
 afterEach(() => {

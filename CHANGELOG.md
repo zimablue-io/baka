@@ -2,6 +2,31 @@
 
 All notable changes to baka are recorded here. Dates use YYYY-MM-DD.
 
+## [Unreleased] - 2026-06-29
+
+### Fixed
+
+- M5 scrutiny-blocker: 5 smoke tests failed because they hardcoded
+  the pre-M5 module count of 3 (CLI: VAL-CLI-016, VAL-CLI-017,
+  VAL-CLI-029; MCP: VAL-MCP-003, VAL-MCP-020). After the
+  `better-chat-boundaries` module was added in commit b7731f0, the
+  in-repo catalog is now 4 modules (baka-base, sdd, ts-style,
+  better-chat-boundaries) and the MCP tools list is 12 tools
+  (4 engine + 8 per-action: 3 baka-base + 2 sdd + 2 ts-style +
+  1 better-chat-boundaries). The hardcoded counts are bumped to
+  match. The empty-cwd MCP probe stays at 4 engine tools (engine
+  tools are not module-dependent, only per-action tools are).
+- M5 scrutiny-blocker: `pnpm check-types` failed across the workspace
+  with TS1470 because `packages/ast-tooling/src/{registry,worker}.ts`
+  and `workflows/discovery/src/discovery.ts` use `import.meta.url`
+  but their packages did not declare `"type": "module"`. Added
+  `"type": "module"` to `packages/ast-tooling/package.json` and
+  `workflows/discovery/package.json`, and converted every relative
+  sibling import in those packages to use explicit `.js` extensions
+  (required by NodeNext ESM resolution). The cascade in the ast-tooling
+  barrel `index.ts` (15 sibling re-exports) and the per-file test
+  imports (5 `.test.ts` files) are updated in lockstep.
+
 ## [Unreleased] - 2026-06-26
 
 ### Fixed

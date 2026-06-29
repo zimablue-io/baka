@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, test } from "vitest"
-import { computeDivergencesForTest, renderConsistencyTraceForTest } from "./consistency"
+import { computeDivergencesForTest, renderConsistencyTraceForTest } from "./consistency.js"
 
 function makeRun(idx: number, files: string[], hashes: Record<string, string>) {
 	return {

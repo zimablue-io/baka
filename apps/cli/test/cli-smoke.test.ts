@@ -18,8 +18,8 @@
 //   VAL-CLI-008  providers list shows the active marker
 //   VAL-CLI-009  providers use <missing> exits 1, no stack trace
 //   VAL-CLI-015  list-modules (no flag) prints the human listing
-//   VAL-CLI-016  list-modules --json emits the documented shape
-//   VAL-CLI-017  list-modules --json is cwd-scoped
+//   VAL-CLI-016  list-modules --json emits the documented shape (4 modules after M5)
+//   VAL-CLI-017  list-modules --json is cwd-scoped (4 modules in BAKA_REPO)
 //   VAL-CLI-018  --cwd <nonexistent> exits 1 with a clear message
 //   VAL-CLI-031  install <bad-source> exits 1 with a parse error
 //   VAL-CLI-032  marketplace add <url> is idempotent
@@ -398,7 +398,7 @@ describe("VAL-CLI-016 baka list-modules --json shape", () => {
 			modules: Array<{ name: string; version: string; description: string; actions: number; uri: string }>
 			diagnostics: unknown[]
 		}
-		expect(parsed.modules).toHaveLength(3)
+		expect(parsed.modules).toHaveLength(4)
 		expect(parsed.diagnostics).toEqual([])
 
 		const byName = Object.fromEntries(parsed.modules.map((m) => [m.name, m]))
@@ -406,6 +406,7 @@ describe("VAL-CLI-016 baka list-modules --json shape", () => {
 		expect(byName["baka-base"]?.actions).toBe(3)
 		expect(byName.sdd?.actions).toBe(2)
 		expect(byName["ts-style"]?.actions).toBe(2)
+		expect(byName["better-chat-boundaries"]?.actions).toBe(1)
 
 		for (const m of parsed.modules) {
 			expect(typeof m.name).toBe("string")
@@ -422,15 +423,16 @@ describe("VAL-CLI-016 baka list-modules --json shape", () => {
 // ---------------------------------------------------------------------------
 
 describe("VAL-CLI-017 baka list-modules --json is cwd-scoped", () => {
-	it("discovers 3 modules from BAKA_REPO and 0 from an empty cwd (with a no-modules diagnostic)", async () => {
-		// (1) BAKA_REPO — 3 modules, no diagnostics.
+	it("discovers 4 modules from BAKA_REPO and 0 from an empty cwd (with a no-modules diagnostic)", async () => {
+		// (1) BAKA_REPO — 4 modules (baka-base, sdd, ts-style, better-chat-boundaries),
+		//     no diagnostics.
 		const repoProbe = await spawnCli({ argv: ["list-modules", "--json"] })
 		expect(repoProbe.code, `stderr=${repoProbe.stderr}`).toBe(0)
 		const repoParsed = JSON.parse(repoProbe.stdout) as {
 			modules: unknown[]
 			diagnostics: Array<{ rule: string }>
 		}
-		expect(repoParsed.modules).toHaveLength(3)
+		expect(repoParsed.modules).toHaveLength(4)
 		expect(repoParsed.diagnostics).toEqual([])
 
 		// (2) Empty cwd — 0 modules + no-modules diagnostic.

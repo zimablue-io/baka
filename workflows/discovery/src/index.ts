@@ -1,1 +1,1 @@
-export { discoverModules } from "./discovery"
+export { discoverModules } from "./discovery.js"

@@ -768,7 +768,7 @@ describe("VAL-CLI-028 baka validate", () => {
 // ===========================================================================
 
 describe("VAL-CLI-029 baka validate --json", () => {
-	it("emits {modulesDiscovered, validation} with modulesDiscovered===3 from BAKA_REPO", async () => {
+	it("emits {modulesDiscovered, validation} with modulesDiscovered===4 from BAKA_REPO", async () => {
 		const { code, stdout, stderr } = await spawnCli({
 			argv: ["validate", "--json"],
 		})
@@ -784,7 +784,7 @@ describe("VAL-CLI-029 baka validate --json", () => {
 			modulesDiscovered: number
 			validation: { kind: string; diagnostics?: unknown[] }
 		}
-		expect(parsed.modulesDiscovered).toBe(3)
+		expect(parsed.modulesDiscovered).toBe(4)
 		expect(parsed.validation).toBeDefined()
 		expect(["pass", "fail"]).toContain(parsed.validation.kind)
 
