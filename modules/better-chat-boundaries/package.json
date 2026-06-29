@@ -1,0 +1,29 @@
+{
+	"name": "@baka-mod/better-chat-boundaries",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Captured boundary-check module for the better-chat monorepo. Runs the boundary check directly against the live source using the manifest's BOUNDARY_RULES data; reports structured pass/fail diagnostics without mutating the live tree.",
+	"keywords": [
+		"baka-module"
+	],
+	"main": "./manifest.ts",
+	"types": "./manifest.ts",
+	"scripts": {
+		"check-types": "tsc --noEmit"
+	},
+	"dependencies": {
+		"baka-sdk": "workspace:*"
+	},
+	"devDependencies": {
+		"@repo/typescript-config": "workspace:*",
+		"@types/node": "^22.19.15",
+		"typescript": "^5.9.2"
+	},
+	"peerDependencies": {
+		"baka": "*"
+	},
+	"baka": {
+		"version": "^0.1.0",
+		"category": "pattern"
+	}
+}
