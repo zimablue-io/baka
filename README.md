@@ -62,7 +62,21 @@ Tarballs are produced by `scripts/release.sh` (see [Publishing](./docs/PUBLISHIN
 
 ### After install
 
-Add the baka MCP server to your user-level Factory config (`~/.factory/mcp.json`) so it attaches in every session:
+Add the baka MCP server to your user-level Factory config (`~/.factory/mcp.json`) so it attaches in every session. If you already have entries under `mcpServers` (supabase, sanity, context7, etc.), merge this `baka` entry into your existing `mcpServers` block. Do NOT replace the whole file; your other servers and the `persistentPermissions` block must be preserved verbatim.
+
+The baka entry (exact, copy-paste-ready):
+
+```json
+"baka": {
+  "type": "stdio",
+  "command": "baka-mcp",
+  "args": [],
+  "disabled": false,
+  "timeoutMs": 120000
+}
+```
+
+For a fresh config with no existing entries, the full file is:
 
 ```json
 {
@@ -70,13 +84,17 @@ Add the baka MCP server to your user-level Factory config (`~/.factory/mcp.json`
     "baka": {
       "type": "stdio",
       "command": "baka-mcp",
+      "args": [],
+      "disabled": false,
       "timeoutMs": 120000
     }
   }
 }
 ```
 
-That single entry is enough to make `baka_plan`, `baka_apply`, `baka_validate`, and `baka_list_actions` available in every coding-agent session, regardless of the working directory.
+> **Do NOT touch `persistentPermissions`.** Factory uses that block to remember which MCP servers and tools you have approved. Modifying it (or losing it during a copy-paste) causes unexpected re-prompts and approval loss.
+
+That single `baka` entry is enough to make `baka_plan`, `baka_apply`, `baka_validate`, and `baka_list_actions` available in every coding-agent session, regardless of the working directory. Project-level `.factory/mcp.json` overrides this entry on a per-key conflict (e.g. a sibling project's local config wins when opened).
 
 ## Quickstart
 
