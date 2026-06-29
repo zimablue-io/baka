@@ -180,7 +180,19 @@ export async function runApplyCommand(
 	for (const c of saga.completed) {
 		actionResults.set(`${c.module}:${c.action}`, { compensationData: c.compensationData })
 	}
-	const validation = await runValidators(cwd, saga.state, actionResults)
+	// Scope the post-apply validators to the modules whose actions actually
+	// ran in the SAGA. Running every discovered module on a large monorepo
+	// (e.g. better-chat) turns a 0.1s validate into a multi-minute apply
+	// and surfaces violations from modules the user did not invoke (e.g.
+	// `ts-style:noAnyTypes` flagging `: any` usages in better-chat's
+	// source, which has nothing to do with the
+	// `better-chat-boundaries:validate` step the apply just ran). The
+	// `moduleFilter` list preserves the M5 dogfood read-only contract
+	// (VAL-DOG-008, VAL-DOG-011): validate only runs against the modules
+	// the apply actually executed, so the apply result is determined by
+	// the plan the user saved, not by unrelated in-repo validators.
+	const usedModules = Array.from(new Set(saga.completed.map((c) => c.module)))
+	const validation = await runValidators(cwd, saga.state, actionResults, undefined, usedModules)
 
 	const completedSteps = saga.completed.map((c) => ({ id: c.id, module: c.module, action: c.action }))
 
@@ -211,7 +223,7 @@ export async function runApplyCommand(
 	console.log("\napply: success (validators passed)")
 }
 
-export async function runValidateCommand(cwd: string, opts: { json?: boolean } = {}): Promise<void> {
+export async function runValidateCommand(cwd: string, opts: { json?: boolean; module?: string } = {}): Promise<void> {
 	const modules = discoverModules(cwd)
 	const state: OrchestrationState = {
 		userIntent: "(validate)",
@@ -221,11 +233,30 @@ export async function runValidateCommand(cwd: string, opts: { json?: boolean } =
 		logs: [],
 		artifacts: {},
 	}
-	const result = await runValidators(cwd, state)
+
+	// `baka validate --module <name>` filters to a single module's
+	// validators. A non-existent module is a user error (the user gave
+	// us a name that doesn't exist), not a validation error. The
+	// exit code must be BAKA_EXIT_CODE.USER_ERROR (1), not
+	// VALIDATION_ERROR (4). Catch it here, before `runValidators` runs.
+	if (opts.module) {
+		const names = new Set(modules.map((m) => m.name))
+		if (!names.has(opts.module)) {
+			die(BAKA_EXIT_CODE.USER_ERROR, `module "${opts.module}" not found`)
+		}
+	}
+
+	const result = await runValidators(cwd, state, undefined, opts.module)
 
 	if (opts.json) {
-		// Same shape as the MCP `baka_validate` tool.
-		console.log(JSON.stringify({ modulesDiscovered: modules.length, validation: result }, null, 2))
+		// Same shape as the MCP `baka_validate` tool, plus the optional
+		// `moduleName` echo so the consumer can confirm the filter landed.
+		const payload: Record<string, unknown> = {
+			modulesDiscovered: modules.length,
+			validation: result,
+		}
+		if (opts.module) payload.moduleName = opts.module
+		console.log(JSON.stringify(payload, null, 2))
 		if (result.kind === "fail") {
 			process.exit(BAKA_EXIT_CODE.VALIDATION_ERROR)
 		}
@@ -233,6 +264,7 @@ export async function runValidateCommand(cwd: string, opts: { json?: boolean } =
 	}
 
 	console.log(`discovered ${modules.length} module(s)`)
+	if (opts.module) console.log(`filtered to module: ${opts.module}`)
 	if (result.kind === "pass") {
 		console.log("\nvalidation: PASS")
 		return

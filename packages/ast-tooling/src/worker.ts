@@ -1,6 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import {
 	AgentRole,
 	type LLMProvider,
@@ -86,12 +87,21 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, boolean, WorkerRollbac
 
 		try {
 			mkdirSync(scratchDir, { recursive: true })
-			const moduleRoot = join(targetDirectory, "modules", input.moduleName)
-			if (!existsSync(moduleRoot)) {
-				throw new Error(`module "${input.moduleName}" not found at ${moduleRoot}`)
+			// Resolve the module's root in the project scope first, then fall
+			// back to the bundled scope (the baka repo's `modules/<name>`).
+			// The M5 dogfood flow runs `baka plan/apply` from `better-chat`'s
+			// cwd, where `better-chat-boundaries` lives in the baka repo's
+			// bundled scope, not in `<better-chat>/modules/`. Mirroring the
+			// `ModuleRegistry.findBundledModulesDir` walk-up keeps the worker
+			// and the registry in sync on the same module-root path.
+			const moduleRoot = resolveModuleRoot(targetDirectory, input.moduleName)
+			if (!moduleRoot) {
+				throw new Error(
+					`module "${input.moduleName}" not found (looked in <targetDirectory>/modules/${input.moduleName} and the bundled scope)`,
+				)
 			}
 
-			const manifest = loadManifest(targetDirectory, input.moduleName)
+			const manifest = loadManifest(moduleRoot, input.moduleName)
 			const action = manifest.actions.find((a) => a.id === input.actionName)
 			if (!action) throw new Error(`action "${input.actionName}" not declared in ${input.moduleName} manifest`)
 
@@ -99,7 +109,7 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, boolean, WorkerRollbac
 			if (existsSync(templatesDir)) cpSync(templatesDir, join(scratchDir, "templates"), { recursive: true })
 
 			const enrichedParams: Record<string, unknown> = action.requiresReasoning
-				? await fillReasoningTemplates(input, action, state, ctx?.llmProvider ?? null)
+				? await fillReasoningTemplates(input, action, state, ctx?.llmProvider ?? null, moduleRoot)
 				: input.parameters
 
 			const loaded = loadAction<Record<string, unknown>, unknown, unknown>(
@@ -110,7 +120,16 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, boolean, WorkerRollbac
 			)
 			const result = await loaded.step.execute(enrichedParams, state, ctx)
 
-			cpSync(scratchDir, outputDir, { recursive: true })
+			// Only copy the scratch into the project's output dir if the
+			// action actually produced files. Read-only actions (e.g. the
+			// M5 `better-chat-boundaries:validate` action) leave the
+			// scratch empty; copying would create an empty `out/`
+			// directory in the project tree, which would show up as a
+			// mutation in `git status` and break the dogfood read-only
+			// contract (VAL-DOG-008, VAL-DOG-010).
+			if (readdirSync(scratchDir).length > 0) {
+				cpSync(scratchDir, outputDir, { recursive: true })
+			}
 
 			return {
 				success: result.success,
@@ -162,9 +181,66 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, boolean, WorkerRollbac
 // Helpers
 // ---------------------------------------------------------------------------
 
-function loadManifest(projectRoot: string, moduleName: string): ModuleManifest {
-	const manifestPath = join(projectRoot, "modules", moduleName, "manifest.ts")
-	const jiti = createJiti(projectRoot, { interopDefault: true })
+/**
+ * Resolve a module's root directory. Checks the project scope first
+ * (`<targetDirectory>/modules/<name>/`), then falls back to the bundled
+ * scope. The bundled scope is anchored on `import.meta.url` (the same
+ * anchor the `ModuleRegistry.findBundledModulesDir` walk-up uses): the
+ * worker and the registry agree on the baka repo's `modules/` dir by
+ * walking up from the file URL of the bundled JS. Returns `null` when
+ * neither scope has the module.
+ *
+ * This is the M5 prerequisite: the `better-chat-boundaries` module lives
+ * in the baka repo's bundled scope but is invoked from `better-chat`'s
+ * cwd, where `<better-chat>/modules/better-chat-boundaries/` does not
+ * exist. Walking up from `targetDirectory` would not find the baka repo
+ * (they are siblings, not parent and child), so the anchor is the
+ * bundled file's own URL, which always resolves to the baka repo when
+ * the CLI is invoked from a clone or a pnpm-link install. Returns
+ * `null` only when the dist is globally installed without the baka repo
+ * (e.g. a tarball install) — in that case the project scope is the only
+ * source of modules and the worker fails the same way the registry does.
+ */
+function resolveModuleRoot(targetDirectory: string, moduleName: string): string | null {
+	const projectPath = join(targetDirectory, "modules", moduleName)
+	if (existsSync(join(projectPath, "manifest.ts"))) {
+		return projectPath
+	}
+	const bundledDir = findBundledModulesDir()
+	if (bundledDir) {
+		const bundledPath = join(bundledDir, moduleName)
+		if (existsSync(join(bundledPath, "manifest.ts"))) {
+			return bundledPath
+		}
+	}
+	return null
+}
+
+/**
+ * Walk up from `import.meta.url` looking for the baka repo's
+ * `modules/baka-base/manifest.ts` marker. Returns the absolute path to
+ * `<repo>/modules/` or `null` if the baka repo is not reachable. Mirrors
+ * `ModuleRegistry.findBundledModulesDir` so the worker and the registry
+ * always agree on the bundled-scope root.
+ */
+function findBundledModulesDir(): string | null {
+	const start = dirname(fileURLToPath(import.meta.url))
+	let cur = start
+	for (let i = 0; i < 8; i++) {
+		const marker = join(cur, "modules", "baka-base", "manifest.ts")
+		if (existsSync(marker)) {
+			return join(cur, "modules")
+		}
+		const parent = dirname(cur)
+		if (parent === cur) break
+		cur = parent
+	}
+	return null
+}
+
+function loadManifest(moduleRoot: string, moduleName: string): ModuleManifest {
+	const manifestPath = join(moduleRoot, "manifest.ts")
+	const jiti = createJiti(moduleRoot, { interopDefault: true })
 	const mod = jiti(manifestPath) as { Manifest?: ModuleManifest }
 	if (!mod.Manifest) throw new Error(`${moduleName}: manifest.ts did not export \`Manifest\``)
 	return mod.Manifest
@@ -183,13 +259,15 @@ function loadManifest(projectRoot: string, moduleName: string): ModuleManifest {
 async function fillReasoningTemplates(
 	input: WorkerInput,
 	action: { id: string },
-	state: OrchestrationState,
+	_state: OrchestrationState,
 	provider: LLMProvider | null,
+	moduleRoot: string,
 ): Promise<Record<string, unknown>> {
-	const targetDirectory = state.targetDirectory
-	if (!targetDirectory) {
-		throw new Error("Worker: state.targetDirectory is not set; the SAGA must set it before invoking steps")
-	}
+	// `moduleRoot` is now the source of truth for the templates dir (it may
+	// live in the bundled scope, not under `<targetDirectory>/modules/`).
+	// The SAGA still requires `state.targetDirectory` to be set; the
+	// `state` parameter is kept for that invariant, but we no longer
+	// derive the templates path from it.
 	if (!provider) {
 		throw new Error(
 			`action "${action.id}" declares requiresReasoning: true, but no LLMProvider was injected into the Worker. ` +
@@ -197,7 +275,7 @@ async function fillReasoningTemplates(
 		)
 	}
 
-	const templatesDir = join(targetDirectory, "modules", input.moduleName, action.id, "templates")
+	const templatesDir = join(moduleRoot, action.id, "templates")
 	if (!existsSync(templatesDir)) {
 		return { ...input.parameters, renderedTemplates: {} }
 	}

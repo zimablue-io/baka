@@ -16,27 +16,75 @@ import { ModuleRegistry } from "./registry"
  * Action-level validators receive the action's `compensationData` (the
  * data the action's `execute` returned) so they can assert on what the
  * action actually produced.
+ *
+ * If `moduleName` is provided, only that module's validators run. The
+ * caller is responsible for the "module not found" user error (which
+ * must exit `BAKA_EXIT_CODE.USER_ERROR = 1`, not the validation-error
+ * exit code this function produces). When `moduleName` is provided and
+ * no module matches, this function emits a single
+ * `module-not-found` diagnostic so the validation result is `fail` and
+ * downstream consumers see the same shape regardless of the filter
+ * outcome.
+ *
+ * If `moduleFilter` is provided, only modules whose name is in the
+ * list run. This is the apply-path filter: the apply should only
+ * validate modules whose actions actually ran, not every discovered
+ * module. Running every discovered module on a large monorepo like
+ * better-chat (where bundled modules like `ts-style` scan the whole
+ * tree) turns a 0.1s validate into a 3-minute apply, and surfaces
+ * violations from modules the user did not invoke (e.g. `ts-style`
+ * finding `: any` usages in better-chat's source, which has nothing
+ * to do with the `better-chat-boundaries:validate` step the apply
+ * just ran). `moduleFilter` takes precedence over `moduleName` when
+ * both are provided.
  */
 export async function runValidators(
 	targetDirectory: string,
 	state: OrchestrationState,
 	actionResults?: Map<string, { compensationData: unknown }>,
+	moduleName?: string,
+	moduleFilter?: string[],
 ): Promise<ValidationResult> {
 	const registry = new ModuleRegistry(targetDirectory)
 	const { diagnostics: structural } = registry.discover(false)
 	state.status = ENGINE_STATUS.VALIDATING
-	const moduleValidatorCount = registry.all().reduce((n, m) => n + m.moduleValidators.length, 0)
-	const actionValidatorCount = registry
-		.all()
-		.reduce((n, m) => n + m.actions.reduce((a, ac) => a + (ac.validators?.length ?? 0), 0), 0)
+	const allDiscovered = registry.all()
+	const targetModules = moduleFilter
+		? allDiscovered.filter((m) => moduleFilter.includes(m.name))
+		: moduleName
+			? allDiscovered.filter((m) => m.name === moduleName)
+			: allDiscovered
+	const moduleValidatorCount = targetModules.reduce((n, m) => n + m.moduleValidators.length, 0)
+	const actionValidatorCount = targetModules.reduce(
+		(n, m) => n + m.actions.reduce((a, ac) => a + (ac.validators?.length ?? 0), 0),
+		0,
+	)
 	state.logs.push(
 		`[validate] running ${moduleValidatorCount} module validator(s) and ${actionValidatorCount} action validator(s)`,
 	)
 
 	const allDiagnostics: ValidationDiagnostic[] = [...structural]
 
-	for (const m of registry.all()) {
-		const moduleRoot = `${targetDirectory}/modules/${m.name}`
+	if ((moduleName || moduleFilter) && targetModules.length === 0) {
+		allDiagnostics.push({
+			severity: "error",
+			rule: "module-not-found",
+			message: `module "${moduleName ?? moduleFilter?.join(",")}" not found; available modules: ${
+				registry
+					.all()
+					.map((m) => m.name)
+					.join(", ") || "(none)"
+			}`,
+		})
+	}
+
+	for (const m of targetModules) {
+		// Use the registry's tracked moduleRoot so bundled modules (which
+		// live outside of <targetDirectory>/modules/) load correctly.
+		// Falls back to <targetDirectory>/modules/<name> for any caller
+		// that hasn't run discover() (defensive only; the registry path
+		// is the normal flow).
+		const moduleRoot = registry.moduleRootFor(m.name) ?? `${targetDirectory}/modules/${m.name}`
 		for (const ruleId of m.moduleValidators) {
 			try {
 				const fn = loadModuleValidator(targetDirectory, moduleRoot, ruleId)

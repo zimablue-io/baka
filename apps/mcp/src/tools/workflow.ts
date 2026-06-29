@@ -101,7 +101,13 @@ export async function runApply(
 	for (const c of saga.completed) {
 		actionResults.set(`${c.module}:${c.action}`, { compensationData: c.compensationData })
 	}
-	const validation = await runValidators(ctx.cwd, saga.state, actionResults)
+	// Scope the post-apply validators to the modules whose actions
+	// actually ran in the SAGA. Mirrors the CLI apply behavior in
+	// `apps/cli/src/commands/plan.ts:runApplyCommand` so the MCP and
+	// CLI agree on which validators run. See the `moduleFilter` comment
+	// in `packages/ast-tooling/src/validator.ts` for the rationale.
+	const usedModules = Array.from(new Set(saga.completed.map((c) => c.module)))
+	const validation = await runValidators(ctx.cwd, saga.state, actionResults, undefined, usedModules)
 
 	const completedSteps = saga.completed.map((c) => ({
 		id: c.id,

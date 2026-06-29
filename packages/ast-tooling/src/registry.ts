@@ -1,6 +1,7 @@
 import { existsSync, readdirSync } from "node:fs"
 import { homedir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import {
 	BAKA_PROJECT_PATHS,
 	BAKA_USER_DIR,
@@ -27,11 +28,49 @@ export function validatorFilename(id: string): string {
 }
 
 export class ModuleRegistry {
-	private readonly byName = new Map<string, ModuleManifest>()
+	private readonly byName = new Map<string, { manifest: ModuleManifest; moduleRoot: string }>()
 	private readonly root: string
 
 	constructor(root: string) {
 		this.root = resolve(root)
+	}
+
+	/**
+	 * Resolve the bundled-modules directory by walking up from this
+	 * module's source location looking for the baka repo's `modules/`
+	 * marker (`<repo>/modules/baka-base/manifest.ts`). Returns the
+	 * absolute path to `<repo>/modules/` or `null` if the baka repo is
+	 * not reachable (e.g. when the dist is globally linked and the
+	 * bundled modules are not shipped in the tarball).
+	 *
+	 * The walk-up is anchored on `import.meta.url` rather than `cwd`
+	 * so the result is correct regardless of which directory the user
+	 * runs `baka` from. The function is computed once at module load
+	 * and memoized.
+	 */
+	private static readonly bundledModulesDirCache: { value: string | null | undefined } = { value: undefined }
+	private static findBundledModulesDir(): string | null {
+		if (ModuleRegistry.bundledModulesDirCache.value !== undefined) {
+			return ModuleRegistry.bundledModulesDirCache.value
+		}
+		// Walk up at most 8 levels. In the baka repo, the registry is at
+		// `packages/ast-tooling/src/registry.ts` (4 levels up = baka/).
+		// In the dist, it's inlined at `apps/cli/dist/index.js` (4 levels
+		// up = baka/). Globally linked installs won't find the marker.
+		const start = dirname(fileURLToPath(import.meta.url))
+		let cur = start
+		for (let i = 0; i < 8; i++) {
+			const marker = join(cur, "modules", "baka-base", "manifest.ts")
+			if (existsSync(marker)) {
+				ModuleRegistry.bundledModulesDirCache.value = join(cur, "modules")
+				return ModuleRegistry.bundledModulesDirCache.value
+			}
+			const parent = dirname(cur)
+			if (parent === cur) break
+			cur = parent
+		}
+		ModuleRegistry.bundledModulesDirCache.value = null
+		return null
 	}
 
 	/**
@@ -49,15 +88,27 @@ export class ModuleRegistry {
 
 		// Walk both the in-tree modules dir and the user/project marketplace
 		// install dirs. Project marketplace wins on dedup; user marketplace
-		// is a fallback.
-		const searchDirs: Array<{ dir: string; scope: "tree" | "project" | "user" }> = [
-			{ dir: join(this.root, "modules"), scope: "tree" },
-			{ dir: join(this.root, BAKA_PROJECT_PATHS.ROOT, "modules"), scope: "project" },
-			{ dir: join(homedir(), ".local", "share", BAKA_USER_DIR, "modules"), scope: "user" },
+		// is a fallback. The bundled scope (the baka repo's in-tree modules)
+		// is added when the baka repo is reachable AND the cwd looks like
+		// a real project (has a package.json). The package.json gate keeps
+		// the bundled scope silent in truly empty directories; without it,
+		// `baka list-modules` from `/tmp` would silently return the bundled
+		// modules, breaking the cwd-scoped discovery invariant.
+		const searchDirs: Array<{ dir: string; scope: "tree" | "project" | "user" | "bundled"; jitiRoot: string }> = [
+			{ dir: join(this.root, "modules"), scope: "tree", jitiRoot: this.root },
+			{ dir: join(this.root, BAKA_PROJECT_PATHS.ROOT, "modules"), scope: "project", jitiRoot: this.root },
+			{ dir: join(homedir(), ".local", "share", BAKA_USER_DIR, "modules"), scope: "user", jitiRoot: this.root },
 		]
+		const bundledDir = ModuleRegistry.findBundledModulesDir()
+		if (bundledDir && existsSync(join(this.root, "package.json"))) {
+			// jiti needs to resolve `baka-sdk` from the bundled module's
+			// own `node_modules/` symlink; the baka repo root is the
+			// natural lookup root for that.
+			searchDirs.push({ dir: bundledDir, scope: "bundled", jitiRoot: dirname(bundledDir) })
+		}
 
 		let anyFound = false
-		for (const { dir, scope } of searchDirs) {
+		for (const { dir, scope, jitiRoot } of searchDirs) {
 			if (!existsSync(dir)) continue
 			anyFound = true
 			const entries = readdirSync(dir, { withFileTypes: true })
@@ -84,7 +135,7 @@ export class ModuleRegistry {
 
 				let rawManifest: unknown
 				try {
-					const jiti = createJiti(this.root, { interopDefault: true })
+					const jiti = createJiti(jitiRoot, { interopDefault: true })
 					const mod = jiti(manifestPath) as { Manifest?: unknown }
 					rawManifest = mod.Manifest
 				} catch (err) {
@@ -150,7 +201,7 @@ export class ModuleRegistry {
 					}
 				}
 
-				this.byName.set(parsed.data.name, parsed.data)
+				this.byName.set(parsed.data.name, { manifest: parsed.data, moduleRoot })
 				modules.push(parsed.data)
 			}
 		}
@@ -167,11 +218,15 @@ export class ModuleRegistry {
 	}
 
 	findByName(name: string): ModuleManifest | undefined {
-		return this.byName.get(name)
+		return this.byName.get(name)?.manifest
+	}
+
+	moduleRootFor(name: string): string | undefined {
+		return this.byName.get(name)?.moduleRoot
 	}
 
 	all(): ModuleManifest[] {
-		return Array.from(this.byName.values())
+		return Array.from(this.byName.values()).map((entry) => entry.manifest)
 	}
 
 	/**
@@ -187,7 +242,7 @@ export class ModuleRegistry {
 			if (visiting.has(m.name)) throw new Error(`dependency cycle detected at ${m.name}`)
 			visiting.add(m.name)
 			for (const dep of m.dependencies) {
-				const found = this.byName.get(dep)
+				const found = this.byName.get(dep)?.manifest
 				if (!found) throw new Error(`module ${m.name} depends on ${dep}, which is not installed`)
 				visit(found)
 			}
@@ -195,7 +250,7 @@ export class ModuleRegistry {
 			visited.add(m.name)
 			result.push(m)
 		}
-		for (const m of this.byName.values()) visit(m)
+		for (const entry of this.byName.values()) visit(entry.manifest)
 		return result
 	}
 
@@ -205,9 +260,11 @@ export class ModuleRegistry {
 	 */
 	validate(): ValidationResult {
 		const diagnostics: ValidationDiagnostic[] = []
-		for (const m of this.all()) {
+		for (const entry of this.byName.values()) {
+			const m = entry.manifest
+			const moduleRoot = entry.moduleRoot
 			for (const ruleId of m.moduleValidators) {
-				const rulePath = join(this.root, "modules", m.name, "_shared", "validators", `${validatorFilename(ruleId)}.ts`)
+				const rulePath = join(moduleRoot, "_shared", "validators", `${validatorFilename(ruleId)}.ts`)
 				if (!existsSync(rulePath)) {
 					diagnostics.push({
 						severity: "error",
@@ -221,14 +278,7 @@ export class ModuleRegistry {
 			// only does structural checks).
 			for (const action of m.actions) {
 				for (const ruleId of action.validators ?? []) {
-					const rulePath = join(
-						this.root,
-						"modules",
-						m.name,
-						action.id,
-						"validators",
-						`${validatorFilename(ruleId)}.ts`,
-					)
+					const rulePath = join(moduleRoot, action.id, "validators", `${validatorFilename(ruleId)}.ts`)
 					if (!existsSync(rulePath)) {
 						diagnostics.push({
 							severity: "error",

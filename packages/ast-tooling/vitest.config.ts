@@ -2,7 +2,10 @@ import { defineConfig } from "vitest/config"
 
 export default defineConfig({
 	test: {
-		include: ["src/**/*.test.ts"],
+		// `test/**/*.test.ts` is for cross-package integration probes
+		// (e.g. dogfood regression tests that spawn the built CLI from a
+		// sibling project cwd). The per-file-unit tests live in `src/`.
+		include: ["src/**/*.test.ts", "test/**/*.test.ts"],
 		coverage: {
 			provider: "v8",
 			reporter: ["text", "html", "json-summary"],
