@@ -4,6 +4,35 @@ All notable changes to baka are recorded here. Dates use YYYY-MM-DD.
 
 ## [Unreleased] - 2026-06-29
 
+### Added
+
+- `apps/mcp/test/auto-attach.test.ts` — cross-project auto-attach
+  probe suite for M6. Black-box probe that spawns the built
+  `apps/mcp/dist/index.js` over stdio from each of the six
+  sibling project cwds (better-chat, africa-works, milk,
+  nakrian, thepa, fnb) and from an empty cwd, asserting the
+  four engine tools (`baka_plan`, `baka_apply`,
+  `baka_validate`, `baka_list_actions`) are present in every
+  probe. Also exercises the Factory-style host loader
+  (simulated by `simulateHostLoadMcp` in the test file):
+  `disabled: true` causes the host to skip spawning baka-mcp
+  (VAL-AA-003); a malformed `~/.factory/mcp.json` entry
+  surfaces as a spawn failure (ENOENT) without crashing the
+  host or silencing the well-formed entries (VAL-CROSS-007);
+  the cross-area external-user bootstrap with a scratch dir +
+  fake `$HOME` works end-to-end (VAL-AA-010, VAL-CROSS-001);
+  auto-attach in a fresh session from a sibling without
+  project-level config surfaces the four engine tools
+  (VAL-CROSS-006); and `baka list-modules --json` from an
+  empty cwd reports `modules: []` (VAL-AA-007). Sibling
+  directory names are pinned by name in the test file so a
+  future rename surfaces with a clear error rather than
+  silently skipping. All probes use a fresh `mktemp -d`
+  fake HOME under `$TMPDIR` so the real
+  `~/.factory/mcp.json` is never read or mutated. The suite
+  is 24 tests across 8 describes; `pnpm --filter
+  @baka/mcp-server test auto-attach.test.ts` exits 0.
+
 ### Fixed
 
 - M5 user-testing VAL-DOG-012 contract/impl mismatch:
