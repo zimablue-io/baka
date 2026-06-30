@@ -27,6 +27,7 @@
 			"!**/cypress/videos",
 			"!**/cypress/screenshots",
 			"!**/.turbo",
+			"!.factory",
 			"!pnpm-lock.yaml"
 		]
 	},

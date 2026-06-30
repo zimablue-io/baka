@@ -27,10 +27,16 @@ export class OpenAICompatibleProvider implements LLMProvider {
 
 	validateConfig(): void {
 		if (!this.config.baseUrl) {
-			throw makeError(BAKA_EXIT_CODE.PROVIDER_ERROR, "openai-compatible: baseUrl is required (BAKA_LLM_BASE_URL)")
+			throw makeError(
+				BAKA_EXIT_CODE.PROVIDER_ERROR,
+				"openai-compatible: baseUrl is required. Run `baka init` to configure.",
+			)
 		}
 		if (!this.config.model) {
-			throw makeError(BAKA_EXIT_CODE.PROVIDER_ERROR, "openai-compatible: model is required (BAKA_LLM_MODEL)")
+			throw makeError(
+				BAKA_EXIT_CODE.PROVIDER_ERROR,
+				"openai-compatible: model is required. Run `baka init` to configure.",
+			)
 		}
 	}
 

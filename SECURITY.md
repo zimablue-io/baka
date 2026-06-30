@@ -32,7 +32,7 @@ We follow responsible disclosure. Please give us a reasonable window to investig
 In scope:
 
 - Code execution, path traversal, or other RCE-class issues in the `baka` CLI, the `baka-mcp` MCP server, the API, or any package in this repo
-- Credential or secret leakage in the engine's local config (`$XDG_CONFIG_HOME/baka/`)
+- Credential or secret leakage in the engine's local config (`~/.baka/`)
 - Provider boundary violations: any code outside `packages/agent-engine/` that imports a provider, HTTP client, or model name
 - Unsafe handling of module manifests, action templates, or validator inputs
 

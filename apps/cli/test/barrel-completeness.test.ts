@@ -94,7 +94,9 @@ const PROBE_SOURCE = [
 	'import * as m from "@repo/module-management-workflow"',
 	`const values = [${VALUE_NAMES.map((n) => JSON.stringify(n)).join(",")}]`,
 	`const types = [${TYPE_NAMES.map((n) => JSON.stringify(n)).join(",")}]`,
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: these are code strings embedded in a generated script, not template literals
 	"for (const n of values) console.log(`V|${n}|${typeof m[n]}`)",
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: these are code strings embedded in a generated script, not template literals
 	"for (const n of types) console.log(`T|${n}|${typeof m[n]}`)",
 	"",
 ].join("\n")

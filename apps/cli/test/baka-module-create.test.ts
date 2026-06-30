@@ -25,7 +25,7 @@
 // ---------------------------------------------------------------------------
 
 import { type ChildProcess, spawn } from "node:child_process"
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -87,7 +87,36 @@ function startFakeLLM(script: ScriptedResponse[]): Promise<{ url: string; close:
 	})
 }
 
-function spawnBaka(args: { cwd: string; env: Record<string, string> }): Promise<{
+function seedBakaConfig(home: string, cfg: { baseUrl: string; model: string; apiKey?: string }) {
+	const dir = join(home, ".baka")
+	mkdirSync(dir, { recursive: true })
+	writeFileSync(
+		join(dir, "config.json"),
+		JSON.stringify(
+			{
+				providers: {
+					"test-llm": { baseUrl: cfg.baseUrl, model: cfg.model, temperature: 0, maxTokens: 8192, timeoutMs: 120000 },
+				},
+				activeProvider: "test-llm",
+				defaults: { temperature: 0, maxTokens: 8192, timeoutMs: 120000 },
+			},
+			null,
+			2,
+		),
+	)
+	if (cfg.apiKey) {
+		writeFileSync(
+			join(dir, "credentials"),
+			JSON.stringify({ providers: { "test-llm": { apiKey: cfg.apiKey } } }, null, 2),
+		)
+	}
+}
+
+function spawnBaka(args: {
+	cwd: string
+	env: Record<string, string>
+	bakaConfig?: { baseUrl: string; model: string; apiKey?: string }
+}): Promise<{
 	code: number | null
 	stdout: string
 	stderr: string
@@ -97,8 +126,14 @@ function spawnBaka(args: { cwd: string; env: Record<string, string> }): Promise<
 		if (!existsSync(cli)) {
 			throw new Error(`built CLI not found at ${cli}; run \`pnpm --filter baka build\` first`)
 		}
+		let env: Record<string, string> = { ...process.env, ...args.env }
+		if (args.bakaConfig) {
+			const home = join(args.cwd, ".fake-home")
+			seedBakaConfig(home, args.bakaConfig)
+			env = { ...env, HOME: home }
+		}
 		const child: ChildProcess = spawn("node", [cli, "--cwd", args.cwd, "module", "create", "testmod"], {
-			env: { ...process.env, ...args.env },
+			env,
 			cwd: args.cwd,
 		})
 		let stdout = ""
@@ -150,11 +185,10 @@ describe("baka module create — fast (fake LLM, real CLI binary)", () => {
 			const { stdout } = await spawnBaka({
 				cwd: tmpDir,
 				env: {
-					BAKA_LLM_BASE_URL: llm.url,
-					BAKA_LLM_MODEL: "fake-llm",
 					BAKA_E2E_BRIEF: "a SSOT for all things next.js v16 app router",
 					BAKA_E2E_INPUT: responsesFile,
 				},
+				bakaConfig: { baseUrl: llm.url, model: "fake-llm" },
 			})
 
 			// The bootstrap LLM was called at least once.
@@ -204,11 +238,10 @@ describe("baka module create — fast (fake LLM, real CLI binary)", () => {
 			const { stdout } = await spawnBaka({
 				cwd: tmpDir,
 				env: {
-					BAKA_LLM_BASE_URL: llm.url,
-					BAKA_LLM_MODEL: "fake-llm",
 					BAKA_E2E_BRIEF: "a SSOT for all things next.js v16 app router",
 					BAKA_E2E_INPUT: responsesFile,
 				},
+				bakaConfig: { baseUrl: llm.url, model: "fake-llm" },
 			})
 
 			expect(stdout).toContain("[domain] What is the target framework?")
@@ -272,11 +305,10 @@ describe("baka module create — fast (fake LLM, real CLI binary)", () => {
 			const { stdout } = await spawnBaka({
 				cwd: tmpDir,
 				env: {
-					BAKA_LLM_BASE_URL: llm.url,
-					BAKA_LLM_MODEL: "fake-llm",
 					BAKA_E2E_BRIEF: "a SSOT for all things next.js v16 app router",
 					BAKA_E2E_INPUT: responsesFile,
 				},
+				bakaConfig: { baseUrl: llm.url, model: "fake-llm" },
 			})
 
 			expect(llm.calls).toBeGreaterThanOrEqual(2)
@@ -303,11 +335,10 @@ describe("baka module create — fast (fake LLM, real CLI binary)", () => {
 			const { stdout, stderr } = await spawnBaka({
 				cwd: tmpDir,
 				env: {
-					BAKA_LLM_BASE_URL: llm.url,
-					BAKA_LLM_MODEL: "fake-llm",
 					BAKA_E2E_BRIEF: "a SSOT for all things next.js v16 app router",
 					BAKA_E2E_INPUT: responsesFile,
 				},
+				bakaConfig: { baseUrl: llm.url, model: "fake-llm" },
 			})
 
 			// The user sees a clear bootstrap error (not a silent bare prompt).
@@ -402,11 +433,12 @@ describeIfReal("baka module create — slow (real LLM, real CLI binary)", () => 
 		// different.
 		const cli = join(__dirname, "..", "dist", "index.js")
 		if (!existsSync(cli)) throw new Error(`built CLI not found at ${cli}`)
+		const realHome = join(tmpDir, ".fake-home")
+		seedBakaConfig(realHome, { baseUrl: REAL_LLM_BASE_URL, model: REAL_LLM_MODEL })
 		const child: ChildProcess = spawn("node", [cli, "--cwd", tmpDir, "module", "create", "nextjs"], {
 			env: {
 				...process.env,
-				BAKA_LLM_BASE_URL: REAL_LLM_BASE_URL,
-				BAKA_LLM_MODEL: REAL_LLM_MODEL,
+				HOME: realHome,
 				BAKA_E2E_BRIEF: "a SSOT for all things next.js v16 app router related, server-first, server actions, etc.",
 				BAKA_E2E_INPUT: responsesFile,
 			},

@@ -867,7 +867,9 @@ describe("VAL-CROSS-006 auto-attach in fresh session without project-level confi
 
 	it("milk: a tools/call baka_plan request returns a parseable response (proves the engine is wired even with no project-level config)", async () => {
 		const cwd = join(PROJECTS_ROOT, "milk")
-		const state = spawnMcp({ cwd })
+		const fakeHome = makeFakeHome("cross006-plan")
+		trackDir(fakeHome.root)
+		const state = spawnMcp({ cwd, env: { HOME: fakeHome.root } })
 		try {
 			await initialize(state)
 			const id = sendRpc(state, "tools/call", {

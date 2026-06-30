@@ -86,7 +86,7 @@ Baka itself does not call any LLM provider. The `baka` CLI does, via the `agent-
 baka init
 ```
 
-This stores the provider config in `$XDG_CONFIG_HOME/baka/config.json` and the API key in `$XDG_CONFIG_HOME/baka/credentials` (0600 perms). Env vars `BAKA_LLM_*` override for CI. `baka-mcp` reads the same config at startup.
+This stores the provider config in `~/.baka/config.json` and the API key in `~/.baka/credentials` (0600 perms). A project-local `<cwd>/.baka/config.json` overrides the user config. `baka-mcp` reads the same config at startup.
 
 # Invariants
 

@@ -10,7 +10,6 @@
 	},
 	"dependencies": {
 		"@repo/protocol": "workspace:*",
-		"conf": "^15.1.0",
 		"zod": "^3.23.0"
 	},
 	"devDependencies": {

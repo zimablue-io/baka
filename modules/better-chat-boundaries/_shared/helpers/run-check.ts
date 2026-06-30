@@ -170,7 +170,7 @@ export async function runBoundaryCheck(betterChatRoot: string): Promise<Boundary
 				// Strip the sourcePkg root to produce a project-relative
 				// file path matching the legacy script's output
 				// (`<sourcePkg>/<file>:<line>`).
-				const relFile = absFile.startsWith(sourcePkgDir + "/") ? absFile.slice(sourcePkgDir.length + 1) : absFile
+				const relFile = absFile.startsWith(`${sourcePkgDir}/`) ? absFile.slice(sourcePkgDir.length + 1) : absFile
 				const sourcePkg = mapImportToSourcePkg(rule.sourcePkg)
 				violations.push({
 					source: sourcePkg,

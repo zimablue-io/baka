@@ -27,8 +27,8 @@
 //
 // LLM-bound probes (plan / apply) route through a fake LLM harness bound
 // to 127.0.0.1:0. The harness is hermetic: no real network, no API keys,
-// no flake. We carry the LLM config via BAKA_LLM_BASE_URL and
-// BAKA_LLM_MODEL so the CLI does not need a populated user config.
+// no flake. We seed a baka config in a fake HOME so the CLI reads the
+// fake LLM endpoint without touching the user real config.
 //
 // Conventions:
 //   - spawn `node` against the built `apps/cli/dist/index.js` (no tsx)
@@ -69,9 +69,16 @@ function spawnCli(args: {
 	argv: string[]
 	cwd?: string
 	env?: Record<string, string>
+	bakaConfig?: { baseUrl: string; model: string; apiKey?: string }
 	timeoutMs?: number
 }): Promise<{ code: number | null; stdout: string; stderr: string }> {
-	const env: NodeJS.ProcessEnv = { ...process.env, ...args.env }
+	let env: NodeJS.ProcessEnv = { ...process.env, ...args.env }
+	if (args.bakaConfig) {
+		const fakeHome = mkdtempSync(join(tmpdir(), "baka-cli-cfg-"))
+		createdDirs.push(fakeHome)
+		seedBakaConfig(fakeHome, args.bakaConfig)
+		env = { ...env, HOME: fakeHome, XDG_CONFIG_HOME: fakeHome, XDG_DATA_HOME: fakeHome }
+	}
 	return new Promise((resolve) => {
 		const child: ChildProcess = spawn("node", [DIST_INDEX, ...args.argv], {
 			cwd: args.cwd ?? BAKA_REPO,
@@ -94,8 +101,41 @@ function spawnCli(args: {
 	})
 }
 
+/** Write a baka config + credentials to a fake HOME dir. */
+function seedBakaConfig(home: string, cfg: { baseUrl: string; model: string; apiKey?: string }) {
+	const dir = join(home, ".baka")
+	mkdirSync(dir, { recursive: true })
+	writeFileSync(
+		join(dir, "config.json"),
+		JSON.stringify(
+			{
+				providers: {
+					"test-llm": { baseUrl: cfg.baseUrl, model: cfg.model, temperature: 0, maxTokens: 8192, timeoutMs: 120000 },
+				},
+				activeProvider: "test-llm",
+				defaults: { temperature: 0, maxTokens: 8192, timeoutMs: 120000 },
+			},
+			null,
+			2,
+		),
+	)
+	if (cfg.apiKey) {
+		writeFileSync(
+			join(dir, "credentials"),
+			JSON.stringify({ providers: { "test-llm": { apiKey: cfg.apiKey } } }, null, 2),
+		)
+	}
+}
+
 /** Spawn the CLI with a fresh fake HOME so the user config is isolated. */
-function spawnCliWithFakeHome(args: { argv: string[]; cwd?: string; fakeHome: string; timeoutMs?: number }) {
+function spawnCliWithFakeHome(args: {
+	argv: string[]
+	cwd?: string
+	fakeHome: string
+	bakaConfig?: { baseUrl: string; model: string; apiKey?: string }
+	timeoutMs?: number
+}) {
+	if (args.bakaConfig) seedBakaConfig(args.fakeHome, args.bakaConfig)
 	return spawnCli({
 		argv: args.argv,
 		cwd: args.cwd ?? BAKA_REPO,
@@ -269,10 +309,7 @@ describe("VAL-CLI-010 baka module create <badname>", () => {
 			const { code, stdout, stderr } = await spawnCliWithFakeHome({
 				argv: ["module", "create", "../../../etc/passwd"],
 				fakeHome,
-				env: {
-					BAKA_LLM_BASE_URL: llm.url,
-					BAKA_LLM_MODEL: "fake-llm",
-				},
+				bakaConfig: { baseUrl: llm.url, model: "fake-llm" },
 			})
 
 			expect(code, `unexpected exit; stdout=${stdout}; stderr=${stderr}`).toBe(1)
@@ -465,7 +502,8 @@ describe("VAL-CLI-021 baka plan --dry-run", () => {
 			const { code, stdout, stderr } = await spawnCli({
 				argv: ["--cwd", scratch, "plan", "scaffold a TS project", "--dry-run"],
 				cwd: scratch,
-				env: { BAKA_LLM_BASE_URL: llm.url, BAKA_LLM_MODEL: "fake-llm" },
+				env: {},
+				bakaConfig: { baseUrl: llm.url, model: "fake-llm" },
 			})
 
 			// The contract permits exit 0 (at least one step resolved) or 2
@@ -494,7 +532,8 @@ describe("VAL-CLI-022 baka plan --json", () => {
 			const { code, stdout, stderr } = await spawnCli({
 				argv: ["--cwd", scratch, "plan", "scaffold a TS project", "--json"],
 				cwd: scratch,
-				env: { BAKA_LLM_BASE_URL: llm.url, BAKA_LLM_MODEL: "fake-llm" },
+				env: {},
+				bakaConfig: { baseUrl: llm.url, model: "fake-llm" },
 			})
 
 			expect(code, `unexpected exit ${code}; stderr=${stderr}`).toBe(0)
@@ -537,7 +576,8 @@ describe("VAL-CLI-023 baka plan --save", () => {
 			const { code, stdout, stderr } = await spawnCli({
 				argv: ["--cwd", scratch, "plan", "scaffold a TS project", "--save", "--json"],
 				cwd: scratch,
-				env: { BAKA_LLM_BASE_URL: llm.url, BAKA_LLM_MODEL: "fake-llm" },
+				env: {},
+				bakaConfig: { baseUrl: llm.url, model: "fake-llm" },
 			})
 
 			expect(code, `unexpected exit ${code}; stderr=${stderr}`).toBe(0)
@@ -634,10 +674,7 @@ describe("VAL-DOG-012 baka plan empty intent", () => {
 			const { code, stdout, stderr } = await spawnCliWithFakeHome({
 				argv: ["plan", "", "--json"],
 				fakeHome,
-				env: {
-					BAKA_LLM_BASE_URL: llm.url,
-					BAKA_LLM_MODEL: "fake-llm",
-				},
+				bakaConfig: { baseUrl: llm.url, model: "fake-llm" },
 			})
 
 			// Contract permits exit 0 (structured JSON, no engine-error) or 2
@@ -684,10 +721,7 @@ describe("VAL-DOG-012 baka plan empty intent", () => {
 			const { code, stderr, stdout } = await spawnCliWithFakeHome({
 				argv: ["plan", ""],
 				fakeHome,
-				env: {
-					BAKA_LLM_BASE_URL: llm.url,
-					BAKA_LLM_MODEL: "fake-llm",
-				},
+				bakaConfig: { baseUrl: llm.url, model: "fake-llm" },
 			})
 
 			// Human mode: exit 2 (ENGINE_ERROR) is also contract-acceptable.
@@ -722,7 +756,8 @@ describe("VAL-CLI-025 baka list-plans", () => {
 			const save = await spawnCli({
 				argv: ["--cwd", scratch, "plan", "scaffold a TS project", "--save", "--json"],
 				cwd: scratch,
-				env: { BAKA_LLM_BASE_URL: llm.url, BAKA_LLM_MODEL: "fake-llm" },
+				env: {},
+				bakaConfig: { baseUrl: llm.url, model: "fake-llm" },
 			})
 			expect(save.code, `save failed: ${save.stderr}`).toBe(0)
 			const saved = JSON.parse(save.stdout) as { planFile?: string }
@@ -778,7 +813,8 @@ describe("VAL-CLI-027 baka apply <valid-plan> --json", () => {
 			const save = await spawnCli({
 				argv: ["--cwd", scratch, "plan", "scaffold a TS project", "--save", "--json"],
 				cwd: scratch,
-				env: { BAKA_LLM_BASE_URL: llm.url, BAKA_LLM_MODEL: "fake-llm" },
+				env: {},
+				bakaConfig: { baseUrl: llm.url, model: "fake-llm" },
 			})
 			expect(save.code, `save failed: ${save.stderr}`).toBe(0)
 			const saved = JSON.parse(save.stdout) as { planFile?: string }
@@ -793,7 +829,8 @@ describe("VAL-CLI-027 baka apply <valid-plan> --json", () => {
 			const apply = await spawnCli({
 				argv: ["--cwd", scratch, "apply", planFile, "--json"],
 				cwd: scratch,
-				env: { BAKA_LLM_BASE_URL: llm.url, BAKA_LLM_MODEL: "fake-llm" },
+				env: {},
+				bakaConfig: { baseUrl: llm.url, model: "fake-llm" },
 			})
 
 			// The contract allows exit 0 (SUCCESS) or 4 (VALIDATION_FAILED).
@@ -914,7 +951,8 @@ describe("VAL-CLI-030 baka validate from empty cwd", () => {
 describe("VAL-CROSS-011 baka -p <provider> does not mutate the active provider", () => {
 	it("uses the named provider for one plan call and leaves activeProvider unchanged", async () => {
 		const fakeHome = trackDir(makeEmptyDir("baka-p-override-"))
-		const configPath = join(fakeHome, "config.json")
+		const configPath = join(fakeHome, ".baka", "config.json")
+		mkdirSync(join(fakeHome, ".baka"), { recursive: true })
 		// Pre-seed the user config: acme is the active provider; globex is
 		// a second, non-active provider. Both have baseUrl+model so the
 		// CLI's config validator accepts them.
@@ -977,5 +1015,49 @@ describe("engine smoke scratch-dir setup", () => {
 			expect(existsSync(link), `${mod} symlink missing`).toBe(true)
 			expect(lstatSync(link).isSymbolicLink(), `${mod} is not a symlink`).toBe(true)
 		}
+	})
+})
+
+// ===========================================================================
+// VAL-CLI-031  validate -m <name> --json runs a single module's validators
+// ===========================================================================
+
+describe("VAL-CLI-031 baka validate -m baka-base --json", () => {
+	it("emits JSON with moduleName=baka-base and runs only baka-base validators", async () => {
+		const scratch = prepareScratchWithModules("baka-validate-m-found-")
+		const { code, stdout, stderr } = await spawnCli({
+			argv: ["--cwd", scratch, "validate", "-m", "baka-base", "--json"],
+			cwd: scratch,
+		})
+
+		// Exit 0 (validators pass) or 4 (VALIDATION_ERROR) — the scratch dir
+		// has baka-base symlinked but may not satisfy all baka-base validators
+		// (e.g. hasPackageJson, tsconfigPresent). The key contract is that the
+		// -m flag filters to a single module and the JSON echoes moduleName.
+		expect([0, 4], `unexpected exit ${code}; stderr=${stderr}`).toContain(code)
+		const parsed = JSON.parse(stdout) as {
+			modulesDiscovered: number
+			moduleName?: string
+			validation: { kind: string; diagnostics?: unknown[] }
+		}
+		expect(parsed.moduleName).toBe("baka-base")
+		expect(parsed.validation).toBeDefined()
+		expect(["pass", "fail"]).toContain(parsed.validation.kind)
+	})
+})
+
+// ===========================================================================
+// VAL-CLI-032  validate -m <nonexistent> exits 1
+// ===========================================================================
+
+describe("VAL-CLI-032 baka validate -m nonexistent", () => {
+	it("exits 1 with 'module not found' message (no stack frames)", async () => {
+		const { code, stdout, stderr } = await spawnCli({
+			argv: ["validate", "-m", "nonexistent"],
+		})
+
+		expect(code, `unexpected exit ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(1)
+		expect(stderr).toContain('module "nonexistent" not found')
+		expect(stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
 	})
 })

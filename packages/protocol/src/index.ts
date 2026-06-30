@@ -5,9 +5,7 @@
 // `exports` field. Keep this in lockstep with the other packages.
 
 export {
-	BAKA_ENV_PREFIX,
 	BAKA_EXIT_CODE,
-	BAKA_FEATURE_FLAGS,
 	BAKA_PROJECT_PATHS,
 	BAKA_PROVIDER,
 	BAKA_USER_DIR,

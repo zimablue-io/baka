@@ -1,11 +1,12 @@
-import { chmodSync, existsSync, promises as fs } from "node:fs"
+import { chmodSync, existsSync, promises as fs, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir, platform } from "node:os"
 import { dirname, join } from "node:path"
 import { BAKA_USER_DIR } from "@repo/protocol"
-import Conf from "conf"
 
 // ---------------------------------------------------------------------------
-// User config (non-secret). XDG-aware via the `conf` library.
+// User config (non-secret). Stored at ~/.baka/config.json.
+// Project-level overrides at <cwd>/.baka/config.json are handled by
+// loadLLMConfig in index.ts, not here.
 // ---------------------------------------------------------------------------
 
 type UserConfigShape = {
@@ -28,27 +29,73 @@ export interface BakaUserProvider {
 	providerOptions?: Record<string, unknown>
 }
 
-let _store: Conf<UserConfigShape> | null = null
+const DEFAULT_CONFIG: UserConfigShape = {
+	providers: {},
+	defaults: { temperature: 0.0, maxTokens: 8192, timeoutMs: 120_000 },
+}
 
-function userStore(): Conf<UserConfigShape> {
-	if (_store) return _store
-	_store = new Conf<UserConfigShape>({
-		projectName: BAKA_USER_DIR,
-		cwd: homedir(),
-		defaults: {
-			providers: {},
-			defaults: { temperature: 0.0, maxTokens: 8192, timeoutMs: 120_000 },
-		},
-	})
-	return _store
+function configFilePath(): string {
+	return join(homedir(), `.${BAKA_USER_DIR}`, "config.json")
+}
+
+function readConfigFile(): UserConfigShape {
+	const path = configFilePath()
+	if (!existsSync(path)) return { ...DEFAULT_CONFIG }
+	try {
+		const raw = JSON.parse(readFileSync(path, "utf-8")) as UserConfigShape
+		return { ...DEFAULT_CONFIG, ...raw }
+	} catch {
+		return { ...DEFAULT_CONFIG }
+	}
+}
+
+function writeConfigFile(cfg: UserConfigShape): void {
+	const path = configFilePath()
+	mkdirSync(dirname(path), { recursive: true })
+	writeFileSync(path, JSON.stringify(cfg, null, 2), "utf-8")
+}
+
+/** Get a value by dot-notation key (e.g. "providers.llama_cpp.baseUrl"). */
+function getByPath(obj: unknown, key: string): unknown {
+	const parts = key.split(".")
+	let cur: unknown = obj
+	for (const p of parts) {
+		if (cur === null || typeof cur !== "object") return undefined
+		cur = (cur as Record<string, unknown>)[p]
+	}
+	return cur
+}
+
+/** Set a value by dot-notation key, creating intermediate objects as needed. */
+function setByPath(obj: Record<string, unknown>, key: string, value: unknown): void {
+	const parts = key.split(".")
+	let cur: Record<string, unknown> = obj
+	for (let i = 0; i < parts.length - 1; i++) {
+		const p = parts[i]
+		if (cur[p] === null || typeof cur[p] !== "object") cur[p] = {}
+		cur = cur[p] as Record<string, unknown>
+	}
+	cur[parts[parts.length - 1]] = value
+}
+
+/** Delete a value by dot-notation key. */
+function deleteByPath(obj: Record<string, unknown>, key: string): void {
+	const parts = key.split(".")
+	let cur: Record<string, unknown> = obj
+	for (let i = 0; i < parts.length - 1; i++) {
+		const p = parts[i]
+		if (cur[p] === null || typeof cur[p] !== "object") return
+		cur = cur[p] as Record<string, unknown>
+	}
+	delete cur[parts[parts.length - 1]]
 }
 
 // ---------------------------------------------------------------------------
-// Credentials (secrets). Stored separately with 0600 perms.
+// Credentials (secrets). Stored separately at ~/.baka/credentials with 0600.
 // ---------------------------------------------------------------------------
 
 function credentialsPath(): string {
-	return join(homedir(), ".config", BAKA_USER_DIR, "credentials")
+	return join(homedir(), `.${BAKA_USER_DIR}`, "credentials")
 }
 
 interface CredentialBlob {
@@ -99,9 +146,9 @@ export async function unsetApiKey(providerName: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export function listProviders(): Array<{ name: string; provider: BakaUserProvider; active: boolean }> {
-	const cfg = userStore()
-	const active = cfg.get("activeProvider")
-	const providers = (cfg.get("providers") ?? {}) as Record<string, BakaUserProvider>
+	const cfg = readConfigFile()
+	const active = cfg.activeProvider
+	const providers = cfg.providers ?? {}
 	return Object.entries(providers).map(([name, provider]) => ({
 		name,
 		provider: provider as BakaUserProvider,
@@ -110,53 +157,59 @@ export function listProviders(): Array<{ name: string; provider: BakaUserProvide
 }
 
 export function getProvider(name: string): BakaUserProvider | undefined {
-	return userStore().get(`providers.${name}`) as BakaUserProvider | undefined
+	const cfg = readConfigFile()
+	return cfg.providers?.[name] as BakaUserProvider | undefined
 }
 
 export function setProvider(name: string, provider: BakaUserProvider): void {
-	userStore().set(`providers.${name}`, provider)
+	const cfg = readConfigFile()
+	cfg.providers[name] = provider
+	writeConfigFile(cfg)
 }
 
 export function deleteProvider(name: string): void {
-	const cfg = userStore()
-	cfg.delete(`providers.${name}`)
-	if (cfg.get("activeProvider") === name) cfg.delete("activeProvider")
+	const cfg = readConfigFile()
+	delete cfg.providers[name]
+	if (cfg.activeProvider === name) cfg.activeProvider = undefined
+	writeConfigFile(cfg)
 }
 
 export function getActiveProviderName(): string | undefined {
-	return userStore().get("activeProvider")
+	return readConfigFile().activeProvider
 }
 
 export function setActiveProviderName(name: string | undefined): void {
-	if (name === undefined) {
-		userStore().delete("activeProvider")
-	} else {
-		userStore().set("activeProvider", name)
-	}
+	const cfg = readConfigFile()
+	cfg.activeProvider = name
+	writeConfigFile(cfg)
 }
 
 export function getConfigPath(): string {
-	return userStore().path
+	return configFilePath()
 }
 
 export function getConfigValue(key: string): unknown {
-	return userStore().get(key as keyof UserConfigShape)
+	return getByPath(readConfigFile(), key)
 }
 
 export function setConfigValue(key: string, value: unknown): void {
-	userStore().set(key as keyof UserConfigShape, value as never)
+	const cfg = readConfigFile()
+	setByPath(cfg as unknown as Record<string, unknown>, key, value)
+	writeConfigFile(cfg)
 }
 
 export function unsetConfigValue(key: string): void {
-	userStore().delete(key as keyof UserConfigShape)
+	const cfg = readConfigFile()
+	deleteByPath(cfg as unknown as Record<string, unknown>, key)
+	writeConfigFile(cfg)
 }
 
 export function listConfigKeys(): string[] {
-	return Object.keys(userStore().store)
+	return Object.keys(readConfigFile())
 }
 
 export function userConfigPath(): string {
-	return userStore().path
+	return configFilePath()
 }
 
 export function secretsPath(): string {

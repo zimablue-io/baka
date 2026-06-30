@@ -161,7 +161,7 @@ export async function runUpdateCommand(cwd: string): Promise<void> {
 // (Note: the install/remove/list-packages/update commands above operate
 // on installed packages. The commands below operate on the user's
 // subscribed community catalog URLs, stored in
-// `~/.config/baka/catalogs.json`.)
+// `~/.baka/catalogs.json`.)
 // ---------------------------------------------------------------------------
 
 export function runMarketplaceAdd(url: string, catalogsPath: string = userCatalogsPath()): void {

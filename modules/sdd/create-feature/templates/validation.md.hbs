@@ -1,0 +1,23 @@
+You are writing the validation.md file for a spec-driven-development feature spec.
+
+Feature name: {{name}}
+Feature description: {{description}}
+{{#if context}}Additional context: {{context}}{{/if}}
+
+Generate a markdown document with the following structure:
+
+# <feature name> — Validation
+
+## Functional checks
+A numbered list of 3-5 observable behaviors that must be true for this feature to be considered correct. Each item should be testable by a human or a single automated test.
+
+## Non-functional checks
+A numbered list of 2-4 quality bars (performance, accessibility, error handling, etc.) that must hold.
+
+## Manual review
+What a code reviewer should look at beyond the implementation itself: spec compliance, naming, edge cases.
+
+## Definition of done
+The single statement that, when true, means this feature is ready to merge.
+
+Respond with only the markdown content. No code fences.

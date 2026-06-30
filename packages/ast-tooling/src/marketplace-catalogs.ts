@@ -6,7 +6,7 @@ import { BAKA_USER_DIR } from "@repo/protocol"
 /**
  * Per-user subscription list for community marketplace catalogs.
  *
- * Stored at `~/.config/baka/catalogs.json` (overridable via the
+ * Stored at `~/.baka/catalogs.json` (overridable via the
  * `path` argument for tests). The CLI's `baka marketplace add/remove/list`
  * commands read and write this file. The marketplace backend treats the
  * URLs in this file as `community`-tier when serving `/v1/modules/:name`
@@ -22,7 +22,7 @@ export interface CatalogSubscriptions {
 }
 
 export function userCatalogsPath(): string {
-	return join(homedir(), ".config", BAKA_USER_DIR, "catalogs.json")
+	return join(homedir(), `.${BAKA_USER_DIR}`, "catalogs.json")
 }
 
 export function readCatalogSubscriptions(path: string = userCatalogsPath()): CatalogSubscriptions {

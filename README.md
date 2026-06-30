@@ -175,7 +175,7 @@ baka providers list    # shows registered providers and the active marker (*)
 baka init              # interactive: provider name, model, base URL, API key
 ```
 
-If `baka init` is not viable (CI, headless boxes), set the env vars directly: `BAKA_LLM_PROVIDER`, `BAKA_LLM_MODEL`, `BAKA_LLM_BASE_URL`, `BAKA_LLM_API_KEY`. The CLI/MCP read them on every startup.
+For CI or headless environments, create `~/.baka/config.json` and `~/.baka/credentials` before running baka. The config file format is documented in `baka config path`.
 
 ### Broken barrel / import-time crash in one subcommand
 

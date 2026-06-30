@@ -31,7 +31,7 @@ export interface RunModuleDesignDeps {
 	loadLLMConfig: typeof loadLLMConfig
 	createLLMProvider: typeof createLLMProvider
 	input: typeof inquirerInput
-	/** Override for tests; defaults to reading BAKA_LLM_BASE_URL etc. */
+	/** Override for tests; defaults to reading ~/.baka/config.json. */
 	getProvider?: (cwd: string) => Promise<LLMProvider>
 }
 

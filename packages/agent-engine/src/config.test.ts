@@ -1,38 +1,31 @@
-import { existsSync, rmSync } from "node:fs"
-import { homedir } from "node:os"
+import { mkdtempSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { beforeEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 import { loadLLMConfig, validateLLMConfig } from "./index"
 
-const TEST_HOME = join(homedir(), ".config", "baka-test")
+const prevHome = process.env.HOME
+const tempHomes: string[] = []
 
-beforeEach(() => {
-	// The conf library stores state at the homedir() / projectName path.
-	// For tests we mock out the userStore by directly poking the conf file.
-	// Each test starts from a clean slate.
-	const configFile = join(TEST_HOME, "config.json")
-	try {
-		if (existsSync(configFile)) rmSync(configFile)
-	} catch {
-		/* best effort */
+afterEach(() => {
+	process.env.HOME = prevHome
+	for (const d of tempHomes.splice(0)) {
+		try {
+			import("node:fs").then((fs) => fs.rmSync(d, { recursive: true, force: true }))
+		} catch {
+			/* best effort */
+		}
 	}
 })
 
 describe("loadLLMConfig", () => {
 	it("returns empty config when nothing is set", async () => {
-		// Clear any inherited BAKA_LLM_* env so the precedence chain collapses
-		// to defaults. CI often sets these to point at a fixture endpoint.
-		const prev = { ...process.env }
-		for (const k of Object.keys(process.env)) {
-			if (k.startsWith("BAKA_LLM_")) delete process.env[k]
-		}
-		try {
-			const config = await loadLLMConfig({ cwd: "/tmp", skipCredentials: true })
-			expect(config.baseUrl).toBe("")
-			expect(config.model).toBe("")
-		} finally {
-			process.env = prev
-		}
+		const fakeHome = mkdtempSync(join(tmpdir(), "baka-empty-cfg-"))
+		tempHomes.push(fakeHome)
+		process.env.HOME = fakeHome
+		const config = await loadLLMConfig({ cwd: "/tmp", skipCredentials: true })
+		expect(config.baseUrl).toBe("")
+		expect(config.model).toBe("")
 	})
 
 	it("applies CLI overrides on top of empty config", async () => {
@@ -44,20 +37,6 @@ describe("loadLLMConfig", () => {
 		expect(config.baseUrl).toBe("http://x:1")
 		expect(config.model).toBe("m")
 		expect(config.apiKey).toBe("k")
-	})
-
-	it("env vars beat overrides when overrides are empty", async () => {
-		const prev = { ...process.env }
-		for (const k of Object.keys(process.env)) {
-			if (k.startsWith("BAKA_LLM_")) delete process.env[k]
-		}
-		process.env.BAKA_LLM_BASE_URL = "http://env:1"
-		try {
-			const config = await loadLLMConfig({ cwd: "/tmp", skipCredentials: true })
-			expect(config.baseUrl).toBe("http://env:1")
-		} finally {
-			process.env = prev
-		}
 	})
 
 	it("providerOptions.name carries the active provider name", async () => {

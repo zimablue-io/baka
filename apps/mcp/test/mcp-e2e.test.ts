@@ -48,7 +48,7 @@
 // ---------------------------------------------------------------------------
 
 import { type ChildProcess, spawn } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -83,8 +83,43 @@ interface SpawnedMcp {
 	nextId: number
 }
 
-function spawnMcp(args: { cwd?: string; env?: Record<string, string>; timeoutMs?: number }): SpawnedMcp {
-	const env: NodeJS.ProcessEnv = { ...process.env, ...args.env }
+function seedBakaConfig(home: string, cfg: { baseUrl: string; model: string; apiKey?: string }) {
+	const dir = join(home, ".baka")
+	mkdirSync(dir, { recursive: true })
+	writeFileSync(
+		join(dir, "config.json"),
+		JSON.stringify(
+			{
+				providers: {
+					"test-llm": { baseUrl: cfg.baseUrl, model: cfg.model, temperature: 0, maxTokens: 8192, timeoutMs: 120000 },
+				},
+				activeProvider: "test-llm",
+				defaults: { temperature: 0, maxTokens: 8192, timeoutMs: 120000 },
+			},
+			null,
+			2,
+		),
+	)
+	if (cfg.apiKey) {
+		writeFileSync(
+			join(dir, "credentials"),
+			JSON.stringify({ providers: { "test-llm": { apiKey: cfg.apiKey } } }, null, 2),
+		)
+	}
+}
+
+function spawnMcp(args: {
+	cwd?: string
+	env?: Record<string, string>
+	timeoutMs?: number
+	bakaConfig?: { baseUrl: string; model: string; apiKey?: string }
+}): SpawnedMcp {
+	let env: NodeJS.ProcessEnv = { ...process.env, ...args.env }
+	if (args.bakaConfig) {
+		const home = mkdtempSync(join(tmpdir(), "baka-mcp-home-"))
+		seedBakaConfig(home, args.bakaConfig)
+		env = { ...env, HOME: home }
+	}
 	const child: ChildProcess = spawn("node", [DIST_INDEX], {
 		cwd: args.cwd ?? BAKA_REPO,
 		env,
@@ -589,11 +624,7 @@ describe("VAL-MCP-012 tools/call baka_plan dry-run", () => {
 	it("returns a SUCCESS or FAILED plan shape (fake LLM)", async () => {
 		const fake = await startFakeLLM([planResponse("probe")])
 		const state = spawnMcp({
-			env: {
-				BAKA_LLM_BASE_URL: fake.url,
-				BAKA_LLM_MODEL: "fake-llm",
-				BAKA_LLM_API_KEY: "fake-key",
-			},
+			bakaConfig: { baseUrl: fake.url, model: "fake-llm", apiKey: "fake-key" },
 		})
 		try {
 			await initialize(state)
@@ -984,16 +1015,13 @@ describe("VAL-CROSS-010 CLI plan --json vs MCP tools/call baka_plan shape parity
 		const scratch = prepareScratchWithModules("baka-cross010-")
 		const fake = await startFakeLLM([planResponse("probe")])
 
-		const fakeEnv: Record<string, string> = {
-			BAKA_LLM_BASE_URL: fake.url,
-			BAKA_LLM_MODEL: "fake-llm",
-			BAKA_LLM_API_KEY: "fake-key",
-		}
+		const fakeHome = makeEmptyDir("baka-cross010-home-")
+		seedBakaConfig(fakeHome, { baseUrl: fake.url, model: "fake-llm", apiKey: "fake-key" })
 
 		// --- CLI side: `baka plan "..." --json` ---------------------------------
 		const cliOut = await new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
 			const child = spawn("node", [CLI_DIST_INDEX, "--cwd", scratch, "plan", "scaffold a TS project", "--json"], {
-				env: { ...process.env, ...fakeEnv },
+				env: { ...process.env, HOME: fakeHome },
 				cwd: scratch,
 			})
 			let stdout = ""
@@ -1005,7 +1033,7 @@ describe("VAL-CROSS-010 CLI plan --json vs MCP tools/call baka_plan shape parity
 		const cliParsed = JSON.parse(cliOut.stdout) as Record<string, unknown>
 
 		// --- MCP side: `tools/call baka_plan` ----------------------------------
-		const state = spawnMcp({ cwd: scratch, env: fakeEnv })
+		const state = spawnMcp({ cwd: scratch, env: { HOME: fakeHome } })
 		try {
 			await initialize(state)
 			const id = sendRpc(state, "tools/call", {

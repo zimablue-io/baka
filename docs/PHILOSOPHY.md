@@ -66,9 +66,9 @@ baka providers add <name>   # register a named provider
 baka providers use <name>   # switch active provider
 ```
 
-The CLI stores the config at `$XDG_CONFIG_HOME/baka/config.json` (with platform-correct fallbacks) and secrets at `$XDG_CONFIG_HOME/baka/credentials` with `0600` perms. Env vars (`BAKA_LLM_*`) override for CI. The user never hand-edits a config file.
+The CLI stores the config at `~/.baka/config.json` and secrets at `~/.baka/credentials` with `0600` perms. A project-local `<cwd>/.baka/config.json` overrides the user config. The user never hand-edits a config file.
 
-**Precedence (highest first):** CLI flag > env var > per-project local override (`.baka/local.json`) > user config > built-in defaults.
+**Precedence (highest first):** CLI flag > project-local config (`<cwd>/.baka/config.json`) > user config (`~/.baka/config.json`) > built-in defaults.
 
 ## Module authoring is action-centric
 

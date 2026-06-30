@@ -301,10 +301,14 @@ program
 	.command("validate")
 	.description("Run all module validators against the current project")
 	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp `baka_validate` tool)")
+	.option(
+		"-m, --module <name>",
+		"run validators for a single module only; exits BAKA_EXIT_CODE.USER_ERROR (1) if the module is not found",
+	)
 	.action(async (opts) => {
 		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		try {
-			await runValidateCommand(cwd, { json: opts.json })
+			await runValidateCommand(cwd, { json: opts.json, module: opts.module })
 		} catch (err) {
 			die(BAKA_EXIT_CODE.VALIDATION_ERROR, err instanceof Error ? err.message : String(err))
 		}
@@ -318,7 +322,7 @@ program
 		"Install a module package. Accepts npm:..., git:..., local paths, or a bare module name (resolved via the marketplace API).",
 	)
 	.option("-l, --local", "install to the project scope (default) vs. user scope")
-	.option("-u, --user", "install to the user scope (~/.local/share/baka/modules/)")
+	.option("-u, --user", "install to the user scope (~/.baka/modules/)")
 	.action(async (source, opts) => {
 		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		const scope = opts.user ? "user" : "project"

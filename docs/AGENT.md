@@ -69,7 +69,7 @@ pnpm install                # install workspace deps
 pnpm check-types            # tsc --noEmit across all workspaces
 pnpm test                   # vitest run in packages that have tests
 pnpm build                  # turbo build
-pnpm baka plan "<intent>"   # CLI (uses your BAKA_LLM_* env or user config)
+pnpm baka plan "<intent>"   # CLI (reads ~/.baka/config.json)
 pnpm baka scaffold <name>   # scaffold a new module
 pnpm baka list-modules      # list discovered modules
 pnpm mcp                    # run the baka-mcp server over stdio

@@ -97,8 +97,41 @@ function spawnCli(args: {
 	})
 }
 
+/** Write a baka config + credentials to a fake HOME dir. */
+function seedBakaConfig(home: string, cfg: { baseUrl: string; model: string; apiKey?: string }) {
+	const dir = join(home, ".baka")
+	mkdirSync(dir, { recursive: true })
+	writeFileSync(
+		join(dir, "config.json"),
+		JSON.stringify(
+			{
+				providers: {
+					"test-llm": { baseUrl: cfg.baseUrl, model: cfg.model, temperature: 0, maxTokens: 8192, timeoutMs: 120000 },
+				},
+				activeProvider: "test-llm",
+				defaults: { temperature: 0, maxTokens: 8192, timeoutMs: 120000 },
+			},
+			null,
+			2,
+		),
+	)
+	if (cfg.apiKey) {
+		writeFileSync(
+			join(dir, "credentials"),
+			JSON.stringify({ providers: { "test-llm": { apiKey: cfg.apiKey } } }, null, 2),
+		)
+	}
+}
+
 /** Spawn the CLI with a fresh fake HOME so the user config is isolated. */
-function spawnCliWithFakeHome(args: { argv: string[]; cwd?: string; fakeHome: string; timeoutMs?: number }) {
+function spawnCliWithFakeHome(args: {
+	argv: string[]
+	cwd?: string
+	fakeHome: string
+	bakaConfig?: { baseUrl: string; model: string; apiKey?: string }
+	timeoutMs?: number
+}) {
+	if (args.bakaConfig) seedBakaConfig(args.fakeHome, args.bakaConfig)
 	return spawnCli({
 		argv: args.argv,
 		cwd: args.cwd ?? BAKA_REPO,
@@ -192,8 +225,9 @@ describe("VAL-CLI-003 baka --help advertises global flags", () => {
 describe("VAL-CLI-004 baka init --help is air-gapped", () => {
 	it("exits 0 without touching the user config file", async () => {
 		const fakeHome = trackDir(makeEmptyDir("baka-init-help-"))
-		const configPath = join(fakeHome, "config.json")
-		const credentialsPath = join(fakeHome, ".config", "baka", "credentials")
+		const configPath = join(fakeHome, ".baka", "config.json")
+		mkdirSync(join(fakeHome, ".baka"), { recursive: true })
+		const credentialsPath = join(fakeHome, ".baka", "credentials")
 
 		const { code, stdout, stderr } = await spawnCliWithFakeHome({
 			argv: ["init", "--help"],
@@ -217,7 +251,8 @@ describe("VAL-CLI-005 baka config list masks sensitive values", () => {
 		const fakeHome = trackDir(makeEmptyDir("baka-config-list-"))
 		// Pre-seed the user config with a sensitive value AND a non-sensitive
 		// value. Both must be present so the list output exercises both paths.
-		const configPath = join(fakeHome, "config.json")
+		const configPath = join(fakeHome, ".baka", "config.json")
+		mkdirSync(join(fakeHome, ".baka"), { recursive: true })
 		writeFileSync(
 			configPath,
 			JSON.stringify(
@@ -254,7 +289,8 @@ describe("VAL-CLI-005 baka config list masks sensitive values", () => {
 describe("VAL-CLI-006 baka config get refuses sensitive keys", () => {
 	it("exits 1 with a refusal message when a sensitive key is set", async () => {
 		const fakeHome = trackDir(makeEmptyDir("baka-config-get-"))
-		const configPath = join(fakeHome, "config.json")
+		const configPath = join(fakeHome, ".baka", "config.json")
+		mkdirSync(join(fakeHome, ".baka"), { recursive: true })
 		writeFileSync(configPath, JSON.stringify({ api_key: "SECRET_VALUE_DO_NOT_LEAK" }, null, 2), "utf-8")
 
 		const { code, stdout, stderr } = await spawnCliWithFakeHome({
@@ -315,7 +351,8 @@ describe("VAL-CLI-007 baka config set refuses sensitive keys", () => {
 describe("VAL-CLI-008 baka providers list", () => {
 	it("shows the * marker on the active provider and the active-provider footer", async () => {
 		const fakeHome = trackDir(makeEmptyDir("baka-providers-list-"))
-		const configPath = join(fakeHome, "config.json")
+		const configPath = join(fakeHome, ".baka", "config.json")
+		mkdirSync(join(fakeHome, ".baka"), { recursive: true })
 		writeFileSync(
 			configPath,
 			JSON.stringify(
@@ -599,7 +636,7 @@ describe("VAL-CLI-036 baka search with no network", () => {
 		const { code, stderr } = await spawnCliWithFakeHome({
 			argv: ["--provider", "openai-compatible", "search", "anything"],
 			fakeHome,
-			env: { BAKA_LLM_BASE_URL: "http://192.0.2.1:1/v1" },
+			bakaConfig: { baseUrl: "http://192.0.2.1:1/v1", model: "test" },
 		})
 
 		expect(code, `expected exit 2, got ${code}; stderr=${stderr}`).toBe(2)
@@ -616,7 +653,8 @@ describe("VAL-CLI-036 baka search with no network", () => {
 describe("VAL-CLI-037 baka -p <provider> does not mutate active provider", () => {
 	it("selects the named provider for one call and leaves the user's active marker untouched", async () => {
 		const fakeHome = trackDir(makeEmptyDir("baka-provider-override-"))
-		const configPath = join(fakeHome, "config.json")
+		const configPath = join(fakeHome, ".baka", "config.json")
+		mkdirSync(join(fakeHome, ".baka"), { recursive: true })
 		writeFileSync(
 			configPath,
 			JSON.stringify(

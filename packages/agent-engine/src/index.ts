@@ -3,7 +3,6 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 import {
 	AgentRole,
-	BAKA_ENV_PREFIX,
 	BAKA_EXIT_CODE,
 	BAKA_PROJECT_PATHS,
 	BAKA_USER_DIR,
@@ -36,13 +35,12 @@ export type PlanningOutput = ResolvedPlan
 //
 // Precedence (highest first):
 //   1. CLI overrides (passed as the `overrides` arg)
-//   2. Per-project local override (cwd/.baka/local.json)  -- future
-//   3. BAKA_LLM_* env vars
-//   4. User config + credentials (XDG)
-//   5. Built-in defaults
+//   2. Project config (<cwd>/.baka/config.json)
+//   3. User config (~/.baka/config.json) + credentials (~/.baka/credentials)
+//   4. Built-in defaults
 //
 // Throws BAKA_CONFIG_MISSING if the resolved config is incomplete (no baseUrl
-// or no model) and there is no obvious default to fall back to.
+// or no model).
 // ---------------------------------------------------------------------------
 
 interface PartialConfig {
@@ -55,53 +53,26 @@ interface PartialConfig {
 	providerOptions?: Record<string, unknown>
 }
 
-function readEnv(overrides: PartialConfig): PartialConfig {
-	const env = process.env
-	return {
-		baseUrl: overrides.baseUrl ?? env[`${BAKA_ENV_PREFIX}LLM_BASE_URL`] ?? undefined,
-		apiKey: overrides.apiKey ?? env[`${BAKA_ENV_PREFIX}LLM_API_KEY`] ?? undefined,
-		model: overrides.model ?? env[`${BAKA_ENV_PREFIX}LLM_MODEL`] ?? undefined,
-		temperature:
-			overrides.temperature ??
-			(env[`${BAKA_ENV_PREFIX}LLM_TEMPERATURE`] ? Number(env[`${BAKA_ENV_PREFIX}LLM_TEMPERATURE`]) : undefined),
-		maxTokens:
-			overrides.maxTokens ??
-			(env[`${BAKA_ENV_PREFIX}LLM_MAX_TOKENS`] ? Number(env[`${BAKA_ENV_PREFIX}LLM_MAX_TOKENS`]) : undefined),
-		timeoutMs:
-			overrides.timeoutMs ??
-			(env[`${BAKA_ENV_PREFIX}LLM_TIMEOUT_MS`] ? Number(env[`${BAKA_ENV_PREFIX}LLM_TIMEOUT_MS`]) : undefined),
-	}
-}
-
-function readUserConfig(overrides: PartialConfig, explicitName?: string): PartialConfig {
+function readUserConfig(explicitName?: string): PartialConfig {
 	const activeName = explicitName ?? getActiveProviderName()
 	if (!activeName) return {}
 	const provider = getProvider(activeName)
 	if (!provider) return {}
 	return {
-		baseUrl: overrides.baseUrl ?? provider.baseUrl,
-		apiKey: overrides.apiKey, // API key lives in credentials, resolved separately
-		model: overrides.model ?? provider.model,
-		temperature: overrides.temperature ?? provider.temperature,
-		maxTokens: overrides.maxTokens ?? provider.maxTokens,
-		timeoutMs: overrides.timeoutMs ?? provider.timeoutMs,
-		providerOptions: overrides.providerOptions ?? provider.providerOptions,
+		baseUrl: provider.baseUrl,
+		model: provider.model,
+		temperature: provider.temperature,
+		maxTokens: provider.maxTokens,
+		timeoutMs: provider.timeoutMs,
+		providerOptions: provider.providerOptions,
 	}
 }
 
-function readProjectLocal(cwd: string, overrides: PartialConfig): PartialConfig {
-	const path = join(cwd, BAKA_PROJECT_PATHS.LOCAL_CONFIG)
+function readProjectConfig(cwd: string): PartialConfig {
+	const path = join(cwd, BAKA_PROJECT_PATHS.ROOT, "config.json")
 	if (!existsSync(path)) return {}
 	try {
-		const raw = JSON.parse(readFileSync(path, "utf-8")) as PartialConfig
-		return {
-			baseUrl: overrides.baseUrl ?? raw.baseUrl,
-			apiKey: overrides.apiKey ?? raw.apiKey,
-			model: overrides.model ?? raw.model,
-			temperature: overrides.temperature ?? raw.temperature,
-			maxTokens: overrides.maxTokens ?? raw.maxTokens,
-			timeoutMs: overrides.timeoutMs ?? raw.timeoutMs,
-		}
+		return JSON.parse(readFileSync(path, "utf-8")) as PartialConfig
 	} catch {
 		return {}
 	}
@@ -115,19 +86,17 @@ export interface LoadConfigOptions {
 }
 
 /**
- * Resolves the LLM config from all sources. If `providerName` is not given,
- * uses the user's active provider. API keys are looked up from the credentials
- * file unless `skipCredentials` is true.
+ * Resolves the LLM config from user config and project config.
+ * Project config (<cwd>/.baka/config.json) overrides user config
+ * (~/.baka/config.json) on key conflict. API keys are looked up from
+ * the credentials file unless `skipCredentials` is true.
  */
 export async function loadLLMConfig(opts: LoadConfigOptions): Promise<ResolvedLLMConfig> {
 	const overrides = opts.overrides ?? {}
-	const envPart = readEnv(overrides)
-	const projectPart = readProjectLocal(opts.cwd, overrides)
-	const userPart = readUserConfig(overrides, opts.providerName)
-	const merged: PartialConfig = { ...userPart, ...projectPart, ...envPart }
+	const userPart = readUserConfig(opts.providerName)
+	const projectPart = readProjectConfig(opts.cwd)
+	const merged: PartialConfig = { ...userPart, ...projectPart, ...overrides }
 
-	// API key resolution: from credentials file (for the active/named provider),
-	// unless the user already provided one via overrides/env/project-local.
 	let apiKey = merged.apiKey
 	if (!apiKey && !opts.skipCredentials) {
 		const name = opts.providerName ?? getActiveProviderName()
@@ -148,7 +117,6 @@ export async function loadLLMConfig(opts: LoadConfigOptions): Promise<ResolvedLL
 		timeoutMs,
 		providerOptions: {
 			...(merged.providerOptions ?? {}),
-			// Carry the provider name through so createLLMProvider can dispatch.
 			name: opts.providerName ?? getActiveProviderName() ?? "openai-compatible",
 		},
 	}
@@ -156,8 +124,8 @@ export async function loadLLMConfig(opts: LoadConfigOptions): Promise<ResolvedLL
 
 export function validateLLMConfig(config: ResolvedLLMConfig): void {
 	const missing: string[] = []
-	if (!config.baseUrl) missing.push("baseUrl (BAKA_LLM_BASE_URL)")
-	if (!config.model) missing.push("model (BAKA_LLM_MODEL)")
+	if (!config.baseUrl) missing.push("baseUrl")
+	if (!config.model) missing.push("model")
 	if (missing.length > 0) {
 		const err = new Error(`missing LLM config: ${missing.join(", ")}. Run \`baka init\` to configure.`)
 		;(err as Error & { code?: string }).code = "BAKA_CONFIG_MISSING"

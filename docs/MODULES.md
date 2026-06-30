@@ -6,7 +6,7 @@ A **module** is a self-contained directory that exposes typed, validated actions
 |---|---|---|---|
 | **in-tree** | `<project>/modules/<name>/` | the engine always | no (lowest priority) |
 | **project marketplace** | `<project>/.baka/modules/<name>/` | when listed in `<project>/.baka/settings.json` | yes (overrides in-tree) |
-| **user marketplace** | `~/.local/share/baka/modules/<name>/` | when listed in `~/.config/baka/settings.json` | no (loses to project) |
+| **user marketplace** | `~/.baka/modules/<name>/` | when listed in `~/.baka/settings.json` | no (loses to project) |
 
 Install a module into the project marketplace with `baka install <source>`. Sources can be `npm:@scope/pkg[@ver]`, `git:host/repo[@ref]`, `https://...`, `/abs/path`, or `./rel/path`.
 

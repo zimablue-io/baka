@@ -1,0 +1,23 @@
+You are writing the plan.md file for a spec-driven-development feature spec.
+
+Feature name: {{name}}
+Feature description: {{description}}
+{{#if context}}Additional context: {{context}}{{/if}}
+
+Generate a markdown document with the following structure:
+
+# <feature name> — Plan
+
+A flat numbered list of small, independent task groups. Each group should be implementable and reviewable in a single pass.
+
+## Task groups
+
+1. **<short title>** — 1-2 sentence description of what gets built in this group.
+2. **<short title>** — ...
+3. **<short title>** — ...
+4. **<short title>** — ...
+5. **<short title>** — ...
+
+Aim for 3-7 task groups. Do not list tiny implementation steps inside a group; the group is the atomic unit. Do not list testing, deployment, or documentation as separate groups — they belong inside each group.
+
+Respond with only the markdown content. No code fences.

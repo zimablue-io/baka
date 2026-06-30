@@ -112,7 +112,7 @@ function gitNameToDirName(url: string): string {
 // Settings storage
 //
 // Project scope: <cwd>/.baka/settings.json
-// User scope:    ~/.config/baka/settings.json
+// User scope:    ~/.baka/settings.json
 // Project wins on dedup. Each scope keeps a list of source strings.
 // ---------------------------------------------------------------------------
 
@@ -125,7 +125,7 @@ export function projectSettingsPath(cwd: string): string {
 }
 
 export function userSettingsPath(): string {
-	return join(homedir(), ".config", BAKA_USER_DIR, "settings.json")
+	return join(homedir(), `.${BAKA_USER_DIR}`, "settings.json")
 }
 
 export function readProjectSettings(cwd: string): BakaSettings {
@@ -161,7 +161,7 @@ export function projectModulesDir(cwd: string): string {
 }
 
 export function userModulesDir(): string {
-	return join(homedir(), ".local", "share", BAKA_USER_DIR, "modules")
+	return join(homedir(), `.${BAKA_USER_DIR}`, "modules")
 }
 
 // ---------------------------------------------------------------------------

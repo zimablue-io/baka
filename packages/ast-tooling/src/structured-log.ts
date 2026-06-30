@@ -14,10 +14,7 @@ export interface LogEntry {
 }
 
 /**
- * Append-only JSON-line log writer. The path follows XDG:
- *   $XDG_DATA_HOME/baka/logs/<yyyy-mm-dd>.log on Linux/macOS
- *   %LOCALAPPDATA%/baka/logs/<yyyy-mm-dd>.log on Windows
- * Falls back to ~/.local/share/baka/logs/ if neither is set.
+ * Append-only JSON-line log writer. Writes to ~/.baka/logs/<yyyy-mm-dd>.log.
  */
 export class StructuredLog {
 	private path: string | null = null
@@ -27,7 +24,7 @@ export class StructuredLog {
 	resolve(): string {
 		if (this.path) return this.path
 		const base = dataHome()
-		const dir = join(base, BAKA_USER_DIR, "logs")
+		const dir = join(base, `.${BAKA_USER_DIR}`, "logs")
 		mkdirSync(dir, { recursive: true })
 		const file = join(dir, `${new Date().toISOString().slice(0, 10)}-${this.runId}.log`)
 		this.path = file
@@ -47,9 +44,8 @@ export class StructuredLog {
 }
 
 function dataHome(): string {
-	const env = process.env
 	if (platform() === "win32") {
-		return env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local")
+		return process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local")
 	}
-	return env.XDG_DATA_HOME ?? join(homedir(), ".local", "share")
+	return homedir()
 }
