@@ -299,7 +299,7 @@ function loadModulePreferences(modules: ModuleManifest[]): string {
 		const candidates = [
 			join(process.cwd(), "modules", m.name, "PREFERENCES.md"),
 			join(process.cwd(), BAKA_PROJECT_PATHS.ROOT, "modules", m.name, "PREFERENCES.md"),
-			join(homedir(), ".local", "share", BAKA_USER_DIR, "modules", m.name, "PREFERENCES.md"),
+			join(homedir(), `.${BAKA_USER_DIR}`, "modules", m.name, "PREFERENCES.md"),
 		]
 		for (const path of candidates) {
 			if (existsSync(path)) {
