@@ -123,4 +123,69 @@ export const renderThingAction: WorkflowStep<Input, boolean, Data> = {
 		expect(existsSync(join(dir, "output.md")), "output file was not created").toBe(true)
 		expect(readFileSync(join(dir, "output.md"), "utf-8")).toBe("generated content for test")
 	})
+
+	// The role-keyed config refactor replaces the legacy
+	// `baka providers use <name>` hint with the new
+	// `baka init` hint. This test pins the new text in the
+	// requiresReasoning path so the writer cannot regress it.
+	it("emits the `baka init` hint when requiresReasoning is true and the LLMProvider is null", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "baka-worker-reasoning-hint-"))
+		cleanup.push(dir)
+
+		const moduleRoot = join(dir, "modules", "reasoning-hint-mod")
+		const actionDir = join(moduleRoot, "render-thing")
+		const templatesDir = join(actionDir, "templates")
+		mkdirSync(templatesDir, { recursive: true })
+
+		writeFileSync(
+			join(moduleRoot, "manifest.ts"),
+			`import type { ModuleManifest } from "@repo/protocol"
+export const Manifest: ModuleManifest = {
+  name: "reasoning-hint-mod", version: "0.1.0", description: "fake", dependencies: [], conflictsWith: [],
+  actions: [{
+    id: "render-thing",
+    description: "renders a thing",
+    params: [],
+    requiresReasoning: true,
+    filePatterns: [],
+    validators: [],
+  }],
+  moduleValidators: [],
+}
+`,
+		)
+		writeFileSync(join(templatesDir, "thing.md.hbs"), "hello world")
+
+		writeFileSync(
+			join(actionDir, "action.ts"),
+			`import { AgentRole, type StepResponse, type WorkflowStep } from "@repo/protocol"
+export const renderThingAction: WorkflowStep<unknown, boolean, unknown> = {
+  name: "render-thing",
+  role: AgentRole.WORKER,
+  execute: async (): Promise<StepResponse<boolean, unknown>> => ({ success: true, output: true, compensationData: null }),
+  compensate: async () => {},
+}
+`,
+		)
+
+		const state: OrchestrationState = {
+			userIntent: "test",
+			targetDirectory: dir,
+			status: "EXECUTING",
+			executionPlan: { steps: [], currentStepIndex: 0 },
+			logs: [],
+			artifacts: {},
+		}
+
+		const result = await executeWorkerStep.execute(
+			{ moduleName: "reasoning-hint-mod", actionName: "render-thing", parameters: {} },
+			state,
+			{ llmProvider: null },
+		)
+
+		expect(result.success, `worker unexpectedly succeeded: ${result.error}`).toBe(false)
+		expect(result.error, `expected the baka init hint in the error; got ${result.error}`).toContain(
+			"Run `baka init` to configure the worker role",
+		)
+	})
 })

@@ -2,7 +2,7 @@ import { createLLMProvider, loadLLMConfig, validateLLMConfig } from "@repo/agent
 import { listPlans, loadPlan, ModuleRegistry, runValidators, StructuredLog, savePlan } from "@repo/ast-tooling"
 import { discoverModules } from "@repo/discovery-workflow"
 import { featurePlanningWorkflow } from "@repo/feature-planning-workflow"
-import type { LLMProvider, OrchestrationState, WorkflowStep } from "@repo/protocol"
+import type { LLMProvider, OrchestrationState, ResolvedLLMConfig, WorkflowStep } from "@repo/protocol"
 import { BAKA_EXIT_CODE } from "@repo/protocol"
 
 function die(code: number, msg: string): never {
@@ -11,7 +11,6 @@ function die(code: number, msg: string): never {
 }
 
 interface PlanOpts {
-	provider?: string
 	cwd?: string
 	dryRun?: boolean
 	save?: boolean
@@ -34,7 +33,12 @@ export async function runPlanCommand(intent: string, opts: PlanOpts): Promise<vo
 		}
 		process.exit(BAKA_EXIT_CODE.ENGINE_ERROR)
 	}
-	const config = await loadLLMConfig({ cwd, providerName: opts.provider })
+	let config: ResolvedLLMConfig
+	try {
+		config = await loadLLMConfig({ role: "worker", cwd })
+	} catch (err) {
+		die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
+	}
 	try {
 		validateLLMConfig(config)
 	} catch (err) {
@@ -60,13 +64,7 @@ export async function runPlanCommand(intent: string, opts: PlanOpts): Promise<vo
 	// the FAILED branch exits before reaching the save call.
 	let savedPlanFile: string | null = null
 	if (opts.save && state.status !== "FAILED") {
-		savedPlanFile = savePlan(
-			cwd,
-			intent,
-			{ resolvedSteps: state.executionPlan.steps },
-			config.providerOptions.name as string,
-			config.model,
-		)
+		savedPlanFile = savePlan(cwd, intent, { resolvedSteps: state.executionPlan.steps }, config.model)
 		log.write({ level: "info", source: "baka.plan", message: "saved plan", file: savedPlanFile })
 	}
 
@@ -145,18 +143,19 @@ export function runListPlans(cwd: string): void {
 	console.log("")
 }
 
-export async function runApplyCommand(
-	planFile: string,
-	cwd: string,
-	opts: { json?: boolean; provider?: string } = {},
-): Promise<void> {
+export async function runApplyCommand(planFile: string, cwd: string, opts: { json?: boolean } = {}): Promise<void> {
 	const plan = loadPlan(planFile)
 	const runId = `apply-${Date.now()}`
 	const log = new StructuredLog(runId)
 	log.write({ level: "info", source: "baka.apply", message: "loading plan", file: planFile, intent: plan.meta.intent })
 
 	// Build the LLM provider for the requiresReasoning steps.
-	const config = await loadLLMConfig({ cwd, providerName: opts.provider ?? plan.meta.providerName })
+	let config: ResolvedLLMConfig
+	try {
+		config = await loadLLMConfig({ role: "worker", cwd })
+	} catch (err) {
+		die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
+	}
 	const provider = createLLMProvider(config)
 
 	// Reuse the SAGA: the workflow package exposes runSaga indirectly via
@@ -246,6 +245,17 @@ export async function runValidateCommand(cwd: string, opts: { json?: boolean; mo
 	}
 
 	const result = await runValidators(cwd, state, undefined, opts.module)
+
+	// A validator throwing because the user forgot to configure a role is
+	// a USER_ERROR, not a VALIDATION_ERROR. The user did not produce a
+	// bad spec — they haven't configured their tooling yet. Surface the
+	// first such message via stderr and exit with code 1.
+	if (result.kind === "fail") {
+		const missingConfig = result.diagnostics.find((d) => d.severity === "error" && /missing LLM config/.test(d.message))
+		if (missingConfig) {
+			die(BAKA_EXIT_CODE.USER_ERROR, missingConfig.message)
+		}
+	}
 
 	if (opts.json) {
 		// Same shape as the MCP `baka_validate` tool, plus the optional

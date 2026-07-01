@@ -5,7 +5,6 @@ import { fileURLToPath } from "node:url"
 import { ModuleRegistry } from "@repo/ast-tooling"
 import { BAKA_EXIT_CODE } from "@repo/protocol"
 import { Command } from "commander"
-import { runConfigGet, runConfigList, runConfigPath, runConfigSet, runConfigUnset } from "./commands/config"
 import { runInit } from "./commands/init"
 import {
 	runInstallCommand,
@@ -19,7 +18,8 @@ import {
 } from "./commands/marketplace"
 import { runModuleEdit, runModuleListActions, runModuleTest, runModuleValidate } from "./commands/module"
 import { runApplyCommand, runListPlans, runPlanCommand, runValidateCommand } from "./commands/plan"
-import { runProvidersAdd, runProvidersList, runProvidersRemove, runProvidersUse } from "./commands/providers"
+import { runRole, runRolePath, runRoleShow } from "./commands/role"
+import { runRoles } from "./commands/roles"
 import { runSearchCommand } from "./commands/search"
 
 function die(code: number, msg: string): never {
@@ -42,9 +42,7 @@ program
 	.description("Baka CLI: enforce your patterns by routing LLM intent through declared module actions")
 	.version(cliPkg.version)
 
-program
-	.option("-p, --provider <name>", "use the named provider (overrides active)")
-	.option("--cwd <path>", "use the given directory as the project root", process.cwd())
+program.option("--cwd <path>", "use the given directory as the project root", process.cwd())
 
 // Validate --cwd up front: a non-existent path is a USER_ERROR (the user
 // gave us a bad path), not a silent no-op that returns zero results.
@@ -62,7 +60,7 @@ program.hook("preAction", () => {
 
 program
 	.command("init")
-	.description("Interactive first-time setup: provider, model, API key")
+	.description("Interactive first-time setup: configure both worker and validator roles")
 	.action(async () => {
 		try {
 			await runInit()
@@ -73,26 +71,30 @@ program
 		}
 	})
 
-// `baka config *` -------------------------------------------------------------
+// `baka role *` ---------------------------------------------------------------
+//
+// Per-role management. `baka role <worker|validator>` opens an interactive
+// edit; `baka role <name> --field <name> --value <val>` mutates one field
+// non-interactively; `baka role <name> show` prints the current block;
+// `baka role path` prints the user config path.
 
-const configCmd = program.command("config").description("View and edit the baka user config (non-secret values)")
+const roleCmd = program.command("role").description("View or edit one role's LLM config")
 
-configCmd.command("list").description("List all config keys (sensitive values redacted)").action(runConfigList)
-configCmd.command("get <key>").description("Get a config value (refuses sensitive keys)").action(runConfigGet)
-configCmd.command("set <key> <value>").description("Set a config value (refuses sensitive keys)").action(runConfigSet)
-configCmd.command("unset <key>").description("Remove a config key").action(runConfigUnset)
-configCmd.command("path").description("Show the user config and credentials file paths").action(runConfigPath)
+roleCmd
+	.command("show <name>")
+	.description("Print one role's config (apiKey masked)")
+	.action((name) => runRoleShow(name))
 
-// `baka providers *` ----------------------------------------------------------
+roleCmd.command("path").description("Print the user config path").action(runRolePath)
 
-const providersCmd = program.command("providers").description("Manage LLM providers (user-configured)")
-
-providersCmd
-	.command("add [name]")
-	.description("Add a new provider (interactive)")
-	.action(async (_name) => {
+roleCmd
+	.argument("<name>", "the role name (worker or validator)")
+	.option("--field <name>", "the field to set (baseUrl, model, apiKey, temperature, maxTokens, timeoutMs)")
+	.option("--value <value>", "the new value for the field")
+	.description("Edit one role's LLM config (interactive, or --field/--value)")
+	.action(async (name, opts) => {
 		try {
-			await runProvidersAdd()
+			await runRole(name, { field: opts.field, value: opts.value })
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
 			if (message.includes("User force closed")) return
@@ -100,30 +102,16 @@ providersCmd
 		}
 	})
 
-providersCmd.command("list").description("List configured providers").action(runProvidersList)
+// `baka roles` ----------------------------------------------------------------
 
-providersCmd
-	.command("use [name]")
-	.description("Switch the active provider")
-	.action(async (name) => {
+program
+	.command("roles")
+	.description("List every configured role with its fields (apiKey masked)")
+	.action(() => {
 		try {
-			await runProvidersUse(name)
+			runRoles()
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
-			if (message.includes("User force closed")) return
-			die(BAKA_EXIT_CODE.USER_ERROR, message)
-		}
-	})
-
-providersCmd
-	.command("remove [name]")
-	.description("Remove a provider")
-	.action(async (name) => {
-		try {
-			await runProvidersRemove(name)
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err)
-			if (message.includes("User force closed")) return
 			die(BAKA_EXIT_CODE.USER_ERROR, message)
 		}
 	})
@@ -256,10 +244,9 @@ program
 	.option("--execute", "execute the plan after planning (Phase 7)")
 	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp `baka_plan` tool)")
 	.action(async (intent, opts) => {
-		const globalOpts = program.opts<{ provider?: string; cwd?: string }>()
+		const globalOpts = program.opts<{ cwd?: string }>()
 		try {
 			await runPlanCommand(intent, {
-				provider: globalOpts.provider ?? opts.provider,
 				cwd: globalOpts.cwd,
 				dryRun: opts.dryRun,
 				save: opts.save,

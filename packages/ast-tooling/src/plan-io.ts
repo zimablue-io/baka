@@ -8,7 +8,6 @@ export interface SavedPlan extends ResolvedPlan {
 	meta: {
 		intent: string
 		savedAt: string
-		providerName?: string
 		model?: string
 	}
 }
@@ -17,13 +16,7 @@ export function plansDir(targetDirectory: string): string {
 	return join(targetDirectory, BAKA_PROJECT_PATHS.PLANS)
 }
 
-export function savePlan(
-	targetDirectory: string,
-	intent: string,
-	plan: ResolvedPlan,
-	providerName?: string,
-	model?: string,
-): string {
+export function savePlan(targetDirectory: string, intent: string, plan: ResolvedPlan, model?: string): string {
 	const dir = plansDir(targetDirectory)
 	mkdirSync(dir, { recursive: true })
 	const file = join(dir, `${Date.now()}.plan.json`)
@@ -32,7 +25,6 @@ export function savePlan(
 		meta: {
 			intent,
 			savedAt: new Date().toISOString(),
-			...(providerName ? { providerName } : {}),
 			...(model ? { model } : {}),
 		},
 	}

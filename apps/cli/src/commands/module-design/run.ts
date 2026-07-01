@@ -72,7 +72,7 @@ export async function runModuleDesign(
 		saveSession(fresh, moduleDir)
 	}
 
-	const config = await deps.loadLLMConfig({ cwd: opts.cwd })
+	const config = await deps.loadLLMConfig({ role: "worker", cwd: opts.cwd })
 	try {
 		validateLLMConfig(config)
 	} catch (err) {

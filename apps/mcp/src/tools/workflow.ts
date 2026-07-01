@@ -24,8 +24,8 @@ type ResolvedPlanStep = z.infer<typeof ResolvedPlanStepSchema>
  * setup. Throws a clear error if the config is missing so the MCP client
  * surfaces a useful message instead of a generic "execution failed".
  */
-async function setupProvider(ctx: ServerContext, providerName?: string): Promise<LLMProvider> {
-	const config = await loadLLMConfig({ cwd: ctx.cwd, providerName, skipCredentials: false })
+async function setupProvider(ctx: ServerContext): Promise<LLMProvider> {
+	const config = await loadLLMConfig({ role: "worker", cwd: ctx.cwd })
 	try {
 		validateLLMConfig(config)
 	} catch (err) {
@@ -47,9 +47,9 @@ export interface PlanToolOutput {
 export async function runPlan(
 	ctx: ServerContext,
 	intent: string,
-	opts: { dryRun?: boolean; save?: boolean; provider?: string } = {},
+	_opts: { dryRun?: boolean; save?: boolean } = {},
 ): Promise<PlanToolOutput> {
-	const provider = await setupProvider(ctx, opts.provider)
+	const provider = await setupProvider(ctx)
 	const state = await featurePlanningWorkflow(intent, ctx.cwd, provider)
 	return {
 		status: state.status === "FAILED" ? "FAILED" : "SUCCESS",
@@ -73,10 +73,10 @@ export interface ApplyToolOutput {
 export async function runApply(
 	ctx: ServerContext,
 	planFile: string,
-	opts: { provider?: string } = {},
+	_opts: Record<string, never> = {},
 ): Promise<ApplyToolOutput> {
 	const plan = loadPlan(planFile)
-	const provider = await setupProvider(ctx, opts.provider)
+	const provider = await setupProvider(ctx)
 
 	const registry = new ModuleRegistry(ctx.cwd)
 	registry.discover(false)
@@ -221,7 +221,7 @@ export async function runAction(
 	moduleName: string,
 	actionId: string,
 	params: Record<string, unknown>,
-	opts: { provider?: string } = {},
+	_opts: Record<string, never> = {},
 ): Promise<RunActionToolOutput> {
 	const manifest = getModules(ctx).find((m) => m.name === moduleName)
 	if (!manifest) {
@@ -237,7 +237,7 @@ export async function runAction(
 	// requires reasoning but no provider is supplied.
 	let provider: LLMProvider | null = null
 	if (manifest.actions.some((a) => a.requiresReasoning)) {
-		provider = await setupProvider(ctx, opts.provider)
+		provider = await setupProvider(ctx)
 	}
 
 	const state: OrchestrationState = {

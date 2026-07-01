@@ -227,6 +227,9 @@ importers:
       baka-sdk:
         specifier: workspace:*
         version: link:../../packages/baka-sdk
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
     devDependencies:
       '@repo/typescript-config':
         specifier: workspace:*
@@ -315,9 +318,15 @@ importers:
 
   packages/baka-sdk:
     dependencies:
+      '@repo/agent-engine':
+        specifier: workspace:*
+        version: link:../agent-engine
       '@repo/protocol':
         specifier: workspace:*
         version: link:../protocol
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
     devDependencies:
       '@repo/typescript-config':
         specifier: workspace:*

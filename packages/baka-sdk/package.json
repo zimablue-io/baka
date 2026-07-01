@@ -13,7 +13,9 @@
 		"check-types": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@repo/protocol": "workspace:*"
+		"@repo/agent-engine": "workspace:*",
+		"@repo/protocol": "workspace:*",
+		"zod": "^3.23.0"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "workspace:*",

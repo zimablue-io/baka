@@ -17,7 +17,7 @@ import {
 	type WorkflowStep,
 } from "@repo/protocol"
 import { z } from "zod"
-import { getActiveProviderName, getApiKey, getProvider } from "./config/store.js"
+import { isRoleName, type RoleName, readRoleConfig } from "./config/store.js"
 
 // ---------------------------------------------------------------------------
 // Public surface
@@ -34,91 +34,82 @@ export type PlanningOutput = ResolvedPlan
 // Config resolution
 //
 // Precedence (highest first):
-//   1. CLI overrides (passed as the `overrides` arg)
-//   2. Project config (<cwd>/.baka/config.json)
-//   3. User config (~/.baka/config.json) + credentials (~/.baka/credentials)
-//   4. Built-in defaults
+//   1. CLI overrides (the `overrides` arg)
+//   2. User config (~/.baka/config.json) — the role's block
 //
-// Throws BAKA_CONFIG_MISSING if the resolved config is incomplete (no baseUrl
-// or no model).
+// The role block in `~/.baka/config.json` is the source of truth. There is
+// NO project-tree merge, NO provider alias, NO active marker. apiKey is
+// inline in the role block.
+//
+// Throws `missing LLM config: <role> role not configured` when the role
+// block is absent, or `missing LLM config: baseUrl, model` when the block
+// is incomplete. Both errors carry `code: BAKA_CONFIG_MISSING`.
 // ---------------------------------------------------------------------------
 
-interface PartialConfig {
+export interface RoleConfigOverrides {
 	baseUrl?: string
 	apiKey?: string
 	model?: string
 	temperature?: number
 	maxTokens?: number
 	timeoutMs?: number
-	providerOptions?: Record<string, unknown>
-}
-
-function readUserConfig(explicitName?: string): PartialConfig {
-	const activeName = explicitName ?? getActiveProviderName()
-	if (!activeName) return {}
-	const provider = getProvider(activeName)
-	if (!provider) return {}
-	return {
-		baseUrl: provider.baseUrl,
-		model: provider.model,
-		temperature: provider.temperature,
-		maxTokens: provider.maxTokens,
-		timeoutMs: provider.timeoutMs,
-		providerOptions: provider.providerOptions,
-	}
-}
-
-function readProjectConfig(cwd: string): PartialConfig {
-	const path = join(cwd, BAKA_PROJECT_PATHS.ROOT, "config.json")
-	if (!existsSync(path)) return {}
-	try {
-		return JSON.parse(readFileSync(path, "utf-8")) as PartialConfig
-	} catch {
-		return {}
-	}
 }
 
 export interface LoadConfigOptions {
+	role: RoleName
 	cwd: string
-	overrides?: PartialConfig
-	providerName?: string
-	skipCredentials?: boolean
+	overrides?: RoleConfigOverrides
 }
 
 /**
- * Resolves the LLM config from user config and project config.
- * Project config (<cwd>/.baka/config.json) overrides user config
- * (~/.baka/config.json) on key conflict. API keys are looked up from
- * the credentials file unless `skipCredentials` is true.
+ * Resolves the LLM config for one role from `~/.baka/config.json`.
+ *
+ * Hard-fails when the role block is absent or missing required fields.
+ * Callers should treat `role: "worker"` for plan/apply/module-design and
+ * `role: "validator"` for any module validator that needs the
+ * validator-role LLM.
  */
 export async function loadLLMConfig(opts: LoadConfigOptions): Promise<ResolvedLLMConfig> {
-	const overrides = opts.overrides ?? {}
-	const userPart = readUserConfig(opts.providerName)
-	const projectPart = readProjectConfig(opts.cwd)
-	const merged: PartialConfig = { ...userPart, ...projectPart, ...overrides }
-
-	let apiKey = merged.apiKey
-	if (!apiKey && !opts.skipCredentials) {
-		const name = opts.providerName ?? getActiveProviderName()
-		if (name) apiKey = await getApiKey(name)
+	if (!isRoleName(opts.role)) {
+		const err = new Error(`missing LLM config: unknown role "${opts.role}". Run \`baka init\` to configure.`)
+		;(err as Error & { code?: string }).code = "BAKA_CONFIG_MISSING"
+		throw err
 	}
-	if (apiKey === undefined) apiKey = ""
 
-	const temperature = merged.temperature ?? 0.0
-	const maxTokens = merged.maxTokens ?? 8192
-	const timeoutMs = merged.timeoutMs ?? 120_000
+	const roleBlock = readRoleConfig(opts.role)
+	if (!roleBlock) {
+		const err = new Error(`missing LLM config: ${opts.role} role not configured. Run \`baka init\` to configure.`)
+		;(err as Error & { code?: string }).code = "BAKA_CONFIG_MISSING"
+		throw err
+	}
+
+	const overrides = opts.overrides ?? {}
+	const baseUrl = overrides.baseUrl ?? roleBlock.baseUrl ?? ""
+	const model = overrides.model ?? roleBlock.model ?? ""
+	const apiKey = overrides.apiKey ?? roleBlock.apiKey ?? ""
+	const temperature = overrides.temperature ?? roleBlock.temperature ?? 0.0
+	const maxTokens = overrides.maxTokens ?? roleBlock.maxTokens ?? 8192
+	const timeoutMs = overrides.timeoutMs ?? roleBlock.timeoutMs ?? 120_000
+
+	const missing: string[] = []
+	if (!baseUrl) missing.push("baseUrl")
+	if (!model) missing.push("model")
+	if (missing.length > 0) {
+		const err = new Error(
+			`missing LLM config: ${opts.role} role is missing ${missing.join(", ")}. Run \`baka role ${opts.role}\` to set the field.`,
+		)
+		;(err as Error & { code?: string }).code = "BAKA_CONFIG_MISSING"
+		throw err
+	}
 
 	return {
-		baseUrl: merged.baseUrl ?? "",
+		baseUrl,
 		apiKey,
-		model: merged.model ?? "",
+		model,
 		temperature,
 		maxTokens,
 		timeoutMs,
-		providerOptions: {
-			...(merged.providerOptions ?? {}),
-			name: opts.providerName ?? getActiveProviderName() ?? "openai-compatible",
-		},
+		providerOptions: { role: opts.role },
 	}
 }
 
@@ -142,12 +133,10 @@ import { OpenAICompatibleProvider } from "./providers/openai-compatible.js"
 export { OpenAICompatibleProvider }
 
 export function createLLMProvider(config: ResolvedLLMConfig): LLMProvider {
-	// The user-configured provider name (e.g. "llama_cpp", "ollama", "openai")
-	// is a friendly alias, not a class name. The wire format is what matters,
-	// and right now we only ship the OpenAI-compatible adapter (llama.cpp,
-	// Ollama, vLLM, LM Studio, OpenAI, etc. all speak the same /v1/chat
-	// shape). If we ever ship a non-OpenAI adapter (Anthropic, Gemini), the
-	// dispatch lives here. For now, the friendly name is informational.
+	// The wire format is what matters, and right now we only ship the
+	// OpenAI-compatible adapter (llama.cpp, Ollama, vLLM, LM Studio, OpenAI,
+	// etc. all speak the same /v1/chat shape). If we ever ship a non-OpenAI
+	// adapter (Anthropic, Gemini), the dispatch lives here.
 	return new OpenAICompatibleProvider(config)
 }
 
@@ -155,23 +144,14 @@ export function createLLMProvider(config: ResolvedLLMConfig): LLMProvider {
 // Config store re-exports (so consumers don't need to dig into ./config/store)
 // ---------------------------------------------------------------------------
 
+export type { RoleConfig, RoleName } from "./config/store.js"
 export {
-	deleteProvider,
-	getActiveProviderName,
-	getApiKey,
-	getConfigPath,
-	getConfigValue,
-	getProvider,
-	listConfigKeys,
-	listProviders,
-	secretsPath,
-	setActiveProviderName,
-	setApiKey,
-	setConfigValue,
-	setProvider,
-	unsetApiKey,
-	unsetConfigValue,
+	isRoleName,
+	listRoles,
+	readRoleConfig,
+	SUPPORTED_ROLES,
 	userConfigPath,
+	writeRoleConfig,
 } from "./config/store.js"
 
 // ---------------------------------------------------------------------------

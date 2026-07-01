@@ -14,7 +14,7 @@ export const Manifest: ModuleManifest = {
 				"Create the project constitution: specs/mission.md, specs/tech-stack.md, specs/roadmap.md. Idempotent. Uses LLM to fill each document from a handlebars prompt.",
 			requiresReasoning: true,
 			filePatterns: ["specs/mission.md", "specs/tech-stack.md", "specs/roadmap.md"],
-			validators: [],
+			validators: ["constitutionCoherent"],
 			params: [
 				{
 					name: "productName",
@@ -42,7 +42,7 @@ export const Manifest: ModuleManifest = {
 				"Create a per-feature spec folder at specs/YYYY-MM-DD-<name>/ containing plan.md, requirements.md, and validation.md. Uses LLM to generate each from a handlebars prompt.",
 			requiresReasoning: true,
 			filePatterns: ["specs/*/plan.md", "specs/*/requirements.md", "specs/*/validation.md"],
-			validators: [],
+			validators: ["featureSpecCoherent"],
 			params: [
 				{
 					name: "name",

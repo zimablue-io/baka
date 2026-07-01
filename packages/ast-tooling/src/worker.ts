@@ -247,7 +247,7 @@ async function fillReasoningTemplates(
 	if (!provider) {
 		throw new Error(
 			`action "${action.id}" declares requiresReasoning: true, but no LLMProvider was injected into the Worker. ` +
-				`Pass --provider or run \`baka providers use <name>\` first.`,
+				`Run \`baka init\` to configure the worker role.`,
 		)
 	}
 

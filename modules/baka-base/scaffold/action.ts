@@ -48,7 +48,6 @@ export const scaffoldAction: WorkflowStep<ScaffoldInput, boolean, ScaffoldCompen
 
 			ensureNew("package.json", renderPackageJson(projectName, description, moduleType))
 			ensureNew("tsconfig.json", renderTsConfig(moduleType))
-			ensureNew("src/index.ts", renderIndex())
 			ensureNew("README.md", renderReadme(projectName, description))
 			ensureNew(".gitignore", renderGitignore())
 
@@ -119,11 +118,6 @@ function renderTsConfig(moduleType: "esm" | "commonjs"): string {
 	},
 	"include": ["src"]
 }
-`
-}
-
-function renderIndex(): string {
-	return `console.log("hello from project")
 `
 }
 

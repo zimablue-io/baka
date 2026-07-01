@@ -11,6 +11,7 @@ import {
 } from "@repo/protocol"
 import { afterEach, describe, expect, it } from "vitest"
 import { runSaga } from "./saga.js"
+import { executeWorkerStep } from "./worker.js"
 
 const cleanup: string[] = []
 afterEach(() => {
@@ -161,5 +162,78 @@ describe("Worker end-to-end (jiti + SAGA)", () => {
 		expect(result.state.status).toBe(ENGINE_STATUS.FAILED)
 		// Rollback must have removed the file the first step created.
 		expect(existsSync(join(root, "alpha.txt"))).toBe(false)
+	})
+})
+
+// ---------------------------------------------------------------------------
+// Worker error-message contract — role-keyed config refactor
+//
+// The role-keyed config refactor replaces the legacy `baka providers
+// use <name>` hint with the new `baka init` hint. This test pins the
+// new error text so the writer cannot regress the user-facing message.
+// ---------------------------------------------------------------------------
+
+describe("Worker error message — `baka init` hint when no LLM is injected for a requiresReasoning action", () => {
+	it("emits the `baka init` error message when requiresReasoning is true and the LLMProvider is null", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "baka-worker-init-hint-"))
+		cleanup.push(dir)
+
+		const moduleRoot = join(dir, "modules", "init-hint-mod")
+		const actionDir = join(moduleRoot, "render-thing")
+		const templatesDir = join(actionDir, "templates")
+		mkdirSync(templatesDir, { recursive: true })
+
+		// manifest with a requiresReasoning action
+		writeFileSync(
+			join(moduleRoot, "manifest.ts"),
+			`import type { ModuleManifest } from "@repo/protocol"
+export const Manifest: ModuleManifest = {
+  name: "init-hint-mod", version: "0.1.0", description: "fake", dependencies: [], conflictsWith: [],
+  actions: [{
+    id: "render-thing",
+    description: "renders a thing",
+    params: [],
+    requiresReasoning: true,
+    filePatterns: [],
+    validators: [],
+  }],
+  moduleValidators: [],
+}
+`,
+		)
+		// A handlebars template so the worker takes the reasoning branch.
+		writeFileSync(join(templatesDir, "thing.md.hbs"), "hello world")
+
+		writeFileSync(
+			join(actionDir, "action.ts"),
+			`import { AgentRole, type StepResponse, type WorkflowStep } from "@repo/protocol"
+export const renderThingAction: WorkflowStep<unknown, boolean, unknown> = {
+  name: "render-thing",
+  role: AgentRole.WORKER,
+  execute: async (): Promise<StepResponse<boolean, unknown>> => ({ success: true, output: true, compensationData: null }),
+  compensate: async () => {},
+}
+`,
+		)
+
+		const state: OrchestrationState = {
+			userIntent: "test",
+			targetDirectory: dir,
+			status: "EXECUTING",
+			executionPlan: { steps: [], currentStepIndex: 0 },
+			logs: [],
+			artifacts: {},
+		}
+
+		const result = await executeWorkerStep.execute(
+			{ moduleName: "init-hint-mod", actionName: "render-thing", parameters: {} },
+			state,
+			{ llmProvider: null },
+		)
+
+		expect(result.success, `worker unexpectedly succeeded: ${result.error}`).toBe(false)
+		expect(result.error, `expected the baka init hint in the error; got ${result.error}`).toContain(
+			"Run `baka init` to configure the worker role",
+		)
 	})
 })

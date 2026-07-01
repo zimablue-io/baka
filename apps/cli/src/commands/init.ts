@@ -1,12 +1,19 @@
+// `baka init` — interactive first-time setup.
+//
+// Writes BOTH role blocks (worker + validator) into `~/.baka/config.json`.
+// If config already exists with both roles, prompts for an overwrite
+// (full re-init) vs update-one-role (edit a single field). The orchestrator
+// is intentionally NOT configurable here; the user-facing surface is the
+// two roles.
+
 import { confirm, input, password } from "@inquirer/prompts"
 import {
-	getProvider,
-	listProviders,
-	secretsPath,
-	setActiveProviderName,
-	setApiKey,
-	setProvider,
+	listRoles,
+	type RoleConfig,
+	type RoleName,
+	readRoleConfig,
 	userConfigPath,
+	writeRoleConfig,
 } from "@repo/agent-engine"
 import { BAKA_EXIT_CODE } from "@repo/protocol"
 
@@ -18,89 +25,100 @@ function die(code: number, msg: string): never {
 const DEFAULT_BASE_URL = "http://localhost:8080"
 const DEFAULT_MODEL = "gemma4:e4b-it"
 
-export async function runInit(): Promise<void> {
-	const existing = listProviders()
-	const activeName = existing.find((p) => p.active)?.name
-	if (existing.length > 0) {
-		const overwrite = await confirm({
-			message: `Found ${existing.length} configured provider(s)${activeName ? ` (active: ${activeName})` : ""}. Add a new one?`,
-			default: true,
-		})
-		if (!overwrite) {
-			console.log("init: no changes made.")
-			return
-		}
-	}
-
-	const name = await input({
-		message: "Provider name (used by --provider=<name>):",
-		default: existing.length === 0 ? "local" : "",
-		validate: (v) =>
-			(v.trim() === "" ? "required" : /^[a-z0-9_-]+$/i.test(v) || "letters, digits, _ and - only") || true,
-	})
-	if (!name.trim()) die(BAKA_EXIT_CODE.USER_ERROR, "provider name is required")
-
-	if (getProvider(name)) {
-		die(
-			BAKA_EXIT_CODE.USER_ERROR,
-			`provider "${name}" already exists. Use \`baka providers use ${name}\` to switch to it.`,
-		)
-	}
+async function promptForRole(role: RoleName): Promise<RoleConfig> {
+	const existing = readRoleConfig(role)
 
 	const baseUrl = await input({
-		message: "OpenAI-compatible base URL:",
-		default: DEFAULT_BASE_URL,
+		message: `${role} — OpenAI-compatible base URL:`,
+		default: existing?.baseUrl ?? DEFAULT_BASE_URL,
 		validate: (v) => (v.trim() === "" ? "required" : true),
 	})
 
 	const model = await input({
-		message: "Model id:",
-		default: DEFAULT_MODEL,
+		message: `${role} — model id:`,
+		default: existing?.model ?? DEFAULT_MODEL,
 		validate: (v) => (v.trim() === "" ? "required" : true),
 	})
 
 	const apiKey = await password({
-		message: `API key (leave blank to store "none" for local servers; stored separately at ${secretsPath()} with 0600 perms):`,
+		message: `${role} — API key (blank = "none" for local servers; stored inline in ${userConfigPath()})`,
 		mask: "*",
 	})
 
 	const temperatureStr = await input({
-		message: "Default temperature (0.0 = deterministic):",
-		default: "0.0",
+		message: `${role} — temperature (0.0 = deterministic):`,
+		default: String(existing?.temperature ?? (role === "worker" ? 1 : 0.2)),
 		validate: (v) => (!Number.isNaN(Number(v)) ? true : "must be a number"),
 	})
 	const maxTokensStr = await input({
-		message: "Default max tokens:",
-		default: "8192",
+		message: `${role} — max tokens per response:`,
+		default: String(existing?.maxTokens ?? (role === "worker" ? 8192 : 4096)),
 		validate: (v) => (!Number.isNaN(Number(v)) ? true : "must be a number"),
 	})
 	const timeoutStr = await input({
-		message: "Default timeout (ms):",
-		default: "120000",
+		message: `${role} — request timeout (ms):`,
+		default: String(existing?.timeoutMs ?? (role === "worker" ? 120_000 : 60_000)),
 		validate: (v) => (!Number.isNaN(Number(v)) ? true : "must be a number"),
 	})
 
-	const setActive = await confirm({
-		message: `Set "${name}" as the active provider?`,
-		default: true,
-	})
-
-	setProvider(name, {
+	return {
 		baseUrl,
 		model,
+		apiKey: apiKey === "" ? (existing?.apiKey ?? "none") : apiKey,
 		temperature: Number(temperatureStr),
 		maxTokens: Number(maxTokensStr),
 		timeoutMs: Number(timeoutStr),
+	}
+}
+
+export async function runInit(): Promise<void> {
+	const existing = listRoles()
+	if (existing.length > 0) {
+		const overwrite = await confirm({
+			message: `Found ${existing.length} role(s) configured. Re-prompt for ALL fields? (Choose "no" to add or edit a single role.)`,
+			default: false,
+		})
+		if (overwrite) {
+			const worker = await promptForRole("worker")
+			writeRoleConfig("worker", worker)
+			const validator = await promptForRole("validator")
+			writeRoleConfig("validator", validator)
+			console.log("")
+			console.log(`  baka: re-initialized both roles at ${userConfigPath()}`)
+			console.log("")
+			return
+		}
+
+		// Update-one-role path
+		const missing = (["worker", "validator"] as RoleName[]).filter((r) => !readRoleConfig(r))
+		if (missing.length === 0) {
+			console.log("init: no changes made.")
+			return
+		}
+		for (const role of missing) {
+			const block = await promptForRole(role)
+			writeRoleConfig(role, block)
+		}
+		console.log("")
+		console.log(`  baka: configured ${missing.join(", ")} at ${userConfigPath()}`)
+		console.log("")
+		return
+	}
+
+	const worker = await promptForRole("worker")
+	writeRoleConfig("worker", worker)
+	const validator = await promptForRole("validator")
+	writeRoleConfig("validator", validator)
+
+	console.log("")
+	console.log(`  baka: configured both roles at ${userConfigPath()}`)
+	console.log("")
+}
+
+if (process.argv[1]?.endsWith("init.ts")) {
+	runInit().catch((err) => {
+		const message = err instanceof Error ? err.message : String(err)
+		if (message.includes("User force closed")) return
+		die(BAKA_EXIT_CODE.USER_ERROR, message)
 	})
-
-	await setApiKey(name, apiKey === "" ? "none" : apiKey)
-
-	if (setActive) setActiveProviderName(name)
-
-	console.log("")
-	console.log(`  baka: provider "${name}" saved`)
-	console.log(`    user config: ${userConfigPath()}`)
-	console.log(`    credentials: ${secretsPath()}`)
-	console.log(`    use it:      baka --provider=${name} plan "..."`)
-	console.log("")
 }
