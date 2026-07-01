@@ -18,10 +18,8 @@ export default defineConfig({
 				"src/**/*.test.ts",
 				"src/index.ts",
 				"src/commands/init.ts",
-				"src/commands/config.ts",
 				"src/commands/marketplace.ts",
 				"src/commands/plan.ts",
-				"src/commands/providers.ts",
 			],
 			thresholds: {
 				lines: 70,

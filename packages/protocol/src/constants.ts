@@ -24,14 +24,6 @@ export const BAKA_EXIT_CODE = {
 /** @lintignore Public protocol type — the BAKA_EXIT_CODE union; consumed by external tools that read baka CLI exit codes. */
 export type BakaExitCode = (typeof BAKA_EXIT_CODE)[keyof typeof BAKA_EXIT_CODE]
 
-// Names of the providers shipped with baka. Users can register more via baka providers add.
-export const BAKA_PROVIDER = {
-	OPENAI_COMPATIBLE: "openai-compatible",
-} as const
-
-/** @lintignore Public protocol type — the BAKA_PROVIDER union; consumed by external tools that switch on provider names. */
-export type BakaProviderName = (typeof BAKA_PROVIDER)[keyof typeof BAKA_PROVIDER]
-
 // Reserved module categories used in docs and error messages. The set of installed
 // modules is discovered at runtime from modules/*/manifest.ts; these constants
 // exist only for documentation and example prompts, never for enforcement.

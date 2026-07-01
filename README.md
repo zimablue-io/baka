@@ -166,22 +166,23 @@ command -v baka   # exits 0 with a path; exits 1 if missing
 baka --version    # works once PATH is fixed
 ```
 
-### `baka plan` fails with "no provider configured"
+### `baka plan` fails with "missing LLM config: worker role not configured"
 
-Run `baka init` to register an LLM provider. The engine refuses to call any provider until at least one is configured. Quick check:
+Run `baka init` to configure both LLM roles (worker + validator). The engine calls the worker-role model directly for plan / apply / module-design and the validator-role model for semantic validators; both blocks live in the same file at `~/.baka/config.json`. Refuses to plan or apply until the worker role is configured. Quick check:
 
 ```bash
-baka providers list    # shows registered providers and the active marker (*)
-baka init              # interactive: provider name, model, base URL, API key
+baka roles             # shows every role's fields (apiKey masked as <set>)
+baka init              # interactive: configure worker + validator
+baka role worker --field model --value gemma4:12b   # non-interactive field edit
 ```
 
-For CI or headless environments, create `~/.baka/config.json` and `~/.baka/credentials` before running baka. The config file format is documented in `baka config path`.
+For CI or headless environments, write `~/.baka/config.json` with the role-keyed shape (`{ worker: {...}, validator: {...} }`) before running baka. apiKey lives inline in each role's block; there is no separate credentials file.
 
 ### Broken barrel / import-time crash in one subcommand
 
 Baka's CLI lazy-loads every subcommand action via dynamic `import()`. A bad import in one subcommand (e.g. a typo in a barrel re-export) must NOT crash the others. If a sibling subcommand still crashes:
 
-1. Identify the failing subcommand: run each sibling (`baka --help`, `baka list-modules --json`, `baka plan --help`, `baka config list`, `baka init --help`) and see which one errors.
+1. Identify the failing subcommand: run each sibling (`baka --help`, `baka list-modules --json`, `baka plan --help`, `baka roles`, `baka init --help`) and see which one errors.
 2. Open the failing barrel (usually `workflows/<name>/src/index.ts` or `apps/cli/src/commands/<name>/index.ts`) and check the re-exports. The canonical fix for the historic `workflows/module-management/src/index.ts` bug was adding the explicit `.ts` extension to the re-export target.
 3. Rebuild: `pnpm build`. The lazy-load invariant is preserved by `tsup` (dynamic imports survive bundling).
 4. If a subcommand still fails on import, report it as a regression — the engine should isolate the failure, not propagate it.

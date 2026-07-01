@@ -78,19 +78,19 @@ baka module create <name>
 
 This runs an interactive REPL through four phases (Discover → Define → Develop → Deliver) and writes the manifest, actions, validators, templates, and a PREFERENCES.md into `modules/<name>/`. The same intent + the same catalog must always produce the same plan — the design tool enforces this with a 5x consistency test before delivery.
 
-# Provider configuration
+# Role configuration
 
-Baka itself does not call any LLM provider. The `baka` CLI does, via the `agent-engine` package. Configure the active provider once per machine:
+The engine calls the LLM directly. Every call picks one role's model from `~/.baka/config.json`: the **worker** role drives plan/apply/module-design, the **validator** role drives module validators that need a semantic review. Both roles live in the same file as inline apiKey — no separate credentials file, no provider alias, no active marker. Configure each role once per machine:
 
 ```bash
 baka init
 ```
 
-This stores the provider config in `~/.baka/config.json` and the API key in `~/.baka/credentials` (0600 perms). A project-local `<cwd>/.baka/config.json` overrides the user config. `baka-mcp` reads the same config at startup.
+`baka init` writes the role-keyed config (`{ worker: {...}, validator: {...} }`) to `~/.baka/config.json`. Edit a single field with `baka role <worker|validator> --field <name> --value <value>`. `baka-mcp` reads the same config at startup. Each role's model is its own choice; a small validator model and a large planner model are both fine.
 
 # Invariants
 
 - The LLM cannot invent code, files, or structure. It picks from the catalog.
 - The same intent + the same modules always produce the same plan.
-- Validators are pure TypeScript. No LLM in the hot path.
-- All provider knowledge is sealed inside `packages/agent-engine/`. The CLI, `baka-mcp`, and the workflows only import the `LLMProvider` interface from `packages/protocol`.
+- Validators are pure TypeScript by default. A validator MAY opt into the validator-role LLM for a semantic review, but every structural check (file existence, placeholder detection, heading presence) runs without the LLM.
+- All model knowledge is sealed inside `packages/agent-engine/`. The CLI, `baka-mcp`, and the workflows only import the `LLMProvider` interface from `packages/protocol`.

@@ -30,16 +30,17 @@ If any tier is tempted to invent, the tier boundary refuses to cooperate. The Va
 - **Authority:** the catalog. Anything not in the catalog is a hard error.
 - **Compensation:** none (read-only role)
 
-### Worker (dumb automation by default, with optional small-LLM assist)
+### Worker (calls the worker-role model directly, no LLM assist on top)
 - **Input:** one `{module, action, params}` step
-- **Default mode:** load `modules/<name>/<action.id>/action.ts`, run it, get a `StepResponse`. No LLM.
-- **Reasoning mode** (when `requiresReasoning: true`): render `templates/*.hbs` with the action's params, call the configured provider with a Zod-constrained schema for the body, write the body into the file the template declares. The LLM only fills the body; the file's path, exports, and surrounding code are dictated by the template.
+- **Default mode:** load `modules/<name>/<action.id>/action.ts`, run it, get a `StepResponse`. The worker calls the worker-role LLM directly when the action needs to fill structured fields; the call is unmediated by any "assist" layer.
+- **Reasoning mode** (when `requiresReasoning: true`): render `templates/*.hbs` with the action's params, call the worker-role model with a Zod-constrained schema for the body, write the body into the file the template declares. The LLM only fills the body; the file's path, exports, and surrounding code are dictated by the template.
 - **Compensation:** calls the action referenced in `compensatesWith` (the inverse action), with bounded retries (3 attempts, exponential backoff).
 
-### Validator (deterministic TypeScript)
+### Validator (deterministic TypeScript by default, validator-role LLM available per module)
 - **Input:** the post-execution file tree + the module's `filePatterns` and `moduleValidators`
 - **Output:** `Pass` or `Fail(diff[])` with structured diagnostics (`{severity, rule, message, file, hint}`)
-- **No LLM in the hot path.** The LLM is only used to *generate* the validator function during module authoring; the function itself is pure TS.
+- **Default mode:** deterministic TypeScript. Every structural check (file existence, placeholder detection, heading presence) runs without the LLM.
+- **Optional validator-role LLM:** a validator MAY call `baka-sdk.callLLMAsValidator(...)` to ask the validator-role model for a semantic review (e.g. "is this spec coherent?"). The structural checks still run first; the LLM call is for additional context. Hard-fail if the validator role is not configured; absorb transient LLM errors as warnings.
 - **Compensation:** none (read-only role)
 
 ## The provider boundary
@@ -52,23 +53,22 @@ All provider knowledge is sealed inside `packages/agent-engine/`. Nothing else i
 
 **The grep test:** `grep -rE "fetch\(|https?://|api\.openai|anthropic" packages/ workflows/ apps/ --include="*.ts" | grep -v "agent-engine/"` must return zero matches. If it doesn't, the boundary is leaking and Phase 1's invariant is broken.
 
-## Config is user-driven, not file-driven
+## Config is role-keyed
 
-Users configure the engine via the CLI:
+Users configure two roles in `~/.baka/config.json` via the CLI. Every LLM call picks one role's model: the **worker** role drives plan / apply / module-design; the **validator** role drives module validators that need a semantic review. Each role is its own choice — a small validator model and a large planner model are both fine.
 
 ```bash
-baka init            # interactive first-time setup
-baka config list     # view all keys (secrets masked)
-baka config get <k>  # get a value
-baka config set <k> <v>
-baka config unset <k>
-baka providers add <name>   # register a named provider
-baka providers use <name>   # switch active provider
+baka init                              # interactive first-time setup (writes both roles)
+baka roles                             # view every role's fields (apiKey masked as <set>)
+baka role worker --field model --value gemma4:12b     # mutate one field non-interactively
+baka role validator --field baseUrl --value http://localhost:8080/v1
 ```
 
-The CLI stores the config at `~/.baka/config.json` and secrets at `~/.baka/credentials` with `0600` perms. A project-local `<cwd>/.baka/config.json` overrides the user config. The user never hand-edits a config file.
+The CLI stores the role-keyed config at `~/.baka/config.json`. apiKey lives inline in each role's block; there is no separate `~/.baka/credentials` file. The user can edit any field via `baka role <name> --field <k> --value <v>`, or hand-edit the JSON file directly (the file is plain JSON, no perms ceremony).
 
-**Precedence (highest first):** CLI flag > project-local config (`<cwd>/.baka/config.json`) > user config (`~/.baka/config.json`) > built-in defaults.
+**Precedence (highest first):** `loadLLMConfig` overrides > role block in `~/.baka/config.json` > built-in defaults.
+
+If a role is not configured, the corresponding call hard-fails with `missing LLM config: <role> role not configured` and `code: BAKA_CONFIG_MISSING`. There is no fall-back; there is no alias.
 
 ## Module authoring is action-centric
 
@@ -85,7 +85,7 @@ modules/<name>/
     `-- helpers/
 ```
 
-Adding or removing an action is one directory operation. Each action is a self-contained unit. The manifest is the source of truth; everything else is referenced by the manifest. The CLI drives authoring (`baka module init/validate/test/list-actions/edit`); users do not hand-write manifests.
+Adding or removing an action is one directory operation. Each action is a self-contained unit. The manifest is the source of truth; everything else is referenced by the manifest. The CLI drives authoring (`baka module create/validate/test/list-actions`); users do not hand-write manifests.
 
 ## Why "baka"
 

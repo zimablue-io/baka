@@ -50,14 +50,14 @@ This MUST return zero matches. If it doesn't, the boundary is leaking — file a
 
 | Package | Read first | Owns |
 |---|---|---|
-| `apps/cli` | this file, `docs/PHILOSOPHY.md` | CLI command surface, output formatting, exit codes, `--json` flags |
+| `apps/cli` | this file, `docs/PHILOSOPHY.md` | CLI command surface (`init`, `role`, `roles`, `plan`, `apply`, `validate`, `module`), output formatting, exit codes, `--json` flags |
 | `apps/mcp` | this file, `docs/PHILOSOPHY.md` | MCP server (stdio JSON-RPC), tool/resource/prompt registration, `--json` parity with CLI |
 | `.factory/mcp.json` | this file | **Project-scoped MCP registration.** Source of truth for which MCP servers are wired into this repo. Edit and commit to add/remove servers for the team. Do not duplicate entries in `~/.factory/mcp.json`. |
 | `workflows/feature-planning` | this file, `docs/PHILOSOPHY.md` | Orchestrator durable step + Worker loop |
-| `workflows/module-management` | this file, `docs/PHILOSOPHY.md` | `baka scaffold` workflow, double-diamond design flow |
+| `workflows/module-management` | this file, `docs/PHILOSOPHY.md` | `baka module create` workflow, double-diamond design flow |
 | `workflows/discovery` | this file, `docs/PHILOSOPHY.md` | `discoverModules(rootDir)` + manifest validation |
 | `packages/protocol` | this file, `docs/PHILOSOPHY.md` | All types, schemas, constants, exit codes, `LLMProvider` interface |
-| `packages/agent-engine` | this file, `docs/PHILOSOPHY.md` | `createLLMProvider`, `loadLLMConfig`, `createOrchestratePlanningStep` |
+| `packages/agent-engine` | this file, `docs/PHILOSOPHY.md` | `createLLMProvider`, `loadLLMConfig({ role, cwd, overrides? })`, `createOrchestratePlanningStep`; the ONLY package that talks to an LLM |
 | `packages/ast-tooling` | this file, `docs/PHILOSOPHY.md` | `executeAstTransformationStep`, `ModuleRegistry`, SAGA, plan I/O |
 | `packages/typescript-config` | this file | Shared TS presets only — no business logic |
 | `modules/<name>` | `docs/PHILOSOPHY.md`, `docs/MODULES.md` | Per-action layout, manifest, templates, validators |
@@ -69,8 +69,8 @@ pnpm install                # install workspace deps
 pnpm check-types            # tsc --noEmit across all workspaces
 pnpm test                   # vitest run in packages that have tests
 pnpm build                  # turbo build
-pnpm baka plan "<intent>"   # CLI (reads ~/.baka/config.json)
-pnpm baka scaffold <name>   # scaffold a new module
+pnpm baka plan "<intent>"   # CLI (reads ~/.baka/config.json — worker role)
+pnpm baka module create <name>   # scaffold a new module
 pnpm baka list-modules      # list discovered modules
 pnpm mcp                    # run the baka-mcp server over stdio
 ```
@@ -80,7 +80,7 @@ pnpm mcp                    # run the baka-mcp server over stdio
 | Phase | What lands | Packages touched |
 |---|---|---|
 | 1 — Foundation, sealed | types, schemas, CLI rename, philosophy doc | `protocol`, `agent-engine`, `apps/cli`, `docs/` |
-| 2 — CLI-driven config + module authoring | `baka init`, `baka config`, `baka module *` | `apps/cli`, `agent-engine` (config loader) |
+| 2 — CLI-driven config + module authoring | `baka init`, `baka role`, `baka roles`, `baka module *` | `apps/cli`, `agent-engine` (role-keyed config loader) |
 | 3 — Module registry + workers | real `ModuleRegistry`, real compensation | `ast-tooling`, `workflow-sdk` (new) |
 | 4 — Orchestrator + Validator + LLM | `OpenAICompatibleProvider`, real `Validator` | `agent-engine`, `ast-tooling` |
 | 5 — WorkflowSDK | `WorkflowEngine`, persistent state, logging | `packages/workflow-sdk` (new) |
@@ -94,7 +94,7 @@ The current source of truth for each phase is `docs/superpowers/specs/2026-06-15
 
 - Do not add a provider implementation outside `agent-engine/`. The grep test will fail.
 - Do not import `@earendil-works/pi-coding-agent` (or any other provider runtime) outside `agent-engine/`. The adapter is optional and lands in Phase 4.
-- Do not introduce a config file users have to hand-edit. Config is CLI-driven (`baka config`).
+- Do not introduce a separate credentials file, a `providers` map, an `activeProvider` marker, or a `defaults` block. Config is role-keyed: `~/.baka/config.json` has top-level `worker` and `validator` blocks, apiKey inline. Edit a single field with `baka role <name> --field <k> --value <v>`.
 - Do not write free-form code from an LLM. Every output must be a declared module action. If the action doesn't exist, the manifest catalog needs an entry first.
 - Do not add "TODO" or "Phase N" placeholders that pretend to work. If a function cannot do its job, throw with a clear error pointing at the spec.
 - Do not change the directory name `apps/cli/`. The binary is `baka`; the package is `baka`; the directory is `cli`.
