@@ -20,16 +20,6 @@ interface PlanOpts {
 
 export async function runPlanCommand(intent: string, opts: PlanOpts): Promise<void> {
 	const cwd = opts.cwd ?? process.cwd()
-	// Empty intent is a user-shape error that should be caught at the
-	// cheapest possible step (string-length check) BEFORE the LLM config
-	// probe. Surfacing it later as a "missing LLM config" error hides the
-	// real cause and forces the user to debug the wrong layer. The
-	// contract (VAL-DOG-012) requires either a FAILED JSON plan with a
-	// `no module matched: empty intent` diagnostic OR an exit of
-	// `BAKA_EXIT_CODE.ENGINE_ERROR` (2). We emit both: a parsed JSON
-	// envelope with the documented diagnostic, plus exit 2 to match the
-	// existing FAILED-JSON path so log scrapers / orchestrators route on a
-	// consistent exit code for "no steps resolved". No LLM I/O is performed.
 	if (intent.trim() === "") {
 		const diagnostic = "no module matched: empty intent"
 		if (opts.json) {
@@ -80,10 +70,6 @@ export async function runPlanCommand(intent: string, opts: PlanOpts): Promise<vo
 		log.write({ level: "info", source: "baka.plan", message: "saved plan", file: savedPlanFile })
 	}
 
-	// JSON mode: emit the same shape the MCP `baka_plan` tool returns, then
-	// exit. Suppress the human-formatted output so agents can pipe stdout
-	// straight into `jq`. When --save was also set, include `planFile` and
-	// `savedAt` so the JSON output identifies what was persisted.
 	if (opts.json) {
 		const result: Record<string, unknown> = {
 			status: state.status === "FAILED" ? "FAILED" : "SUCCESS",
@@ -204,17 +190,6 @@ export async function runApplyCommand(
 	for (const c of saga.completed) {
 		actionResults.set(`${c.module}:${c.action}`, { compensationData: c.compensationData })
 	}
-	// Scope the post-apply validators to the modules whose actions actually
-	// ran in the SAGA. Running every discovered module on a large monorepo
-	// (e.g. better-chat) turns a 0.1s validate into a multi-minute apply
-	// and surfaces violations from modules the user did not invoke (e.g.
-	// `ts-style:noAnyTypes` flagging `: any` usages in better-chat's
-	// source, which has nothing to do with the
-	// `better-chat-boundaries:validate` step the apply just ran). The
-	// `moduleFilter` list preserves the M5 dogfood read-only contract
-	// (VAL-DOG-008, VAL-DOG-011): validate only runs against the modules
-	// the apply actually executed, so the apply result is determined by
-	// the plan the user saved, not by unrelated in-repo validators.
 	const usedModules = Array.from(new Set(saga.completed.map((c) => c.module)))
 	const validation = await runValidators(cwd, saga.state, actionResults, undefined, usedModules)
 

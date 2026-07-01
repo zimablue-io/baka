@@ -87,13 +87,6 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, boolean, WorkerRollbac
 
 		try {
 			mkdirSync(scratchDir, { recursive: true })
-			// Resolve the module's root in the project scope first, then fall
-			// back to the bundled scope (the baka repo's `modules/<name>`).
-			// The M5 dogfood flow runs `baka plan/apply` from `better-chat`'s
-			// cwd, where `better-chat-boundaries` lives in the baka repo's
-			// bundled scope, not in `<better-chat>/modules/`. Mirroring the
-			// `ModuleRegistry.findBundledModulesDir` walk-up keeps the worker
-			// and the registry in sync on the same module-root path.
 			const moduleRoot = resolveModuleRoot(targetDirectory, input.moduleName)
 			if (!moduleRoot) {
 				throw new Error(
@@ -120,13 +113,6 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, boolean, WorkerRollbac
 			)
 			const result = await loaded.step.execute(enrichedParams, state, ctx)
 
-			// Only copy the scratch into the project's output dir if the
-			// action actually produced files. Read-only actions (e.g. the
-			// M5 `better-chat-boundaries:validate` action) leave the
-			// scratch empty; copying would create an empty `out/`
-			// directory in the project tree, which would show up as a
-			// mutation in `git status` and break the dogfood read-only
-			// contract (VAL-DOG-008, VAL-DOG-010).
 			if (readdirSync(scratchDir).length > 0) {
 				cpSync(scratchDir, outputDir, { recursive: true })
 			}
@@ -190,16 +176,6 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, boolean, WorkerRollbac
  * walking up from the file URL of the bundled JS. Returns `null` when
  * neither scope has the module.
  *
- * This is the M5 prerequisite: the `better-chat-boundaries` module lives
- * in the baka repo's bundled scope but is invoked from `better-chat`'s
- * cwd, where `<better-chat>/modules/better-chat-boundaries/` does not
- * exist. Walking up from `targetDirectory` would not find the baka repo
- * (they are siblings, not parent and child), so the anchor is the
- * bundled file's own URL, which always resolves to the baka repo when
- * the CLI is invoked from a clone or a pnpm-link install. Returns
- * `null` only when the dist is globally installed without the baka repo
- * (e.g. a tarball install) — in that case the project scope is the only
- * source of modules and the worker fails the same way the registry does.
  */
 function resolveModuleRoot(targetDirectory: string, moduleName: string): string | null {
 	const projectPath = join(targetDirectory, "modules", moduleName)

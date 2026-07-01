@@ -391,7 +391,7 @@ describe("VAL-MCP-002 serverInfo.version", () => {
 // ---------------------------------------------------------------------------
 
 describe("VAL-MCP-003..006 tools/list", () => {
-	it("returns 12 tools: 4 engine + 8 per-action (3 baka-base + 2 sdd + 2 ts-style + 1 better-chat-boundaries)", async () => {
+	it("returns 11 tools: 4 engine + 8 per-action (3 baka-base + 2 sdd + 2 ts-style)", async () => {
 		const state = spawnMcp({})
 		try {
 			await initialize(state)
@@ -400,7 +400,7 @@ describe("VAL-MCP-003..006 tools/list", () => {
 			expect(resp?.error).toBeUndefined()
 			const result = resp?.result as { tools: Array<{ name: string; inputSchema: Record<string, unknown> }> }
 			const names = result.tools.map((t) => t.name).sort()
-			expect(result.tools.length).toBe(12)
+			expect(result.tools.length).toBe(11)
 
 			// The four engine tools.
 			expect(names).toContain("baka_plan")
@@ -416,8 +416,6 @@ describe("VAL-MCP-003..006 tools/list", () => {
 			expect(names).toContain("baka_sdd_create_feature")
 			expect(names).toContain("baka_ts_style_install_config")
 			expect(names).toContain("baka_ts_style_lint")
-			// M5 dogfood: better-chat-boundaries validate action is exposed as a per-action tool.
-			expect(names).toContain("baka_better_chat_boundaries_validate")
 		} finally {
 			await shutdown(state)
 		}
