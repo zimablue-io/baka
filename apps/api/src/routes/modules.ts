@@ -1,7 +1,7 @@
+import type { ApiModuleEntry } from "@repo/protocol"
 import { Hono } from "hono"
 import { fetchCatalog } from "../lib/fetch-catalog"
 import { getBuiltInCatalog } from "../lib/load-data"
-import type { ApiModuleEntry } from "../lib/schema"
 import { tierForCatalog } from "../lib/tier"
 import { catalogCache } from "./aggregate"
 

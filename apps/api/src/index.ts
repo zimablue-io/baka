@@ -15,8 +15,9 @@ import verifiedRoute from "./routes/verified"
  *   GET  /v1/modules/:name             - look up a module name across catalogs
  *   GET  /healthz                      - liveness probe
  *
- * The app is stateless: data lives in `src/data/*.json` (built-in and
- * verified), and community catalogs are fetched on demand. A tiny in-memory
+ * The app is stateless: the built-in catalog lives in `@repo/protocol`
+ * (the single source of truth), `src/data/verified.json` holds the verified
+ * list, and community catalogs are fetched on demand. A tiny in-memory
  * cache (see `lib/cache.ts`) absorbs hot-path traffic without a DB.
  *
  * Vercel Edge expects a default-exported handler that exposes `fetch`. A

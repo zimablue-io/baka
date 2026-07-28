@@ -1,8 +1,7 @@
+import { AggregateRequestSchema, type AggregateResponse, type ApiModuleEntry, type Catalog } from "@repo/protocol"
 import { Hono } from "hono"
 import { TTLCache } from "../lib/cache"
 import { type FetchCatalogOptions, fetchCatalog } from "../lib/fetch-catalog"
-import type { Catalog } from "../lib/schema"
-import { AggregateRequestSchema, type AggregateResponse, type ApiModuleEntry } from "../lib/schema"
 import { tierForCatalog } from "../lib/tier"
 
 /**

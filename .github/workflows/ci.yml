@@ -38,8 +38,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # The api package's test suite includes a test that validates
-      # built-in.json and verified.json against the Zod schema, so this
-      # step catches malformed data files before they reach `main`.
+      # verified.json against the Zod schema (the built-in catalog lives
+      # in @repo/protocol and is validated there), so this step catches
+      # malformed data files before they reach `main`.
       - name: Validate marketplace data files
         run: pnpm --filter @baka/api run test
 

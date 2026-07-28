@@ -4,6 +4,36 @@
 // Node's strict ESM resolver when this file is consumed via the package's
 // `exports` field. Keep this in lockstep with the other packages.
 
+export { BUILT_IN_CATALOG } from "./built-in-catalog"
+export type {
+	AggregateRequest,
+	AggregateResponse,
+	ApiCatalog,
+	ApiModuleEntry,
+	Catalog,
+	CatalogError,
+	CatalogOwner,
+	ModuleEntry,
+	ModuleLookupResponse,
+	Tier,
+	VerifiedCatalogEntry,
+	VerifiedResponse,
+} from "./catalog"
+
+export {
+	AggregateRequestSchema,
+	AggregateResponseSchema,
+	ApiCatalogSchema,
+	ApiModuleEntrySchema,
+	CatalogErrorSchema,
+	CatalogOwnerSchema,
+	CatalogSchema,
+	ModuleEntrySchema,
+	ModuleLookupResponseSchema,
+	TIER_VALUES,
+	VerifiedCatalogEntrySchema,
+	VerifiedResponseSchema,
+} from "./catalog"
 export {
 	BAKA_EXIT_CODE,
 	BAKA_PROJECT_PATHS,

@@ -16,12 +16,19 @@ describe("GET /v1/built-in", () => {
 		}
 	})
 
-	it("includes baka-base and ts-style", async () => {
+	it("serves exactly the three first-party modules from the protocol catalog", async () => {
 		const res = await app.request("/v1/built-in")
 		const body = (await res.json()) as { modules: Array<{ name: string }> }
-		const names = body.modules.map((m) => m.name)
-		expect(names).toContain("baka-base")
-		expect(names).toContain("ts-style")
+		const names = body.modules.map((m) => m.name).sort()
+		expect(names).toEqual(["baka-base", "sdd", "ts-style"])
+	})
+
+	it("serves the protocol catalog verbatim (no second copy)", async () => {
+		const res = await app.request("/v1/built-in")
+		const body = (await res.json()) as { modules: Array<{ name: string; actions: Array<{ id: string }> }> }
+		const sdd = body.modules.find((m) => m.name === "sdd")
+		expect(sdd).toBeDefined()
+		expect(sdd?.actions.map((a) => a.id).sort()).toEqual(["create-feature", "init-constitution"])
 	})
 
 	it("sets a 1h Cache-Control header", async () => {

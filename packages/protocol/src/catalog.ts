@@ -1,5 +1,5 @@
-import { ModuleManifestSchema } from "@repo/protocol"
 import { z } from "zod"
+import { ModuleManifestSchema } from "./schemas"
 
 /**
  * Catalog format (the publisher's contract) and the API response shapes.

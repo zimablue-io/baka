@@ -1,4 +1,4 @@
-import type { AggregateResponse, ApiCatalog, ModuleLookupResponse, VerifiedResponse } from "@baka/api/schema"
+import type { AggregateResponse, ApiCatalog, ModuleLookupResponse, VerifiedResponse } from "@repo/protocol"
 
 /**
  * Thin HTTP client for the baka marketplace backend.

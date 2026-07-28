@@ -8,7 +8,7 @@ The marketplace never hosts module content. The `source` field on each module po
 
 ## Why a catalog at all
 
-A catalog is a single file that lets you publish any number of related modules under one URL. The baka project's own first-party modules are published as a built-in catalog (`apps/api/src/data/built-in.json` in this repo). The same format is available to the community: maintain a JSON file in your own git repo, host it on GitHub Pages, on a CDN, or on any static host.
+A catalog is a single file that lets you publish any number of related modules under one URL. The baka project's own first-party modules are published as a built-in catalog (`BUILT_IN_CATALOG` in `packages/protocol/src/built-in-catalog.ts`, the single source of truth). The same format is available to the community: maintain a JSON file in your own git repo, host it on GitHub Pages, on a CDN, or on any static host.
 
 ## Top-level shape
 
@@ -103,7 +103,7 @@ When the marketplace serves a module, it attaches a `tier` field based on **wher
 
 | Tier | How a module gets it |
 |---|---|
-| `built-in` | The catalog is `apps/api/src/data/built-in.json` in the baka repo. |
+| `built-in` | The catalog is `BUILT_IN_CATALOG` in `packages/protocol/src/built-in-catalog.ts` in the baka repo. |
 | `verified` | The catalog URL is in `apps/api/src/data/verified.json` in the baka repo. |
 | `community` | The user subscribed to the catalog via `baka marketplace add <url>`. |
 
@@ -128,9 +128,9 @@ Maintainers review PRs on the merits: code quality of the modules, license clari
 
 ## Publishing the first-party catalog (baka maintainers)
 
-First-party modules are added to `apps/api/src/data/built-in.json` by PR. CI validates the file against the Zod schema and rejects PRs that introduce malformed entries. The marketplace backend attaches `tier: "built-in"` to every module in this file.
+First-party modules are added to `BUILT_IN_CATALOG` in `packages/protocol/src/built-in-catalog.ts` by PR. The catalog is parsed against `CatalogSchema` at module load and pinned by contract tests in the protocol package, so a malformed entry fails CI. The marketplace backend attaches `tier: "built-in"` to every module in this catalog.
 
-For v1, the built-in catalog is hand-maintained. A future CI step (out of scope) could generate it from `modules/*/manifest.ts` to prevent drift.
+For v1, the built-in catalog is hand-maintained to mirror `modules/*/manifest.ts`; update both in the same change. A future CI step (out of scope) could generate it from `modules/*/manifest.ts` to prevent drift.
 
 ## Hosting options
 
@@ -145,10 +145,10 @@ Make sure the URL is **stable**: users will type it into `baka marketplace add <
 
 ## Validation
 
-To validate your catalog locally before publishing, run the API package's tests against your file. The schema lives in `apps/api/src/lib/schema.ts`. You can also point a small script at it:
+To validate your catalog locally before publishing, point a small script at the schema in `@repo/protocol`:
 
 ```ts
-import { CatalogSchema } from "@baka/api/schema"
+import { CatalogSchema } from "@repo/protocol"
 import catalog from "./catalog.json"
 
 const result = CatalogSchema.safeParse(catalog)

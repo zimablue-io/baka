@@ -1,4 +1,4 @@
-import { type Catalog, CatalogSchema } from "./schema"
+import { type Catalog, CatalogSchema } from "@repo/protocol"
 
 /**
  * Fetches a catalog URL, validates the response against `CatalogSchema`,

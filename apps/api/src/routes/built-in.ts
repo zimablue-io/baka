@@ -1,6 +1,6 @@
+import type { ApiCatalog, ApiModuleEntry } from "@repo/protocol"
 import { Hono } from "hono"
 import { getBuiltInCatalog } from "../lib/load-data"
-import type { ApiCatalog, ApiModuleEntry } from "../lib/schema"
 
 /**
  * Routes for the first-party catalog.

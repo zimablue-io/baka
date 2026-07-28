@@ -1,4 +1,13 @@
+// Contract tests for the catalog schemas and the built-in catalog. The
+// catalog schema is the wire contract between catalog publishers, the
+// marketplace API (apps/api, later apps/registry), and consumers (the CLI,
+// the landing app). The built-in catalog is the single source of truth for
+// the first-party modules that ship with the engine; every served copy
+// (apps/api /v1/built-in today, the registry seed in milestone 2) derives
+// from BUILT_IN_CATALOG.
+
 import { describe, expect, it } from "vitest"
+import { BUILT_IN_CATALOG } from "./built-in-catalog"
 import {
 	AggregateRequestSchema,
 	ApiModuleEntrySchema,
@@ -6,7 +15,7 @@ import {
 	ModuleEntrySchema,
 	TIER_VALUES,
 	type Tier,
-} from "../src/lib/schema"
+} from "./catalog"
 
 // A minimal but valid baka manifest (mirrors modules/baka-base's shape).
 const validManifest = {
@@ -196,5 +205,61 @@ describe("AggregateRequestSchema", () => {
 	it("rejects non-URL entries", () => {
 		const result = AggregateRequestSchema.safeParse({ catalogs: ["not-a-url"] })
 		expect(result.success).toBe(false)
+	})
+})
+
+describe("BUILT_IN_CATALOG", () => {
+	it("contains exactly the three first-party modules", () => {
+		const names = BUILT_IN_CATALOG.modules.map((m) => m.name).sort()
+		expect(names).toEqual(["baka-base", "sdd", "ts-style"])
+	})
+
+	it("every module has a name, version, and at least one action", () => {
+		for (const m of BUILT_IN_CATALOG.modules) {
+			expect(m.name).toBeTruthy()
+			expect(m.version).toBeTruthy()
+			expect(m.actions.length).toBeGreaterThan(0)
+		}
+	})
+
+	it("sdd carries its reasoning actions init-constitution and create-feature", () => {
+		const sdd = BUILT_IN_CATALOG.modules.find((m) => m.name === "sdd")
+		expect(sdd).toBeDefined()
+		const actionIds = (sdd?.actions ?? []).map((a) => a.id).sort()
+		expect(actionIds).toEqual(["create-feature", "init-constitution"])
+		for (const action of sdd?.actions ?? []) {
+			expect(action.requiresReasoning).toBe(true)
+		}
+	})
+
+	it("sdd is findable by spec-driven terms (constitution, spec)", () => {
+		const sdd = BUILT_IN_CATALOG.modules.find((m) => m.name === "sdd")
+		const haystack = [sdd?.name, sdd?.description, ...(sdd?.tags ?? []), ...(sdd?.keywords ?? [])]
+			.join(" ")
+			.toLowerCase()
+		expect(haystack).toContain("constitution")
+		expect(haystack).toContain("spec")
+	})
+
+	it("mirrors the real module manifests", () => {
+		const bakaBase = BUILT_IN_CATALOG.modules.find((m) => m.name === "baka-base")
+		const scaffold = bakaBase?.actions.find((a) => a.id === "scaffold")
+		// modules/baka-base/manifest.ts: scaffold writes package.json,
+		// tsconfig.json, src/index.ts, README.md, .gitignore.
+		expect(scaffold?.filePatterns).toEqual(["package.json", "tsconfig.json", "src/index.ts", "README.md", ".gitignore"])
+		expect(bakaBase?.moduleValidators).toEqual(["hasPackageJson", "tsconfigPresent"])
+
+		const tsStyle = BUILT_IN_CATALOG.modules.find((m) => m.name === "ts-style")
+		expect(tsStyle?.dependencies).toEqual(["baka-base"])
+		expect(tsStyle?.moduleValidators).toEqual(["noAnyTypes", "noConsoleLog", "explicitReturnTypes"])
+		expect(tsStyle?.actions.map((a) => a.id)).toEqual(["install-config", "lint"])
+
+		const sdd = BUILT_IN_CATALOG.modules.find((m) => m.name === "sdd")
+		const initConstitution = sdd?.actions.find((a) => a.id === "init-constitution")
+		expect(initConstitution?.filePatterns).toEqual(["specs/mission.md", "specs/tech-stack.md", "specs/roadmap.md"])
+		expect(initConstitution?.validators).toEqual(["constitutionCoherent"])
+		const createFeature = sdd?.actions.find((a) => a.id === "create-feature")
+		expect(createFeature?.filePatterns).toEqual(["specs/*/plan.md", "specs/*/requirements.md", "specs/*/validation.md"])
+		expect(createFeature?.validators).toEqual(["featureSpecCoherent"])
 	})
 })
