@@ -208,7 +208,7 @@ function registerWorkflowTools(server: McpServer, ctx: ServerContext): void {
 		"baka_plan",
 		{
 			description:
-				"Plan a feature intent into a Zod-validated sequence of {module, action, params} steps. Returns the resolved plan; the LLM cannot invent modules or actions. To execute the plan, use baka_apply with the --save output, or call baka_<module>_<action> tools directly.",
+				"Plan a feature intent into a Zod-validated sequence of {module, action, params} steps. This tool does not modify the project tree; it only returns the resolved plan. To execute the plan, persist it with save:true and then call baka_apply, or call baka_<module>_<action> tools directly.",
 			inputSchema: PlanInputSchema.shape,
 		},
 		async (raw) => {

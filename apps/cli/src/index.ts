@@ -239,9 +239,8 @@ program
 	.command("plan")
 	.description("Plan a new feature intent")
 	.argument("[intent]", "The feature intent to plan", "Set up core typescript application with default configurations")
-	.option("--dry-run", "preview the plan without executing")
+	.option("--dry-run", "resolve the plan without saving or executing")
 	.option("--save", "persist the plan to .baka/plans/")
-	.option("--execute", "execute the plan after planning (Phase 7)")
 	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp `baka_plan` tool)")
 	.action(async (intent, opts) => {
 		const globalOpts = program.opts<{ cwd?: string }>()

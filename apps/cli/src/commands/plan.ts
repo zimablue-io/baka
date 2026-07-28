@@ -99,33 +99,13 @@ export async function runPlanCommand(intent: string, opts: PlanOpts): Promise<vo
 		console.log(`\nsaved plan: ${savedPlanFile}`)
 	}
 
+	// Planning is intentionally non-mutating. The only execution path is `baka apply <plan-file>`.
 	if (opts.dryRun) {
-		console.log("\n(dry run: not executing the plan)")
-		log.write({ level: "info", source: "baka.plan", message: "dry run; not executing" })
-		return
+		console.log("\n(dry run: plan resolved but not saved or executed)")
+		log.write({ level: "info", source: "baka.plan", message: "dry run; plan resolved but not executed" })
+	} else {
+		console.log("\nnext: run `baka plan --save` to persist, or `baka apply <plan-file>` to execute it.")
 	}
-
-	// Phase 7: --execute actually runs the plan.
-	const execute = process.argv.includes("--execute")
-	if (!execute) {
-		console.log("\nnext: run `baka plan --save` to persist, or `baka plan --execute` to run it.")
-		return
-	}
-
-	log.write({ level: "info", source: "baka.plan.execute", message: "executing plan" })
-	const registry = new ModuleRegistry(cwd)
-	registry.discover(false)
-	const stepsByKey = new Map<string, WorkflowStep<unknown, unknown, unknown>>()
-	for (const m of registry.all()) {
-		for (const a of m.actions) {
-			// The SAGA key is moduleName:actionId; the worker step we use for
-			// every action is the same generic executeWorkerStep. Future phases
-			// can specialize per action.
-			stepsByKey.set(`${m.name}:${a.id}`, /* will resolve at saga time */ {} as WorkflowStep<unknown, unknown, unknown>)
-		}
-	}
-	// We can't easily inject the Worker here without circular imports; defer to apply.
-	console.log("use `baka apply <plan-file>` to execute a saved plan (coming online in Phase 7).")
 }
 
 export function runListPlans(cwd: string): void {

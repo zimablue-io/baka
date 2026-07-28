@@ -1,7 +1,6 @@
 import { createInitialOrchestrationState, createOrchestratePlanningStep } from "@repo/agent-engine"
-import { executeWorkerStep, ModuleRegistry, runSaga } from "@repo/ast-tooling"
 import { discoverModules } from "@repo/discovery-workflow"
-import { ENGINE_STATUS, type LLMProvider, type OrchestrationState, type WorkflowStep } from "@repo/protocol"
+import { ENGINE_STATUS, type LLMProvider, type OrchestrationState } from "@repo/protocol"
 
 export async function featurePlanningWorkflow(
 	intent: string,
@@ -13,7 +12,8 @@ export async function featurePlanningWorkflow(
 		logs: ["Starting baka orchestration flow."],
 	}
 
-	// 1. PLANNING — the Orchestrator LLM picks a sequence of {module, action, params}.
+	// PLANNING — the Orchestrator LLM picks a sequence of {module, action, params}.
+	// Planning never mutates the project tree; execution is handled by `baka apply`.
 	const modules = discoverModules(rootDir)
 	state.logs.push(`[plan] discovered ${modules.length} module(s)`)
 	const orchestratorStep = createOrchestratePlanningStep(provider)
@@ -29,19 +29,7 @@ export async function featurePlanningWorkflow(
 	const plan = planningResult.output
 	state.executionPlan.steps = plan.resolvedSteps
 	state.logs.push(`[plan] resolved ${plan.resolvedSteps.length} step(s)`)
+	state.status = ENGINE_STATUS.SUCCESS
 
-	// 2. EXECUTING — the SAGA runs the steps with compensation on failure.
-	//    For Phase 3 the registry only knows the single Worker step. Phase 5
-	//    wires up per-module worker variants. Both share the same SAGA.
-	const registry = new ModuleRegistry(rootDir)
-	registry.discover(false)
-	const stepsByKey = new Map<string, WorkflowStep<unknown, unknown, unknown>>()
-	for (const m of registry.all()) {
-		for (const a of m.actions) {
-			stepsByKey.set(`${m.name}:${a.id}`, executeWorkerStep as unknown as WorkflowStep<unknown, unknown, unknown>)
-		}
-	}
-
-	const saga = await runSaga(plan, state, { llmProvider: provider }, stepsByKey)
-	return saga.state
+	return state
 }

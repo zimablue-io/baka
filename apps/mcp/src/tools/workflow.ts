@@ -1,5 +1,5 @@
 import { createLLMProvider, loadLLMConfig, validateLLMConfig } from "@repo/agent-engine"
-import { executeWorkerStep, loadPlan, ModuleRegistry, runSaga, runValidators } from "@repo/ast-tooling"
+import { executeWorkerStep, loadPlan, ModuleRegistry, runSaga, runValidators, savePlan } from "@repo/ast-tooling"
 import { discoverModules } from "@repo/discovery-workflow"
 import { featurePlanningWorkflow } from "@repo/feature-planning-workflow"
 import type {
@@ -42,19 +42,38 @@ export interface PlanToolOutput {
 	status: "SUCCESS" | "FAILED"
 	steps: ResolvedPlanStep[]
 	logs: string[]
+	planFile?: string
+	savedAt?: string
 }
 
 export async function runPlan(
 	ctx: ServerContext,
 	intent: string,
-	_opts: { dryRun?: boolean; save?: boolean } = {},
+	opts: { dryRun?: boolean; save?: boolean } = {},
 ): Promise<PlanToolOutput> {
-	const provider = await setupProvider(ctx)
+	const config = await loadLLMConfig({ role: "worker", cwd: ctx.cwd })
+	try {
+		validateLLMConfig(config)
+	} catch (err) {
+		throw new Error(`${err instanceof Error ? err.message : String(err)}. Run \`baka init\` to configure a provider.`)
+	}
+	const provider = createLLMProvider(config)
+
 	const state = await featurePlanningWorkflow(intent, ctx.cwd, provider)
+
+	let planFile: string | undefined
+	let savedAt: string | undefined
+	if (opts.save && state.status !== "FAILED") {
+		planFile = savePlan(ctx.cwd, intent, { resolvedSteps: state.executionPlan.steps }, config.model)
+		savedAt = new Date().toISOString()
+	}
+
 	return {
 		status: state.status === "FAILED" ? "FAILED" : "SUCCESS",
 		steps: state.executionPlan.steps,
 		logs: state.logs,
+		planFile,
+		savedAt,
 	}
 }
 

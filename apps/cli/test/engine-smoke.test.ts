@@ -475,18 +475,18 @@ describe("VAL-CLI-014 baka module test baka-base with bad --action", () => {
 })
 
 // ===========================================================================
-// VAL-CLI-020  plan --help lists all documented options
+// VAL-CLI-020  plan --help lists honest options only
 // ===========================================================================
 
 describe("VAL-CLI-020 baka plan --help", () => {
-	it("exits 0 and lists --dry-run, --save, --execute, --json, and the default intent", async () => {
+	it("exits 0 and lists --dry-run, --save, --json, and the default intent; never advertises --execute", async () => {
 		const { code, stdout, stderr } = await spawnCli({ argv: ["plan", "--help"] })
 
 		expect(code, `unexpected exit ${code}; stderr=${stderr}`).toBe(0)
 		expect(stdout).toContain("--dry-run")
 		expect(stdout).toContain("--save")
-		expect(stdout).toContain("--execute")
 		expect(stdout).toContain("--json")
+		expect(stdout).not.toContain("--execute")
 		expect(stdout).toContain("Set up core typescript")
 		expect(stdout).toContain("with default configurations")
 		expect(stdout).toMatch(/default: "Set up core typescript/)
