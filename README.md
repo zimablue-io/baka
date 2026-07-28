@@ -120,6 +120,16 @@ baka plan "scaffold a TypeScript project" --json
 
 Every command accepts `--json` and emits the same shape as the corresponding MCP tool. Use `--json` from CI, scripts, and pipes; the human-readable default is for the terminal.
 
+### Verifying determinism
+
+The same-plan claim is enforced by an opt-in e2e (`apps/cli/test/determinism-e2e.test.ts`), skipped by default. It plans the same intent 5 times sequentially through the built CLI against a local llama-server (pinned model `gemma4-12b-qat`, temperature 0, fixed `seed` 42, generous `max_tokens`) and asserts all 5 plans are byte-identical, printing each plan's sha256. Run it with:
+
+```bash
+BAKA_E2E_LLM=1 pnpm --filter baka exec vitest run test/determinism-e2e.test.ts
+```
+
+The e2e only ever sends requests; it never starts, restarts, or kills the llama-server. The fixed seed is a normal role-config field: set it with `baka role worker --field seed --value 42` (or hand-edit `~/.baka/config.json`).
+
 ## Uninstall
 
 ```bash

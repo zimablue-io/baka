@@ -51,6 +51,9 @@ export class OpenAICompatibleProvider implements LLMProvider {
 			max_tokens: request.maxTokens ?? this.config.maxTokens,
 			stream: false,
 		}
+		if (this.config.seed !== undefined) {
+			body.seed = this.config.seed
+		}
 
 		// Constrained decoding: only attach json_schema when the schema is an object.
 		const schema = request.responseSchema

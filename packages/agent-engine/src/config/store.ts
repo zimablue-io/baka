@@ -23,6 +23,7 @@ export interface RoleConfig {
 	temperature?: number
 	maxTokens?: number
 	timeoutMs?: number
+	seed?: number
 }
 
 export type UserConfigShape = Partial<Record<RoleName, RoleConfig>>

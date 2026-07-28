@@ -25,6 +25,7 @@ interface RoleBlock {
 	temperature?: number
 	maxTokens?: number
 	timeoutMs?: number
+	seed?: number
 }
 
 function seedRoleConfig(home: string, opts: { worker?: RoleBlock; validator?: RoleBlock } = {}): void {
@@ -39,6 +40,7 @@ function seedRoleConfig(home: string, opts: { worker?: RoleBlock; validator?: Ro
 			temperature: opts.worker.temperature ?? 0,
 			maxTokens: opts.worker.maxTokens ?? 8192,
 			timeoutMs: opts.worker.timeoutMs ?? 120_000,
+			...(opts.worker.seed !== undefined ? { seed: opts.worker.seed } : {}),
 		}
 	}
 	if (opts.validator) {
@@ -170,6 +172,42 @@ describe("loadLLMConfig — role-keyed shape", () => {
 
 		const config = await loadLLMConfig({ role: "worker", cwd: "/tmp" })
 		expect(config.apiKey).toBe("inline-worker-key")
+	})
+
+	it("resolves seed from the role block when present", async () => {
+		const fakeHome = mkdtempSync(join(tmpdir(), "baka-role-seed-"))
+		tempHomes.push(fakeHome)
+		process.env.HOME = fakeHome
+		seedRoleConfig(fakeHome, {
+			worker: { baseUrl: "http://worker.example/v1", model: "worker-model", seed: 42 },
+		})
+
+		const config = await loadLLMConfig({ role: "worker", cwd: "/tmp" })
+		expect(config.seed).toBe(42)
+	})
+
+	it("CLI overrides take precedence over the role block seed", async () => {
+		const fakeHome = mkdtempSync(join(tmpdir(), "baka-role-seed-override-"))
+		tempHomes.push(fakeHome)
+		process.env.HOME = fakeHome
+		seedRoleConfig(fakeHome, {
+			worker: { baseUrl: "http://worker.example/v1", model: "worker-model", seed: 42 },
+		})
+
+		const config = await loadLLMConfig({ role: "worker", cwd: "/tmp", overrides: { seed: 7 } })
+		expect(config.seed).toBe(7)
+	})
+
+	it("leaves seed undefined when the role block has none", async () => {
+		const fakeHome = mkdtempSync(join(tmpdir(), "baka-role-seed-absent-"))
+		tempHomes.push(fakeHome)
+		process.env.HOME = fakeHome
+		seedRoleConfig(fakeHome, {
+			worker: { baseUrl: "http://worker.example/v1", model: "worker-model" },
+		})
+
+		const config = await loadLLMConfig({ role: "worker", cwd: "/tmp" })
+		expect(config.seed).toBeUndefined()
 	})
 })
 

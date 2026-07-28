@@ -53,6 +53,7 @@ export interface RoleConfigOverrides {
 	temperature?: number
 	maxTokens?: number
 	timeoutMs?: number
+	seed?: number
 }
 
 export interface LoadConfigOptions {
@@ -90,6 +91,7 @@ export async function loadLLMConfig(opts: LoadConfigOptions): Promise<ResolvedLL
 	const temperature = overrides.temperature ?? roleBlock.temperature ?? 0.0
 	const maxTokens = overrides.maxTokens ?? roleBlock.maxTokens ?? 8192
 	const timeoutMs = overrides.timeoutMs ?? roleBlock.timeoutMs ?? 120_000
+	const seed = overrides.seed ?? roleBlock.seed
 
 	const missing: string[] = []
 	if (!baseUrl) missing.push("baseUrl")
@@ -109,6 +111,7 @@ export async function loadLLMConfig(opts: LoadConfigOptions): Promise<ResolvedLL
 		temperature,
 		maxTokens,
 		timeoutMs,
+		...(seed !== undefined ? { seed } : {}),
 		providerOptions: { role: opts.role },
 	}
 }

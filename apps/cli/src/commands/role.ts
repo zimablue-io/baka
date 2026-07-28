@@ -1,7 +1,7 @@
 // `baka role <worker|validator>` — edit one role.
 //
 // Non-interactive flags: `--field <name> --value <value>`. Supported fields:
-// baseUrl, model, apiKey, temperature, maxTokens, timeoutMs. The apiKey
+// baseUrl, model, apiKey, temperature, maxTokens, timeoutMs, seed. The apiKey
 // field accepts plain text; the values are NOT echoed back by `baka role
 // show` (which masks apiKey as `<set>`).
 
@@ -21,7 +21,7 @@ function die(code: number, msg: string): never {
 	process.exit(code)
 }
 
-const EDITABLE_FIELDS = ["baseUrl", "model", "apiKey", "temperature", "maxTokens", "timeoutMs"] as const
+const EDITABLE_FIELDS = ["baseUrl", "model", "apiKey", "temperature", "maxTokens", "timeoutMs", "seed"] as const
 type EditableField = (typeof EDITABLE_FIELDS)[number]
 function isEditableField(value: string): value is EditableField {
 	return (EDITABLE_FIELDS as readonly string[]).includes(value)
@@ -42,6 +42,7 @@ function setField(block: RoleConfig, field: EditableField, value: string): RoleC
 		case "temperature":
 		case "maxTokens":
 		case "timeoutMs":
+		case "seed":
 			return { ...block, [field]: parseNumber(field, value) }
 	}
 }
@@ -110,6 +111,8 @@ export async function runRole(role: string, opts: RunRoleOpts): Promise<void> {
 		temperature: Number(temperatureStr),
 		maxTokens: Number(maxTokensStr),
 		timeoutMs: Number(timeoutStr),
+		// The interactive prompts do not cover seed; keep a configured one.
+		...(existing.seed !== undefined ? { seed: existing.seed } : {}),
 	}
 	writeRoleConfig(role, updated)
 	console.log(`updated ${role} at ${userConfigPath()}`)
@@ -131,6 +134,7 @@ export function runRoleShow(role: string): void {
 	if (block.temperature !== undefined) console.log(`  temp:      ${block.temperature}`)
 	if (block.maxTokens !== undefined) console.log(`  maxTokens: ${block.maxTokens}`)
 	if (block.timeoutMs !== undefined) console.log(`  timeoutMs: ${block.timeoutMs}`)
+	if (block.seed !== undefined) console.log(`  seed:      ${block.seed}`)
 }
 
 export function runRolePath(): void {

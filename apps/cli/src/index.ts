@@ -89,7 +89,7 @@ roleCmd.command("path").description("Print the user config path").action(runRole
 
 roleCmd
 	.argument("<name>", "the role name (worker or validator)")
-	.option("--field <name>", "the field to set (baseUrl, model, apiKey, temperature, maxTokens, timeoutMs)")
+	.option("--field <name>", "the field to set (baseUrl, model, apiKey, temperature, maxTokens, timeoutMs, seed)")
 	.option("--value <value>", "the new value for the field")
 	.description("Edit one role's LLM config (interactive, or --field/--value)")
 	.action(async (name, opts) => {

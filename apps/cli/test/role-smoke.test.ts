@@ -245,6 +245,42 @@ describe("VAL-ROLE-003 baka role worker --field model --value foo", () => {
 })
 
 // ---------------------------------------------------------------------------
+// baka role worker --field seed
+// ---------------------------------------------------------------------------
+
+describe("baka role worker --field seed --value 42", () => {
+	it("stores the seed as a number, preserves it across other field edits, and shows it", async () => {
+		const fakeHome = trackDir(makeEmptyDir("baka-role-smoke-seed-"))
+		seedRoleConfig(fakeHome, {
+			worker: { baseUrl: "http://worker.example/v1", model: "worker-model" },
+		})
+		const configPath = join(fakeHome, ".baka", "config.json")
+
+		const set = await spawnCliWithFakeHome({
+			argv: ["role", "worker", "--field", "seed", "--value", "42"],
+			fakeHome,
+		})
+		expect(set.code, `expected exit 0, got ${set.code}; stdout=${set.stdout}; stderr=${set.stderr}`).toBe(0)
+		const after = JSON.parse(readFileSync(configPath, "utf-8")) as { worker: { seed?: number; model: string } }
+		expect(after.worker.seed).toBe(42)
+
+		const other = await spawnCliWithFakeHome({
+			argv: ["role", "worker", "--field", "model", "--value", "other-model"],
+			fakeHome,
+		})
+		expect(other.code, `expected exit 0, got ${other.code}; stderr=${other.stderr}`).toBe(0)
+		const preserved = JSON.parse(readFileSync(configPath, "utf-8")) as { worker: { seed?: number; model: string } }
+		expect(preserved.worker.model).toBe("other-model")
+		expect(preserved.worker.seed).toBe(42)
+
+		const show = await spawnCliWithFakeHome({ argv: ["role", "show", "worker"], fakeHome })
+		expect(show.code, `expected exit 0, got ${show.code}; stderr=${show.stderr}`).toBe(0)
+		expect(show.stdout).toContain("seed")
+		expect(show.stdout).toContain("42")
+	})
+})
+
+// ---------------------------------------------------------------------------
 // VAL-ROLE-004
 // ---------------------------------------------------------------------------
 

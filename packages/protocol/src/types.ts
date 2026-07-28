@@ -110,6 +110,9 @@ export interface ResolvedLLMConfig {
 	temperature: number
 	maxTokens: number
 	timeoutMs: number
+	// Fixed sampling seed, forwarded to providers that support it (llama.cpp,
+	// vLLM, OpenAI). Undefined means "do not send a seed" (server default).
+	seed?: number
 	// Free-form provider-specific options. Concrete providers (e.g. openai-compatible)
 	// read only the keys they understand; everything else is ignored.
 	providerOptions: Record<string, unknown>

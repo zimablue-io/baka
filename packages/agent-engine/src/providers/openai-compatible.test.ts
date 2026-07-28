@@ -64,6 +64,39 @@ describe("OpenAICompatibleProvider", () => {
 		expect(body.response_format).toBeDefined()
 	})
 
+	it("sends the configured seed in the request body", async () => {
+		const fetch = mockFetchOnce({
+			choices: [{ message: { content: JSON.stringify({ ok: true }) } }],
+			usage: { prompt_tokens: 10, completion_tokens: 5 },
+		})
+		const p = new OpenAICompatibleProvider({ ...baseConfig, seed: 42 })
+		const result = await p.chat<{ ok: boolean }>({
+			model: "",
+			messages: [{ role: "user", content: "hi" }],
+			responseSchema: z.object({ ok: z.boolean() }),
+		})
+		expect(result.content).toEqual({ ok: true })
+		const [, init] = fetch.mock.calls[0] as [string, RequestInit]
+		const body = JSON.parse(init.body as string) as Record<string, unknown>
+		expect(body.seed).toBe(42)
+	})
+
+	it("omits seed from the request body when not configured", async () => {
+		const fetch = mockFetchOnce({
+			choices: [{ message: { content: JSON.stringify({ ok: true }) } }],
+			usage: { prompt_tokens: 10, completion_tokens: 5 },
+		})
+		const p = new OpenAICompatibleProvider(baseConfig)
+		await p.chat<{ ok: boolean }>({
+			model: "",
+			messages: [{ role: "user", content: "hi" }],
+			responseSchema: z.object({ ok: z.boolean() }),
+		})
+		const [, init] = fetch.mock.calls[0] as [string, RequestInit]
+		const body = JSON.parse(init.body as string) as Record<string, unknown>
+		expect("seed" in body).toBe(false)
+	})
+
 	it("repairs malformed JSON via a follow-up call", async () => {
 		const fetch = vi
 			.fn()
