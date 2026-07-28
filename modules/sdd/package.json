@@ -9,7 +9,8 @@
 	"main": "./manifest.ts",
 	"types": "./manifest.ts",
 	"scripts": {
-		"check-types": "tsc --noEmit"
+		"check-types": "tsc --noEmit",
+		"test": "vitest run"
 	},
 	"dependencies": {
 		"baka-sdk": "workspace:*",
@@ -18,7 +19,8 @@
 	"devDependencies": {
 		"@repo/typescript-config": "workspace:*",
 		"@types/node": "^22.19.15",
-		"typescript": "^5.9.2"
+		"typescript": "^5.9.2",
+		"vitest": "^4.1.8"
 	},
 	"peerDependencies": {
 		"baka": "*"
