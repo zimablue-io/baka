@@ -512,6 +512,93 @@ describe("VAL-MCP-003..006 tools/list", () => {
 })
 
 // ---------------------------------------------------------------------------
+// VAL-FOUND-018..020 — per-action MCP tools load and execute hyphenated actions
+// ---------------------------------------------------------------------------
+
+describe("VAL-FOUND-018..020 per-action MCP tools execute shipped actions", () => {
+	it("baka_baka_base_add_script succeeds and edits package.json", async () => {
+		const scratch = prepareScratchWithModules("baka-mcp-add-script-")
+		writeFileSync(
+			join(scratch, "package.json"),
+			JSON.stringify({ name: "mcp-test", version: "1.0.0", private: true }),
+			"utf-8",
+		)
+		const state = spawnMcp({ cwd: scratch })
+		try {
+			await initialize(state)
+			const id = sendRpc(state, "tools/call", {
+				name: "baka_baka_base_add_script",
+				arguments: { name: "build", command: "tsc" },
+			})
+			const resp = await waitForResponse(state, id, 5_000)
+			expect(resp?.error).toBeUndefined()
+			const result = resp?.result as { isError?: boolean; content: Array<{ type: string; text: string }> }
+			expect(result.isError).toBeFalsy()
+			const parsed = JSON.parse(result.content[0].text) as { success: boolean }
+			expect(parsed.success).toBe(true)
+			const pkg = JSON.parse(readFileSync(join(scratch, "package.json"), "utf-8"))
+			expect(pkg.scripts).toEqual({ build: "tsc" })
+		} finally {
+			await shutdown(state)
+		}
+	})
+
+	it("baka_baka_base_add_dependency succeeds and edits package.json", async () => {
+		const scratch = prepareScratchWithModules("baka-mcp-add-dep-")
+		writeFileSync(
+			join(scratch, "package.json"),
+			JSON.stringify({ name: "mcp-test", version: "1.0.0", private: true }),
+			"utf-8",
+		)
+		const state = spawnMcp({ cwd: scratch })
+		try {
+			await initialize(state)
+			const id = sendRpc(state, "tools/call", {
+				name: "baka_baka_base_add_dependency",
+				arguments: { name: "lodash", version: "latest", dev: false },
+			})
+			const resp = await waitForResponse(state, id, 5_000)
+			expect(resp?.error).toBeUndefined()
+			const result = resp?.result as { isError?: boolean; content: Array<{ type: string; text: string }> }
+			expect(result.isError).toBeFalsy()
+			const parsed = JSON.parse(result.content[0].text) as { success: boolean }
+			expect(parsed.success).toBe(true)
+			const pkg = JSON.parse(readFileSync(join(scratch, "package.json"), "utf-8"))
+			expect(pkg.dependencies).toEqual({ lodash: "latest" })
+		} finally {
+			await shutdown(state)
+		}
+	})
+
+	it("baka_ts_style_install_config succeeds and writes config files", async () => {
+		const scratch = prepareScratchWithModules("baka-mcp-install-config-")
+		writeFileSync(
+			join(scratch, "package.json"),
+			JSON.stringify({ name: "mcp-test", version: "1.0.0", private: true }),
+			"utf-8",
+		)
+		const state = spawnMcp({ cwd: scratch })
+		try {
+			await initialize(state)
+			const id = sendRpc(state, "tools/call", {
+				name: "baka_ts_style_install_config",
+				arguments: { strict: false },
+			})
+			const resp = await waitForResponse(state, id, 5_000)
+			expect(resp?.error).toBeUndefined()
+			const result = resp?.result as { isError?: boolean; content: Array<{ type: string; text: string }> }
+			expect(result.isError).toBeFalsy()
+			const parsed = JSON.parse(result.content[0].text) as { success: boolean }
+			expect(parsed.success).toBe(true)
+			expect(existsSync(join(scratch, "tsconfig.json"))).toBe(true)
+			expect(existsSync(join(scratch, "biome.json"))).toBe(true)
+		} finally {
+			await shutdown(state)
+		}
+	})
+})
+
+// ---------------------------------------------------------------------------
 // VAL-MCP-007..010 — tools/call happy and sad paths
 // ---------------------------------------------------------------------------
 

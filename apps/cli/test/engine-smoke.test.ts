@@ -49,8 +49,10 @@ import {
 	lstatSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs"
@@ -1021,5 +1023,184 @@ describe("VAL-CLI-032 baka validate -m nonexistent", () => {
 		expect(code, `unexpected exit ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(1)
 		expect(stderr).toContain('module "nonexistent" not found')
 		expect(stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
+	})
+})
+
+// ===========================================================================
+// VAL-FOUND-015..017 + VAL-FOUND-061 — hyphenated actions load and malformed
+// input is rejected honestly.
+// ===========================================================================
+
+describe("VAL-FOUND-015/016/017/061 baka module test hyphenated actions and input", () => {
+	function countBakaTestDirs(): number {
+		return readdirSync(tmpdir()).filter((e) => {
+			if (!e.startsWith("baka-test-")) return false
+			try {
+				return statSync(join(tmpdir(), e)).isDirectory()
+			} catch {
+				return false
+			}
+		}).length
+	}
+
+	it("VAL-FOUND-015: add-script succeeds with a hyphenated action id", async () => {
+		const { code, stdout, stderr } = await spawnCli({
+			argv: [
+				"module",
+				"test",
+				"baka-base",
+				"--action",
+				"add-script",
+				"--input",
+				JSON.stringify({ name: "build", command: "tsc" }),
+			],
+		})
+
+		expect(code, `unexpected exit ${code}; stderr=${stderr}`).toBe(0)
+		expect(stdout).toContain("RESULT:")
+		expect(stdout).toContain("true")
+	})
+
+	it("VAL-FOUND-016: add-dependency succeeds with a hyphenated action id", async () => {
+		const { code, stdout, stderr } = await spawnCli({
+			argv: [
+				"module",
+				"test",
+				"baka-base",
+				"--action",
+				"add-dependency",
+				"--input",
+				JSON.stringify({ name: "zod", version: "^3.23.0" }),
+			],
+		})
+
+		expect(code, `unexpected exit ${code}; stderr=${stderr}`).toBe(0)
+		expect(stdout).toContain("RESULT:")
+		expect(stdout).toContain("true")
+	})
+
+	it("VAL-FOUND-017: install-config succeeds with a hyphenated action id and produces files", async () => {
+		const { code, stdout, stderr } = await spawnCli({
+			argv: ["module", "test", "ts-style", "--action", "install-config", "--input", "{}"],
+		})
+
+		expect(code, `unexpected exit ${code}; stderr=${stderr}`).toBe(0)
+		expect(stdout).toContain("RESULT:")
+		expect(stdout).toContain("true")
+	})
+
+	it("VAL-FOUND-061: malformed --input exits 1 with a typed JSON error and no stack trace", async () => {
+		const before = countBakaTestDirs()
+
+		const { code, stdout, stderr } = await spawnCli({
+			argv: ["module", "test", "baka-base", "--action", "add-script", "--input", "{not json"],
+		})
+
+		expect(code, `unexpected exit ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(1)
+		expect(stderr).toContain("--input must be valid JSON")
+		expect(stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
+		expect(countBakaTestDirs()).toBe(before)
+	})
+})
+
+// ===========================================================================
+// VAL-FOUND-019 — baka module validate gates on loadability, not file existence
+// ===========================================================================
+
+describe("VAL-FOUND-019 baka module validate loadability gate", () => {
+	it("reports valid: false when an action is unloadable", async () => {
+		const scratch = trackDir(makeEmptyDir("baka-validate-unloadable-"))
+		const moduleDir = join(scratch, "modules", "unloadable-mod")
+		const actionDir = join(moduleDir, "bad-action")
+		mkdirSync(actionDir, { recursive: true })
+		writeFileSync(
+			join(moduleDir, "manifest.ts"),
+			`export const Manifest = {
+	name: "unloadable-mod",
+	version: "0.1.0",
+	description: "fixture with unloadable action",
+	dependencies: [],
+	conflictsWith: [],
+	actions: [
+		{
+			id: "bad-action",
+			description: "declared action whose action.ts exports nothing loadable",
+			requiresReasoning: false,
+			filePatterns: [],
+			validators: [],
+			params: [],
+		},
+	],
+	moduleValidators: [],
+}
+`,
+			"utf-8",
+		)
+		writeFileSync(
+			join(actionDir, "action.ts"),
+			`export const somethingElse = {
+	execute: async () => ({ success: true }),
+	compensate: async () => {},
+}
+`,
+			"utf-8",
+		)
+
+		const { code, stdout, stderr } = await spawnCli({
+			argv: ["module", "validate", "unloadable-mod", "--json"],
+			cwd: scratch,
+		})
+
+		expect(code, `unexpected exit ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(4)
+		const parsed = JSON.parse(stdout) as {
+			module: string
+			valid: boolean
+			errors: string[]
+		}
+		expect(parsed.valid).toBe(false)
+		expect(parsed.errors.some((e) => e.includes("bad-action") && e.includes("not loadable"))).toBe(true)
+	})
+})
+
+// ===========================================================================
+// VAL-FOUND-043 — ts-style no-any-types skips .test.ts files
+// ===========================================================================
+
+describe("VAL-FOUND-043 ts-style no-any-types skips test files", () => {
+	it("flags only source files, ignoring .test.ts", async () => {
+		const scratch = trackDir(makeEmptyDir("baka-no-any-types-"))
+		mkdirSync(join(scratch, "modules"), { recursive: true })
+		symlinkSync(join(BAKA_REPO, "modules", "ts-style"), join(scratch, "modules", "ts-style"))
+		const srcDir = join(scratch, "src")
+		mkdirSync(srcDir, { recursive: true })
+		writeFileSync(join(srcDir, "util.ts"), "export const x = 1;\n", "utf-8")
+		writeFileSync(join(srcDir, "util.test.ts"), "const y = {} as any;\n", "utf-8")
+
+		const fakeHome = trackDir(makeEmptyDir("baka-no-any-types-home-"))
+		const first = await spawnCliWithFakeHome({
+			argv: ["--cwd", scratch, "validate", "--json"],
+			fakeHome,
+			cwd: scratch,
+		})
+		expect(first.code, `first run failed: ${first.stderr}`).toBe(0)
+		const firstParsed = JSON.parse(first.stdout) as {
+			validation: { kind: string; diagnostics?: Array<{ rule: string; file: string }> }
+		}
+		const firstAny = (firstParsed.validation.diagnostics ?? []).filter((d) => d.rule.endsWith("noAnyTypes"))
+		expect(firstAny).toHaveLength(0)
+
+		writeFileSync(join(srcDir, "bad.ts"), "const z: any = 1;\n", "utf-8")
+		const second = await spawnCliWithFakeHome({
+			argv: ["--cwd", scratch, "validate", "--json"],
+			fakeHome,
+			cwd: scratch,
+		})
+		expect(second.code, `second run failed: ${second.stderr}`).toBe(4)
+		const secondParsed = JSON.parse(second.stdout) as {
+			validation: { kind: string; diagnostics?: Array<{ rule: string; file: string }> }
+		}
+		const secondAny = (secondParsed.validation.diagnostics ?? []).filter((d) => d.rule.endsWith("noAnyTypes"))
+		expect(secondAny).toHaveLength(1)
+		expect(secondAny[0].file).toBe(join(srcDir, "bad.ts"))
 	})
 })

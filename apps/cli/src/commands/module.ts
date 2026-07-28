@@ -2,8 +2,8 @@ import { spawn } from "node:child_process"
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { validatorFilename } from "@repo/ast-tooling"
-import { BAKA_EXIT_CODE, type ModuleManifest, ModuleManifestSchema } from "@repo/protocol"
+import { loadAction, loadActionValidator, loadModuleValidator, validatorFilename } from "@repo/ast-tooling"
+import { BAKA_EXIT_CODE, type ModuleManifest, ModuleManifestSchema, type OrchestrationState } from "@repo/protocol"
 import { createJiti } from "jiti"
 
 function die(code: number, msg: string): never {
@@ -54,11 +54,18 @@ export function runModuleValidate(name: string, opts: { json?: boolean } = {}): 
 						errors.push(`  - ${issue.path.join(".")}: ${issue.message}`)
 					}
 				} else {
-					// Layout enforcement
+					// Layout enforcement + loadability gate: declared actions and validators
+					// must actually import through the same loader the engine uses.
 					for (const action of parsed.data.actions) {
 						const actionDir = join(root, action.id)
 						if (!existsSync(join(actionDir, "action.ts"))) {
 							errors.push(`action "${action.id}" is missing ${action.id}/action.ts`)
+							continue
+						}
+						try {
+							loadAction(cwd, root, parsed.data, action.id)
+						} catch (err) {
+							errors.push(`action "${action.id}" is not loadable: ${err instanceof Error ? err.message : String(err)}`)
 						}
 						if (action.requiresReasoning) {
 							const templatesDir = join(actionDir, "templates")
@@ -71,6 +78,23 @@ export function runModuleValidate(name: string, opts: { json?: boolean } = {}): 
 								}
 							}
 						}
+						for (const validatorId of action.validators ?? []) {
+							const ruleFile = validatorFilename(validatorId)
+							const rulePath = join(actionDir, "validators", `${ruleFile}.ts`)
+							if (!existsSync(rulePath)) {
+								errors.push(
+									`action "${action.id}" validator "${validatorId}" is declared but ${action.id}/validators/${ruleFile}.ts does not exist`,
+								)
+								continue
+							}
+							try {
+								loadActionValidator(cwd, root, action.id, validatorId)
+							} catch (err) {
+								errors.push(
+									`action "${action.id}" validator "${validatorId}" is not loadable: ${err instanceof Error ? err.message : String(err)}`,
+								)
+							}
+						}
 					}
 					for (const ruleId of parsed.data.moduleValidators ?? []) {
 						const ruleFile = validatorFilename(ruleId)
@@ -78,6 +102,14 @@ export function runModuleValidate(name: string, opts: { json?: boolean } = {}): 
 						if (!existsSync(rulePath)) {
 							errors.push(
 								`moduleValidator "${ruleId}" is declared but _shared/validators/${ruleFile}.ts does not exist`,
+							)
+							continue
+						}
+						try {
+							loadModuleValidator(cwd, root, ruleId)
+						} catch (err) {
+							errors.push(
+								`moduleValidator "${ruleId}" is not loadable: ${err instanceof Error ? err.message : String(err)}`,
 							)
 						}
 					}
@@ -199,56 +231,37 @@ export async function runModuleTest(name: string, actionId: string, inputJson: s
 		}
 	}
 
-	// Run the action in a temp dir to isolate FS effects.
+	// Run the action in a temp copy of the module so the targetDirectory is a
+	// real project-like root (with package.json, etc.) while still isolating FS
+	// effects from the user's actual module source.
 	const tempDir = join(tmpdir(), `baka-test-${name}-${actionId}-${Date.now()}`)
 	mkdirSync(tempDir, { recursive: true })
 	const moduleCopy = join(tempDir, name)
 	cpSync(root, moduleCopy, { recursive: true })
 
-	console.log(`running ${name}:${actionId} in ${tempDir}`)
+	console.log(`running ${name}:${actionId} in ${moduleCopy}`)
 	console.log(`  input: ${JSON.stringify(parsedInput)}`)
 	console.log("")
 
-	// Load and run the action in-process via jiti.
+	// Load and run the action in-process via the same loader the engine uses.
 	let exitCode: number = BAKA_EXIT_CODE.SUCCESS
 	try {
-		const actionPath = join(moduleCopy, actionId, "action.ts")
-		const jiti = createJiti(tempDir)
-		const mod = jiti(actionPath) as Record<string, unknown>
-		// Try the new shape (just the action id) first, then the legacy
-		// `${actionId}Action` shape that older modules (e.g. baka-base) use.
-		const candidates = [`${actionId}`, `${actionId}Action`, "default"]
-		let step:
-			| {
-					execute: (input: unknown, state: unknown) => Promise<{ success: boolean; output: unknown; error?: string }>
-					compensate: (data: unknown, state: unknown) => Promise<void>
-			  }
-			| undefined
-		let matched = ""
-		for (const c of candidates) {
-			const candidate = mod[c] as { execute?: unknown } | undefined
-			if (candidate && typeof candidate.execute === "function") {
-				step = candidate as typeof step
-				matched = c
-				break
-			}
+		const manifestPath = join(moduleCopy, "manifest.ts")
+		const jiti = createJiti(moduleCopy)
+		const mod = jiti(manifestPath) as { Manifest?: ModuleManifest }
+		if (!mod.Manifest) {
+			die(BAKA_EXIT_CODE.ENGINE_ERROR, "manifest.ts did not export a Manifest")
 		}
-		if (!step || typeof step.execute !== "function") {
-			die(
-				BAKA_EXIT_CODE.USER_ERROR,
-				`${actionPath} must export an \`ActionFn\` named \`${actionId}\` (or \`${actionId}Action\` for legacy modules)`,
-			)
-		}
-		void matched
+		const loaded = loadAction<Record<string, unknown>, unknown, unknown>(moduleCopy, moduleCopy, mod.Manifest, actionId)
 		const state = {
 			userIntent: "test",
-			targetDirectory: tempDir,
+			targetDirectory: moduleCopy,
 			status: "EXECUTING",
 			executionPlan: { steps: [], currentStepIndex: 0 },
 			logs: [],
 			artifacts: {},
-		}
-		const result = await step.execute(parsedInput, state)
+		} as OrchestrationState
+		const result = await loaded.step.execute(parsedInput, state)
 		console.log("RESULT:", JSON.stringify(result.output, null, 2))
 		if (!result.success) {
 			console.error("FAILED:", result.error ?? "(no error message)")

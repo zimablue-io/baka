@@ -45,9 +45,11 @@ export function loadAction<TInput, TOutput, TCompensationData>(
 	}
 	const jiti = createJiti(moduleRoot, { interopDefault: true })
 	const mod = jiti(actionPath) as Record<string, unknown>
-	// Try the new shape (just the action id) first, then the legacy
-	// `${actionId}Action` shape that older modules (e.g. baka-base) use.
-	const candidates = [`${actionId}`, `${actionId}Action`, "default"]
+	// Resolution order (architecture §3.1):
+	//   camelCase(id), camelCase(id)+"Action", exact id, id+"Action", "default".
+	// This lets hyphenated ids like `add-script` resolve to `addScriptAction`.
+	const camelCaseId = toCamelCase(actionId)
+	const candidates = [camelCaseId, `${camelCaseId}Action`, `${actionId}`, `${actionId}Action`, "default"]
 	let step: WorkflowStep<TInput, TOutput, TCompensationData> | undefined
 	for (const name of candidates) {
 		const c = mod[name] as { execute?: unknown; compensate?: unknown } | undefined
@@ -58,10 +60,14 @@ export function loadAction<TInput, TOutput, TCompensationData>(
 	}
 	if (!step) {
 		throw new Error(
-			`action file ${actionPath} must export a WorkflowStep value named \`${actionId}\`, \`${actionId}Action\`, or as the default export`,
+			`action file ${actionPath} must export a WorkflowStep value named \`${camelCaseId}\`, \`${camelCaseId}Action\`, \`${actionId}\`, \`${actionId}Action\`, or as the default export`,
 		)
 	}
 	return { step, manifest, actionId }
+}
+
+function toCamelCase(id: string): string {
+	return id.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())
 }
 
 /**

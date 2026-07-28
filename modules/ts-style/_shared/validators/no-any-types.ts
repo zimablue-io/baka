@@ -10,6 +10,10 @@ export async function noAnyTypes(state: OrchestrationState) {
 	const diagnostics: Array<{ severity: "error"; rule: string; message: string; file?: string }> = []
 	const root = state.targetDirectory
 	walk(root, (file) => {
+		// `.test.ts` / `.test.tsx` must be skipped by full suffix, not by the
+		// last-segment extension returned below, otherwise `extension("foo.test.ts")`
+		// returns `.ts` and test files get scanned as source.
+		if (file.endsWith(".test.ts") || file.endsWith(".test.tsx")) return
 		if (SKIP_EXTS.has(extension(file))) return
 		if (file.endsWith(".d.ts")) return
 		const text = readFileSync(file, "utf-8")
