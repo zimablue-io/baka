@@ -26,7 +26,7 @@ pnpm --version   # 8.x or higher (9.x recommended)
 From a fresh clone of this repository:
 
 ```bash
-git clone https://github.com/zimablue/baka.git
+git clone https://github.com/zimablue-io/baka.git
 cd baka
 pnpm install
 pnpm link:global
@@ -224,8 +224,8 @@ pnpm baka plan "<intent>"
 # Plan with machine-readable output (for piping into jq)
 pnpm baka plan "<intent>" --json
 
-# Scaffold a new module
-pnpm baka scaffold "<module_name>"
+# Scaffold a new module (chat-driven design flow)
+pnpm baka module create "<module_name>"
 ```
 
 The CLI and the MCP server share the same engine: same workflows, same validators, same plan schema. `--json` flags on the CLI emit the same shape the MCP tools return.
@@ -240,7 +240,7 @@ alias baka='pnpm --prefix . baka --'
 ### Creating a Test Module
 To verify the engine, create a test module:
 ```bash
-baka scaffold test-module
+baka module create test-module
 ```
 
 ## Technical Specifications
@@ -254,19 +254,23 @@ baka scaffold test-module
 .
 ├── apps/
 │   ├── cli/                 # The baka binary (user-facing CLI)
-│   └── mcp/                 # The baka-mcp binary (MCP server over stdio for coding agents)
+│   ├── mcp/                 # The baka-mcp binary (MCP server over stdio for coding agents)
+│   ├── api/                 # The marketplace catalog API (read routes over hand-maintained data)
+│   └── landing/             # The landing site (module catalog pages)
 ├── workflows/               # Engine orchestration for THIS project
-│   ├── feature-planning/
-│   │   └── plan-intent.ts
-│   └── module-management/
+│   ├── feature-planning/    # Plan user intents into module actions
+│   └── module-management/   # Scaffold new modules
 ├── packages/                # Engine tools
 │   ├── protocol/            # SSOT: types, schemas, LLMProvider interface
 │   ├── agent-engine/        # The ONLY package that knows what an LLMProvider is
-│   └── ast-tooling/         # File/AST operations, module registry
-├── modules/                 # User-defined patterns (action-centric layout)
-│   └── README.md
+│   ├── ast-tooling/         # File/AST operations, ModuleRegistry (module discovery)
+│   ├── baka-sdk/            # The public boundary module authors import from
+│   └── typescript-config/   # Shared TS presets
+├── modules/                 # Bundled modules: baka-base, sdd, ts-style
+├── scripts/                 # pack.mjs, release.sh, setup.sh, unlink-global.sh
+├── dist-tarballs/           # Output of `pnpm pack` (baka + baka-mcp tarballs)
 ├── SKILL.md                 # Declarative agent contract (Claude Code, Codex, Cursor, etc.)
-├── docs/                    # Philosophy, agent guide, specs
+├── docs/                    # Philosophy, agent guide, module authoring, publishing
 ├── pnpm-workspace.yaml
 ├── turbo.json
 └── package.json

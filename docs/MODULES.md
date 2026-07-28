@@ -1,117 +1,193 @@
 # Authoring Baka Modules
 
-A **module** is a self-contained directory that exposes typed, validated actions to the baka engine. Modules can live in three places:
+A **module** is a self-contained directory that exposes typed, validated actions to the baka engine. Modules can live in four places:
 
-| Scope | Where it lives | Discovered by | Wins on dedup? |
-|---|---|---|---|
-| **in-tree** | `<project>/modules/<name>/` | the engine always | no (lowest priority) |
-| **project marketplace** | `<project>/.baka/modules/<name>/` | when listed in `<project>/.baka/settings.json` | yes (overrides in-tree) |
-| **user marketplace** | `~/.baka/modules/<name>/` | when listed in `~/.baka/settings.json` | no (loses to project) |
+| Scope | Where it lives | Precedence on dedup |
+|---|---|---|
+| **project marketplace** | `<project>/.baka/modules/<name>/` | 1 (highest; wins) |
+| **in-tree** | `<project>/modules/<name>/` | 2 |
+| **user marketplace** | `~/.baka/modules/<name>/` | 3 |
+| **bundled** | the modules shipped inside the baka install itself (`baka-base`, `sdd`, `ts-style`) | 4 (lowest) |
 
-Install a module into the project marketplace with `baka install <source>`. Sources can be `npm:@scope/pkg[@ver]`, `git:host/repo[@ref]`, `https://...`, `/abs/path`, or `./rel/path`.
+Discovery walks every scope on every run; there is no registration step, and both real directories and symlinks are accepted. When two scopes provide the same module name, the first scope in precedence order owns it and the lower-precedence copies are skipped. The bundled scope is listed only when the current working directory looks like a project (has a `package.json`), so `baka list-modules` from an unrelated directory does not echo the bundled catalog.
+
+Install a module into the project marketplace with `baka install <source>` (links it under `<project>/.baka/modules/`); add `--user` to install into the user marketplace instead. Sources can be `npm:@scope/pkg[@ver]`, `git:host/repo[@ref]`, `https://...`, `/abs/path`, or `./rel/path`.
 
 ## Layout
 
 ```
 modules/<my-module>/
   package.json         # self-contained; depends on baka-sdk, peer-deps on baka
-  tsconfig.json        # extends base.json; maps "baka-sdk" to a real path
+  tsconfig.json        # extends your TS base; maps "baka-sdk" to a real path
+  README.md            # recommended; its absence is a `baka module validate` warning
   manifest.ts          # exports `Manifest` (typed via ModuleManifestSchema)
   scaffold/
     action.ts          # the action implementation
     templates/         # required if requiresReasoning: true
-    validators/<id>.ts # one file per rule declared in manifest
+    validators/<id>.ts # one kebab-case file per rule declared in manifest
   add-script/
     action.ts
   _shared/
-    helpers/<name>.ts  # reusable helpers, loaded by `loadSharedHelper`
-    templates/         # shared handlebars templates
+    helpers/<name>.ts  # ordinary TS modules, imported via relative paths
     validators/<id>.ts # module-level validators (whole-module checks)
 ```
 
 The engine enforces the layout. Missing files produce a `manifest-shape` or `action-missing` diagnostic.
 
+The module must be **self-contained**: run its package manager inside the module directory so `baka-sdk` resolves from the module's own `node_modules/`. `baka module test` copies the module (including its `node_modules`) into a temp dir and runs the action from that copy, so a module that only resolves `baka-sdk` from a parent workspace fails at run time even if it validates.
+
 ## Public boundary: `baka-sdk`
 
-Modules must import only from `baka-sdk` (not from `@repo/protocol`). This makes them portable: when installed in a user's project, the same import resolves to a real `node_modules` entry that the `baka` CLI ships.
+Modules must import only from `baka-sdk` (not from `@repo/protocol` or the engine internals). This makes them portable: when installed in a user's project, the same import resolves to a real `node_modules` entry that the `baka` CLI ships.
 
 ```ts
 // modules/<my-module>/<action>/action.ts
-import { type OrchestrationState, type ActionFn } from "baka-sdk"
+import { AgentRole, type StepResponse, type WorkflowStep } from "baka-sdk"
 ```
 
-`baka-sdk` re-exports the public types and runtime helpers you need (`OrchestrationState`, `ActionFn`, `ModuleManifest`, `bakaProjectPaths`, `bakaUserDir`, `readIfExists`, ...). If you need something that isn't there, it almost certainly shouldn't be in a module - it should be in the engine.
+`baka-sdk` re-exports the public types and runtime helpers you need (`WorkflowStep`, `StepResponse`, `AgentRole`, `OrchestrationState`, `ModuleManifest`, `ModuleManifestSchema`, `ValidationDiagnostic`, `callLLMAsValidator`, ...). If you need something that isn't there, it almost certainly shouldn't be in a module - it should be in the engine.
 
-## Action signatures
+## A complete example module
+
+Everything below is copy-pasteable: a module built from these exact files passes `baka module validate` and runs under `baka module test`.
+
+### `modules/hello-mod/manifest.ts`
+
+The manifest must export a `Manifest` value matching `ModuleManifestSchema`. Validator ids are camelCase here; the validator files on disk are the kebab-case form of the same id.
 
 ```ts
-import { type ActionFn, type WorkerRollbackData } from "baka-sdk"
+import type { ModuleManifest } from "baka-sdk"
 
-export const action: ActionFn = async (input, state) => {
-  // input.parameters: whatever the LLM supplied (validated by your schema)
-  // state.targetDirectory: where the work happens
-  // Return a list of file ops for the apply phase to materialize.
-  return {
-    compensationData: { createdFiles: ["src/index.ts"] },
-    ops: [{ kind: "writeFile", path: "src/index.ts", contents: "..." }],
-  }
+export const Manifest: ModuleManifest = {
+	name: "hello-mod",
+	version: "0.1.0",
+	description: "Writes a greeting file into the target project.",
+	dependencies: [],
+	conflictsWith: [],
+	actions: [
+		{
+			id: "say-hello",
+			description: "Write hello.txt containing a greeting.",
+			requiresReasoning: false,
+			filePatterns: ["hello.txt"],
+			validators: ["hasGreeting"],
+			params: [{ name: "name", type: "string", required: true, description: "Who to greet." }],
+		},
+	],
+	moduleValidators: [],
+}
+```
+
+### `modules/hello-mod/say-hello/action.ts`
+
+An action is a `WorkflowStep` object: `execute` writes files directly (plain `node:fs`, into `state.targetDirectory`) and returns a `StepResponse`; `compensate` undoes whatever `execute` did if a later step in the plan fails.
+
+The loader resolves the action by export name, in this order: `camelCase(id)`, `camelCase(id)` + `Action`, the exact id, id + `Action`, then the default export. For the id `say-hello`, the export `sayHello` or `sayHelloAction` resolves; the example uses `sayHelloAction`.
+
+```ts
+import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
+import { AgentRole, type StepResponse, type WorkflowStep } from "baka-sdk"
+
+interface SayHelloInput {
+	name: string
 }
 
-export const compensation: (data: WorkerRollbackData) => Promise<void> = async (data) => {
-  // SAGA calls this if a later step fails.
+interface SayHelloCompensation {
+	createdFiles: string[]
+}
+
+export const sayHelloAction: WorkflowStep<SayHelloInput, boolean, SayHelloCompensation> = {
+	name: "hello-mod.say-hello",
+	role: AgentRole.WORKER,
+
+	execute: async (input, state): Promise<StepResponse<boolean, SayHelloCompensation>> => {
+		const file = join(state.targetDirectory, "hello.txt")
+		try {
+			mkdirSync(state.targetDirectory, { recursive: true })
+			writeFileSync(file, `hello ${input.name}\n`, "utf-8")
+			return { success: true, output: true, compensationData: { createdFiles: [file] } }
+		} catch (err) {
+			return {
+				success: false,
+				output: false,
+				compensationData: { createdFiles: [] },
+				error: err instanceof Error ? err.message : String(err),
+			}
+		}
+	},
+
+	compensate: async (data): Promise<void> => {
+		for (const file of data.createdFiles) {
+			try {
+				rmSync(file, { force: true })
+			} catch {
+				// best effort
+			}
+		}
+	},
 }
 ```
 
 ## Validators
 
-A module can declare two kinds of validators:
+A module can declare two kinds of validators. Both are plain async functions that return `ValidationDiagnostic[]` (an empty array means pass). The manifest references the validator by its camelCase id; the file on disk is the kebab-case form (`hasGreeting` -> `has-greeting.ts`) and must export a function named with the camelCase id.
 
-### Module-level (`_shared/validators/<id>.ts`)
+### Module-level (`_shared/validators/<kebab-id>.ts`)
 
 Run once per validate pass. Inspect any file in the project. Use for cross-cutting rules ("no `console.log` in production code").
 
 ```ts
-// manifest.ts
-export const Manifest = {
-  moduleValidators: ["noConsoleLog"],
-  ...
+// manifest.ts → moduleValidators: ["hasPackageJson"]
+// _shared/validators/has-package-json.ts
+import { existsSync } from "node:fs"
+import { join } from "node:path"
+import type { OrchestrationState, ValidationDiagnostic } from "baka-sdk"
+
+export async function hasPackageJson(state: OrchestrationState): Promise<ValidationDiagnostic[]> {
+	const path = join(state.targetDirectory, "package.json")
+	if (!existsSync(path)) {
+		return [{ severity: "error", rule: "has-package-json", message: `package.json not found at ${path}` }]
+	}
+	return []
 }
 ```
 
-### Action-level (`<action>/validators/<id>.ts`)
+### Action-level (`<action>/validators/<kebab-id>.ts`)
 
-Run only when the action ran. Receive the action's `compensationData`, so you can check what the action produced:
-
-```ts
-// manifest.ts → actions: [{ id: "scaffold", validators: ["hasConsoleLog"], ... }]
-```
+Run only when the action ran. Receives the action's `compensationData` as its second argument, so you can check what the action produced:
 
 ```ts
-// scaffold/validators/hasConsoleLog.ts
-import { type ActionValidatorFn, readIfExists, bakaProjectPaths } from "baka-sdk"
+// manifest.ts → actions: [{ id: "say-hello", validators: ["hasGreeting"], ... }]
+// say-hello/validators/has-greeting.ts
+import { existsSync, readFileSync } from "node:fs"
+import { join } from "node:path"
+import type { OrchestrationState, ValidationDiagnostic } from "baka-sdk"
 
-export const validator: ActionValidatorFn = async (state, actionData) => {
-  const created = actionData?.compensationData?.createdFiles as string[] | undefined
-  if (!created) return []
-  const findings = []
-  for (const f of created) {
-    const path = `${state.targetDirectory}/${f}`
-    const body = readIfExists(path)
-    if (body && !body.includes("console.log")) {
-      findings.push({
-        severity: "warning",
-        rule: "scaffold:hasConsoleLog",
-        message: `${f} should include console.log for a hello-world example`,
-      })
-    }
-  }
-  return findings
+export async function hasGreeting(state: OrchestrationState, actionData: unknown): Promise<ValidationDiagnostic[]> {
+	const created = (actionData as { createdFiles?: string[] } | null | undefined)?.createdFiles ?? []
+	const file = created.find((f) => f.endsWith("hello.txt")) ?? join(state.targetDirectory, "hello.txt")
+	if (!existsSync(file)) {
+		return [{ severity: "error", rule: "has-greeting", message: `say-hello produced no hello.txt at ${file}` }]
+	}
+	if (!readFileSync(file, "utf-8").startsWith("hello ")) {
+		return [{ severity: "error", rule: "has-greeting", message: `${file} does not contain a greeting` }]
+	}
+	return []
 }
 ```
+
+A validator that needs to judge semantic content (is this spec coherent?) can ask the validator-role LLM via `callLLMAsValidator` from `baka-sdk`; keep deterministic checks as plain TypeScript.
 
 ## Shared helpers
 
-A helper is just a function in `_shared/helpers/<name>.ts`. Load it with `loadSharedHelper` from `@repo/ast-tooling`. Use this for code that several actions share (parsing package.json, walking the dep tree, etc.) without duplicating logic.
+A helper is an ordinary TypeScript module under `_shared/helpers/<name>.ts`. Actions import it with a plain relative import:
+
+```ts
+import { readJsonSafe } from "../_shared/helpers/read-json-safe"
+```
+
+Use this for code that several actions share (parsing package.json, walking the dep tree, etc.) without duplicating logic.
 
 ## Reasoning actions
 
@@ -120,7 +196,7 @@ If `requiresReasoning: true`, the LLM is shown a prompt that includes the action
 ## Listing and validating
 
 ```sh
-baka list-modules                 # walks all three scopes
+baka list-modules                 # walks all four scopes
 baka module validate <name>       # schema + layout check + loadability gate (every declared action and validator must import through the engine's loader)
 baka validate                     # run all module-level validators
 ```
@@ -129,7 +205,7 @@ baka validate                     # run all module-level validators
 
 1. `baka module create <name>` to design a new module through the chat-driven double-diamond flow
 2. Review the LLM's design, refine via chat, and let the consistency test validate it
-3. `baka module test <name>` to run any one action in a scratch dir
+3. `baka module test <name> --action=<id> --input='<json>'` to run any one action in a scratch dir
 4. Push the repo to a public Git host
 5. Users install it with `baka install git:github.com/you/<name>`
 

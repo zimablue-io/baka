@@ -51,7 +51,13 @@ All provider knowledge is sealed inside `packages/agent-engine/`. Nothing else i
 2. `packages/agent-engine` owns the `createLLMProvider(config)` factory and all concrete implementations (e.g. `OpenAICompatibleProvider`).
 3. Workflows, `ast-tooling`, and the CLI import only the interface.
 
-**The grep test:** `grep -rE "fetch\(|https?://|api\.openai|anthropic" packages/ workflows/ apps/ --include="*.ts" | grep -v "agent-engine/"` must return zero matches. If it doesn't, the boundary is leaking and Phase 1's invariant is broken.
+**The grep test:**
+
+```bash
+grep -rE "api\.openai|api\.anthropic|@anthropic-ai/sdk|@earendil-works/pi-coding-agent|from \"openai\"|from 'openai'" packages/ workflows/ apps/ --include="*.ts" --exclude="*.test.ts" | grep -v "agent-engine/"
+```
+
+must return zero matches. If it doesn't, the boundary is leaking and the provider-sealing invariant is broken. The pattern targets LLM provider SDKs and provider API hosts specifically: non-test source may legitimately contain other URLs (marketplace catalog config, fixture hosts), which are not boundary leaks. Test files may reference provider names when they assert the boundary itself.
 
 ## Config is role-keyed
 

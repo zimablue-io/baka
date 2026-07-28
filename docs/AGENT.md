@@ -40,10 +40,10 @@ This document is the cross-package agent guide for the baka monorepo. It is the 
 **The grep test** that proves the provider boundary is intact:
 
 ```bash
-grep -rE "fetch\(|https?://|api\.openai|anthropic" packages/ workflows/ apps/ --include="*.ts" | grep -v "agent-engine/"
+grep -rE "api\.openai|api\.anthropic|@anthropic-ai/sdk|@earendil-works/pi-coding-agent|from \"openai\"|from 'openai'" packages/ workflows/ apps/ --include="*.ts" --exclude="*.test.ts" | grep -v "agent-engine/"
 ```
 
-This MUST return zero matches. If it doesn't, the boundary is leaking — file a regression and stop.
+This MUST return zero matches. If it doesn't, the boundary is leaking — file a regression and stop. The pattern targets LLM provider SDKs and provider API hosts specifically; non-test source may legitimately contain other URLs (marketplace catalog config, fixture hosts), which are not boundary leaks, and test files may reference provider names when they assert the boundary itself.
 
 ## Per-package pointers
 
@@ -73,25 +73,10 @@ pnpm baka list-modules      # list discovered modules
 pnpm mcp                    # run the baka-mcp server over stdio
 ```
 
-## The 8 phases (and which package each phase changes)
-
-| Phase | What lands | Packages touched |
-|---|---|---|
-| 1 — Foundation, sealed | types, schemas, CLI rename, philosophy doc | `protocol`, `agent-engine`, `apps/cli`, `docs/` |
-| 2 — CLI-driven config + module authoring | `baka init`, `baka role`, `baka roles`, `baka module *` | `apps/cli`, `agent-engine` (role-keyed config loader) |
-| 3 — Module registry + workers | real `ModuleRegistry`, real compensation | `ast-tooling`, `workflow-sdk` (new) |
-| 4 — Orchestrator + Validator + LLM | `OpenAICompatibleProvider`, real `Validator` | `agent-engine`, `ast-tooling` |
-| 5 — WorkflowSDK | `WorkflowEngine`, persistent state, logging | `packages/workflow-sdk` (new) |
-| 6 — Real modules | `next-base`, `auth`, `ts-style`, `frontend-ui` | `modules/` |
-| 7 — E2E CLI UX | `baka plan --dry-run`, `baka apply`, `baka validate` | `apps/cli`, all workflows |
-| 8 — Tests + observability | compensation tests, E2E, structured logs | `packages/workflow-sdk`, `apps/cli` |
-
-The current source of truth for each phase is `docs/superpowers/specs/2026-06-15-baka-redesign.md`. Per-phase spec docs land under `docs/superpowers/specs/` as each phase is started.
-
 ## What an agent must NOT do
 
 - Do not add a provider implementation outside `agent-engine/`. The grep test will fail.
-- Do not import `@earendil-works/pi-coding-agent` (or any other provider runtime) outside `agent-engine/`. The adapter is optional and lands in Phase 4.
+- Do not import `@earendil-works/pi-coding-agent` (or any other provider runtime) outside `agent-engine/`.
 - Do not introduce a separate credentials file, a `providers` map, an `activeProvider` marker, or a `defaults` block. Config is role-keyed: `~/.baka/config.json` has top-level `worker` and `validator` blocks, apiKey inline. Edit a single field with `baka role <name> --field <k> --value <v>`.
 - Do not write free-form code from an LLM. Every output must be a declared module action. If the action doesn't exist, the manifest catalog needs an entry first.
 - Do not add "TODO" or "Phase N" placeholders that pretend to work. If a function cannot do its job, throw with a clear error pointing at the spec.

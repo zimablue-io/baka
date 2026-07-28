@@ -15,7 +15,7 @@
 		"clean": "find . -name 'dist' -type d -exec rm -rf {} +",
 		"setup": "./scripts/setup.sh",
 		"postinstall": "pnpm --filter baka run build",
-		"baka": "pnpm --filter baka baka",
+		"baka": "node scripts/baka.mjs",
 		"mcp": "pnpm --filter @baka/mcp-server dev",
 		"link:global": "pnpm --filter baka --filter @baka/mcp-server exec pnpm link --global"
 	},
