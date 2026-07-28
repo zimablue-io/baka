@@ -149,7 +149,8 @@ async function fetchWithTimeout(
 				`openai-compatible: request to ${url} timed out after ${timeout}ms`,
 			)
 		}
-		throw err
+		const message = err instanceof Error ? err.message : String(err)
+		throw makeError(BAKA_EXIT_CODE.PROVIDER_ERROR, `openai-compatible: request to ${url} failed: ${message}`)
 	} finally {
 		clearTimeout(timer)
 	}

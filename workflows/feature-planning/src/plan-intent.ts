@@ -16,6 +16,12 @@ export async function featurePlanningWorkflow(
 	// Planning never mutates the project tree; execution is handled by `baka apply`.
 	const modules = discoverModules(rootDir)
 	state.logs.push(`[plan] discovered ${modules.length} module(s)`)
+	if (modules.length === 0) {
+		state.status = ENGINE_STATUS.FAILED
+		state.logs.push("[plan] no modules were discovered; cannot plan")
+		return state
+	}
+
 	const orchestratorStep = createOrchestratePlanningStep(provider)
 	const planningResult = await orchestratorStep.execute({ intent, availableModules: modules }, state, {
 		llmProvider: provider,
