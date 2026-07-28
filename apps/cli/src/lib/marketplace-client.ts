@@ -23,13 +23,45 @@ export interface ClientOptions {
 	fetch?: typeof fetch
 }
 
+/**
+ * The registry itself could not be reached (DNS, connection refused,
+ * timeout). Distinct from a reachable registry answering with an HTTP
+ * error: callers must be able to tell "the service is down" apart from
+ * "the service answered". Always names the base URL that failed.
+ */
+export class MarketplaceTransportError extends Error {
+	readonly baseUrl: string
+	constructor(baseUrl: string, path: string, cause: string) {
+		super(`marketplace registry unreachable at ${baseUrl} (${path}): ${cause}`)
+		this.name = "MarketplaceTransportError"
+		this.baseUrl = baseUrl
+	}
+}
+
+/** The registry answered with a non-2xx status. Carries the status code. */
+export class MarketplaceHttpError extends Error {
+	readonly status: number
+	constructor(status: number, message: string) {
+		super(message)
+		this.name = "MarketplaceHttpError"
+		this.status = status
+	}
+}
+
 async function request<T>(path: string, init: RequestInit, opts: ClientOptions = {}): Promise<T> {
 	const base = opts.apiUrl ?? getMarketplaceApiUrl()
 	const f = opts.fetch ?? globalThis.fetch
-	const res = await f(`${base}${path}`, init)
+	let res: Response
+	try {
+		res = await f(`${base}${path}`, init)
+	} catch (err) {
+		const cause = err instanceof Error ? (err.cause instanceof Error ? err.cause.message : err.message) : String(err)
+		throw new MarketplaceTransportError(base, `${init.method ?? "GET"} ${path}`, cause)
+	}
 	if (!res.ok) {
 		const body = await res.text().catch(() => "")
-		throw new Error(
+		throw new MarketplaceHttpError(
+			res.status,
 			`marketplace API ${init.method ?? "GET"} ${path} failed: HTTP ${res.status} ${res.statusText}${body ? ` - ${body}` : ""}`,
 		)
 	}

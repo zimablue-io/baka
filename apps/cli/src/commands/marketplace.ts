@@ -14,7 +14,7 @@ import {
 	userSettingsPath,
 } from "@repo/ast-tooling"
 import { BAKA_EXIT_CODE } from "@repo/protocol"
-import { getVerifiedList, lookupModule } from "../lib/marketplace-client"
+import { getVerifiedList, lookupModule, MarketplaceHttpError } from "../lib/marketplace-client"
 
 function die(code: number, msg: string): never {
 	process.stderr.write(`baka: ${msg}\n`)
@@ -33,49 +33,62 @@ export interface ResolveOptions {
 
 /**
  * Resolves a bare module name to a source string by querying the
- * marketplace API. Returns `null` if no match is found or the API is
- * unreachable. Used by `runInstallCommand` to extend `baka install` to
- * accept names like `baka-acme-auth` in addition to the explicit source
- * format (`npm:...`, `git:...`, etc.).
+ * marketplace API. Returns `null` only when a reachable registry answers
+ * that no such module exists (HTTP 404). A registry that cannot be reached
+ * at all throws (MarketplaceTransportError, naming the base URL) — the
+ * caller must not confuse "the service is down" with "no such module".
+ * Used by `runInstallCommand` to extend `baka install` to accept names
+ * like `baka-acme-auth` in addition to the explicit source format
+ * (`npm:...`, `git:...`, etc.).
  */
 export async function resolveModuleName(
 	name: string,
 	opts: ResolveOptions = {},
 ): Promise<{ source: string; tier: string } | null> {
+	const clientOpts = { fetch: opts.fetch, apiUrl: opts.apiUrl }
+	const subs = opts.subscriptions ?? readCatalogSubscriptions()
+	const verified = await getVerifiedList(clientOpts)
+	const allUrls = [...verified.catalogs.map((c) => c.url), ...subs.catalogs]
 	try {
-		const clientOpts = { fetch: opts.fetch, apiUrl: opts.apiUrl }
-		const subs = opts.subscriptions ?? readCatalogSubscriptions()
-		const verified = await getVerifiedList(clientOpts)
-		const allUrls = [...verified.catalogs.map((c) => c.url), ...subs.catalogs]
 		const result = await lookupModule(name, allUrls, clientOpts)
 		return { source: result.module.source, tier: result.source.tier }
-	} catch {
-		return null
+	} catch (err) {
+		if (err instanceof MarketplaceHttpError && err.status === 404) return null
+		throw err
 	}
 }
 
 export async function runInstallCommand(
 	source: string,
-	opts: { cwd: string; scope: "project" | "user" },
+	opts: { cwd: string; scope: "project" | "user"; resolve?: ResolveOptions },
 ): Promise<void> {
 	if (!source) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka install <source>")
 
 	let resolvedSource = source
 	try {
 		parseSource(source)
-	} catch (parseErr) {
-		const resolved = await resolveModuleName(source)
+	} catch {
+		// Not an explicit source spec (npm:/git:/local/URL): treat it as a
+		// bare module name and resolve it through the marketplace registry.
+		let resolved: { source: string; tier: string } | null
+		try {
+			resolved = await resolveModuleName(source, opts.resolve)
+		} catch (err) {
+			// The registry itself is unreachable — report the transport truth
+			// (which URL failed and why), never a parse error.
+			const message = err instanceof Error ? err.message : String(err)
+			die(BAKA_EXIT_CODE.ENGINE_ERROR, `cannot resolve "${source}": ${message}`)
+		}
 		if (resolved) {
 			resolvedSource = resolved.source
 			console.log(`resolved "${source}" -> ${resolvedSource} (${resolved.tier})`)
 		} else {
-			// Neither a valid source spec (npm:/git:/local/URL) nor a name
-			// resolvable through the marketplace API. The user's input is
-			// malformed — this is a USER_ERROR (1), not an ENGINE_ERROR (2).
-			// Surface the original parse error message so the user sees the
-			// supported formats.
-			const message = parseErr instanceof Error ? parseErr.message : String(parseErr)
-			die(BAKA_EXIT_CODE.USER_ERROR, message)
+			// A reachable registry answered: no such module. USER_ERROR (1) —
+			// the user asked for something that does not exist.
+			die(
+				BAKA_EXIT_CODE.USER_ERROR,
+				`module not found in the registry: "${source}". Explicit sources: npm:@scope/pkg[@ver], git:host/repo[@ref], /abs/path, ./rel/path, or https://...`,
+			)
 		}
 	}
 

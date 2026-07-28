@@ -17,7 +17,7 @@
 //   VAL-CLI-016  list-modules --json emits the documented shape (3 modules)
 //   VAL-CLI-017  list-modules --json is cwd-scoped (3 modules in BAKA_REPO)
 //   VAL-CLI-018  --cwd <nonexistent> exits 1 with a clear message
-//   VAL-CLI-031  install <bad-source> exits 1 with a parse error
+//   VAL-CLI-031  install <bad-source> with unreachable registry exits 2 naming the registry
 //   VAL-CLI-032  marketplace add <url> is idempotent
 //   VAL-CLI-033  marketplace remove <not-subscribed> exits 1
 //   VAL-CLI-034  list-packages empty case prints the user hint, exits 0
@@ -396,15 +396,25 @@ describe("VAL-CLI-018 baka --cwd <nonexistent>", () => {
 // ---------------------------------------------------------------------------
 
 describe("VAL-CLI-031 baka install <bad-source>", () => {
-	it("exits 1 with a parse-error stderr message", async () => {
+	it("exits non-zero with an honest registry-unreachable message when the name cannot be resolved", async () => {
 		const fakeHome = trackDir(makeEmptyDir("baka-install-bad-"))
-		const { code, stdout, stderr } = await spawnCliWithFakeHome({
+		// A bare name is looked up through the marketplace registry. With the
+		// registry unreachable, the truthful failure is the transport error —
+		// never the "unrecognized source" parse message.
+		const deadPort = 4319
+		const { code, stdout, stderr } = await spawnCli({
 			argv: ["install", "not-a-real-source"],
-			fakeHome,
+			cwd: trackDir(makeEmptyDir("baka-install-bad-cwd-")),
+			env: {
+				HOME: fakeHome,
+				XDG_CONFIG_HOME: fakeHome,
+				XDG_DATA_HOME: fakeHome,
+				BAKA_API_URL: `http://127.0.0.1:${deadPort}`,
+			},
 		})
-		expect(code, `unexpected code; stderr=${stderr}`).toBe(1)
-		// The parse-error explanation should reach the user verbatim.
-		expect(stderr.toLowerCase()).toContain("unrecognized source")
+		expect(code, `unexpected code; stderr=${stderr}`).toBe(2)
+		expect(stderr).toContain(`http://127.0.0.1:${deadPort}`)
+		expect(stderr.toLowerCase()).not.toContain("unrecognized source")
 		// No Node stack frames on stderr.
 		expect(stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
 		expect(stdout).toBe("")

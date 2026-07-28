@@ -379,9 +379,10 @@ marketplaceCatalogCmd
 program
 	.command("search <query>")
 	.description("Search modules across the built-in catalog + your subscribed community catalogs")
-	.action(async (query) => {
+	.option("--json", "emit machine-readable JSON to stdout (results plus per-source warnings)")
+	.action(async (query, opts) => {
 		try {
-			await runSearchCommand(query)
+			await runSearchCommand(query, { json: opts.json })
 		} catch (err) {
 			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
 		}

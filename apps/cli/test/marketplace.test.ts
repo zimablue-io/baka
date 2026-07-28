@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
 	resolveModuleName,
+	runInstallCommand,
 	runMarketplaceAdd,
 	runMarketplaceList,
 	runMarketplaceRemove,
@@ -128,9 +129,26 @@ describe("resolveModuleName", () => {
 
 	const verified = { catalogs: [] }
 
-	it("returns null when the API is unreachable", async () => {
-		const result = await resolveModuleName("foo", {
-			fetch: makeFetchMock({}),
+	it("throws a transport error naming the base URL when the API is unreachable", async () => {
+		const f = async (): Promise<Response> => {
+			throw new TypeError("fetch failed")
+		}
+		await expect(
+			resolveModuleName("foo", {
+				fetch: f as typeof fetch,
+				apiUrl: "https://api.test",
+				subscriptions: { catalogs: [] },
+			}),
+		).rejects.toThrow(/marketplace registry unreachable at https:\/\/api\.test/)
+	})
+
+	it("returns null when the module is not found in the registry (404)", async () => {
+		const f = makeFetchMock({
+			"https://api.test/v1/verified": { status: 200, body: { catalogs: [] } },
+			// /v1/modules/ghost-module falls through to the mock's 404 default.
+		})
+		const result = await resolveModuleName("ghost-module", {
+			fetch: f,
 			apiUrl: "https://api.test",
 			subscriptions: { catalogs: [] },
 		})
@@ -152,5 +170,70 @@ describe("resolveModuleName", () => {
 			subscriptions: { catalogs: [] },
 		})
 		expect(result).toEqual({ source: "./modules/baka-base", tier: "built-in" })
+	})
+})
+
+describe("runInstallCommand bare-name failure modes", () => {
+	function stubExit() {
+		const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
+			throw new Error("process.exit called")
+		}) as never)
+		const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+		return {
+			exitSpy,
+			stderr: () => errSpy.mock.calls.map((c) => String(c[0])).join(""),
+			restore: () => {
+				exitSpy.mockRestore()
+				errSpy.mockRestore()
+			},
+		}
+	}
+
+	it("reports the registry as unreachable when resolution fails on transport", async () => {
+		const { exitSpy, stderr, restore } = stubExit()
+		const f = async (): Promise<Response> => {
+			throw new TypeError("fetch failed")
+		}
+		await expect(
+			runInstallCommand("ts-style", {
+				cwd: tmpDir,
+				scope: "project",
+				resolve: { fetch: f as typeof fetch, apiUrl: "https://dead-api.test", subscriptions: { catalogs: [] } },
+			}),
+		).rejects.toThrow(/process.exit/)
+		expect(exitSpy).toHaveBeenCalledWith(2)
+		expect(stderr()).toContain("https://dead-api.test")
+		expect(stderr()).not.toContain("unrecognized source")
+		restore()
+	})
+
+	it("reports not-found when the registry answers 404 for the bare name", async () => {
+		const { exitSpy, stderr, restore } = stubExit()
+		const f = async (input: string | URL | Request): Promise<Response> => {
+			const url = typeof input === "string" ? input : input.toString()
+			if (url.endsWith("/v1/verified")) {
+				return new Response(JSON.stringify({ catalogs: [] }), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				})
+			}
+			return new Response(JSON.stringify({ error: "module not found: ghost-module" }), {
+				status: 404,
+				statusText: "Not Found",
+				headers: { "content-type": "application/json" },
+			})
+		}
+		await expect(
+			runInstallCommand("ghost-module", {
+				cwd: tmpDir,
+				scope: "project",
+				resolve: { fetch: f as typeof fetch, apiUrl: "https://api.test", subscriptions: { catalogs: [] } },
+			}),
+		).rejects.toThrow(/process.exit/)
+		expect(exitSpy).toHaveBeenCalledWith(1)
+		expect(stderr()).toContain("not found in the registry")
+		expect(stderr()).toContain("ghost-module")
+		expect(stderr()).not.toContain("unrecognized source")
+		restore()
 	})
 })
