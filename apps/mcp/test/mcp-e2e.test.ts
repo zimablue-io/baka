@@ -691,8 +691,8 @@ describe("VAL-MCP-011 tools/call baka_validate", () => {
 			const id = sendRpc(state, "tools/call", { name: "baka_validate", arguments: {} })
 			const resp = await waitForResponse(state, id, 5_000)
 			const result = resp?.result as { content: Array<{ type: string; text: string }>; isError?: boolean }
-			expect(result.isError).toBeFalsy()
 			const parsed = JSON.parse(result.content[0].text) as {
+				valid: boolean
 				modulesDiscovered: number
 				validation: { kind: string; diagnostics: unknown[] }
 			}
@@ -700,6 +700,10 @@ describe("VAL-MCP-011 tools/call baka_validate", () => {
 			expect(parsed.modulesDiscovered).toBeGreaterThanOrEqual(3)
 			expect(["pass", "fail"]).toContain(parsed.validation.kind)
 			expect(Array.isArray(parsed.validation.diagnostics)).toBe(true)
+			// The failure surface is unambiguous (VAL-FOUND-042): a failing
+			// validation sets isError and valid:false; a passing one does neither.
+			expect(parsed.valid).toBe(parsed.validation.kind !== "fail")
+			expect(result.isError ?? false).toBe(parsed.validation.kind === "fail")
 		} finally {
 			await shutdown(state)
 		}

@@ -246,7 +246,10 @@ export async function runValidateCommand(cwd: string, opts: { json?: boolean; mo
 	if (opts.json) {
 		// Same shape as the MCP `baka_validate` tool, plus the optional
 		// `moduleName` echo so the consumer can confirm the filter landed.
+		// `valid` mirrors the MCP top-level boolean so both surfaces branch
+		// on failure the same way (the CLI additionally exits 4).
 		const payload: Record<string, unknown> = {
+			valid: result.kind !== "fail",
 			modulesDiscovered: modules.length,
 			validation: result,
 		}

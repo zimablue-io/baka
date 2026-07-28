@@ -66,7 +66,7 @@ baka module create <name>
 1. **Discover**: call `baka list-modules --json` (or read `baka://modules`) to see the action catalog. The LLM is constrained to these.
 2. **Plan**: call `baka plan "<intent>" --json` to get a Zod-validated plan. Each step is `{module, action, params}`. The plan is the source of truth; you cannot invent steps.
 3. **Apply** (optional): save the plan with `--save` and run `baka apply <plan-file> --json`. The SAGA runs steps with compensation on failure; validators run after.
-4. **Validate**: `baka validate --json` returns pass/fail with structured diagnostics.
+4. **Validate**: `baka validate --json` returns pass/fail with structured diagnostics. A failing validation is unambiguous on both surfaces: the CLI exits 4 and the JSON carries `valid: false`; the MCP `baka_validate` tool result sets `isError: true` with the same payload.
 
 # Module authoring
 

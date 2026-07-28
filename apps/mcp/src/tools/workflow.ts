@@ -153,6 +153,7 @@ export async function runApply(
 // ---------------------------------------------------------------------------
 
 export interface ValidateToolOutput {
+	valid: boolean
 	modulesDiscovered: number
 	validation: ValidationResult
 }
@@ -170,7 +171,10 @@ export async function runValidate(ctx: ServerContext): Promise<ValidateToolOutpu
 		artifacts: {},
 	}
 	const validation = await runValidators(ctx.cwd, state)
-	return { modulesDiscovered: modules.length, validation }
+	// Top-level `valid` gives agent clients a boolean to branch on without
+	// parsing the nested ValidationResult; the tool handler additionally
+	// marks a failing validation with isError (VAL-FOUND-042).
+	return { valid: validation.kind !== "fail", modulesDiscovered: modules.length, validation }
 }
 
 // ---------------------------------------------------------------------------

@@ -239,12 +239,12 @@ function registerWorkflowTools(server: McpServer, ctx: ServerContext): void {
 		"baka_validate",
 		{
 			description:
-				"Run all module validators (structural + module-level + action-level) against the current project tree. Returns pass/fail with structured diagnostics.",
+				'Run all module validators (structural + module-level + action-level) against the current project tree. Returns { valid, modulesDiscovered, validation } with structured diagnostics. A failing validation (validation.kind === "fail") carries valid: false and the tool result is marked isError: true, so agent clients can branch on the failure without parsing free text.',
 			inputSchema: ValidateInputSchema.shape,
 		},
 		async () => {
 			const result = await runValidate(ctx)
-			return jsonResult(result)
+			return { ...jsonResult(result), ...(result.valid ? {} : { isError: true }) }
 		},
 	)
 
