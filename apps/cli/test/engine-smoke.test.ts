@@ -1204,3 +1204,193 @@ describe("VAL-FOUND-043 ts-style no-any-types skips test files", () => {
 		expect(secondAny[0].file).toBe(join(srcDir, "bad.ts"))
 	})
 })
+
+// ===========================================================================
+// VAL-FOUND-019 (marketplace scope) — module validate resolves the same
+// scopes as the engine; an unloadable action in the project marketplace
+// fails validation with exit 4, not "module not found".
+// ===========================================================================
+
+describe("VAL-FOUND-019 baka module validate loadability gate (marketplace scope)", () => {
+	it("reports valid: false for a project-marketplace fixture with an unloadable action", async () => {
+		const scratch = trackDir(makeEmptyDir("baka-validate-marketplace-"))
+		const moduleDir = join(scratch, ".baka", "modules", "unloadable-mod")
+		const actionDir = join(moduleDir, "bad-action")
+		mkdirSync(actionDir, { recursive: true })
+		writeFileSync(
+			join(moduleDir, "manifest.ts"),
+			`export const Manifest = {
+	name: "unloadable-mod",
+	version: "0.1.0",
+	description: "fixture with unloadable action",
+	dependencies: [],
+	conflictsWith: [],
+	actions: [
+		{
+			id: "bad-action",
+			description: "declared action whose action.ts exports nothing loadable",
+			requiresReasoning: false,
+			filePatterns: [],
+			validators: [],
+			params: [],
+		},
+	],
+	moduleValidators: [],
+}
+`,
+			"utf-8",
+		)
+		writeFileSync(
+			join(actionDir, "action.ts"),
+			`export const somethingElse = {
+	execute: async () => ({ success: true }),
+	compensate: async () => {},
+}
+`,
+			"utf-8",
+		)
+
+		const { code, stdout, stderr } = await spawnCli({
+			argv: ["module", "validate", "unloadable-mod", "--json"],
+			cwd: scratch,
+		})
+
+		expect(code, `unexpected exit ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(4)
+		const parsed = JSON.parse(stdout) as {
+			module: string
+			valid: boolean
+			errors: string[]
+		}
+		expect(parsed.valid).toBe(false)
+		expect(parsed.errors.some((e) => e.includes("bad-action") && e.includes("not loadable"))).toBe(true)
+	})
+})
+
+// ===========================================================================
+// VAL-FOUND-020 — every shipped module passes loadability-gated validation
+// ===========================================================================
+
+describe("VAL-FOUND-020 shipped modules pass loadability-gated validation", () => {
+	for (const name of ["baka-base", "sdd", "ts-style"]) {
+		it(`module validate ${name} --json reports valid: true`, async () => {
+			const { code, stdout, stderr } = await spawnCli({
+				argv: ["module", "validate", name, "--json"],
+			})
+
+			expect(code, `unexpected exit ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(0)
+			const parsed = JSON.parse(stdout) as { module: string; valid: boolean; errors: string[] }
+			expect(parsed.module).toBe(name)
+			expect(parsed.valid, `errors: ${parsed.errors?.join("; ")}`).toBe(true)
+		})
+	}
+})
+
+// ===========================================================================
+// VAL-FOUND-021 — module test and apply resolve the same export through the
+// same pinned order. The fixture's `pick` action exports BOTH `pickAction`
+// (writes from-pick-action.txt) and a default export (writes
+// from-default.txt); `pickAction` must win on both surfaces.
+// ===========================================================================
+
+describe("VAL-FOUND-021 module test and apply share loader and resolution order", () => {
+	function writePickFixture(projectDir: string): void {
+		const moduleDir = join(projectDir, ".baka", "modules", "pick-mod")
+		mkdirSync(join(moduleDir, "pick"), { recursive: true })
+		writeFileSync(
+			join(moduleDir, "manifest.ts"),
+			`export const Manifest = {
+	name: "pick-mod",
+	version: "0.1.0",
+	description: "resolution order fixture",
+	dependencies: [],
+	conflictsWith: [],
+	actions: [
+		{
+			id: "pick",
+			description: "writes a file proving which export won",
+			requiresReasoning: false,
+			filePatterns: ["from-pick-action.txt"],
+			validators: [],
+			params: [],
+		},
+	],
+	moduleValidators: [],
+}
+`,
+			"utf-8",
+		)
+		writeFileSync(
+			join(moduleDir, "pick", "action.ts"),
+			`import { writeFileSync } from "node:fs"
+import { join } from "node:path"
+
+export const pickAction = {
+	name: "pick-mod.pick",
+	execute: async (_input, state) => {
+		writeFileSync(join(state.targetDirectory, "from-pick-action.txt"), "pickAction\\n", "utf-8")
+		return { success: true, output: "from-pick-action.txt", compensationData: null }
+	},
+	compensate: async () => {},
+}
+
+export default {
+	name: "pick-mod.pick",
+	execute: async (_input, state) => {
+		writeFileSync(join(state.targetDirectory, "from-default.txt"), "default\\n", "utf-8")
+		return { success: true, output: "from-default.txt", compensationData: null }
+	},
+	compensate: async () => {},
+}
+`,
+			"utf-8",
+		)
+	}
+
+	it("baka module test resolves a marketplace-scope module and picks pickAction over default", async () => {
+		const scratch = trackDir(makeEmptyDir("baka-pick-module-test-"))
+		writePickFixture(scratch)
+
+		const { code, stdout, stderr } = await spawnCli({
+			argv: ["module", "test", "pick-mod", "--action", "pick", "--input", "{}"],
+			cwd: scratch,
+		})
+
+		expect(code, `unexpected exit ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(0)
+		expect(stdout).toContain("from-pick-action.txt")
+		expect(stdout).not.toContain("from-default.txt")
+	})
+
+	it("baka apply of a saved plan picks pickAction over default in the target tree", async () => {
+		const scratch = trackDir(makeEmptyDir("baka-pick-apply-"))
+		writePickFixture(scratch)
+		const plansDir = join(scratch, ".baka", "plans")
+		mkdirSync(plansDir, { recursive: true })
+		const planFile = join(plansDir, "pick.plan.json")
+		writeFileSync(
+			planFile,
+			JSON.stringify(
+				{
+					resolvedSteps: [{ id: "step-1", module: "pick-mod", action: "pick", params: {} }],
+					meta: { intent: "pick", savedAt: "2026-07-28T00:00:00.000Z" },
+				},
+				null,
+				2,
+			),
+			"utf-8",
+		)
+
+		const { code, stdout, stderr } = await spawnCli({
+			argv: ["--cwd", scratch, "apply", planFile, "--json"],
+			cwd: scratch,
+			// No LLM call is made for a non-reasoning action; the config only
+			// satisfies the apply command's role load.
+			bakaConfig: { worker: { baseUrl: "http://127.0.0.1:9/v1", model: "unused" } },
+		})
+
+		expect(code, `unexpected exit ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(0)
+		const parsed = JSON.parse(stdout) as { status: string }
+		expect(parsed.status).toBe("SUCCESS")
+		expect(existsSync(join(scratch, "from-pick-action.txt"))).toBe(true)
+		expect(existsSync(join(scratch, "from-default.txt"))).toBe(false)
+	})
+})

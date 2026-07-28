@@ -1,6 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs"
-import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { join } from "node:path"
 import {
 	AgentRole,
 	type LLMProvider,
@@ -15,6 +14,7 @@ import Handlebars from "handlebars"
 import { createJiti } from "jiti"
 import { z } from "zod"
 import { loadAction } from "./action-loader.js"
+import { ModuleRegistry } from "./registry.js"
 
 /**
  * Handlebars comment sentinel that opts a template out of LLM reasoning. If a
@@ -83,7 +83,7 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, boolean, WorkerRollbac
 			const moduleRoot = resolveModuleRoot(targetDirectory, input.moduleName)
 			if (!moduleRoot) {
 				throw new Error(
-					`module "${input.moduleName}" not found (looked in <targetDirectory>/modules/${input.moduleName} and the bundled scope)`,
+					`module "${input.moduleName}" not found (searched tree, project marketplace, user marketplace, and bundled scopes)`,
 				)
 			}
 
@@ -140,7 +140,7 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, boolean, WorkerRollbac
 		const moduleRoot = resolveModuleRoot(data.targetDirectory, data.moduleName)
 		if (!moduleRoot) {
 			throw new Error(
-				`module "${data.moduleName}" not found during rollback (looked in <targetDirectory>/modules/${data.moduleName} and the bundled scope)`,
+				`module "${data.moduleName}" not found during rollback (searched tree, project marketplace, user marketplace, and bundled scopes)`,
 			)
 		}
 		const manifest = loadManifest(moduleRoot, data.moduleName)
@@ -154,50 +154,13 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, boolean, WorkerRollbac
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve a module's root directory. Checks the project scope first
- * (`<targetDirectory>/modules/<name>/`), then falls back to the bundled
- * scope. The bundled scope is anchored on `import.meta.url` (the same
- * anchor the `ModuleRegistry.findBundledModulesDir` walk-up uses): the
- * worker and the registry agree on the baka repo's `modules/` dir by
- * walking up from the file URL of the bundled JS. Returns `null` when
- * neither scope has the module.
- *
+ * Resolve a module's root directory through the ModuleRegistry so the
+ * worker sees exactly the scopes the engine's discovery sees (tree,
+ * project marketplace, user marketplace, bundled) with the same
+ * precedence. Returns `null` when no scope has the module.
  */
 function resolveModuleRoot(targetDirectory: string, moduleName: string): string | null {
-	const projectPath = join(targetDirectory, "modules", moduleName)
-	if (existsSync(join(projectPath, "manifest.ts"))) {
-		return projectPath
-	}
-	const bundledDir = findBundledModulesDir()
-	if (bundledDir) {
-		const bundledPath = join(bundledDir, moduleName)
-		if (existsSync(join(bundledPath, "manifest.ts"))) {
-			return bundledPath
-		}
-	}
-	return null
-}
-
-/**
- * Walk up from `import.meta.url` looking for the baka repo's
- * `modules/baka-base/manifest.ts` marker. Returns the absolute path to
- * `<repo>/modules/` or `null` if the baka repo is not reachable. Mirrors
- * `ModuleRegistry.findBundledModulesDir` so the worker and the registry
- * always agree on the bundled-scope root.
- */
-function findBundledModulesDir(): string | null {
-	const start = dirname(fileURLToPath(import.meta.url))
-	let cur = start
-	for (let i = 0; i < 8; i++) {
-		const marker = join(cur, "modules", "baka-base", "manifest.ts")
-		if (existsSync(marker)) {
-			return join(cur, "modules")
-		}
-		const parent = dirname(cur)
-		if (parent === cur) break
-		cur = parent
-	}
-	return null
+	return new ModuleRegistry(targetDirectory).resolveModuleRoot(moduleName) ?? null
 }
 
 function loadManifest(moduleRoot: string, moduleName: string): ModuleManifest {

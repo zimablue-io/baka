@@ -92,6 +92,36 @@ export const Manifest: ModuleManifest = {
 		expect(order.indexOf("mod-a")).toBeLessThan(order.indexOf("mod-b"))
 	})
 
+	it("resolveModuleRoot prefers the project marketplace over the tree scope", () => {
+		const dir = makeProject()
+		const savedHome = process.env.HOME
+		process.env.HOME = dir
+		try {
+			mkdirSync(join(dir, ".baka", "modules", "mod-a"), { recursive: true })
+			writeFileSync(
+				join(dir, ".baka", "modules", "mod-a", "manifest.ts"),
+				`export const Manifest = { name: "mod-a" }\n`,
+			)
+			const reg = new ModuleRegistry(dir)
+			expect(reg.resolveModuleRoot("mod-a")).toBe(join(dir, ".baka", "modules", "mod-a"))
+		} finally {
+			process.env.HOME = savedHome
+		}
+	})
+
+	it("resolveModuleRoot falls back to the tree scope and returns undefined when absent", () => {
+		const dir = makeProject()
+		const savedHome = process.env.HOME
+		process.env.HOME = dir
+		try {
+			const reg = new ModuleRegistry(dir)
+			expect(reg.resolveModuleRoot("mod-a")).toBe(join(dir, "modules", "mod-a"))
+			expect(reg.resolveModuleRoot("ghost-mod")).toBeUndefined()
+		} finally {
+			process.env.HOME = savedHome
+		}
+	})
+
 	it("throws on missing dependency", () => {
 		const dir = mkdtempSync(join(tmpdir(), "baka-registry-"))
 		cleanup.push(dir)

@@ -121,7 +121,7 @@ If `requiresReasoning: true`, the LLM is shown a prompt that includes the action
 
 ```sh
 baka list-modules                 # walks all three scopes
-baka module validate <name>       # schema + layout check
+baka module validate <name>       # schema + layout check + loadability gate (every declared action and validator must import through the engine's loader)
 baka validate                     # run all module-level validators
 ```
 

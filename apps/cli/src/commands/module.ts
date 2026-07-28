@@ -1,8 +1,14 @@
 import { spawn } from "node:child_process"
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, readdirSync, realpathSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { loadAction, loadActionValidator, loadModuleValidator, validatorFilename } from "@repo/ast-tooling"
+import {
+	loadAction,
+	loadActionValidator,
+	loadModuleValidator,
+	ModuleRegistry,
+	validatorFilename,
+} from "@repo/ast-tooling"
 import { BAKA_EXIT_CODE, type ModuleManifest, ModuleManifestSchema, type OrchestrationState } from "@repo/protocol"
 import { createJiti } from "jiti"
 
@@ -22,15 +28,17 @@ export function runModuleValidate(name: string, opts: { json?: boolean } = {}): 
 	if (!name) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka module validate <name>")
 
 	const cwd = process.cwd()
-	const root = join(cwd, "modules", name)
-	if (!existsSync(root)) {
+	// Resolve through the same registry the engine uses so validate sees the
+	// same modules plan/apply see (tree, project marketplace, user
+	// marketplace, bundled), not just the in-tree modules/ dir.
+	const root = new ModuleRegistry(cwd).resolveModuleRoot(name)
+	if (!root) {
+		const msg = `module not found: ${name} (searched tree, project marketplace, user marketplace, and bundled scopes)`
 		if (opts.json) {
-			console.log(
-				JSON.stringify({ module: name, valid: false, errors: [`module not found at ${root}`], warnings: [] }, null, 2),
-			)
+			console.log(JSON.stringify({ module: name, valid: false, errors: [msg], warnings: [] }, null, 2))
 			process.exit(BAKA_EXIT_CODE.USER_ERROR)
 		}
-		die(BAKA_EXIT_CODE.USER_ERROR, `module not found at ${root}`)
+		die(BAKA_EXIT_CODE.USER_ERROR, msg)
 	}
 
 	const errors: string[] = []
@@ -214,8 +222,14 @@ export async function runModuleTest(name: string, actionId: string, inputJson: s
 	if (!actionId) die(BAKA_EXIT_CODE.USER_ERROR, "--action=<id> is required")
 
 	const cwd = process.cwd()
-	const root = join(cwd, "modules", name)
-	if (!existsSync(root)) die(BAKA_EXIT_CODE.USER_ERROR, `module not found: ${name}`)
+	// Resolve through the same registry the engine uses so `module test`
+	// sees the same modules plan/apply see (tree, project marketplace, user
+	// marketplace, bundled), not just the in-tree modules/ dir.
+	const resolved = new ModuleRegistry(cwd).resolveModuleRoot(name)
+	if (!resolved) die(BAKA_EXIT_CODE.USER_ERROR, `module not found: ${name}`)
+	// Marketplace installs are symlinks; copy the real directory so the
+	// action's writes land in the temp copy, never in the installed source.
+	const root = realpathSync(resolved)
 
 	const actionTsPath = join(root, actionId, "action.ts")
 	if (!existsSync(actionTsPath)) {

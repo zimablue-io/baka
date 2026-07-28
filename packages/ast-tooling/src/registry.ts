@@ -74,6 +74,49 @@ export class ModuleRegistry {
 	}
 
 	/**
+	 * The module search scopes, in discovery iteration order: in-tree
+	 * modules, the project marketplace, the user marketplace, and the
+	 * bundled scope (the baka repo's own modules/, when reachable).
+	 */
+	private searchScopes(): Array<{ dir: string; scope: "tree" | "project" | "user" | "bundled"; jitiRoot: string }> {
+		const scopes: Array<{ dir: string; scope: "tree" | "project" | "user" | "bundled"; jitiRoot: string }> = [
+			{ dir: join(this.root, "modules"), scope: "tree", jitiRoot: this.root },
+			{ dir: join(this.root, BAKA_PROJECT_PATHS.ROOT, "modules"), scope: "project", jitiRoot: this.root },
+			{ dir: join(homedir(), `.${BAKA_USER_DIR}`, "modules"), scope: "user", jitiRoot: this.root },
+		]
+		const bundledDir = ModuleRegistry.findBundledModulesDir()
+		if (bundledDir) {
+			// jiti needs to resolve `baka-sdk` from the bundled module's
+			// own `node_modules/` symlink; the baka repo root is the
+			// natural lookup root for that.
+			scopes.push({ dir: bundledDir, scope: "bundled", jitiRoot: dirname(bundledDir) })
+		}
+		return scopes
+	}
+
+	/**
+	 * Resolve the on-disk root of a single named module across every scope,
+	 * without parsing its manifest. Precedence mirrors discover()'s dedup
+	 * rules: project marketplace wins, then tree, then user marketplace,
+	 * then bundled. Unlike discover(), the bundled scope is always probed:
+	 * resolving an explicitly-named module (e.g. a plan step's target) is
+	 * not gated on the cwd looking like a project.
+	 */
+	resolveModuleRoot(name: string): string | undefined {
+		const precedence = ["project", "tree", "user", "bundled"] as const
+		const scopes = this.searchScopes()
+		for (const scopeName of precedence) {
+			const scope = scopes.find((s) => s.scope === scopeName)
+			if (!scope) continue
+			const candidate = join(scope.dir, name)
+			if (existsSync(join(candidate, "manifest.ts"))) {
+				return candidate
+			}
+		}
+		return undefined
+	}
+
+	/**
 	 * Discover and validate every module under <root>/modules/*.
 	 * A module must have:
 	 *   - manifest.ts exporting a `Manifest` value of type ModuleManifest
@@ -89,23 +132,14 @@ export class ModuleRegistry {
 		// Walk both the in-tree modules dir and the user/project marketplace
 		// install dirs. Project marketplace wins on dedup; user marketplace
 		// is a fallback. The bundled scope (the baka repo's in-tree modules)
-		// is added when the baka repo is reachable AND the cwd looks like
-		// a real project (has a package.json). The package.json gate keeps
-		// the bundled scope silent in truly empty directories; without it,
-		// `baka list-modules` from `/tmp` would silently return the bundled
-		// modules, breaking the cwd-scoped discovery invariant.
-		const searchDirs: Array<{ dir: string; scope: "tree" | "project" | "user" | "bundled"; jitiRoot: string }> = [
-			{ dir: join(this.root, "modules"), scope: "tree", jitiRoot: this.root },
-			{ dir: join(this.root, BAKA_PROJECT_PATHS.ROOT, "modules"), scope: "project", jitiRoot: this.root },
-			{ dir: join(homedir(), `.${BAKA_USER_DIR}`, "modules"), scope: "user", jitiRoot: this.root },
-		]
-		const bundledDir = ModuleRegistry.findBundledModulesDir()
-		if (bundledDir && existsSync(join(this.root, "package.json"))) {
-			// jiti needs to resolve `baka-sdk` from the bundled module's
-			// own `node_modules/` symlink; the baka repo root is the
-			// natural lookup root for that.
-			searchDirs.push({ dir: bundledDir, scope: "bundled", jitiRoot: dirname(bundledDir) })
-		}
+		// is listed only when the baka repo is reachable AND the cwd looks
+		// like a real project (has a package.json). The package.json gate
+		// keeps the bundled scope silent in truly empty directories; without
+		// it, `baka list-modules` from `/tmp` would silently return the
+		// bundled modules, breaking the cwd-scoped discovery invariant.
+		const searchDirs = this.searchScopes().filter(
+			(s) => s.scope !== "bundled" || existsSync(join(this.root, "package.json")),
+		)
 
 		let anyFound = false
 		for (const { dir, scope, jitiRoot } of searchDirs) {
