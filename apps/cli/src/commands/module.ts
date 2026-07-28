@@ -160,11 +160,22 @@ function readdirSyncSafe(dir: string): string[] {
 // `baka module list-actions <name>`
 // ---------------------------------------------------------------------------
 
-export function runModuleListActions(name: string): void {
+export function runModuleListActions(name: string, opts: { json?: boolean } = {}): void {
 	if (!name) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka module list-actions <name>")
 	const cwd = process.cwd()
-	const manifestPath = join(cwd, "modules", name, "manifest.ts")
-	if (!existsSync(manifestPath)) die(BAKA_EXIT_CODE.USER_ERROR, `module not found: ${name}`)
+	// Resolve through the same registry the engine uses so list-actions sees
+	// the same modules plan/apply/validate see (tree, project marketplace,
+	// user marketplace, bundled), not just the in-tree modules/ dir.
+	const root = new ModuleRegistry(cwd).resolveModuleRoot(name)
+	if (!root) {
+		const msg = `module not found: ${name} (searched tree, project marketplace, user marketplace, and bundled scopes)`
+		if (opts.json) {
+			console.log(JSON.stringify({ module: name, error: msg }, null, 2))
+			process.exit(BAKA_EXIT_CODE.USER_ERROR)
+		}
+		die(BAKA_EXIT_CODE.USER_ERROR, msg)
+	}
+	const manifestPath = join(root, "manifest.ts")
 
 	let mod: { Manifest?: ModuleManifest }
 	try {
@@ -175,6 +186,34 @@ export function runModuleListActions(name: string): void {
 	}
 	if (!mod.Manifest) die(BAKA_EXIT_CODE.ENGINE_ERROR, "manifest.ts did not export a Manifest")
 	const m = mod.Manifest
+	if (opts.json) {
+		// Same shape as the MCP `baka_list_actions` tool output.
+		console.log(
+			JSON.stringify(
+				{
+					module: m.name,
+					version: m.version,
+					description: m.description,
+					actions: m.actions.map((a) => ({
+						id: a.id,
+						description: a.description,
+						requiresReasoning: a.requiresReasoning,
+						...(a.compensatesWith ? { compensatesWith: a.compensatesWith } : {}),
+						params: a.params.map((p) => ({
+							name: p.name,
+							type: p.type,
+							required: p.required,
+							description: p.description,
+							...(p.enumValues ? { enumValues: p.enumValues } : {}),
+						})),
+					})),
+				},
+				null,
+				2,
+			),
+		)
+		return
+	}
 	console.log(`module: ${m.name} v${m.version}`)
 	if (m.description) console.log(`  ${m.description}`)
 	console.log(`  ${m.actions.length} action(s):`)
@@ -199,8 +238,12 @@ export async function runModuleEdit(name: string): Promise<void> {
 	const editorCmd = process.env.EDITOR
 	if (!editorCmd) die(BAKA_EXIT_CODE.USER_ERROR, "no $EDITOR set")
 	const cwd = process.cwd()
-	const manifestPath = join(cwd, "modules", name, "manifest.ts")
-	if (!existsSync(manifestPath)) die(BAKA_EXIT_CODE.USER_ERROR, `module not found: ${name}`)
+	// Resolve through the same registry the engine uses so edit opens the
+	// module plan/apply/validate see (tree, project marketplace, user
+	// marketplace, bundled), not just the in-tree modules/ dir.
+	const root = new ModuleRegistry(cwd).resolveModuleRoot(name)
+	if (!root) die(BAKA_EXIT_CODE.USER_ERROR, `module not found: ${name}`)
+	const manifestPath = join(root, "manifest.ts")
 
 	const child = spawn(editorCmd, [manifestPath], { stdio: "inherit" })
 	await new Promise<void>((resolveProm) => {

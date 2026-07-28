@@ -166,7 +166,11 @@ moduleCmd
 	.description("Check a module's manifest and layout")
 	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp manifest resource)")
 	.action((name, opts) => runModuleValidate(name, { json: opts.json }))
-moduleCmd.command("list-actions <name>").description("Show a module's actions").action(runModuleListActions)
+moduleCmd
+	.command("list-actions <name>")
+	.description("Show a module's actions")
+	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp `baka_list_actions` tool)")
+	.action((name, opts) => runModuleListActions(name, { json: opts.json }))
 
 moduleCmd
 	.command("test <name>")
@@ -195,7 +199,7 @@ moduleCmd
 
 program
 	.command("list-modules")
-	.description("List all discoverable modules (in-tree + project + user marketplace scopes)")
+	.description("List all discoverable modules (project marketplace + in-tree + user marketplace + bundled scopes)")
 	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp `baka://modules` resource)")
 	.action((opts) => {
 		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()

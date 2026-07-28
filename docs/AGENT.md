@@ -11,8 +11,7 @@ This document is the cross-package agent guide for the baka monorepo. It is the 
 │
 ├── workflows/               # Engine orchestration for THIS project
 │   ├── feature-planning/    # Plan user intents into module actions
-│   ├── module-management/   # Scaffold new modules
-│   └── discovery/           # Walk modules/ and load manifests
+│   └── module-management/   # Scaffold new modules
 │
 ├── packages/                # Engine tools (low-level nodes)
 │   ├── protocol/            # SSOT: types, schemas, LLMProvider interface, exit codes
@@ -55,10 +54,9 @@ This MUST return zero matches. If it doesn't, the boundary is leaking — file a
 | `.factory/mcp.json` | this file | **Project-scoped MCP registration.** Source of truth for which MCP servers are wired into this repo. Edit and commit to add/remove servers for the team. Do not duplicate entries in `~/.factory/mcp.json`. |
 | `workflows/feature-planning` | this file, `docs/PHILOSOPHY.md` | Orchestrator durable step + Worker loop |
 | `workflows/module-management` | this file, `docs/PHILOSOPHY.md` | `baka module create` workflow, double-diamond design flow |
-| `workflows/discovery` | this file, `docs/PHILOSOPHY.md` | `discoverModules(rootDir)` + manifest validation |
 | `packages/protocol` | this file, `docs/PHILOSOPHY.md` | All types, schemas, constants, exit codes, `LLMProvider` interface |
 | `packages/agent-engine` | this file, `docs/PHILOSOPHY.md` | `createLLMProvider`, `loadLLMConfig({ role, cwd, overrides? })`, `createOrchestratePlanningStep`; the ONLY package that talks to an LLM |
-| `packages/ast-tooling` | this file, `docs/PHILOSOPHY.md` | `executeAstTransformationStep`, `ModuleRegistry`, SAGA, plan I/O |
+| `packages/ast-tooling` | this file, `docs/PHILOSOPHY.md` | `executeAstTransformationStep`, `ModuleRegistry` (the single module-discovery implementation: project marketplace, tree, user marketplace, bundled scopes), SAGA, plan I/O |
 | `packages/typescript-config` | this file | Shared TS presets only — no business logic |
 | `modules/<name>` | `docs/PHILOSOPHY.md`, `docs/MODULES.md` | Per-action layout, manifest, templates, validators |
 

@@ -27,7 +27,6 @@
 		"@inquirer/prompts": "^8.5.2",
 		"@repo/agent-engine": "workspace:*",
 		"@repo/ast-tooling": "workspace:*",
-		"@repo/discovery-workflow": "workspace:*",
 		"@repo/feature-planning-workflow": "workspace:*",
 		"@repo/module-management-workflow": "workspace:*",
 		"@repo/protocol": "workspace:*",

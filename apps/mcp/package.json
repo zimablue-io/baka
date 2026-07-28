@@ -23,7 +23,6 @@
 		"@modelcontextprotocol/sdk": "^1.29.0",
 		"@repo/agent-engine": "workspace:*",
 		"@repo/ast-tooling": "workspace:*",
-		"@repo/discovery-workflow": "workspace:*",
 		"@repo/feature-planning-workflow": "workspace:*",
 		"@repo/protocol": "workspace:*",
 		"zod": "^3.23.0"

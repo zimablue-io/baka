@@ -1,6 +1,5 @@
 import { createLLMProvider, loadLLMConfig, validateLLMConfig } from "@repo/agent-engine"
 import { executeWorkerStep, loadPlan, ModuleRegistry, runSaga, runValidators, savePlan } from "@repo/ast-tooling"
-import { discoverModules } from "@repo/discovery-workflow"
 import { featurePlanningWorkflow } from "@repo/feature-planning-workflow"
 import type {
 	LLMProvider,
@@ -159,7 +158,9 @@ export interface ValidateToolOutput {
 }
 
 export async function runValidate(ctx: ServerContext): Promise<ValidateToolOutput> {
-	const modules = discoverModules(ctx.cwd)
+	// Count through the same single discovery implementation the validators
+	// use, so `modulesDiscovered` can never disagree with the validated set.
+	const { modules } = new ModuleRegistry(ctx.cwd).discover(false)
 	const state: OrchestrationState = {
 		userIntent: "(validate)",
 		targetDirectory: ctx.cwd,

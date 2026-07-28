@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from "node:fs"
+import { type Dirent, existsSync, readdirSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -95,6 +95,14 @@ export class ModuleRegistry {
 	}
 
 	/**
+	 * Scope precedence for discovery dedup and single-module resolution:
+	 * project marketplace wins, then tree, then user marketplace, then
+	 * bundled. The first scope (in this order) that provides a module name
+	 * owns it; lower-precedence copies are skipped.
+	 */
+	private static readonly SCOPE_PRECEDENCE = ["project", "tree", "user", "bundled"] as const
+
+	/**
 	 * Resolve the on-disk root of a single named module across every scope,
 	 * without parsing its manifest. Precedence mirrors discover()'s dedup
 	 * rules: project marketplace wins, then tree, then user marketplace,
@@ -103,9 +111,8 @@ export class ModuleRegistry {
 	 * not gated on the cwd looking like a project.
 	 */
 	resolveModuleRoot(name: string): string | undefined {
-		const precedence = ["project", "tree", "user", "bundled"] as const
 		const scopes = this.searchScopes()
-		for (const scopeName of precedence) {
+		for (const scopeName of ModuleRegistry.SCOPE_PRECEDENCE) {
 			const scope = scopes.find((s) => s.scope === scopeName)
 			if (!scope) continue
 			const candidate = join(scope.dir, name)
@@ -127,42 +134,54 @@ export class ModuleRegistry {
 	discover(strict = false): { modules: ModuleManifest[]; diagnostics: ValidationDiagnostic[] } {
 		this.byName.clear()
 		const diagnostics: ValidationDiagnostic[] = []
-		const modules: ModuleManifest[] = []
 
-		// Walk both the in-tree modules dir and the user/project marketplace
-		// install dirs. Project marketplace wins on dedup; user marketplace
-		// is a fallback. The bundled scope (the baka repo's in-tree modules)
-		// is listed only when the baka repo is reachable AND the cwd looks
+		// Walk the scopes in precedence order (project marketplace, tree,
+		// user marketplace, bundled); the first scope to provide a module
+		// name owns it, so the project marketplace deterministically wins
+		// on dedup. The bundled scope (the baka repo's in-tree modules) is
+		// listed only when the baka repo is reachable AND the cwd looks
 		// like a real project (has a package.json). The package.json gate
 		// keeps the bundled scope silent in truly empty directories; without
 		// it, `baka list-modules` from `/tmp` would silently return the
 		// bundled modules, breaking the cwd-scoped discovery invariant.
-		const searchDirs = this.searchScopes().filter(
-			(s) => s.scope !== "bundled" || existsSync(join(this.root, "package.json")),
-		)
+		const scopes = this.searchScopes()
+		const bundledEnabled = existsSync(join(this.root, "package.json"))
 
 		let anyFound = false
-		for (const { dir, scope, jitiRoot } of searchDirs) {
+		for (const scopeName of ModuleRegistry.SCOPE_PRECEDENCE) {
+			const scope = scopes.find((s) => s.scope === scopeName)
+			if (!scope) continue
+			if (scope.scope === "bundled" && !bundledEnabled) continue
+			const { dir, jitiRoot } = scope
 			if (!existsSync(dir)) continue
 			anyFound = true
-			const entries = readdirSync(dir, { withFileTypes: true })
+			let entries: Dirent[]
+			try {
+				entries = readdirSync(dir, { withFileTypes: true })
+			} catch (err) {
+				diagnostics.push({
+					severity: "warning",
+					rule: "scope-unreadable",
+					message: `cannot read modules dir ${dir}: ${err instanceof Error ? err.message : String(err)}; skipping scope`,
+				})
+				continue
+			}
+			// Sort entries so discovery output (modules and diagnostics) is
+			// byte-identical across runs regardless of readdir order.
+			entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
 			for (const entry of entries) {
 				// Accept real directories and symlinks (so marketplace installs
 				// can symlink to a local module on disk).
 				if (!(entry.isDirectory() || entry.isSymbolicLink())) continue
-				// Project marketplace wins on dedup.
-				if (scope !== "project" && this.byName.has(entry.name)) continue
-				if (scope === "project" && this.byName.has(entry.name)) {
-					// Overwrite with the project version.
-					this.byName.delete(entry.name)
-				}
+				// A higher-precedence scope already owns this name.
+				if (this.byName.has(entry.name)) continue
 				const moduleRoot = join(dir, entry.name)
 				const manifestPath = join(moduleRoot, "manifest.ts")
 				if (!existsSync(manifestPath)) {
 					diagnostics.push({
 						severity: "warning",
 						rule: "manifest-missing",
-						message: `${entry.name} has no manifest.ts; skipping`,
+						message: `${entry.name} (${moduleRoot}) has no manifest.ts; skipping`,
 					})
 					continue
 				}
@@ -176,7 +195,7 @@ export class ModuleRegistry {
 					diagnostics.push({
 						severity: "error",
 						rule: "manifest-load",
-						message: `${entry.name}: failed to load manifest.ts: ${err instanceof Error ? err.message : String(err)}`,
+						message: `${entry.name} (${manifestPath}): failed to load manifest.ts: ${err instanceof Error ? err.message : String(err)}`,
 					})
 					if (strict) throw err
 					continue
@@ -186,7 +205,7 @@ export class ModuleRegistry {
 					diagnostics.push({
 						severity: "error",
 						rule: "manifest-export",
-						message: `${entry.name}: manifest.ts did not export \`Manifest\``,
+						message: `${entry.name} (${manifestPath}): manifest.ts did not export \`Manifest\``,
 					})
 					if (strict) throw new Error(diagnostics[diagnostics.length - 1].message)
 					continue
@@ -197,11 +216,15 @@ export class ModuleRegistry {
 					diagnostics.push({
 						severity: "error",
 						rule: "manifest-shape",
-						message: `${entry.name}: manifest does not match schema: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+						message: `${entry.name} (${manifestPath}): manifest does not match schema: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
 					})
 					if (strict) throw new Error(parsed.error.message)
 					continue
 				}
+
+				// The manifest's declared name (not the directory name) is the
+				// dedup key; a higher-precedence scope may own it already.
+				if (this.byName.has(parsed.data.name)) continue
 
 				// Layout enforcement (per spec section 4)
 				for (const action of parsed.data.actions) {
@@ -236,19 +259,54 @@ export class ModuleRegistry {
 				}
 
 				this.byName.set(parsed.data.name, { manifest: parsed.data, moduleRoot })
-				modules.push(parsed.data)
 			}
 		}
+
+		// Rebuild byName in name-sorted order so every consumer (all(),
+		// the returned modules array, resolveOrder's iteration) sees a
+		// deterministic, byte-identical ordering across runs.
+		const sorted = Array.from(this.byName.entries()).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+		this.byName.clear()
+		for (const [name, value] of sorted) this.byName.set(name, value)
 
 		if (!anyFound) {
 			diagnostics.push({
 				severity: "warning",
 				rule: "no-modules",
-				message: `no modules found in any scope (tree, project marketplace, or user marketplace)`,
+				message: `no modules found in any scope (tree, project marketplace, user marketplace, or bundled)`,
 			})
 		}
 
-		return { modules, diagnostics }
+		return { modules: this.all(), diagnostics }
+	}
+
+	/**
+	 * Action ids exported by more than one discovered module, mapped to the
+	 * sorted list of owning module names. An id owned by the SAME module in
+	 * multiple scopes is not a collision (scope dedup has already resolved
+	 * it). Used by plan-time refusal (architecture decision 12): a plan
+	 * referencing a colliding id would be ambiguous about which module's
+	 * action to run.
+	 */
+	actionIdCollisions(): Map<string, string[]> {
+		const owners = new Map<string, Set<string>>()
+		for (const { manifest } of this.byName.values()) {
+			for (const action of manifest.actions) {
+				const set = owners.get(action.id) ?? new Set<string>()
+				set.add(manifest.name)
+				owners.set(action.id, set)
+			}
+		}
+		const collisions = new Map<string, string[]>()
+		for (const [actionId, modules] of owners) {
+			if (modules.size > 1) {
+				collisions.set(
+					actionId,
+					Array.from(modules).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+				)
+			}
+		}
+		return collisions
 	}
 
 	findByName(name: string): ModuleManifest | undefined {

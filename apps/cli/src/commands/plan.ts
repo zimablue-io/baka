@@ -1,6 +1,5 @@
 import { createLLMProvider, loadLLMConfig, validateLLMConfig } from "@repo/agent-engine"
 import { listPlans, loadPlan, ModuleRegistry, runValidators, StructuredLog, savePlan } from "@repo/ast-tooling"
-import { discoverModules } from "@repo/discovery-workflow"
 import { featurePlanningWorkflow } from "@repo/feature-planning-workflow"
 import type { LLMProvider, OrchestrationState, ResolvedLLMConfig, WorkflowStep } from "@repo/protocol"
 import { BAKA_EXIT_CODE } from "@repo/protocol"
@@ -92,6 +91,11 @@ export async function runPlanCommand(intent: string, opts: PlanOpts): Promise<vo
 
 	if (state.status === "FAILED") {
 		log.write({ level: "error", source: "baka.plan", message: "plan failed", intent, logs: state.logs })
+		// Surface the engine's own diagnostics (e.g. an action-id collision
+		// refusal) instead of a bare "see logs" pointer.
+		for (const line of state.logs.filter((l) => l.startsWith("[plan]"))) {
+			console.error(`baka: ${line}`)
+		}
 		die(BAKA_EXIT_CODE.ENGINE_ERROR, "planning failed; see logs for details")
 	}
 
@@ -202,7 +206,9 @@ export async function runApplyCommand(planFile: string, cwd: string, opts: { jso
 }
 
 export async function runValidateCommand(cwd: string, opts: { json?: boolean; module?: string } = {}): Promise<void> {
-	const modules = discoverModules(cwd)
+	// Count through the same single discovery implementation the validators
+	// use, so `modulesDiscovered` can never disagree with the validated set.
+	const { modules } = new ModuleRegistry(cwd).discover(false)
 	const state: OrchestrationState = {
 		userIntent: "(validate)",
 		targetDirectory: cwd,
