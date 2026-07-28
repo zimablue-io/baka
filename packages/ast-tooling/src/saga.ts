@@ -20,6 +20,9 @@ export interface CompletedStep {
 	module: string
 	action: string
 	step: WorkflowStep<unknown, unknown, unknown>
+	/** Raw compensation data returned by the step. Passed back to the step's `compensate` during rollback. */
+	rollbackData: unknown
+	/** Unwrapped action compensation data exposed to post-apply validators. */
 	compensationData: unknown
 }
 
@@ -104,6 +107,7 @@ export async function runSaga(
 			module: moduleName,
 			action: planStep.action,
 			step,
+			rollbackData: result.compensationData,
 			compensationData: unwrapWorkerCompensation(result.compensationData),
 		})
 	}
@@ -134,7 +138,7 @@ async function rollback(completed: CompletedStep[], state: OrchestrationState, c
 		if (!c) continue
 		state.logs.push(`[saga] compensating ${c.module}:${c.action}`)
 		try {
-			await c.step.compensate(c.compensationData, state, ctx)
+			await c.step.compensate(c.rollbackData, state, ctx)
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
 			state.logs.push(`[saga] compensate ${c.module}:${c.action} failed: ${message}`)

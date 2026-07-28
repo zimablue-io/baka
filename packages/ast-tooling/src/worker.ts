@@ -1,5 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import {
@@ -8,6 +7,7 @@ import {
 	type LLMRequest,
 	type ModuleManifest,
 	type OrchestrationState,
+	type StepContext,
 	type StepResponse,
 	type WorkflowStep,
 } from "@repo/protocol"
@@ -46,9 +46,9 @@ export interface WorkerInput {
 }
 
 /**
- * Rollback data returned by the Worker. The SAGA passes this to the action's
- * `compensate` during rollback, and the Worker's own `compensate` removes
- * the scratch and output directories.
+ * Rollback data returned by the Worker. The SAGA passes this envelope back to
+ * the Worker's `compensate`, which invokes the action's own `compensate` with
+ * the inner `actionCompensationData`.
  */
 export interface WorkerRollbackData {
 	moduleName: string
@@ -57,16 +57,13 @@ export interface WorkerRollbackData {
 	targetDirectory: string
 	/** Whatever the action's WorkflowStep returned as compensationData. */
 	actionCompensationData: unknown
-	/** Scratch dir the action ran in; cleaned up by the Worker's compensate. */
-	scratchDir: string
-	/** Output dir the scratch was copied into; cleaned up by the Worker's compensate. */
-	outputDir: string
 }
 
 /**
  * The Worker is the dumb-automations tier. It loads the action the
- * Orchestrator chose, runs it against a fresh scratch dir, copies the result
- * into the real target tree, and returns the data needed to roll back.
+ * Orchestrator chose, runs it with the resolved parameters, and lets the
+ * action write directly to the target tree. It returns the data needed to
+ * roll back.
  *
  * If the action advertises `requiresReasoning: true`, the Worker renders
  * handlebars templates (under `<module>/<action>/templates/`) into LLM
@@ -82,11 +79,7 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, boolean, WorkerRollbac
 		if (!targetDirectory) {
 			throw new Error("Worker: state.targetDirectory is not set; the SAGA must set it before invoking steps")
 		}
-		const scratchDir = join(tmpdir(), `baka-worker-${input.moduleName}-${input.actionName}-${Date.now()}`)
-		const outputDir = join(targetDirectory, "modules", input.moduleName, input.actionName, "out")
-
 		try {
-			mkdirSync(scratchDir, { recursive: true })
 			const moduleRoot = resolveModuleRoot(targetDirectory, input.moduleName)
 			if (!moduleRoot) {
 				throw new Error(
@@ -97,9 +90,6 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, boolean, WorkerRollbac
 			const manifest = loadManifest(moduleRoot, input.moduleName)
 			const action = manifest.actions.find((a) => a.id === input.actionName)
 			if (!action) throw new Error(`action "${input.actionName}" not declared in ${input.moduleName} manifest`)
-
-			const templatesDir = join(moduleRoot, action.id, "templates")
-			if (existsSync(templatesDir)) cpSync(templatesDir, join(scratchDir, "templates"), { recursive: true })
 
 			const enrichedParams: Record<string, unknown> = action.requiresReasoning
 				? await fillReasoningTemplates(input, action, state, ctx?.llmProvider ?? null, moduleRoot)
@@ -113,10 +103,6 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, boolean, WorkerRollbac
 			)
 			const result = await loaded.step.execute(enrichedParams, state, ctx)
 
-			if (readdirSync(scratchDir).length > 0) {
-				cpSync(scratchDir, outputDir, { recursive: true })
-			}
-
 			return {
 				success: result.success,
 				output: result.success,
@@ -126,8 +112,6 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, boolean, WorkerRollbac
 					parameters: input.parameters,
 					targetDirectory,
 					actionCompensationData: result.compensationData,
-					scratchDir,
-					outputDir,
 				},
 				error: result.error,
 			}
@@ -141,25 +125,27 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, boolean, WorkerRollbac
 					parameters: input.parameters,
 					targetDirectory,
 					actionCompensationData: null,
-					scratchDir,
-					outputDir,
 				},
 				error: err instanceof Error ? err.message : String(err),
 			}
 		}
 	},
 
-	compensate: async (data) => {
-		try {
-			if (existsSync(data.outputDir)) rmSync(data.outputDir, { recursive: true, force: true })
-		} catch {
-			/* best effort */
+	compensate: async (data: WorkerRollbackData, state: OrchestrationState, ctx?: StepContext) => {
+		// Invoke the action's own compensate through the production loader. The SAGA
+		// already wraps rollback in best-effort error handling, so failures here
+		// propagate and are logged without blocking subsequent compensations.
+		if (data.actionCompensationData == null) return
+
+		const moduleRoot = resolveModuleRoot(data.targetDirectory, data.moduleName)
+		if (!moduleRoot) {
+			throw new Error(
+				`module "${data.moduleName}" not found during rollback (looked in <targetDirectory>/modules/${data.moduleName} and the bundled scope)`,
+			)
 		}
-		try {
-			if (existsSync(data.scratchDir)) rmSync(data.scratchDir, { recursive: true, force: true })
-		} catch {
-			/* best effort */
-		}
+		const manifest = loadManifest(moduleRoot, data.moduleName)
+		const loaded = loadAction<unknown, unknown, unknown>(data.targetDirectory, moduleRoot, manifest, data.actionName)
+		await loaded.step.compensate(data.actionCompensationData, state, ctx)
 	},
 }
 
