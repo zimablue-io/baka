@@ -31,8 +31,5 @@
 	"engines": {
 		"node": ">=20.0.0",
 		"pnpm": ">=8.0.0"
-	},
-	"dependencies": {
-		"workflow": "^4.4.0"
 	}
 }

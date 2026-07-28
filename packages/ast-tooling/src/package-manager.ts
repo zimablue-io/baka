@@ -28,7 +28,7 @@ export interface ParsedSource {
 	// (last path segment, normalized) for npm and git; the folder name for local.
 	moduleName: string
 	// Whether the source is pinned (has a version, ref, or commit). Pinned
-	// sources are skipped by `baka update`.
+	// sources always install at their pinned ref.
 	pinned: boolean
 }
 
@@ -274,55 +274,6 @@ export function listInstalledPackages(cwd: string): Array<{
 		}
 	}
 	return out
-}
-
-export async function updateAll(cwd: string): Promise<Array<{ source: string; updated: boolean; reason?: string }>> {
-	const project = readProjectSettings(cwd)
-	const user = readUserSettings()
-	const results: Array<{ source: string; updated: boolean; reason?: string }> = []
-	for (const raw of project.packages) {
-		results.push(
-			await updateOne(raw, {
-				scope: "project",
-				cwd,
-				settingsPath: projectSettingsPath(cwd),
-				modulesDir: projectModulesDir(cwd),
-			}),
-		)
-	}
-	for (const raw of user.packages) {
-		// Project takes priority: if the same module name is in both, skip the user entry.
-		const projectNames = new Set(project.packages.map((s) => safeParseName(s)))
-		if (projectNames.has(safeParseName(raw))) continue
-		results.push(
-			await updateOne(raw, { scope: "user", cwd, settingsPath: userSettingsPath(), modulesDir: userModulesDir() }),
-		)
-	}
-	return results
-}
-
-async function updateOne(
-	source: string,
-	opts: InstallOptions,
-): Promise<{ source: string; updated: boolean; reason?: string }> {
-	const parsed = parseSource(source)
-	if (parsed.pinned) {
-		// Pinned sources are reconciled (moved to the existing ref) but never
-		// moved to a newer ref. We no-op for now; full reconciliation can run
-		// `git fetch && git reset --hard <ref>`.
-		return { source, updated: false, reason: "pinned" }
-	}
-	// Unpinned: re-install to pull latest.
-	await installSource(source, opts)
-	return { source, updated: true }
-}
-
-function safeParseName(s: string): string {
-	try {
-		return parseSource(s).moduleName
-	} catch {
-		return ""
-	}
 }
 
 // ---------------------------------------------------------------------------

@@ -4,11 +4,9 @@
 //
 // What it asserts:
 //   - The workflow barrel `workflows/module-management/src/index.ts` exposes
-//     both `loadSession` (re-exported from `./design`) and
-//     `executeCreateModuleWorkflow` (re-exported from `./create-module`)
-//     when consumed by another package via a STATIC `import` statement
-//     under tsx (the same way the CLI's TypeScript source is compiled and
-//     consumed).
+//     `loadSession` (re-exported from `./design`) when consumed by another
+//     package via a STATIC `import` statement under tsx (the same way the
+//     CLI's TypeScript source is compiled and consumed).
 //
 // Failure mode it covers:
 //   - `workflows/module-management/src/index.ts` currently has
@@ -42,7 +40,6 @@ const PROBE_SOURCE = [
 	"// Mirrors how the CLI source statically imports workflow packages.",
 	'import * as m from "@repo/module-management-workflow"',
 	'console.log("loadSession=" + typeof m.loadSession)',
-	'console.log("executeCreateModuleWorkflow=" + typeof m.executeCreateModuleWorkflow)',
 	"",
 ].join("\n")
 
@@ -58,7 +55,7 @@ describe("@repo/module-management-workflow barrel resolution (tsx, static import
 		}
 	})
 
-	it("resolves loadSession and executeCreateModuleWorkflow from the barrel", () => {
+	it("resolves loadSession from the barrel", () => {
 		expect(existsSync(TSX_BIN)).toBe(true)
 
 		const result = spawnSync(TSX_BIN, [PROBE_PATH], {
@@ -90,14 +87,5 @@ describe("@repo/module-management-workflow barrel resolution (tsx, static import
 		expect(result.stdout, `Expected loadSession=function in tsx stdout, got:\n${result.stdout}`).toContain(
 			"loadSession=function",
 		)
-
-		// executeCreateModuleWorkflow is the other named export the
-		// barrel contract promises. Pin it down too so a partial fix
-		// (only `./create-module.ts` extension) doesn't accidentally
-		// regress the `./design` side.
-		expect(
-			result.stdout,
-			`Expected executeCreateModuleWorkflow=function in tsx stdout, got:\n${result.stdout}`,
-		).toContain("executeCreateModuleWorkflow=function")
 	}, 30_000)
 })

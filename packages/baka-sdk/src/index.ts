@@ -38,48 +38,6 @@ export {
 } from "@repo/protocol"
 
 // ---------------------------------------------------------------------------
-// Runtime helpers
-// ---------------------------------------------------------------------------
-
-import { existsSync, readFileSync } from "node:fs"
-import { join } from "node:path"
-import { createLLMProvider, loadLLMConfig } from "@repo/agent-engine"
-import type { LLMMessage } from "@repo/protocol"
-import { BAKA_USER_DIR } from "@repo/protocol"
-import type { z } from "zod"
-
-/**
- * Returns the absolute path of the project's baka state directory, creating
- * the parent chain on demand. Modules can use this when their action's
- * compensation needs to stage a file outside the user's tree.
- */
-export function bakaProjectPaths(cwd: string): { root: string; plans: string; state: string; logs: string } {
-	const root = join(cwd, ".baka")
-	return {
-		root,
-		plans: join(root, "plans"),
-		state: join(root, "state"),
-		logs: join(root, "logs"),
-	}
-}
-
-/**
- * Reads the contents of a file, returning `undefined` if the file does not
- * exist. Convenience helper for validators and idempotent actions.
- */
-export function readIfExists(path: string): string | undefined {
-	return existsSync(path) ? readFileSync(path, "utf-8") : undefined
-}
-
-/**
- * Returns the user-level baka config directory. Modules should not write
- * secrets here directly; route those through the baka CLI's role commands.
- */
-export function bakaUserDir(): string {
-	return BAKA_USER_DIR
-}
-
-// ---------------------------------------------------------------------------
 // Validator-role LLM helper (for module validators)
 //
 // The baka philosophy keeps validators deterministic TS in the hot path.
@@ -103,6 +61,10 @@ export function bakaUserDir(): string {
 //     return []
 //   }
 // ---------------------------------------------------------------------------
+
+import { createLLMProvider, loadLLMConfig } from "@repo/agent-engine"
+import type { LLMMessage } from "@repo/protocol"
+import type { z } from "zod"
 
 /**
  * Returns an LLM provider for the validator role, configured from

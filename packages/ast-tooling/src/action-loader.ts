@@ -118,20 +118,3 @@ export function loadActionValidator(
 	}
 	return fn
 }
-
-/**
- * Loads a shared helper from `<moduleRoot>/_shared/helpers/<helperId>.ts`.
- * Helpers are plain TypeScript modules that action.ts files can import
- * via `import { foo } from "./_shared/helpers/<id>"` (jiti resolves the
- * relative path) or via `import { foo } from "<id>"` if the loader is
- * told where to look.
- */
-export function loadSharedHelper<T = unknown>(_projectRoot: string, moduleRoot: string, helperId: string): T {
-	const path = join(moduleRoot, "_shared", "helpers", `${helperId}.ts`)
-	if (!existsSync(path)) {
-		throw new Error(`shared helper not found: ${path}`)
-	}
-	const jiti = createJiti(moduleRoot, { interopDefault: true })
-	const mod = jiti(path) as Record<string, unknown>
-	return (mod[helperId] ?? mod.default) as T
-}

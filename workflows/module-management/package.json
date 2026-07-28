@@ -15,7 +15,6 @@
 		"test:coverage": "vitest run --coverage"
 	},
 	"dependencies": {
-		"workflow": "4.4.0",
 		"@repo/agent-engine": "workspace:*",
 		"@repo/ast-tooling": "workspace:*",
 		"@repo/protocol": "workspace:*",

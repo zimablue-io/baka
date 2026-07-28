@@ -13,7 +13,6 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
-		"workflow": "4.4.0",
 		"@repo/protocol": "workspace:*",
 		"@repo/agent-engine": "workspace:*",
 		"@repo/ast-tooling": "workspace:*"

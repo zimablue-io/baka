@@ -9,25 +9,11 @@
 //   the same surface as before the barrel fix.
 //
 // Failure mode it covers:
-//   The barrel fix replaced `export * from "./design"` with an explicit
-//   list of named re-exports. That list is hand-maintained, and a hand-
-//   maintained list can drift out of sync with the design barrel. The
-//   spec-writer's barrel-resolution.test.ts only pins two symbols
-//   (loadSession, executeCreateModuleWorkflow); this test pins every
-//   other one. Specifically, the writer's current list is MISSING:
-//     - applySlashCommand (state.ts)
-//     - advanceOnSkip (slash.ts)
-//     - stateModuleName (slash.ts)
-//     - handleSlashInLoop (slash.ts)
-//     - pauseForApproval (approval.ts)
-//     - runDeliverIfApproved (approval.ts)
-//     - PauseForApprovalArgs (approval.ts, type)
-//     - DeliverOutcome (approval.ts, type)
-//     - RunDeliverWithHookResult (approval.ts, type)
-//     - DeliverApprovalCallback (approval.ts, type)
-//     - SlashLoopResult (slash.ts, type)
-//     - WriteFilesResult (render/write.ts, type)
-//
+//   The barrel uses an explicit list of named re-exports instead of
+//   `export * from "./design"`. That list is hand-maintained, and a hand-
+//   maintained list can drift out of sync with the design barrel.
+//   barrel-resolution.test.ts pins loadSession; this test pins every
+//   other design symbol the barrel re-exports.
 // Why subprocess + tsx (not in-process vitest):
 //   Same reason as the spec-writer's barrel-resolution.test.ts:
 //   vitest/vite-node is lenient about extension-less TS imports and

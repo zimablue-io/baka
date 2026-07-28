@@ -476,25 +476,6 @@ describe("VAL-CLI-034 baka list-packages empty case", () => {
 })
 
 // ---------------------------------------------------------------------------
-// VAL-CLI-035  update is a no-op on empty packages, exits 0
-// ---------------------------------------------------------------------------
-
-describe("VAL-CLI-035 baka update on empty packages", () => {
-	it("prints the no-op message and exits 0", async () => {
-		const fakeHome = trackDir(makeEmptyDir("baka-update-"))
-
-		const { code, stdout, stderr } = await spawnCliWithFakeHome({
-			argv: ["update"],
-			fakeHome,
-		})
-
-		expect(code, `expected exit 0, got ${code}; stderr=${stderr}`).toBe(0)
-		// Accept either "nothing to update" or "no packages to update".
-		expect(stdout.toLowerCase()).toMatch(/(nothing|no packages) to update/)
-	})
-})
-
-// ---------------------------------------------------------------------------
 // VAL-CLI-040  Exit code categories map to BAKA_EXIT_CODE values
 // ---------------------------------------------------------------------------
 

@@ -101,13 +101,6 @@
   // apps/api is real (not declared there) and tracked in CHANGELOG.md.
   "ignoreBinaries": ["tsx"],
 
-  // The `workflow` package (vespa/workflows SDK) is consumed via the
-  // `"use workflow"` and `"use step"` directives in
-  // `workflows/module-management/src/create-module.ts`. These are
-  // transformer directives, not regular imports, so knip cannot see
-  // them. The package is genuinely required: removing it breaks the
-  // workflow SDK's macro step compilation.
-  //
   // The `@repo/agent-engine` and `@repo/ast-tooling` declarations in
   // `workflows/module-management/package.json` are declared for future
   // composition (the workflow barrel may re-export through them) but
@@ -119,7 +112,7 @@
   // runs `pnpm -r test`, which fans out to each workspace's own vitest
   // install. The root-level declaration is a fallback for the root's
   // own scripts.
-  "ignoreDependencies": ["workflow", "@repo/agent-engine", "@repo/ast-tooling", "vitest"],
+  "ignoreDependencies": ["@repo/agent-engine", "@repo/ast-tooling", "vitest"],
 
   // The `VALIDATOR` member of `AgentRole` is reserved for a planned
   // validator-agent role that has not landed yet; the enum shape is

@@ -9,7 +9,7 @@
 // (jiti, vitest, tsup) all resolve `.js` against the on-disk `.ts` source.
 
 export type { ActionValidatorFn, LoadedAction, ModuleValidatorFn } from "./action-loader.js"
-export { loadAction, loadActionValidator, loadModuleValidator, loadSharedHelper } from "./action-loader.js"
+export { loadAction, loadActionValidator, loadModuleValidator } from "./action-loader.js"
 export type { ConsistencyOptions, ConsistencyResult, PerRunResult } from "./consistency.js"
 export { cleanupConsistency, runConsistencyTest } from "./consistency.js"
 export type { CatalogSubscriptions } from "./marketplace-catalogs.js"
@@ -30,7 +30,6 @@ export {
 	readProjectSettings,
 	readUserSettings,
 	removeSource,
-	updateAll,
 	userModulesDir,
 	userSettingsPath,
 } from "./package-manager.js"

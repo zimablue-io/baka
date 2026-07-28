@@ -14,7 +14,6 @@ import {
 	runMarketplaceRemove,
 	runMarketplaceUpdate,
 	runRemoveCommand,
-	runUpdateCommand,
 } from "./commands/marketplace"
 import { runModuleEdit, runModuleListActions, runModuleTest, runModuleValidate } from "./commands/module"
 import { runApplyCommand, runListPlans, runPlanCommand, runValidateCommand } from "./commands/plan"
@@ -347,20 +346,6 @@ program
 	.action(() => {
 		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		runListPackagesCommand(cwd)
-	})
-
-// `baka update` --------------------------------------------------------------
-
-program
-	.command("update")
-	.description("Update all unpinned packages; pinned ones are reconciled but not moved")
-	.action(async () => {
-		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
-		try {
-			await runUpdateCommand(cwd)
-		} catch (err) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
-		}
 	})
 
 // `baka marketplace add | list | remove | update` ---------------------------

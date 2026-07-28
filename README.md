@@ -258,9 +258,7 @@ baka scaffold test-module
 ├── workflows/               # Engine orchestration for THIS project
 │   ├── feature-planning/
 │   │   └── plan-intent.ts
-│   ├── module-management/
-│   │   └── create-module.ts
-│   └── discovery/
+│   └── module-management/
 ├── packages/                # Engine tools
 │   ├── protocol/            # SSOT: types, schemas, LLMProvider interface
 │   ├── agent-engine/        # The ONLY package that knows what an LLMProvider is

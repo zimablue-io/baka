@@ -9,7 +9,6 @@ import {
 	readCatalogSubscriptions,
 	removeCatalogSubscription,
 	removeSource,
-	updateAll,
 	userCatalogsPath,
 	userModulesDir,
 	userSettingsPath,
@@ -135,30 +134,9 @@ export function runListPackagesCommand(cwd: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// baka update
-// ---------------------------------------------------------------------------
-
-export async function runUpdateCommand(cwd: string): Promise<void> {
-	const results = await updateAll(cwd)
-	if (results.length === 0) {
-		console.log("no packages to update")
-		return
-	}
-	for (const r of results) {
-		if (r.updated) {
-			console.log(`  updated: ${r.source}`)
-		} else if (r.reason === "pinned") {
-			console.log(`  skipped (pinned): ${r.source}`)
-		} else {
-			console.log(`  skipped: ${r.source}${r.reason ? ` (${r.reason})` : ""}`)
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
 // baka marketplace add | list | remove | update
 //
-// (Note: the install/remove/list-packages/update commands above operate
+// (Note: the install/remove/list-packages commands above operate
 // on installed packages. The commands below operate on the user's
 // subscribed community catalog URLs, stored in
 // `~/.baka/catalogs.json`.)

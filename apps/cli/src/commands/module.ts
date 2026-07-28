@@ -17,9 +17,6 @@ function die(code: number, msg: string): never {
 	process.exit(code)
 }
 
-// Note: `baka module init` is replaced by `baka module create`, the
-// chat-driven double-diamond flow in ./module-design.ts.
-
 // ---------------------------------------------------------------------------
 // `baka module validate <name>`
 // ---------------------------------------------------------------------------

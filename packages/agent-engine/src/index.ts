@@ -360,17 +360,5 @@ export function createInitialOrchestrationState(intent: string, targetDirectory:
 	}
 }
 
-export type { DesignTurnInput, DesignTurnOutput, DesignTurnPayload } from "./module-design"
-
-// Re-export the module-design factory and the Zod-typed structured payload.
-export {
-	createModuleDesignStep,
-	DesignTurnPayloadSchema,
-	renderActionStubSource,
-	renderManifestSource,
-	renderPreferencesFile,
-	renderTemplateStubSource,
-	renderValidatorStubSource,
-} from "./module-design"
 // Re-export the exit code enum for callers that want to use it
 export { BAKA_EXIT_CODE }
