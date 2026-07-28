@@ -21,7 +21,7 @@ export const Manifest: ModuleManifest = {
 		{
 			id: "lint",
 			description:
-				"Run the project's linter (biome) and report findings. Stub for Phase 6; full impl wires the validator chain in Phase 8.",
+				"Lint the current project with biome and report every diagnostic (file, rule, severity, message, position). Requires a biome configuration in the project (ts-style:install-config provides one); uses the project's own biome when installed, otherwise the copy bundled with ts-style.",
 			requiresReasoning: false,
 			filePatterns: [],
 			validators: [],

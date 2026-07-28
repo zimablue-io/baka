@@ -243,6 +243,9 @@ importers:
 
   modules/ts-style:
     dependencies:
+      '@biomejs/biome':
+        specifier: 2.5.0
+        version: 2.5.0
       baka:
         specifier: '*'
         version: 1.0.0

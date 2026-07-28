@@ -84,8 +84,8 @@ function renderTsConfig(strict: boolean): string {
 function renderBiome(): string {
 	return `${JSON.stringify(
 		{
-			$schema: "https://biomejs.dev/schemas/1.9.0/schema.json",
-			linter: { enabled: true, rules: { recommended: true } },
+			$schema: "https://biomejs.dev/schemas/2.5.0/schema.json",
+			linter: { enabled: true, rules: { preset: "recommended" } },
 			formatter: { enabled: true, indentStyle: "tab", indentWidth: 4 },
 			javascript: { formatter: { quoteStyle: "double", semicolons: "asNeeded", trailingCommas: "all" } },
 		},

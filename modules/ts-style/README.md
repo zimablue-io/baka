@@ -14,6 +14,6 @@ Drop a strict tsconfig.json and biome.json into the target project.
 
 ### `lint`
 
-Run the project's linter (biome) and report findings. Stub for Phase 6; full impl wires the validator chain in Phase 8.
+Lint the current project with biome and report every diagnostic (file, rule, severity, message, position). Requires a biome configuration in the project (`install-config` provides one); uses the project's own biome when installed, otherwise the copy bundled with ts-style.
 
 **Parameters:** (none)
