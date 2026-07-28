@@ -128,7 +128,7 @@ The same-plan claim is enforced by an opt-in e2e (`apps/cli/test/determinism-e2e
 BAKA_E2E_LLM=1 pnpm --filter baka exec vitest run test/determinism-e2e.test.ts
 ```
 
-The e2e only ever sends requests; it never starts, restarts, or kills the llama-server. The fixed seed is a normal role-config field: set it with `baka role worker --field seed --value 42` (or hand-edit `~/.baka/config.json`).
+The e2e only ever sends requests; it never starts, restarts, or kills the llama-server. The fixed seed is a normal role-config field: set it with `baka role worker --field seed --value 42` (or hand-edit `${BAKA_HOME:-$HOME/.baka}/config.json`).
 
 ## Uninstall
 
@@ -178,7 +178,7 @@ baka --version    # works once PATH is fixed
 
 ### `baka plan` fails with "missing LLM config: worker role not configured"
 
-Run `baka init` to configure both LLM roles (worker + validator). The engine calls the worker-role model directly for plan / apply / module-design and the validator-role model for semantic validators; both blocks live in the same file at `~/.baka/config.json`. Refuses to plan or apply until the worker role is configured. Quick check:
+Run `baka init` to configure both LLM roles (worker + validator). The engine calls the worker-role model directly for plan / apply / module-design and the validator-role model for semantic validators; both blocks live in the same file at `${BAKA_HOME:-$HOME/.baka}/config.json`. Refuses to plan or apply until the worker role is configured. Quick check:
 
 ```bash
 baka roles             # shows every role's fields (apiKey masked as <set>)
@@ -186,7 +186,7 @@ baka init              # interactive: configure worker + validator
 baka role worker --field model --value gemma4:12b   # non-interactive field edit
 ```
 
-For CI or headless environments, write `~/.baka/config.json` with the role-keyed shape (`{ worker: {...}, validator: {...} }`) before running baka. apiKey lives inline in each role's block; there is no separate credentials file.
+For CI or headless environments, write `${BAKA_HOME:-$HOME/.baka}/config.json` with the role-keyed shape (`{ worker: {...}, validator: {...} }`) before running baka. apiKey lives inline in each role's block; there is no separate credentials file. Setting `BAKA_HOME` relocates the user-level directory (config, user marketplace, logs); `$HOME/.baka` is the default.
 
 ### Broken barrel / import-time crash in one subcommand
 

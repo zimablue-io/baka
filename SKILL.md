@@ -80,13 +80,13 @@ This runs an interactive REPL through four phases (Discover → Define → Devel
 
 # Role configuration
 
-The engine calls the LLM directly. Every call picks one role's model from `~/.baka/config.json`: the **worker** role drives plan/apply/module-design, the **validator** role drives module validators that need a semantic review. Both roles live in the same file as inline apiKey — no separate credentials file, no provider alias, no active marker. Configure each role once per machine:
+The engine calls the LLM directly. Every call picks one role's model from `${BAKA_HOME:-$HOME/.baka}/config.json`: the **worker** role drives plan/apply/module-design, the **validator** role drives module validators that need a semantic review. Both roles live in the same file as inline apiKey — no separate credentials file, no provider alias, no active marker. Configure each role once per machine:
 
 ```bash
 baka init
 ```
 
-`baka init` writes the role-keyed config (`{ worker: {...}, validator: {...} }`) to `~/.baka/config.json`. Edit a single field with `baka role <worker|validator> --field <name> --value <value>`. `baka-mcp` reads the same config at startup. Each role's model is its own choice; a small validator model and a large planner model are both fine.
+`baka init` writes the role-keyed config (`{ worker: {...}, validator: {...} }`) to `${BAKA_HOME:-$HOME/.baka}/config.json`. Edit a single field with `baka role <worker|validator> --field <name> --value <value>`. `baka-mcp` reads the same config at startup. Each role's model is its own choice; a small validator model and a large planner model are both fine. Setting `BAKA_HOME` relocates the whole user-level directory (config, user marketplace, logs); `$HOME/.baka` is the default.
 
 # Invariants
 

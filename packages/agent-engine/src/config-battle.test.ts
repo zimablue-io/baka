@@ -7,10 +7,11 @@
 // surface and use vitest (the package's test runner).
 //
 // Coverage areas (per qa-battle-tester investigation):
-//   - Missing apiKey field: loadLLMConfig MUST succeed (apiKey is optional
-//     per the documented contract for local servers), and the resolved
-//     config carries apiKey="". This pins the contract that the
-//     `local servers may run with no key` invariant stays intact.
+//   - Missing apiKey field: loadLLMConfig MUST fail fast naming the role
+//     and the apiKey field (architecture decision 13: baseUrl, model, and
+//     apiKey are all required; no silent defaults). `baka init` writes a
+//     placeholder key for keyless local servers, so requiring the field
+//     does not break the local-server flow.
 //   - `code: BAKA_CONFIG_MISSING` is set on every error path (missing
 //     role block, missing baseUrl, missing model, unknown role string
 //     passed at runtime). Downstream code surfaces this code in the
@@ -144,35 +145,47 @@ describe("loadLLMConfig — error code contract", () => {
 })
 
 // ---------------------------------------------------------------------------
-// Defect B: loadLLMConfig must accept a role block with no apiKey (the
-// documented contract for local servers). The resolved apiKey is "".
+// Defect B: loadLLMConfig must fail fast when a required field is missing
+// (architecture decision 13). apiKey is required like baseUrl and model;
+// the error names the role and the exact missing field.
 // ---------------------------------------------------------------------------
 
-describe("loadLLMConfig — local-server contract (apiKey optional)", () => {
-	it("does NOT throw when the worker block has baseUrl + model but no apiKey", async () => {
+describe("loadLLMConfig — required-field contract (apiKey required, decision 13)", () => {
+	it("throws naming worker.apiKey when the worker block has baseUrl + model but no apiKey", async () => {
 		const home = mkHome("baka-battle-noapikey-")
 		seedRoleBlock(home, "worker", { baseUrl: "http://127.0.0.1:8080/v1", model: "local-model" })
 
-		const config = await loadLLMConfig({ role: "worker", cwd: "/tmp" })
-		expect(config.baseUrl).toBe("http://127.0.0.1:8080/v1")
-		expect(config.model).toBe("local-model")
-		// Resolved apiKey is the empty string (the documented default).
-		expect(config.apiKey).toBe("")
+		let caught: (Error & { code?: string }) | undefined
+		try {
+			await loadLLMConfig({ role: "worker", cwd: "/tmp" })
+		} catch (err) {
+			caught = err as Error & { code?: string }
+		}
+		expect(caught, "expected loadLLMConfig to throw on a missing apiKey").toBeDefined()
+		expect(caught?.code).toBe("BAKA_CONFIG_MISSING")
+		expect(caught?.message).toContain("worker")
+		expect(caught?.message).toContain("apiKey")
 	})
 
-	it("does NOT throw when the validator block has baseUrl + model but no apiKey", async () => {
+	it("throws naming validator.apiKey when the validator block has baseUrl + model but no apiKey", async () => {
 		const home = mkHome("baka-battle-noapikey-validator-")
 		seedRoleBlock(home, "validator", { baseUrl: "http://127.0.0.1:8081/v1", model: "local-validator" })
 
-		const config = await loadLLMConfig({ role: "validator", cwd: "/tmp" })
-		expect(config.baseUrl).toBe("http://127.0.0.1:8081/v1")
-		expect(config.model).toBe("local-validator")
-		expect(config.apiKey).toBe("")
+		let caught: (Error & { code?: string }) | undefined
+		try {
+			await loadLLMConfig({ role: "validator", cwd: "/tmp" })
+		} catch (err) {
+			caught = err as Error & { code?: string }
+		}
+		expect(caught, "expected loadLLMConfig to throw on a missing apiKey").toBeDefined()
+		expect(caught?.code).toBe("BAKA_CONFIG_MISSING")
+		expect(caught?.message).toContain("validator")
+		expect(caught?.message).toContain("apiKey")
 	})
 
 	it("falls back to documented defaults for temperature/maxTokens/timeoutMs when not provided", async () => {
 		const home = mkHome("baka-battle-numeric-defaults-")
-		seedRoleBlock(home, "worker", { baseUrl: "http://x", model: "m" })
+		seedRoleBlock(home, "worker", { baseUrl: "http://x", model: "m", apiKey: "k" })
 
 		const config = await loadLLMConfig({ role: "worker", cwd: "/tmp" })
 		expect(config.temperature).toBe(0.0)
@@ -182,7 +195,7 @@ describe("loadLLMConfig — local-server contract (apiKey optional)", () => {
 
 	it("stamps providerOptions.role so the provider can branch on the role", async () => {
 		const home = mkHome("baka-battle-provideroptions-")
-		seedRoleBlock(home, "validator", { baseUrl: "http://x", model: "m" })
+		seedRoleBlock(home, "validator", { baseUrl: "http://x", model: "m", apiKey: "k" })
 
 		const config = await loadLLMConfig({ role: "validator", cwd: "/tmp" })
 		expect(config.providerOptions).toBeDefined()

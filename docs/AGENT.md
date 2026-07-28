@@ -67,7 +67,7 @@ pnpm install                # install workspace deps
 pnpm check-types            # tsc --noEmit across all workspaces
 pnpm test                   # vitest run in packages that have tests
 pnpm build                  # turbo build
-pnpm baka plan "<intent>"   # CLI (reads ~/.baka/config.json — worker role)
+pnpm baka plan "<intent>"   # CLI (reads ${BAKA_HOME:-$HOME/.baka}/config.json — worker role)
 pnpm baka module create <name>   # scaffold a new module
 pnpm baka list-modules      # list discovered modules
 pnpm mcp                    # run the baka-mcp server over stdio
@@ -77,7 +77,7 @@ pnpm mcp                    # run the baka-mcp server over stdio
 
 - Do not add a provider implementation outside `agent-engine/`. The grep test will fail.
 - Do not import `@earendil-works/pi-coding-agent` (or any other provider runtime) outside `agent-engine/`.
-- Do not introduce a separate credentials file, a `providers` map, an `activeProvider` marker, or a `defaults` block. Config is role-keyed: `~/.baka/config.json` has top-level `worker` and `validator` blocks, apiKey inline. Edit a single field with `baka role <name> --field <k> --value <v>`.
+- Do not introduce a separate credentials file, a `providers` map, an `activeProvider` marker, or a `defaults` block. Config is role-keyed: `${BAKA_HOME:-$HOME/.baka}/config.json` has top-level `worker` and `validator` blocks, apiKey inline. Edit a single field with `baka role <name> --field <k> --value <v>`.
 - Do not write free-form code from an LLM. Every output must be a declared module action. If the action doesn't exist, the manifest catalog needs an entry first.
 - Do not add "TODO" or "Phase N" placeholders that pretend to work. If a function cannot do its job, throw with a clear error pointing at the spec.
 - Do not change the directory name `apps/cli/`. The binary is `baka`; the package is `baka`; the directory is `cli`.

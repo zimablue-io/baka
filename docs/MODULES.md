@@ -6,7 +6,7 @@ A **module** is a self-contained directory that exposes typed, validated actions
 |---|---|---|
 | **project marketplace** | `<project>/.baka/modules/<name>/` | 1 (highest; wins) |
 | **in-tree** | `<project>/modules/<name>/` | 2 |
-| **user marketplace** | `~/.baka/modules/<name>/` | 3 |
+| **user marketplace** | `${BAKA_HOME:-$HOME/.baka}/modules/<name>/` | 3 |
 | **bundled** | the modules shipped inside the baka install itself (`baka-base`, `sdd`, `ts-style`) | 4 (lowest) |
 
 Discovery walks every scope on every run; there is no registration step, and both real directories and symlinks are accepted. When two scopes provide the same module name, the first scope in precedence order owns it and the lower-precedence copies are skipped. The bundled scope is listed only when the current working directory looks like a project (has a `package.json`), so `baka list-modules` from an unrelated directory does not echo the bundled catalog.

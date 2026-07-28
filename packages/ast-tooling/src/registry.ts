@@ -1,10 +1,9 @@
 import { type Dirent, existsSync, readdirSync } from "node:fs"
-import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import {
 	BAKA_PROJECT_PATHS,
-	BAKA_USER_DIR,
+	bakaHomeDir,
 	type ModuleManifest,
 	ModuleManifestSchema,
 	type ValidationDiagnostic,
@@ -82,7 +81,7 @@ export class ModuleRegistry {
 		const scopes: Array<{ dir: string; scope: "tree" | "project" | "user" | "bundled"; jitiRoot: string }> = [
 			{ dir: join(this.root, "modules"), scope: "tree", jitiRoot: this.root },
 			{ dir: join(this.root, BAKA_PROJECT_PATHS.ROOT, "modules"), scope: "project", jitiRoot: this.root },
-			{ dir: join(homedir(), `.${BAKA_USER_DIR}`, "modules"), scope: "user", jitiRoot: this.root },
+			{ dir: join(bakaHomeDir(), "modules"), scope: "user", jitiRoot: this.root },
 		]
 		const bundledDir = ModuleRegistry.findBundledModulesDir()
 		if (bundledDir) {

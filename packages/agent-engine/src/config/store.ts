@@ -1,10 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
-import { homedir } from "node:os"
 import { dirname, join } from "node:path"
-import { BAKA_USER_DIR } from "@repo/protocol"
+import { bakaHomeDir } from "@repo/protocol"
 
 // ---------------------------------------------------------------------------
-// User config (single file at ~/.baka/config.json).
+// User config (single file at ${BAKA_HOME:-$HOME/.baka}/config.json).
 //
 // The shape is role-keyed: each top-level key is a role name the engine
 // consumes ("worker", "validator"). apiKey lives inline in the role's
@@ -29,7 +28,7 @@ export interface RoleConfig {
 export type UserConfigShape = Partial<Record<RoleName, RoleConfig>>
 
 function configFilePath(): string {
-	return join(homedir(), `.${BAKA_USER_DIR}`, "config.json")
+	return join(bakaHomeDir(), "config.json")
 }
 
 function readConfigFile(): UserConfigShape {

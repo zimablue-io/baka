@@ -4,6 +4,7 @@
 // Node's strict ESM resolver when this file is consumed via the package's
 // `exports` field. Keep this in lockstep with the other packages.
 
+export { bakaHomeDir } from "./baka-home"
 export { BUILT_IN_CATALOG } from "./built-in-catalog"
 export type {
 	AggregateRequest,

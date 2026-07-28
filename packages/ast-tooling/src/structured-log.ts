@@ -1,7 +1,6 @@
 import { appendFileSync, mkdirSync } from "node:fs"
-import { homedir, platform } from "node:os"
 import { join } from "node:path"
-import { BAKA_USER_DIR } from "@repo/protocol"
+import { bakaHomeDir } from "@repo/protocol"
 
 export type LogLevel = "info" | "warn" | "error" | "debug"
 
@@ -14,7 +13,8 @@ export interface LogEntry {
 }
 
 /**
- * Append-only JSON-line log writer. Writes to ~/.baka/logs/<yyyy-mm-dd>.log.
+ * Append-only JSON-line log writer. Writes to
+ * ${BAKA_HOME:-$HOME/.baka}/logs/<yyyy-mm-dd>-<runId>.log.
  */
 export class StructuredLog {
 	private path: string | null = null
@@ -23,8 +23,7 @@ export class StructuredLog {
 
 	resolve(): string {
 		if (this.path) return this.path
-		const base = dataHome()
-		const dir = join(base, `.${BAKA_USER_DIR}`, "logs")
+		const dir = join(bakaHomeDir(), "logs")
 		mkdirSync(dir, { recursive: true })
 		const file = join(dir, `${new Date().toISOString().slice(0, 10)}-${this.runId}.log`)
 		this.path = file
@@ -41,11 +40,4 @@ export class StructuredLog {
 			// so the user can still find the in-memory logs at the end.
 		}
 	}
-}
-
-function dataHome(): string {
-	if (platform() === "win32") {
-		return process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local")
-	}
-	return homedir()
 }

@@ -1,7 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, isAbsolute, join, resolve } from "node:path"
-import { BAKA_PROJECT_PATHS, BAKA_USER_DIR } from "@repo/protocol"
+import { BAKA_PROJECT_PATHS, bakaHomeDir } from "@repo/protocol"
 
 // ---------------------------------------------------------------------------
 // Source string parsing
@@ -125,7 +125,7 @@ export function projectSettingsPath(cwd: string): string {
 }
 
 export function userSettingsPath(): string {
-	return join(homedir(), `.${BAKA_USER_DIR}`, "settings.json")
+	return join(bakaHomeDir(), "settings.json")
 }
 
 export function readProjectSettings(cwd: string): BakaSettings {
@@ -161,7 +161,7 @@ export function projectModulesDir(cwd: string): string {
 }
 
 export function userModulesDir(): string {
-	return join(homedir(), `.${BAKA_USER_DIR}`, "modules")
+	return join(bakaHomeDir(), "modules")
 }
 
 // ---------------------------------------------------------------------------

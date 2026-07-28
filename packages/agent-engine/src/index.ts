@@ -1,11 +1,10 @@
 import { existsSync, readFileSync } from "node:fs"
-import { homedir } from "node:os"
 import { join } from "node:path"
 import {
 	AgentRole,
 	BAKA_EXIT_CODE,
 	BAKA_PROJECT_PATHS,
-	BAKA_USER_DIR,
+	bakaHomeDir,
 	type LLMMessage,
 	type LLMProvider,
 	type LLMRequest,
@@ -35,15 +34,16 @@ export type PlanningOutput = ResolvedPlan
 //
 // Precedence (highest first):
 //   1. CLI overrides (the `overrides` arg)
-//   2. User config (~/.baka/config.json) — the role's block
+//   2. User config (${BAKA_HOME:-$HOME/.baka}/config.json) — the role's block
 //
-// The role block in `~/.baka/config.json` is the source of truth. There is
+// The role block in the user config is the source of truth. There is
 // NO project-tree merge, NO provider alias, NO active marker. apiKey is
 // inline in the role block.
 //
 // Throws `missing LLM config: <role> role not configured` when the role
-// block is absent, or `missing LLM config: baseUrl, model` when the block
-// is incomplete. Both errors carry `code: BAKA_CONFIG_MISSING`.
+// block is absent, or names every missing required field (baseUrl, model,
+// apiKey — architecture decision 13) when the block is incomplete. Both
+// errors carry `code: BAKA_CONFIG_MISSING`.
 // ---------------------------------------------------------------------------
 
 export interface RoleConfigOverrides {
@@ -63,7 +63,8 @@ export interface LoadConfigOptions {
 }
 
 /**
- * Resolves the LLM config for one role from `~/.baka/config.json`.
+ * Resolves the LLM config for one role from
+ * `${BAKA_HOME:-$HOME/.baka}/config.json`.
  *
  * Hard-fails when the role block is absent or missing required fields.
  * Callers should treat `role: "worker"` for plan/apply/module-design and
@@ -93,9 +94,13 @@ export async function loadLLMConfig(opts: LoadConfigOptions): Promise<ResolvedLL
 	const timeoutMs = overrides.timeoutMs ?? roleBlock.timeoutMs ?? 120_000
 	const seed = overrides.seed ?? roleBlock.seed
 
+	// Required fields fail fast naming the role and every missing field
+	// (architecture decision 13). No silent defaults: a hand-edited block
+	// missing apiKey is a config error, not an empty credential.
 	const missing: string[] = []
 	if (!baseUrl) missing.push("baseUrl")
 	if (!model) missing.push("model")
+	if (!apiKey) missing.push("apiKey")
 	if (missing.length > 0) {
 		const err = new Error(
 			`missing LLM config: ${opts.role} role is missing ${missing.join(", ")}. Run \`baka role ${opts.role}\` to set the field.`,
@@ -120,6 +125,7 @@ export function validateLLMConfig(config: ResolvedLLMConfig): void {
 	const missing: string[] = []
 	if (!config.baseUrl) missing.push("baseUrl")
 	if (!config.model) missing.push("model")
+	if (!config.apiKey) missing.push("apiKey")
 	if (missing.length > 0) {
 		const err = new Error(`missing LLM config: ${missing.join(", ")}. Run \`baka init\` to configure.`)
 		;(err as Error & { code?: string }).code = "BAKA_CONFIG_MISSING"
@@ -282,7 +288,7 @@ function loadModulePreferences(modules: ModuleManifest[]): string {
 		const candidates = [
 			join(process.cwd(), "modules", m.name, "PREFERENCES.md"),
 			join(process.cwd(), BAKA_PROJECT_PATHS.ROOT, "modules", m.name, "PREFERENCES.md"),
-			join(homedir(), `.${BAKA_USER_DIR}`, "modules", m.name, "PREFERENCES.md"),
+			join(bakaHomeDir(), "modules", m.name, "PREFERENCES.md"),
 		]
 		for (const path of candidates) {
 			if (existsSync(path)) {

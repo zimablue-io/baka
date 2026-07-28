@@ -230,7 +230,7 @@ describe("validateLLMConfig", () => {
 		expect(() =>
 			validateLLMConfig({
 				baseUrl: "http://x",
-				apiKey: "",
+				apiKey: "k",
 				model: "m",
 				temperature: 0,
 				maxTokens: 1,

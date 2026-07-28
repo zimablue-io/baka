@@ -1,12 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
-import { homedir } from "node:os"
 import { dirname, join } from "node:path"
-import { BAKA_USER_DIR } from "@repo/protocol"
+import { bakaHomeDir } from "@repo/protocol"
 
 /**
  * Per-user subscription list for community marketplace catalogs.
  *
- * Stored at `~/.baka/catalogs.json` (overridable via the
+ * Stored at `${BAKA_HOME:-$HOME/.baka}/catalogs.json` (overridable via the
  * `path` argument for tests). The CLI's `baka marketplace add/remove/list`
  * commands read and write this file. The marketplace backend treats the
  * URLs in this file as `community`-tier when serving `/v1/modules/:name`
@@ -22,7 +21,7 @@ export interface CatalogSubscriptions {
 }
 
 export function userCatalogsPath(): string {
-	return join(homedir(), `.${BAKA_USER_DIR}`, "catalogs.json")
+	return join(bakaHomeDir(), "catalogs.json")
 }
 
 export function readCatalogSubscriptions(path: string = userCatalogsPath()): CatalogSubscriptions {

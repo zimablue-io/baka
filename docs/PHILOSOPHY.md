@@ -61,7 +61,7 @@ must return zero matches. If it doesn't, the boundary is leaking and the provide
 
 ## Config is role-keyed
 
-Users configure two roles in `~/.baka/config.json` via the CLI. Every LLM call picks one role's model: the **worker** role drives plan / apply / module-design; the **validator** role drives module validators that need a semantic review. Each role is its own choice — a small validator model and a large planner model are both fine.
+Users configure two roles in `${BAKA_HOME:-$HOME/.baka}/config.json` via the CLI. Every LLM call picks one role's model: the **worker** role drives plan / apply / module-design; the **validator** role drives module validators that need a semantic review. Each role is its own choice — a small validator model and a large planner model are both fine.
 
 ```bash
 baka init                              # interactive first-time setup (writes both roles)
@@ -70,9 +70,9 @@ baka role worker --field model --value gemma4:12b     # mutate one field non-int
 baka role validator --field baseUrl --value http://localhost:8080/v1
 ```
 
-The CLI stores the role-keyed config at `~/.baka/config.json`. apiKey lives inline in each role's block; there is no separate `~/.baka/credentials` file. The user can edit any field via `baka role <name> --field <k> --value <v>`, or hand-edit the JSON file directly (the file is plain JSON, no perms ceremony).
+The CLI stores the role-keyed config at `${BAKA_HOME:-$HOME/.baka}/config.json`. apiKey lives inline in each role's block; there is no separate credentials file. The user can edit any field via `baka role <name> --field <k> --value <v>`, or hand-edit the JSON file directly (the file is plain JSON, no perms ceremony).
 
-**Precedence (highest first):** `loadLLMConfig` overrides > role block in `~/.baka/config.json` > built-in defaults.
+**Precedence (highest first):** `loadLLMConfig` overrides > role block in `${BAKA_HOME:-$HOME/.baka}/config.json` > built-in defaults. Defaults apply to optional fields only: `baseUrl`, `model`, and `apiKey` are required and a block missing any of them fails fast at load, naming the role and the exact missing field.
 
 If a role is not configured, the corresponding call hard-fails with `missing LLM config: <role> role not configured` and `code: BAKA_CONFIG_MISSING`. There is no fall-back; there is no alias.
 
