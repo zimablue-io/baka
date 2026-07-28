@@ -11,7 +11,7 @@ export const Manifest: ModuleManifest = {
 			id: "scaffold",
 			description: "Create a fresh TypeScript project (package.json, tsconfig.json, src/index.ts, README.md).",
 			requiresReasoning: false,
-			filePatterns: ["package.json", "tsconfig.json", "src/index.ts", "README.md"],
+			filePatterns: ["package.json", "tsconfig.json", "src/index.ts", "README.md", ".gitignore"],
 			validators: ["hasConsoleLog"],
 			params: [
 				{ name: "name", type: "string", required: true, description: "Project name (kebab-case)." },

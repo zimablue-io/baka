@@ -48,6 +48,7 @@ export const scaffoldAction: WorkflowStep<ScaffoldInput, boolean, ScaffoldCompen
 
 			ensureNew("package.json", renderPackageJson(projectName, description, moduleType))
 			ensureNew("tsconfig.json", renderTsConfig(moduleType))
+			ensureNew("src/index.ts", renderIndexTs(projectName))
 			ensureNew("README.md", renderReadme(projectName, description))
 			ensureNew(".gitignore", renderGitignore())
 
@@ -107,7 +108,7 @@ function renderTsConfig(moduleType: "esm" | "commonjs"): string {
 	"compilerOptions": {
 		"target": "ES2022",
 		"module": ${moduleType === "esm" ? '"ESNext"' : '"CommonJS"'},
-		"moduleResolution": "Bundler",
+		"moduleResolution": ${moduleType === "esm" ? '"Bundler"' : '"Node"'},
 		"esModuleInterop": true,
 		"strict": true,
 		"skipLibCheck": true,
@@ -118,6 +119,15 @@ function renderTsConfig(moduleType: "esm" | "commonjs"): string {
 	},
 	"include": ["src"]
 }
+`
+}
+
+function renderIndexTs(name: string): string {
+	return `function main(): void {
+	console.log("Hello from ${name}!")
+}
+
+main()
 `
 }
 
