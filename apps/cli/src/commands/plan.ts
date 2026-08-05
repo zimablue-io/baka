@@ -1,8 +1,9 @@
 import { createLLMProvider, loadLLMConfig, validateLLMConfig } from "@repo/agent-engine"
 import { listPlans, loadPlan, ModuleRegistry, runValidators, StructuredLog, savePlan } from "@repo/ast-tooling"
 import { featurePlanningWorkflow } from "@repo/feature-planning-workflow"
-import type { LLMProvider, OrchestrationState, ResolvedLLMConfig, WorkflowStep } from "@repo/protocol"
+import type { LLMProvider, ModuleManifest, OrchestrationState, ResolvedLLMConfig, WorkflowStep } from "@repo/protocol"
 import { BAKA_EXIT_CODE } from "@repo/protocol"
+import { createJiti } from "jiti"
 
 function die(code: number, msg: string): never {
 	process.stderr.write(`baka: ${msg}\n`)
@@ -133,26 +134,61 @@ export async function runApplyCommand(planFile: string, cwd: string, opts: { jso
 	const log = new StructuredLog(runId)
 	log.write({ level: "info", source: "baka.apply", message: "loading plan", file: planFile, intent: plan.meta.intent })
 
-	// Build the LLM provider for the requiresReasoning steps.
-	let config: ResolvedLLMConfig
-	try {
-		config = await loadLLMConfig({ role: "worker", cwd })
-	} catch (err) {
-		die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
-	}
-	const provider = createLLMProvider(config)
-
-	// Reuse the SAGA: the workflow package exposes runSaga indirectly via
-	// plan-intent's executePlan helper. For Phase 7 we wire it directly.
-	const { runSaga: runSagaImpl } = await import("@repo/ast-tooling")
-	const { executeWorkerStep } = await import("@repo/ast-tooling")
+	// Resolve every module the plan references via the registry's
+	// resolveModuleRoot path — the same path the Worker uses at
+	// execution time. Unlike `discover()`, this is NOT gated on the
+	// cwd's package.json, so a bare temp dir (no .baka/modules/ and no
+	// in-tree modules/) still finds the bundled baka-base / sdd /
+	// ts-style. The apply surface and the worker surface therefore
+	// resolve modules from any cwd identically.
+	const { runSaga: runSagaImpl, executeWorkerStep } = await import("@repo/ast-tooling")
 	const registry = new ModuleRegistry(cwd)
-	registry.discover(false)
+	const moduleNames = new Set<string>()
+	for (const planStep of plan.resolvedSteps) {
+		// Normalize the module name by stripping the version suffix the
+		// planner emits (e.g. "sdd v0.1.0" → "sdd") since worker steps
+		// are keyed by name only.
+		moduleNames.add(planStep.module.split(" v")[0] ?? planStep.module)
+	}
 	const stepsByKey = new Map<string, WorkflowStep<unknown, unknown, unknown>>()
-	for (const m of registry.all()) {
-		for (const a of m.actions) {
-			stepsByKey.set(`${m.name}:${a.id}`, executeWorkerStep as unknown as WorkflowStep<unknown, unknown, unknown>)
+	const resolvedManifests = new Map<string, ModuleManifest>()
+	let requiresReasoning = false
+	for (const moduleName of moduleNames) {
+		const moduleRoot = registry.resolveModuleRoot(moduleName)
+		if (!moduleRoot) continue // saga will surface "no worker step registered for X:Y"
+		const manifest = loadModuleManifest(moduleRoot, moduleName)
+		if (!manifest) continue
+		resolvedManifests.set(moduleName, manifest)
+		for (const a of manifest.actions) {
+			stepsByKey.set(`${moduleName}:${a.id}`, executeWorkerStep as unknown as WorkflowStep<unknown, unknown, unknown>)
 		}
+	}
+	for (const planStep of plan.resolvedSteps) {
+		const moduleName = planStep.module.split(" v")[0] ?? planStep.module
+		const manifest = resolvedManifests.get(moduleName)
+		if (!manifest) continue
+		const action = manifest.actions.find((a) => a.id === planStep.action)
+		if (action?.requiresReasoning) {
+			requiresReasoning = true
+			break
+		}
+	}
+
+	// Only set up the LLM provider when a plan step actually needs it.
+	// All-non-reasoning plans (the common case for deterministic
+	// scaffold / install-config / lint runs) succeed with no LLM
+	// config at all. Plans with a reasoning step demand the worker
+	// role honestly — the missing-config error reaches the user
+	// untouched.
+	let provider: LLMProvider | null = null
+	if (requiresReasoning) {
+		let config: ResolvedLLMConfig
+		try {
+			config = await loadLLMConfig({ role: "worker", cwd })
+		} catch (err) {
+			die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
+		}
+		provider = createLLMProvider(config)
 	}
 
 	const state: OrchestrationState = {
@@ -208,6 +244,22 @@ export async function runApplyCommand(planFile: string, cwd: string, opts: { jso
 		process.exit(BAKA_EXIT_CODE.VALIDATION_ERROR)
 	}
 	console.log("\napply: success (validators passed)")
+}
+
+/**
+ * Load a module's manifest from disk via jiti. The apply command
+ * resolves modules through ModuleRegistry.resolveModuleRoot (which
+ * works from any cwd), then uses this helper to read each module's
+ * `Manifest` export without depending on `discover()` (which gates
+ * the bundled scope on a cwd `package.json` and would hide modules
+ * from bare temp dirs).
+ */
+function loadModuleManifest(moduleRoot: string, _moduleName: string): ModuleManifest | null {
+	const manifestPath = `${moduleRoot}/manifest.ts`
+	const jiti = createJiti(moduleRoot, { interopDefault: true })
+	const mod = jiti(manifestPath) as { Manifest?: ModuleManifest }
+	if (!mod.Manifest) return null
+	return mod.Manifest
 }
 
 export async function runValidateCommand(cwd: string, opts: { json?: boolean; module?: string } = {}): Promise<void> {

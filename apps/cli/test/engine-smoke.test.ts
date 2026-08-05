@@ -1413,3 +1413,144 @@ export default {
 		expect(existsSync(join(scratch, "from-default.txt"))).toBe(false)
 	})
 })
+
+// ===========================================================================
+// apply-without-llm-config — apply skips LLM setup for non-reasoning plans
+// and aligns its module resolution with ModuleRegistry.resolveModuleRoot.
+//
+// Bug 1: `baka apply` used to demand a configured worker role even when
+// every plan step was non-reasoning. Bug 2: apply from a bare temp dir
+// failed with "no worker step registered for X:Y" because the
+// stepsByKey map was populated from `discover()` (which gates the bundled
+// scope on the cwd's package.json) while the Worker itself uses
+// `resolveModuleRoot()` (which is not gated).
+// ===========================================================================
+
+describe("apply-without-llm-config — apply of an all-non-reasoning plan needs no LLM", () => {
+	function makeNonReasoningPlan(scratch: string, name: string): string {
+		const plansDir = join(scratch, ".baka", "plans")
+		mkdirSync(plansDir, { recursive: true })
+		const planFile = join(plansDir, "no-llm.plan.json")
+		writeFileSync(
+			planFile,
+			JSON.stringify(
+				{
+					resolvedSteps: [
+						{
+							id: "step-1",
+							module: "baka-base",
+							action: "scaffold",
+							params: { name, moduleType: "esm" },
+						},
+					],
+					meta: { intent: "no-llm-apply", savedAt: "2026-08-06T00:00:00.000Z" },
+				},
+				null,
+				2,
+			),
+			"utf-8",
+		)
+		return planFile
+	}
+
+	it("applies an all-non-reasoning plan with no LLM config present", async () => {
+		const scratch = prepareScratchWithModules("baka-apply-no-llm-")
+		const planFile = makeNonReasoningPlan(scratch, "probe-no-llm")
+		// No `bakaConfig` arg — the fake HOME carries an empty config so
+		// loadLLMConfig would throw if it were called.
+		const fakeHome = trackDir(makeEmptyDir("baka-apply-no-llm-home-"))
+
+		const { code, stdout, stderr } = await spawnCli({
+			argv: ["--cwd", scratch, "apply", planFile, "--json"],
+			cwd: scratch,
+			env: { HOME: fakeHome, XDG_CONFIG_HOME: fakeHome, XDG_DATA_HOME: fakeHome },
+		})
+
+		expect(code, `unexpected exit ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(0)
+		const parsed = JSON.parse(stdout) as {
+			status: string
+			completedSteps: Array<{ module: string; action: string }>
+		}
+		expect(parsed.status).toBe("SUCCESS")
+		expect(parsed.completedSteps).toHaveLength(1)
+		expect(parsed.completedSteps[0].module).toBe("baka-base")
+		expect(parsed.completedSteps[0].action).toBe("scaffold")
+		// The scaffolded tree was actually produced.
+		expect(existsSync(join(scratch, "src", "index.ts"))).toBe(true)
+	})
+
+	it("applies an all-non-reasoning plan from a bare temp dir with no package.json anchor", async () => {
+		// Bug 2 repro: a bare temp dir without any modules symlink AND
+		// without a package.json. The bundled scope is normally gated
+		// on a package.json anchor in discover(); apply's resolution
+		// must use resolveModuleRoot (which is not gated) so the
+		// bundled baka-base is reachable here.
+		const scratch = trackDir(makeEmptyDir("baka-apply-bare-cwd-"))
+		const planFile = makeNonReasoningPlan(scratch, "probe-bare")
+		const fakeHome = trackDir(makeEmptyDir("baka-apply-bare-cwd-home-"))
+
+		const { code, stdout, stderr } = await spawnCli({
+			argv: ["--cwd", scratch, "apply", planFile, "--json"],
+			cwd: scratch,
+			env: { HOME: fakeHome, XDG_CONFIG_HOME: fakeHome, XDG_DATA_HOME: fakeHome },
+		})
+
+		expect(code, `unexpected exit ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(0)
+		const parsed = JSON.parse(stdout) as {
+			status: string
+			failed: { error: string } | null
+		}
+		expect(parsed.status).toBe("SUCCESS")
+		expect(parsed.failed).toBeFalsy()
+		// The bundled baka-base scaffold actually ran.
+		expect(existsSync(join(scratch, "src", "index.ts"))).toBe(true)
+	})
+
+	it("demands LLM config honestly when a plan step requires reasoning and config is absent", async () => {
+		const scratch = prepareScratchWithModules("baka-apply-needs-llm-")
+		const plansDir = join(scratch, ".baka", "plans")
+		mkdirSync(plansDir, { recursive: true })
+		const planFile = join(plansDir, "needs-llm.plan.json")
+		// `sdd:init-constitution` is a requiresReasoning action in sdd's
+		// manifest; this is the established "needs an LLM at apply time"
+		// action (VAL-FOUND-014 / ts-style-lint-real notes).
+		writeFileSync(
+			planFile,
+			JSON.stringify(
+				{
+					resolvedSteps: [
+						{
+							id: "step-1",
+							module: "sdd",
+							action: "init-constitution",
+							params: {},
+						},
+					],
+					meta: { intent: "needs-llm-apply", savedAt: "2026-08-06T00:00:00.000Z" },
+				},
+				null,
+				2,
+			),
+			"utf-8",
+		)
+
+		const fakeHome = trackDir(makeEmptyDir("baka-apply-needs-llm-home-"))
+
+		const { code, stdout, stderr } = await spawnCli({
+			argv: ["--cwd", scratch, "apply", planFile, "--json"],
+			cwd: scratch,
+			env: { HOME: fakeHome, XDG_CONFIG_HOME: fakeHome, XDG_DATA_HOME: fakeHome },
+		})
+
+		expect(code, `unexpected exit ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(1)
+		// Either the role-load surfaces the missing worker config, or the
+		// worker's reasoning branch surfaces the baka-init hint — both are
+		// honest and direct the user to `baka init`. What MUST NOT happen:
+		// a successful apply of a reasoning step, or a silent fall-through.
+		const combined = `${stdout}\n${stderr}`
+		expect(combined.toLowerCase()).toMatch(/missing llm config|baka init/)
+		expect(stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
+		// The tree must not have been mutated.
+		expect(existsSync(join(scratch, "specs"))).toBe(false)
+	})
+})
