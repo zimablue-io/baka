@@ -82,7 +82,7 @@ export async function runPlan(
 
 export interface ApplyToolOutput {
 	status: "SUCCESS" | "FAILED" | "VALIDATION_FAILED"
-	completedSteps: Array<{ id: string; module: string; action: string }>
+	completedSteps: Array<{ id: string; module: string; action: string; output: unknown }>
 	failed: { id: string; error: string } | null
 	validation: ValidationResult
 	logs: string[]
@@ -131,6 +131,7 @@ export async function runApply(
 		id: c.id,
 		module: c.module,
 		action: c.action,
+		output: c.output,
 	}))
 
 	if (saga.failed) {

@@ -70,11 +70,11 @@ export interface WorkerRollbackData {
  * prompts, calls the injected LLMProvider to fill the body, and passes the
  * generated content to the action as `renderedTemplates`.
  */
-export const executeWorkerStep: WorkflowStep<WorkerInput, boolean, WorkerRollbackData> = {
+export const executeWorkerStep: WorkflowStep<WorkerInput, unknown, WorkerRollbackData> = {
 	name: "execute-worker-step",
 	role: AgentRole.WORKER,
 
-	execute: async (input, state, ctx): Promise<StepResponse<boolean, WorkerRollbackData>> => {
+	execute: async (input, state, ctx): Promise<StepResponse<unknown, WorkerRollbackData>> => {
 		const targetDirectory = state.targetDirectory
 		if (!targetDirectory) {
 			throw new Error("Worker: state.targetDirectory is not set; the SAGA must set it before invoking steps")
@@ -105,7 +105,7 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, boolean, WorkerRollbac
 
 			return {
 				success: result.success,
-				output: result.success,
+				output: result.output,
 				compensationData: {
 					moduleName: input.moduleName,
 					actionName: input.actionName,
@@ -118,7 +118,7 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, boolean, WorkerRollbac
 		} catch (err) {
 			return {
 				success: false,
-				output: false,
+				output: null,
 				compensationData: {
 					moduleName: input.moduleName,
 					actionName: input.actionName,

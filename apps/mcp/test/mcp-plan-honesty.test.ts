@@ -440,11 +440,14 @@ describe("VAL-FOUND-008 baka_apply executes a saved plan", () => {
 			expect(applyResult.isError).toBeFalsy()
 			const applyParsed = JSON.parse(applyResult.content[0].text) as {
 				status: string
-				completedSteps: Array<{ module: string; action: string }>
+				completedSteps: Array<{ module: string; action: string; output?: unknown }>
 			}
 			expect(applyParsed.status).toBe("SUCCESS")
 			expect(applyParsed.completedSteps.length).toBeGreaterThan(0)
 			expect(applyParsed.completedSteps[0]).toMatchObject({ module: "honest-mod", action: "write" })
+			// Rich-output propagation: every completed step carries the action's
+			// output payload. The MCP apply surface must mirror the CLI surface.
+			expect(applyParsed.completedSteps[0]).toHaveProperty("output")
 			expect(existsSync(join(scratch, "marker.txt"))).toBe(true)
 		} finally {
 			await shutdown(state)

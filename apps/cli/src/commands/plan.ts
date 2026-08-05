@@ -176,7 +176,12 @@ export async function runApplyCommand(planFile: string, cwd: string, opts: { jso
 	const usedModules = Array.from(new Set(saga.completed.map((c) => c.module)))
 	const validation = await runValidators(cwd, saga.state, actionResults, undefined, usedModules)
 
-	const completedSteps = saga.completed.map((c) => ({ id: c.id, module: c.module, action: c.action }))
+	const completedSteps = saga.completed.map((c) => ({
+		id: c.id,
+		module: c.module,
+		action: c.action,
+		output: c.output,
+	}))
 
 	if (opts.json) {
 		// Same shape as the MCP `baka_apply` tool.

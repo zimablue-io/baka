@@ -805,7 +805,7 @@ describe("VAL-CLI-027 baka apply <valid-plan> --json", () => {
 
 			const parsed = JSON.parse(apply.stdout) as {
 				status: string
-				completedSteps: Array<{ module: string; action: string }>
+				completedSteps: Array<{ module: string; action: string; output?: unknown }>
 				failed: unknown
 				validation: { kind: string; diagnostics?: unknown[] }
 				logs: string[]
@@ -813,6 +813,14 @@ describe("VAL-CLI-027 baka apply <valid-plan> --json", () => {
 			expect(["SUCCESS", "VALIDATION_FAILED", "FAILED"]).toContain(parsed.status)
 			expect(Array.isArray(parsed.completedSteps)).toBe(true)
 			expect(Array.isArray(parsed.logs)).toBe(true)
+			// Rich-output propagation: every completed step carries the action's
+			// output payload (worker propagates `result.output`, not the boolean
+			// `result.success`).
+			if (parsed.status === "SUCCESS") {
+				for (const step of parsed.completedSteps) {
+					expect(step).toHaveProperty("output")
+				}
+			}
 
 			if (parsed.status === "SUCCESS") {
 				expect(parsed.failed).toBeFalsy()

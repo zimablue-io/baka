@@ -24,6 +24,8 @@ export interface CompletedStep {
 	rollbackData: unknown
 	/** Unwrapped action compensation data exposed to post-apply validators. */
 	compensationData: unknown
+	/** Rich output payload returned by the step. Surfaced to the MCP per-action tool and to the SAGA/apply surfaces so callers can act on real action results (e.g. lint's LintReport) instead of a boolean flag. */
+	output: unknown
 }
 
 export interface SagaResult {
@@ -109,6 +111,7 @@ export async function runSaga(
 			step,
 			rollbackData: result.compensationData,
 			compensationData: unwrapWorkerCompensation(result.compensationData),
+			output: result.output,
 		})
 	}
 

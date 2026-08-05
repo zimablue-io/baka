@@ -504,11 +504,17 @@ describe("VAL-FOUND-007 apply executes a saved plan", () => {
 			expect(apply.code, `unexpected apply exit ${apply.code}; stderr=${apply.stderr}`).toBe(0)
 			const parsed = JSON.parse(apply.stdout) as {
 				status: string
-				completedSteps: Array<{ module: string; action: string }>
+				completedSteps: Array<{ module: string; action: string; output?: unknown }>
 			}
 			expect(parsed.status).toBe("SUCCESS")
 			expect(parsed.completedSteps.length).toBeGreaterThan(0)
 			expect(parsed.completedSteps[0]).toMatchObject({ module: "honest-mod", action: "write" })
+			// Rich-output propagation: every completed step carries the action's
+			// output payload (the worker propagates `result.output`, not the
+			// boolean `result.success`). honest-mod's write action returns the
+			// boolean `true`; real actions (e.g. lint) return LintReport objects.
+			expect(parsed.completedSteps[0]).toHaveProperty("output")
+			expect(parsed.completedSteps[0]?.output).toBe(true)
 			expect(existsSync(join(scratch, "marker.txt"))).toBe(true)
 		} finally {
 			await llm.close()

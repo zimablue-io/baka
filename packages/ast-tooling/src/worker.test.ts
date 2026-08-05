@@ -166,6 +166,159 @@ describe("Worker end-to-end (jiti + SAGA)", () => {
 })
 
 // ---------------------------------------------------------------------------
+// Rich-output propagation (rich-action-output-propagation)
+//
+// The Worker wraps every action's response. It must surface the action's
+// own `output` payload unchanged (e.g. lint's LintReport), not the
+// boolean success flag. The MCP per-action tool and the SAGA/apply
+// surfaces consume `result.output` directly; collapsing it to a boolean
+// hides every rich payload from MCP agents and from `baka apply --json`.
+// ---------------------------------------------------------------------------
+
+describe("Worker rich-output propagation", () => {
+	function makeRichOutputProject(): { root: string; moduleName: string; actionId: string } {
+		const root = mkdtempSync(join(tmpdir(), "baka-worker-rich-"))
+		cleanup.push(root)
+		const moduleName = "rich-mod"
+		const actionId = "report"
+		const moduleRoot = join(root, "modules", moduleName)
+		const actionDir = join(moduleRoot, actionId)
+		mkdirSync(actionDir, { recursive: true })
+
+		writeFileSync(
+			join(moduleRoot, "manifest.ts"),
+			`import type { ModuleManifest } from "@repo/protocol"
+export const Manifest: ModuleManifest = {
+	name: "${moduleName}", version: "0.1.0", description: "fake", dependencies: [], conflictsWith: [],
+	actions: [{
+		id: "${actionId}",
+		description: "returns a rich payload",
+		params: [],
+		requiresReasoning: false,
+		filePatterns: [],
+		validators: [],
+	}],
+	moduleValidators: [],
+}
+`,
+		)
+		writeFileSync(
+			join(actionDir, "action.ts"),
+			`import { AgentRole, type StepResponse, type WorkflowStep } from "@repo/protocol"
+
+export interface Report {
+	kind: "lint"
+	errors: number
+	warnings: number
+	diagnostics: Array<{ rule: string; file: string }>
+}
+
+export const reportAction: WorkflowStep<unknown, Report, unknown> = {
+	name: "report",
+	role: AgentRole.WORKER,
+	execute: async (): Promise<StepResponse<Report, unknown>> => ({
+		success: true,
+		output: {
+			kind: "lint",
+			errors: 3,
+			warnings: 1,
+			diagnostics: [{ rule: "noAny", file: "src/a.ts" }, { rule: "noAny", file: "src/b.ts" }],
+		},
+		compensationData: null,
+	}),
+	compensate: async () => {},
+}
+`,
+		)
+		return { root, moduleName, actionId }
+	}
+
+	it("propagates the action's rich payload through executeWorkerStep.execute", async () => {
+		const { root, moduleName, actionId } = makeRichOutputProject()
+		const state: OrchestrationState = {
+			userIntent: "test",
+			targetDirectory: root,
+			status: "EXECUTING",
+			executionPlan: { steps: [], currentStepIndex: 0 },
+			logs: [],
+			artifacts: {},
+		}
+
+		const result = await executeWorkerStep.execute({ moduleName, actionName: actionId, parameters: {} }, state, {
+			llmProvider: null,
+		})
+
+		expect(result.success).toBe(true)
+		// The worker must surface the rich payload, not collapse it to a boolean.
+		expect(result.output).toEqual({
+			kind: "lint",
+			errors: 3,
+			warnings: 1,
+			diagnostics: [
+				{ rule: "noAny", file: "src/a.ts" },
+				{ rule: "noAny", file: "src/b.ts" },
+			],
+		})
+		expect(result.output).not.toBe(true)
+	})
+
+	it("propagates the rich payload when the step is invoked through runSaga (production wiring)", async () => {
+		const { root, moduleName, actionId } = makeRichOutputProject()
+		const stepsByKey = new Map<string, WorkflowStep<unknown, unknown, unknown>>()
+		stepsByKey.set(`${moduleName}:${actionId}`, executeWorkerStep as unknown as WorkflowStep<unknown, unknown, unknown>)
+
+		const state: OrchestrationState = {
+			userIntent: "test",
+			targetDirectory: root,
+			status: "PLANNING",
+			executionPlan: { steps: [], currentStepIndex: 0 },
+			logs: [],
+			artifacts: {},
+		}
+		const plan = planWith([{ id: "1", module: moduleName, action: actionId, params: {} }])
+		const result = await runSaga(plan, state, { llmProvider: null }, stepsByKey)
+
+		expect(result.state.status).toBe(ENGINE_STATUS.SUCCESS)
+		expect(result.completed).toHaveLength(1)
+		// The SAGA must expose the rich output on each completed step so the
+		// apply surfaces (CLI + MCP) can serialize it.
+		expect(result.completed[0]?.output).toEqual({
+			kind: "lint",
+			errors: 3,
+			warnings: 1,
+			diagnostics: [
+				{ rule: "noAny", file: "src/a.ts" },
+				{ rule: "noAny", file: "src/b.ts" },
+			],
+		})
+	})
+
+	it("surfaces null (not false) when the worker itself throws before the action runs", async () => {
+		const root = mkdtempSync(join(tmpdir(), "baka-worker-throws-"))
+		cleanup.push(root)
+		// No modules dir — executeWorkerStep throws resolving the module,
+		// exercising the catch branch.
+		const state: OrchestrationState = {
+			userIntent: "test",
+			targetDirectory: root,
+			status: "EXECUTING",
+			executionPlan: { steps: [], currentStepIndex: 0 },
+			logs: [],
+			artifacts: {},
+		}
+		const result = await executeWorkerStep.execute(
+			{ moduleName: "missing-mod", actionName: "missing", parameters: {} },
+			state,
+			{ llmProvider: null },
+		)
+		expect(result.success).toBe(false)
+		// No rich payload to propagate on the throw path; output must be a
+		// neutral value (null) rather than the legacy boolean false.
+		expect(result.output).toBeNull()
+	})
+})
+
+// ---------------------------------------------------------------------------
 // Worker error-message contract — role-keyed config refactor
 //
 // The role-keyed config refactor replaces the legacy `baka providers

@@ -122,4 +122,39 @@ describe("runSaga", () => {
 		expect(result.state.status).toBe(ENGINE_STATUS.FAILED)
 		expect(result.failed?.error).toContain("kaboom")
 	})
+
+	it("captures the step's rich output on every completed step (rich-action-output-propagation)", async () => {
+		const state = freshState()
+		const steps = new Map<string, WorkflowStep<unknown, unknown, unknown>>()
+		steps.set("m:rich", {
+			name: "rich",
+			role: AgentRole.WORKER,
+			execute: async (): Promise<StepResponse<unknown, unknown>> => ({
+				success: true,
+				output: { kind: "lint", errors: 3, diagnostics: [{ rule: "noAny", file: "a.ts" }] },
+				compensationData: { tagged: true },
+			}),
+			compensate: async () => {},
+		})
+		const result = await runSaga(
+			planWith([{ id: "1", module: "m", action: "rich" }]),
+			state,
+			{ llmProvider: null },
+			steps,
+		)
+
+		expect(result.state.status).toBe(ENGINE_STATUS.SUCCESS)
+		expect(result.completed).toHaveLength(1)
+		// The saga contract must carry the action's output through so the
+		// apply surfaces (CLI + MCP) can serialize it. Without this, every
+		// rich payload collapses to the boolean success flag.
+		expect(result.completed[0]?.output).toEqual({
+			kind: "lint",
+			errors: 3,
+			diagnostics: [{ rule: "noAny", file: "a.ts" }],
+		})
+		// Sanity: compensationData still flows (the worker envelope is kept for
+		// rollback and the unwrapped value still feeds validators).
+		expect(result.completed[0]?.compensationData).toEqual({ tagged: true })
+	})
 })
