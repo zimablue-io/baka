@@ -21,10 +21,10 @@ function die(code: number, msg: string): never {
 // `baka module validate <name>`
 // ---------------------------------------------------------------------------
 
-export function runModuleValidate(name: string, opts: { json?: boolean } = {}): void {
+export function runModuleValidate(name: string, opts: { cwd?: string; json?: boolean } = {}): void {
 	if (!name) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka module validate <name>")
 
-	const cwd = process.cwd()
+	const cwd = opts.cwd ?? process.cwd()
 	// Resolve through the same registry the engine uses so validate sees the
 	// same modules plan/apply see (tree, project marketplace, user
 	// marketplace, bundled), not just the in-tree modules/ dir.
@@ -157,9 +157,9 @@ function readdirSyncSafe(dir: string): string[] {
 // `baka module list-actions <name>`
 // ---------------------------------------------------------------------------
 
-export function runModuleListActions(name: string, opts: { json?: boolean } = {}): void {
+export function runModuleListActions(name: string, opts: { cwd?: string; json?: boolean } = {}): void {
 	if (!name) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka module list-actions <name>")
-	const cwd = process.cwd()
+	const cwd = opts.cwd ?? process.cwd()
 	// Resolve through the same registry the engine uses so list-actions sees
 	// the same modules plan/apply/validate see (tree, project marketplace,
 	// user marketplace, bundled), not just the in-tree modules/ dir.
@@ -230,11 +230,11 @@ export function runModuleListActions(name: string, opts: { json?: boolean } = {}
 // `baka module edit <name>`
 // ---------------------------------------------------------------------------
 
-export async function runModuleEdit(name: string): Promise<void> {
+export async function runModuleEdit(name: string, opts: { cwd?: string } = {}): Promise<void> {
 	if (!name) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka module edit <name>")
 	const editorCmd = process.env.EDITOR
 	if (!editorCmd) die(BAKA_EXIT_CODE.USER_ERROR, "no $EDITOR set")
-	const cwd = process.cwd()
+	const cwd = opts.cwd ?? process.cwd()
 	// Resolve through the same registry the engine uses so edit opens the
 	// module plan/apply/validate see (tree, project marketplace, user
 	// marketplace, bundled), not just the in-tree modules/ dir.
@@ -248,7 +248,7 @@ export async function runModuleEdit(name: string): Promise<void> {
 	})
 
 	// Re-validate after edit
-	runModuleValidate(name)
+	runModuleValidate(name, { cwd })
 }
 
 // ---------------------------------------------------------------------------
@@ -257,11 +257,16 @@ export async function runModuleEdit(name: string): Promise<void> {
 // the module's validators.
 // ---------------------------------------------------------------------------
 
-export async function runModuleTest(name: string, actionId: string, inputJson: string): Promise<void> {
+export async function runModuleTest(
+	name: string,
+	actionId: string,
+	inputJson: string,
+	opts: { cwd?: string } = {},
+): Promise<void> {
 	if (!name) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka module test <name> --action=<id> [--input=<json>]")
 	if (!actionId) die(BAKA_EXIT_CODE.USER_ERROR, "--action=<id> is required")
 
-	const cwd = process.cwd()
+	const cwd = opts.cwd ?? process.cwd()
 	// Resolve through the same registry the engine uses so `module test`
 	// sees the same modules plan/apply see (tree, project marketplace, user
 	// marketplace, bundled), not just the in-tree modules/ dir.

@@ -164,12 +164,18 @@ moduleCmd
 	.command("validate <name>")
 	.description("Check a module's manifest and layout")
 	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp manifest resource)")
-	.action((name, opts) => runModuleValidate(name, { json: opts.json }))
+	.action((name, opts) => {
+		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
+		runModuleValidate(name, { cwd, json: opts.json })
+	})
 moduleCmd
 	.command("list-actions <name>")
 	.description("Show a module's actions")
 	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp `baka_list_actions` tool)")
-	.action((name, opts) => runModuleListActions(name, { json: opts.json }))
+	.action((name, opts) => {
+		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
+		runModuleListActions(name, { cwd, json: opts.json })
+	})
 
 moduleCmd
 	.command("test <name>")
@@ -178,15 +184,17 @@ moduleCmd
 	.option("-i, --input <json>", "JSON input for the action", "{}")
 	.action(async (name, opts) => {
 		if (!opts.action) die(BAKA_EXIT_CODE.USER_ERROR, "--action <id> is required")
-		await runModuleTest(name, opts.action, opts.input ?? "{}")
+		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
+		await runModuleTest(name, opts.action, opts.input ?? "{}", { cwd })
 	})
 
 moduleCmd
 	.command("edit <name>")
 	.description("Open the module's manifest in $EDITOR, then re-validate")
 	.action(async (name) => {
+		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		try {
-			await runModuleEdit(name)
+			await runModuleEdit(name, { cwd })
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
 			if (message.includes("User force closed")) return
