@@ -53,7 +53,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 
 // ---------------------------------------------------------------------------
 // Constants and helpers
@@ -347,6 +347,16 @@ beforeAll(() => {
 afterEach(() => {
 	for (const dir of createdDirs.splice(0)) {
 		if (existsSync(dir)) rmSync(dir, { recursive: true, force: true })
+	}
+})
+
+// EMPTY_CWD is a constant-path tmp dir created in beforeAll so it can be
+// passed as `cwd:` to a spawned MCP server without discovering modules.
+// Remove it after the suite so a single suite run leaves zero tmp dirs
+// behind.
+afterAll(() => {
+	if (existsSync(EMPTY_CWD)) {
+		rmSync(EMPTY_CWD, { recursive: true, force: true })
 	}
 })
 
