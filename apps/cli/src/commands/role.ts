@@ -47,7 +47,7 @@ function setField(block: RoleConfig, field: EditableField, value: string): RoleC
 	}
 }
 
-export interface RunRoleOpts {
+interface RunRoleOpts {
 	field?: string
 	value?: string
 }

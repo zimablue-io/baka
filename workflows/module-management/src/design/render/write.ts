@@ -16,7 +16,7 @@ import {
 // written so the CLI can show a diff.
 // ---------------------------------------------------------------------------
 
-export interface WriteFilesResult {
+interface WriteFilesResult {
 	writtenFiles: string[]
 }
 

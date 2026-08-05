@@ -18,7 +18,7 @@ import { type DesignPhase, type DesignSessionState, setPhase } from "./state"
 // /help      list commands
 // ---------------------------------------------------------------------------
 
-export type SlashLoopResult =
+type SlashLoopResult =
 	| { kind: "ok" }
 	| { kind: "exit" }
 	| { kind: "rewound" }

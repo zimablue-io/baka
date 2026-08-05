@@ -19,7 +19,6 @@ import {
 	MODULE_MANIFEST_TEMPLATE_METADATA,
 	MODULE_MANIFEST_URI_TEMPLATE_STRING,
 	MODULES_RESOURCE_URI,
-	moduleManifestUri,
 	readModuleManifestResource,
 	readModulesResource,
 } from "./resources/modules.js"
@@ -63,7 +62,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const serverPkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8")) as { version: string }
 const SERVER_VERSION = serverPkg.version
 
-export interface StartServerOptions {
+interface StartServerOptions {
 	cwd: string
 }
 
@@ -383,6 +382,3 @@ function jsonResult(value: unknown) {
 		],
 	}
 }
-
-// Re-exported for the test
-export { actionToolName, moduleManifestUri }

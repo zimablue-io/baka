@@ -9,7 +9,7 @@
 		"test": "turbo run test",
 		"check-types": "turbo run check-types",
 		"pack": "rm -rf dist-tarballs && mkdir -p dist-tarballs && node scripts/pack.mjs baka --out \"$PWD/dist-tarballs\" && node scripts/pack.mjs @baka/mcp-server --out \"$PWD/dist-tarballs\"",
-		"knip": "pnpm dlx knip@5",
+		"knip": "node node_modules/knip/bin/knip.js --treat-config-hints-as-errors",
 		"format": "biome format --write .",
 		"format:check": "biome format .",
 		"clean": "find . -name 'dist' -type d -exec rm -rf {} +",
@@ -23,9 +23,9 @@
 	"devDependencies": {
 		"@biomejs/biome": "2.5.0",
 		"@types/node": "^22.19.15",
+		"knip": "5.88.1",
 		"turbo": "^2.9.18",
-		"typescript": "5.9.2",
-		"vitest": "^4.1.8"
+		"typescript": "5.9.2"
 	},
 	"packageManager": "pnpm@9.0.0",
 	"engines": {

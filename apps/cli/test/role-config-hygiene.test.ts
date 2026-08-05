@@ -16,16 +16,7 @@
 // ---------------------------------------------------------------------------
 
 import { type ChildProcess, spawn } from "node:child_process"
-import {
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	readdirSync,
-	readFileSync,
-	rmSync,
-	symlinkSync,
-	writeFileSync,
-} from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -33,8 +24,62 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest"
 
 const BAKA_REPO = join(__dirname, "..", "..", "..")
 const DIST_INDEX = join(BAKA_REPO, "apps", "cli", "dist", "index.js")
-const HONEST_MOD_FIXTURE = join(BAKA_REPO, "apps", "cli", "test", "fixtures", "honest-mod")
+// An inline honest-mod fixture: a minimal manifest + a single non-reasoning
+// `write` action that drops a marker file. The manifest is built in a
+// scratch tree (no `baka-sdk` import path required, so the fixture does not
+// depend on a node_modules symlink in the fixture dir).
 const SENTINEL = "sk-SENTINEL-DO-NOT-LEAK-12345"
+const HONEST_MOD_NAME = "honest-mod"
+const HONEST_MOD_MANIFEST = `// Inline fixture: see apps/cli/test/role-config-hygiene.test.ts
+// for why this is inlined instead of loaded from a separate fixture file.
+import type { ModuleManifest } from "baka-sdk"
+
+export const Manifest: ModuleManifest = {
+\tname: "${HONEST_MOD_NAME}",
+\tversion: "0.0.0",
+\tdescription: "Inline non-reasoning fixture used by role-config-hygiene tests.",
+\tdependencies: [],
+\tconflictsWith: [],
+\tactions: [
+\t\t{
+\t\t\tid: "write",
+\t\t\tdescription: "Write a marker file to the project root.",
+\t\t\trequiresReasoning: false,
+\t\t\tfilePatterns: ["marker.txt"],
+\t\t\tvalidators: [],
+\t\t\tparams: [],
+\t\t},
+\t],
+\tmoduleValidators: [],
+}
+`
+const HONEST_MOD_ACTION = `import { rmSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
+import { AgentRole, type StepResponse, type WorkflowStep } from "baka-sdk"
+
+export const writeAction: WorkflowStep<Record<string, never>, boolean, { targetDirectory: string }> = {
+\tname: "${HONEST_MOD_NAME}.write",
+\trole: AgentRole.WORKER,
+
+\texecute: async (_input, state): Promise<StepResponse<boolean, { targetDirectory: string }>> => {
+\t\tconst targetDirectory = state.targetDirectory
+\t\twriteFileSync(join(targetDirectory, "marker.txt"), "honest-mod was here\\n", "utf-8")
+\t\treturn {
+\t\t\tsuccess: true,
+\t\t\toutput: true,
+\t\t\tcompensationData: { targetDirectory },
+\t\t}
+\t},
+
+\tcompensate: async (data): Promise<void> => {
+\t\ttry {
+\t\t\trmSync(join(data.targetDirectory, "marker.txt"), { force: true })
+\t\t} catch {
+\t\t\t// best effort
+\t\t}
+\t},
+}
+`
 
 interface SpawnResult {
 	code: number | null
@@ -150,8 +195,11 @@ function planResponse(): string {
 
 function prepareScratchWithFixture(prefix: string): string {
 	const scratch = makeEmptyDir(prefix)
-	mkdirSync(join(scratch, "modules"), { recursive: true })
-	symlinkSync(HONEST_MOD_FIXTURE, join(scratch, "modules", "honest-mod"))
+	const modDir = join(scratch, "modules", HONEST_MOD_NAME)
+	mkdirSync(modDir, { recursive: true })
+	writeFileSync(join(modDir, "manifest.ts"), HONEST_MOD_MANIFEST, "utf-8")
+	mkdirSync(join(modDir, "write"), { recursive: true })
+	writeFileSync(join(modDir, "write", "action.ts"), HONEST_MOD_ACTION, "utf-8")
 	return scratch
 }
 
@@ -387,10 +435,10 @@ describe("decision 33: BAKA_HOME replaces ~/.baka entirely", () => {
 
 	it("baka install --user materializes under $BAKA_HOME/modules", async () => {
 		const { bakaHome, home, env } = makeIsolatedHome("baka-hyg-install-")
-		const scratch = makeEmptyDir("baka-hyg-install-proj-")
+		const scratch = prepareScratchWithFixture("baka-hyg-install-proj-")
 
 		const { code, stdout, stderr } = await spawnCli(
-			["--cwd", scratch, "install", HONEST_MOD_FIXTURE, "--user"],
+			["--cwd", scratch, "install", join(scratch, "modules", HONEST_MOD_NAME), "--user"],
 			scratch,
 			env,
 		)

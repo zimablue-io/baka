@@ -27,7 +27,7 @@ import { renderBriefEcho, renderConsistencyResult, renderPayload, renderResumeCo
 
 const STATE_FILE = ".design-state.json"
 
-export interface RunModuleDesignDeps {
+interface RunModuleDesignDeps {
 	loadLLMConfig: typeof loadLLMConfig
 	createLLMProvider: typeof createLLMProvider
 	input: typeof inquirerInput

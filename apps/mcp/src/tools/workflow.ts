@@ -37,7 +37,7 @@ async function setupProvider(ctx: ServerContext): Promise<LLMProvider> {
 // baka_plan
 // ---------------------------------------------------------------------------
 
-export interface PlanToolOutput {
+interface PlanToolOutput {
 	status: "SUCCESS" | "FAILED"
 	steps: ResolvedPlanStep[]
 	logs: string[]
@@ -80,7 +80,7 @@ export async function runPlan(
 // baka_apply
 // ---------------------------------------------------------------------------
 
-export interface ApplyToolOutput {
+interface ApplyToolOutput {
 	status: "SUCCESS" | "FAILED" | "VALIDATION_FAILED"
 	completedSteps: Array<{ id: string; module: string; action: string; output: unknown }>
 	failed: { id: string; error: string } | null
@@ -153,7 +153,7 @@ export async function runApply(
 // baka_validate
 // ---------------------------------------------------------------------------
 
-export interface ValidateToolOutput {
+interface ValidateToolOutput {
 	valid: boolean
 	modulesDiscovered: number
 	validation: ValidationResult
@@ -182,7 +182,7 @@ export async function runValidate(ctx: ServerContext): Promise<ValidateToolOutpu
 // baka_list_actions
 // ---------------------------------------------------------------------------
 
-export interface ListActionsToolOutput {
+interface ListActionsToolOutput {
 	module: string
 	version: string
 	description: string
@@ -233,7 +233,7 @@ export async function runListActions(ctx: ServerContext, moduleName: string): Pr
 // Per-action execution
 // ---------------------------------------------------------------------------
 
-export interface RunActionToolOutput {
+interface RunActionToolOutput {
 	success: boolean
 	module: string
 	action: string

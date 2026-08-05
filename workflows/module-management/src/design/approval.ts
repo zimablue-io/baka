@@ -23,9 +23,9 @@ import type { DesignSessionState } from "./state"
 // (useful in tests).
 // ---------------------------------------------------------------------------
 
-export type DeliverOutcome = "done" | "consistency-failure" | "rejected" | "no-actions"
+type DeliverOutcome = "done" | "consistency-failure" | "rejected" | "no-actions"
 
-export interface PauseForApprovalArgs<TDecision> {
+interface PauseForApprovalArgs<TDecision> {
 	hookCallback: ((state: DesignSessionState, resume: (decision: TDecision) => void) => void) | undefined
 	state: DesignSessionState
 	token: string
@@ -76,15 +76,12 @@ export async function runDeliver({ state, moduleDir, runConsistency }: RunDelive
 
 // ----- DELIVER runner with approval gate ---------------------------------
 
-export interface RunDeliverWithHookResult {
+interface RunDeliverWithHookResult {
 	outcome: DeliverOutcome
 	writtenFiles: string[]
 }
 
-export type DeliverApprovalCallback = (
-	state: DesignSessionState,
-	resume: (decision: { approved: boolean }) => void,
-) => void
+type DeliverApprovalCallback = (state: DesignSessionState, resume: (decision: { approved: boolean }) => void) => void
 
 export async function runDeliverIfApproved(args: {
 	state: DesignSessionState

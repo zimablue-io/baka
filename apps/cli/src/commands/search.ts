@@ -34,7 +34,7 @@ const TIER_ORDER: Record<string, number> = {
 	community: 2,
 }
 
-export interface SearchOptions {
+interface SearchOptions {
 	fetch?: typeof fetch
 	apiUrl?: string
 	json?: boolean

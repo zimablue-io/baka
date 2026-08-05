@@ -18,7 +18,7 @@ export function getMarketplaceApiUrl(): string {
 	return process.env.BAKA_API_URL ?? DEFAULT_API_URL
 }
 
-export interface ClientOptions {
+interface ClientOptions {
 	apiUrl?: string
 	fetch?: typeof fetch
 }
@@ -29,7 +29,7 @@ export interface ClientOptions {
  * error: callers must be able to tell "the service is down" apart from
  * "the service answered". Always names the base URL that failed.
  */
-export class MarketplaceTransportError extends Error {
+class MarketplaceTransportError extends Error {
 	readonly baseUrl: string
 	constructor(baseUrl: string, path: string, cause: string) {
 		super(`marketplace registry unreachable at ${baseUrl} (${path}): ${cause}`)

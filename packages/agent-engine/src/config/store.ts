@@ -25,7 +25,7 @@ export interface RoleConfig {
 	seed?: number
 }
 
-export type UserConfigShape = Partial<Record<RoleName, RoleConfig>>
+type UserConfigShape = Partial<Record<RoleName, RoleConfig>>
 
 function configFilePath(): string {
 	return join(bakaHomeDir(), "config.json")

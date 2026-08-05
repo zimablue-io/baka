@@ -25,7 +25,7 @@ function die(code: number, msg: string): never {
 // baka install <source>
 // ---------------------------------------------------------------------------
 
-export interface ResolveOptions {
+interface ResolveOptions {
 	fetch?: typeof fetch
 	apiUrl?: string
 	subscriptions?: { catalogs: string[] }

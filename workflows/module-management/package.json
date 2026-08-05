@@ -15,8 +15,6 @@
 		"test:coverage": "vitest run --coverage"
 	},
 	"dependencies": {
-		"@repo/agent-engine": "workspace:*",
-		"@repo/ast-tooling": "workspace:*",
 		"@repo/protocol": "workspace:*",
 		"zod": "^3.23.0"
 	},

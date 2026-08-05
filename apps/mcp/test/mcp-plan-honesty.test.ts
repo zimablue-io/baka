@@ -15,16 +15,7 @@
 
 import { type ChildProcess, spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import {
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	readdirSync,
-	readFileSync,
-	rmSync,
-	symlinkSync,
-	writeFileSync,
-} from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
@@ -36,7 +27,61 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest"
 
 const BAKA_REPO = join(__dirname, "..", "..", "..")
 const DIST_INDEX = join(BAKA_REPO, "apps", "mcp", "dist", "index.js")
-const HONEST_MOD_FIXTURE = join(BAKA_REPO, "apps", "cli", "test", "fixtures", "honest-mod")
+// Inline fixture: minimal manifest + a single non-reasoning `write` action.
+// We build the fixture into the scratch tree (no symlink to a separate
+// fixture dir, no `baka-sdk` import path required) so the loader sees the
+// module just like any other on-disk module.
+const HONEST_MOD_NAME = "honest-mod"
+const HONEST_MOD_MANIFEST = `// Inline fixture: see apps/mcp/test/mcp-plan-honesty.test.ts
+// for why this is inlined instead of loaded from a separate fixture file.
+import type { ModuleManifest } from "baka-sdk"
+
+export const Manifest: ModuleManifest = {
+\tname: "${HONEST_MOD_NAME}",
+\tversion: "0.0.0",
+\tdescription: "Inline non-reasoning fixture used by MCP plan honesty tests.",
+\tdependencies: [],
+\tconflictsWith: [],
+\tactions: [
+\t\t{
+\t\t\tid: "write",
+\t\t\tdescription: "Write a marker file to the project root.",
+\t\t\trequiresReasoning: false,
+\t\t\tfilePatterns: ["marker.txt"],
+\t\t\tvalidators: [],
+\t\t\tparams: [],
+\t\t},
+\t],
+\tmoduleValidators: [],
+}
+`
+const HONEST_MOD_ACTION = `import { rmSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
+import { AgentRole, type StepResponse, type WorkflowStep } from "baka-sdk"
+
+export const writeAction: WorkflowStep<Record<string, never>, boolean, { targetDirectory: string }> = {
+\tname: "${HONEST_MOD_NAME}.write",
+\trole: AgentRole.WORKER,
+
+\texecute: async (_input, state): Promise<StepResponse<boolean, { targetDirectory: string }>> => {
+\t\tconst targetDirectory = state.targetDirectory
+\t\twriteFileSync(join(targetDirectory, "marker.txt"), "honest-mod was here\\n", "utf-8")
+\t\treturn {
+\t\t\tsuccess: true,
+\t\t\toutput: true,
+\t\t\tcompensationData: { targetDirectory },
+\t\t}
+\t},
+
+\tcompensate: async (data): Promise<void> => {
+\t\ttry {
+\t\t\trmSync(join(data.targetDirectory, "marker.txt"), { force: true })
+\t\t} catch {
+\t\t\t// best effort
+\t\t}
+\t},
+}
+`
 
 interface JsonRpcResponse {
 	jsonrpc: "2.0"
@@ -250,8 +295,10 @@ function trackDir(path: string): string {
 
 function prepareScratchWithFixture(prefix: string): string {
 	const scratch = trackDir(makeEmptyDir(prefix))
-	mkdirSync(join(scratch, "modules"), { recursive: true })
-	symlinkSync(HONEST_MOD_FIXTURE, join(scratch, "modules", "honest-mod"))
+	const modDir = join(scratch, "modules", HONEST_MOD_NAME)
+	mkdirSync(join(modDir, "write"), { recursive: true })
+	writeFileSync(join(modDir, "manifest.ts"), HONEST_MOD_MANIFEST, "utf-8")
+	writeFileSync(join(modDir, "write", "action.ts"), HONEST_MOD_ACTION, "utf-8")
 	return scratch
 }
 

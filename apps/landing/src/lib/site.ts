@@ -2,7 +2,7 @@
 // URL, and the doc paths here — not in components.
 
 export const BRAND = "baka" as const
-export const BRAND_KANJI = "馬鹿" as const
+const BRAND_KANJI = "馬鹿" as const
 
 const GITHUB_OWNER = "zimablue-io"
 const GITHUB_REPO = "baka"

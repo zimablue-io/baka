@@ -36,13 +36,6 @@ export function readModulesResource(ctx: ServerContext) {
 	}
 }
 
-/**
- * baka://module/<name>/manifest — full manifest JSON for one module.
- */
-export function moduleManifestUri(name: string): string {
-	return `baka://module/${name}/manifest`
-}
-
 export function readModuleManifestResource(ctx: ServerContext, uri: string) {
 	const match = uri.match(/^baka:\/\/module\/([^/]+)\/manifest$/)
 	if (!match) {
@@ -77,11 +70,4 @@ export const MODULE_MANIFEST_TEMPLATE_METADATA = {
 	name: "module manifest",
 	description: "Full manifest JSON for a single module. Replace {name} with the module name.",
 	mimeType: "application/json",
-} as const
-
-// Keep the old constant name as an alias for any external consumers.
-/** @lintignore Kept as a backwards-compat alias for MODULE_MANIFEST_TEMPLATE_METADATA. */
-export const MODULE_MANIFEST_TEMPLATE = {
-	uriTemplate: MODULE_MANIFEST_URI_TEMPLATE_STRING,
-	...MODULE_MANIFEST_TEMPLATE_METADATA,
 } as const

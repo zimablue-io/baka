@@ -38,7 +38,7 @@ The postinstall hook builds the `baka` CLI. After install you can invoke it with
 | `pnpm test` | Run the full Vitest suite |
 | `pnpm pack` | Build installable tarballs for `baka` and `@baka/mcp-server` into `dist-tarballs/` |
 | `pnpm format` | Run Biome's auto-formatter (`biome format --write .`) |
-| `pnpm knip` | Dead-code pass |
+| `pnpm knip` | Run the strict unused file, export, and dependency gate |
 | `pnpm baka plan "<intent>"` | Plan a feature using the engine |
 | `pnpm baka scaffold <module>` | Scaffold a new module |
 
@@ -69,11 +69,12 @@ The provider boundary is enforced: only `packages/agent-engine` may import a pro
    pnpm lint
    pnpm check-types
    pnpm test
+   pnpm knip
    ```
 
 5. **Fill out the PR template.** Include the rationale, the test plan, and a link to the tracking issue.
 6. **CI must be green before merge.** Every PR runs lint, type-check, test, build,
-   pack, and the smoke step (linked-binary probe of `baka` and `baka-mcp`) on
+   pack, Knip, and the smoke step (linked-binary probe of `baka` and `baka-mcp`) on
    GitHub Actions. A failing CI run blocks merge: do not bypass the required
    status checks or push commits that skip the workflow. The PR template
    mirrors CI; reviewers will wait for it. If a CI failure is unrelated to your

@@ -23,7 +23,6 @@
 		"test:real-llm": "RUN_REAL_LLM=1 vitest run test/baka-module-create.test.ts"
 	},
 	"dependencies": {
-		"@baka/api": "workspace:*",
 		"@inquirer/prompts": "^8.5.2",
 		"@repo/agent-engine": "workspace:*",
 		"@repo/ast-tooling": "workspace:*",
@@ -34,9 +33,11 @@
 		"jiti": "^2.7.0"
 	},
 	"devDependencies": {
+		"@baka/api": "workspace:*",
 		"@repo/typescript-config": "workspace:*",
 		"@types/node": "^22.19.15",
 		"@vitest/coverage-v8": "4.1.8",
+		"baka-sdk": "workspace:*",
 		"tsup": "^8.3.5",
 		"tsx": "^4.19.2",
 		"typescript": "^5.9.2",

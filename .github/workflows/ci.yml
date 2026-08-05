@@ -82,12 +82,10 @@ jobs:
       - name: Pack (baka + @baka/mcp-server)
         run: pnpm pack
 
-      # Dead-code pass. The full knip configuration lands in the
-      # `quality-pass-knip-docs-settings` feature; until then this
-      # step surfaces findings without blocking the build.
-      - name: Knip (dead-code pass)
-        continue-on-error: true
-        run: pnpm dlx knip@5
+      # Strict unused file, export, dependency, and unresolved-import gate.
+      # Configuration hints are fatal through the root `pnpm knip` script.
+      - name: Knip (repository hygiene)
+        run: pnpm knip
 
       - name: Smoke test against packed tarballs
         run: |

@@ -8,5 +8,4 @@ export {
 	renderTemplateStubSource,
 	renderValidatorStubSource,
 } from "./stubs"
-export type { WriteFilesResult } from "./write"
 export { writeModuleFiles } from "./write"

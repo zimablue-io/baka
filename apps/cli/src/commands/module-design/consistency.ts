@@ -13,7 +13,7 @@ import { loadSession } from "@repo/module-management-workflow"
 
 import { renderConsistencyResult } from "./render"
 
-export interface RunConsistencyArgs {
+interface RunConsistencyArgs {
 	n: number
 	intent: string
 	moduleName: string
@@ -21,7 +21,7 @@ export interface RunConsistencyArgs {
 	cwd: string
 }
 
-export interface RunConsistencyResult {
+interface RunConsistencyResult {
 	passed: boolean
 	artifactDir: string
 	summary: string

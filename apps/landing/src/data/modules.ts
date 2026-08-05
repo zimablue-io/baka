@@ -1,7 +1,7 @@
 // Static, hand-curated catalog of the in-tree modules shipped with this repo.
 // Sourced from modules/<name>/manifest.ts. Update when new modules land.
 
-export interface CatalogModule {
+interface CatalogModule {
 	readonly name: string
 	readonly version: string
 	readonly description: string

@@ -338,12 +338,11 @@ async function runOneTurn(args: {
 	return { state, broke: false, exited: "user-exit" }
 }
 
-export type { DeliverOutcome, RunDeliverArgs, RunDeliverResult } from "./approval"
-export { defineApprovalHook, deliverApprovalHook, developApprovalHook, runDeliver } from "./approval"
+export type { RunDeliverArgs, RunDeliverResult } from "./approval"
+export { runDeliver } from "./approval"
 export type { RunLLMTurnArgs, RunLLMTurnResult } from "./llm"
 export { runLLMTurn } from "./llm"
 export type { ApplyPayloadResult } from "./payload-apply"
 export { applyPayload } from "./payload-apply"
 export { applyBack } from "./phase-utils"
-// Re-exports so consumers can still import everything from "./chat"
 export { loadSession, STATE_FILE, saveSession } from "./session"
