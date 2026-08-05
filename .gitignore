@@ -48,3 +48,10 @@ docs/superpowers/
 # Pack output (created by `pnpm pack` / CI smoke)
 *.tgz
 dist-tarballs/
+
+# Modules: per-action `out/` residue dropped by reasoning-action runs.
+# Audit-modules.md (DEAD residue): dogfood runs copy templates into
+# modules/<module>/<action>/out/. Explicit, scoped suppression — do NOT rely
+# on the catch-all `out/` rule above (it is too broad and historically
+# incidental).
+modules/**/out/
