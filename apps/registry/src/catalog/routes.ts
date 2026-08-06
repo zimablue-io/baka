@@ -46,6 +46,38 @@ function isCatalogTier(value: string): value is CatalogTier {
 	return (CATALOG_TIERS as readonly string[]).includes(value)
 }
 
+/**
+ * Response body returned when a caller asks about a module that has
+ * been tombstoned via DELETE /v1/modules/:scope/:name (architecture
+ * §8 decision 1). The body is intentionally distinct from a generic
+ * "not found" — the contract demands callers can tell the two cases
+ * apart (VAL-PUB-030). The `removedAt` ISO timestamp and the
+ * scope/name echo back the identifying information the caller
+ * already provided, so a UI can render a "this module was removed
+ * on ..." message without an extra round trip.
+ */
+interface RemovedModuleBody {
+	error: string
+	removed: true
+	scope: string
+	name: string
+	removedAt: string
+}
+
+function removedModuleResponse(scope: string, name: string, removedAt: Date, status = 404): Response {
+	const body: RemovedModuleBody = {
+		error: `module '${scope}/${name}' was removed at ${removedAt.toISOString()}`,
+		removed: true,
+		scope,
+		name,
+		removedAt: removedAt.toISOString(),
+	}
+	return new Response(JSON.stringify(body), {
+		status,
+		headers: { "content-type": "application/json", "cache-control": "no-store" },
+	})
+}
+
 interface CatalogRoutesDeps {
 	auth: ReturnType<typeof betterAuth>
 	pglite: PGlite
@@ -185,16 +217,23 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		const scope = c.req.param("scope")
 		const name = c.req.param("name")
 
-		const moduleRow = await pglite.query<ModuleRow>(
-			`SELECT id, scope, name, tier, visibility, description
+		const moduleRow = await pglite.query<ModuleRow & { removed_at: Date | null }>(
+			`SELECT id, scope, name, tier, visibility, description, removed_at
 			   FROM modules
-			  WHERE scope = $1 AND name = $2 AND removed_at IS NULL`,
+			  WHERE scope = $1 AND name = $2`,
 			[scope, name],
 		)
 		const mod = moduleRow.rows[0]
 		if (!mod) {
 			// Existence is not leaked for org-private modules (VAL-AUTH-003).
 			return c.json({ error: `module '${scope}/${name}' not found` }, 404, NO_STORE_HEADERS)
+		}
+		// Tombstone: a removed module is not the same as a missing one
+		// (VAL-PUB-030). The contract demands the removed-marker body
+		// so callers can distinguish "never existed or you cannot see
+		// it" from "existed but was unpublished".
+		if (mod.removed_at !== null) {
+			return removedModuleResponse(mod.scope, mod.name, mod.removed_at, 404)
 		}
 		if (mod.visibility === "org") {
 			// Org-visibility requires the caller to prove org membership
@@ -240,13 +279,25 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		const scope = c.req.param("scope")
 		const name = c.req.param("name")
 
-		const moduleRow = await pglite.query<{ id: string; scope: string; visibility: string }>(
-			`SELECT id, scope, visibility FROM modules WHERE scope = $1 AND name = $2 AND removed_at IS NULL`,
-			[scope, name],
-		)
+		const moduleRow = await pglite.query<{
+			id: string
+			scope: string
+			name: string
+			visibility: string
+			removed_at: Date | null
+		}>(`SELECT id, scope, name, visibility, removed_at FROM modules WHERE scope = $1 AND name = $2`, [scope, name])
 		const mod = moduleRow.rows[0]
 		if (!mod) {
 			return c.json({ error: `module '${scope}/${name}' not found` }, 404, NO_STORE_HEADERS)
+		}
+		// Tombstone (VAL-PUB-030): the versions list is hidden too — the
+		// contract keeps the existence-but-removed state distinct from
+		// "never existed". An org member can still confirm the org
+		// membership was honored by sending a different module's
+		// request and observing it succeeds; the tombstone body here
+		// proves the org was found and the module was just unpublished.
+		if (mod.removed_at !== null) {
+			return removedModuleResponse(mod.scope, mod.name, mod.removed_at, 404)
 		}
 		if (mod.visibility === "org") {
 			const memberCheck = await checkOrgMembership(pglite, auth, c.req.raw, mod.scope)
@@ -287,11 +338,12 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		const name = c.req.param("name")
 		const version = c.req.param("version")
 
-		const row = await pglite.query<VersionDetailRow>(
+		const row = await pglite.query<VersionDetailRow & { removed_at: Date | null }>(
 			`SELECT m.id             AS module_id,
 			        m.scope          AS scope,
 			        m.name           AS name,
 			        m.visibility     AS visibility,
+			        m.removed_at     AS removed_at,
 			        v.id             AS version_id,
 			        v.version        AS version,
 			        v.commit_sha     AS commit_sha,
@@ -309,13 +361,18 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			   LEFT JOIN screening_results s ON s.version_id = v.id
 			  WHERE m.scope = $1
 			    AND m.name = $2
-			    AND v.version = $3
-			    AND m.removed_at IS NULL`,
+			    AND v.version = $3`,
 			[scope, name, version],
 		)
 		const detail = row.rows[0]
 		if (!detail) {
 			return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
+		}
+		// Tombstone (VAL-PUB-030): the version detail hides too. Returning
+		// the full detail (manifest, artifacts, screening) would re-surface
+		// pre-removal data on a module the publisher has withdrawn.
+		if (detail.removed_at !== null) {
+			return removedModuleResponse(detail.scope, detail.name, detail.removed_at, 404)
 		}
 		if (detail.visibility === "org") {
 			const memberCheck = await checkOrgMembership(pglite, auth, c.req.raw, detail.scope)
@@ -407,12 +464,14 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		// org-visibility modules via timing differences.
 		const row = await pglite.query<{
 			visibility: string
+			removed_at: Date | null
 			artifact_path: string | null
 			artifact_sha256: string | null
 			content_hash: string
 			version_status: string
 		}>(
 			`SELECT m.visibility      AS visibility,
+			        m.removed_at      AS removed_at,
 			        a.path             AS artifact_path,
 			        a.sha256           AS artifact_sha256,
 			        v.content_hash     AS content_hash,
@@ -424,13 +483,31 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			         AND a.kind = 'tarball'
 			  WHERE m.scope = $1
 			    AND m.name = $2
-			    AND v.version = $3
-			    AND m.removed_at IS NULL`,
+			    AND v.version = $3`,
 			[scope, name, version],
 		)
 		const detail = row.rows[0]
 		if (!detail) {
 			return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
+		}
+		// Tombstone (VAL-PUB-030): the download returns 410 Gone so an
+		// install pipeline can branch on the status code without
+		// parsing the body. The artifact blob is NOT purged in v1 (the
+		// storage entry remains so a re-publish after unpublish does
+		// not accidentally re-use a same-content-hash blob from the
+		// old tree).
+		if (detail.removed_at !== null) {
+			const body: { error: string; removed: true; scope: string; name: string; removedAt: string } = {
+				error: `module '${scope}/${name}' was removed at ${detail.removed_at.toISOString()}; downloads are unavailable`,
+				removed: true,
+				scope,
+				name,
+				removedAt: detail.removed_at.toISOString(),
+			}
+			return new Response(JSON.stringify(body), {
+				status: 410,
+				headers: { "content-type": "application/json", "cache-control": "no-store" },
+			})
 		}
 		if (detail.visibility === "org") {
 			// Org-visibility requires the caller to prove org membership
@@ -480,6 +557,136 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 				"cache-control": "no-store",
 			},
 		})
+	})
+
+	// DELETE /v1/modules/:scope/:name — unpublish (architecture §8
+	// decision 1, validation contract VAL-PUB-030, VAL-AUTH-018,
+	// VAL-AUTH-016 via the org-deletion guard in org-routes.ts).
+	//
+	// Semantics:
+	//   - tombstone, NOT a hard delete: the module row stays in the
+	//     DB with `removed_at` set; cascading child rows
+	//     (module_versions, artifacts, screening_results) are
+	//     preserved so the post-removal read paths (detail,
+	//     versions-list, version-detail) can return the
+	//     removed-marker body verbatim.
+	//   - 204 on success (no body — the tombstone itself is the
+	//     observable state).
+	//   - 401 when no credential is presented.
+	//   - 403 when the caller is a member of the owning org but
+	//     lacks owner/admin role.
+	//   - 403/404 when the caller is not a member of the owning
+	//     org (existence is not leaked — same envelope as a missing
+	//     module on the read surface).
+	//   - 404 when the module does not exist at all.
+	//   - 404 when the module is already tombstoned (re-unpublish
+	//     is a no-op that surfaces a 404, mirroring the read
+	//     surface's removed-marker semantics; the second DELETE is
+	//     idempotent against the row state but not against the
+	//     observable surface — the contract treats "removed" as a
+	//     distinct state from "exists").
+	//
+	// Org-deletion guard integration (VAL-AUTH-016): an org that
+	// owns any non-tombstoned modules cannot be deleted. The
+	// DELETE /v1/orgs/:slug route in `org-routes.ts` enforces the
+	// inverse — tombstones unblock org deletion so a deprecated
+	// org can still be cleaned up after its modules are
+	// unpublished.
+	app.delete("/v1/modules/:scope/:name", async (c) => {
+		const scope = c.req.param("scope")
+		const name = c.req.param("name")
+
+		const identity = await resolveIdentity(auth, c.req.raw)
+		if (!identity) {
+			return c.json({ error: "authentication required" }, 401, NO_STORE_HEADERS)
+		}
+
+		// Look up the module row WITHOUT the removed_at filter so we
+		// can distinguish "exists, not removed" (process the DELETE),
+		// "exists, already removed" (return 404), and "does not exist"
+		// (return 404). Existence is not leaked for callers outside
+		// the owning org (the row is found, but the response shape
+		// matches the read surface's not-found envelope).
+		const moduleRow = await pglite.query<{ id: string; removed_at: Date | null; visibility: string }>(
+			`SELECT id, removed_at, visibility
+			   FROM modules
+			  WHERE scope = $1 AND name = $2`,
+			[scope, name],
+		)
+		const mod = moduleRow.rows[0]
+		if (!mod) {
+			return c.json({ error: `module '${scope}/${name}' not found` }, 404, NO_STORE_HEADERS)
+		}
+		if (mod.removed_at !== null) {
+			// Already tombstoned. The tombstone marker is the
+			// observable state; a second DELETE is a no-op that
+			// surfaces 404 with the same envelope as the detail
+			// endpoint so callers can tell "you cannot unpublish
+			// twice" from "you cannot unpublish a never-published
+			// module".
+			return c.json(
+				{ error: `module '${scope}/${name}' was already removed at ${mod.removed_at.toISOString()}` },
+				404,
+				NO_STORE_HEADERS,
+			)
+		}
+
+		// Role enforcement (VAL-AUTH-018): the caller must be
+		// owner or admin of the target org scope. Outsiders / members
+		// get 403; non-members also see 403 (the response shape
+		// matches the read surface's not-found envelope so existence
+		// is not leaked — an outsider cannot tell apart a module
+		// they cannot see from a module they cannot unpublish).
+		const memberRow = await pglite.query<{ role: string }>(
+			`SELECT role
+			   FROM "member"
+			  WHERE "userId" = $1
+			    AND "organizationId" = (SELECT id FROM "organization" WHERE slug = $2)`,
+			[identity.userId, scope],
+		)
+		const role = memberRow.rows[0]?.role
+		if (role !== "owner" && role !== "admin") {
+			return c.json(
+				{
+					error: `unpublish requires owner or admin role on org '${scope}'`,
+				},
+				403,
+				NO_STORE_HEADERS,
+			)
+		}
+
+		// Tombstone: set removed_at on the row. The child rows
+		// (module_versions, artifacts, screening_results) stay in
+		// place so the read surface's removed-marker responses
+		// remain honest. Artifacts in STORAGE_DIR are not purged
+		// in v1 (decision 1: "no purge of artifacts in v1").
+		await pglite.query(`UPDATE modules SET removed_at = NOW(), updated_at = NOW() WHERE id = $1`, [mod.id])
+
+		return new Response(null, { status: 204, headers: { "cache-control": "no-store" } })
+	})
+
+	// DELETE /v1/modules/:scope/:name/:version — version-level
+	// removal is NOT supported (architecture §8 decision 1,
+	// VAL-PUB-031). The response is a 4xx (the validator accepts
+	// 404 or 405) whose body names the unsupported operation
+	// explicitly. The version continues to be served exactly as
+	// before — this handler does not touch any row.
+	app.delete("/v1/modules/:scope/:name/:version", async (c) => {
+		const scope = c.req.param("scope")
+		const name = c.req.param("name")
+		const version = c.req.param("version")
+		return c.json(
+			{
+				error:
+					`version-level removal is not supported; DELETE the module scope instead ` +
+					`(decision 1: tombstone '${scope}/${name}' via DELETE /v1/modules/${scope}/${name})`,
+				scope,
+				name,
+				version,
+			},
+			404,
+			NO_STORE_HEADERS,
+		)
 	})
 
 	return app

@@ -11,6 +11,7 @@ import { ensureOfficialOrg } from "../src/auth/official-org"
 import { ensureOrgPlanColumn } from "../src/auth/plan-limits"
 import { applyAppMigrations } from "../src/db/migrate"
 import { buildApp } from "../src/index"
+import { createFilesystemStorage, type StorageAdapter } from "../src/storage"
 
 /**
  * Test fixture for the publish-endpoint feature (architecture §4.5,
@@ -29,6 +30,8 @@ export interface PublishTestStack {
 	betterAuth: BetterAuthHandle
 	pglite: PGlite
 	socket: PGLiteSocketServer
+	storage: StorageAdapter
+	storageDir: string
 	baseUrl: string
 	dataDir: string
 	pgliteDir: string
@@ -70,6 +73,7 @@ async function pickEphemeralPort(): Promise<number> {
 export async function buildPublishTestStack(opts: { officialOrg?: string } = {}): Promise<PublishTestStack> {
 	const dataDir = mkdtempSync(join(tmpdir(), "baka-registry-publish-"))
 	const pgliteDir = join(dataDir, "pg")
+	const storageDir = join(dataDir, "artifacts")
 	const socketPort = await pickEphemeralPort()
 
 	const pglite = await PGlite.create(pgliteDir)
@@ -83,6 +87,7 @@ export async function buildPublishTestStack(opts: { officialOrg?: string } = {})
 	})
 	await socket.start()
 
+	const storage = createFilesystemStorage(storageDir)
 	const pool = createPgPool({ port: socketPort, host: "127.0.0.1" })
 	const baseUrl = `http://127.0.0.1:${socketPort + 1}`
 	const betterAuth = await createBetterAuth(pool, {
@@ -98,7 +103,7 @@ export async function buildPublishTestStack(opts: { officialOrg?: string } = {})
 	const officialOrg = opts.officialOrg ?? "baka"
 	await ensureOfficialOrg(pglite, betterAuth.auth, { officialOrg })
 
-	const app = buildApp({ auth: betterAuth.auth, pglite, officialOrg })
+	const app = buildApp({ auth: betterAuth.auth, pglite, officialOrg, storage })
 
 	// Sign up five users: four for the acme org plus one for the
 	// official org (granted owner role via `ensureOfficialOrg`'s
@@ -165,6 +170,8 @@ export async function buildPublishTestStack(opts: { officialOrg?: string } = {})
 		betterAuth,
 		pglite,
 		socket,
+		storage,
+		storageDir,
 		baseUrl,
 		dataDir,
 		pgliteDir,

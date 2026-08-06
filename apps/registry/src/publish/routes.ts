@@ -427,6 +427,17 @@ async function readBody(request: Request): Promise<BodyResult> {
  * `description` column is initialized empty and updated by the
  * worker when it reads the manifest. Returns the upserted row's
  * id so the version insert can reference it.
+ *
+ * Tombstone-replacement (architecture §8 decision 19): if a
+ * previous publish of the same scope/name was tombstoned via
+ * `DELETE /v1/modules/:scope/:name`, this helper hard-deletes
+ * that tombstone row BEFORE inserting the new one. The cascade
+ * removes the old versions / artifacts / screening records, so
+ * the new module starts with a clean history (the tombstone is
+ * replaced, not resurrected). The DELETE is idempotent: a row
+ * with `removed_at IS NULL` is left alone, a non-existent row is
+ * a no-op, and the cascade only fires when a tombstone row is
+ * present.
  */
 async function upsertModuleRow(
 	pglite: PGlite,
@@ -439,6 +450,13 @@ async function upsertModuleRow(
 		createdBy: string
 	},
 ): Promise<{ id: string; scope: string; name: string }> {
+	// Tombstone replacement — must run before the INSERT so the
+	// (scope, name) conflict target has a clear slot.
+	await pglite.query(`DELETE FROM modules WHERE scope = $1 AND name = $2 AND removed_at IS NOT NULL`, [
+		args.scope,
+		args.name,
+	])
+
 	const inserted = await pglite.query<{ id: string }>(
 		`INSERT INTO modules (scope, name, visibility, tier, description, created_by)
 		   VALUES ($1, $2, $3, $4, $5, $6)
