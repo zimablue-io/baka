@@ -31,13 +31,27 @@ interface Identity {
  * Resolves the current request's identity from session cookie or API key.
  * Returns `null` when neither is present or valid — never throws, never
  * fabricates a user.
+ *
+ * The session lookup is wrapped in a try/catch because Better-Auth's
+ * `getSession` throws `APIError(FORBIDDEN)` for malformed credentials
+ * (the apiKey plugin rejects unknown keys with a 403 that bubbles up
+ * the call stack). A thrown error here would 500 every auth-gated
+ * `/v1/*` route instead of returning the documented 401 envelope. The
+ * wrapper downgrades any thrown value to `null`; the caller decides
+ * whether that means `401` (write endpoint) or "anonymous read"
+ * (visibility-aware read endpoint).
  */
 export async function resolveIdentity(
 	auth: ReturnType<typeof import("better-auth").betterAuth>,
 	request: Request,
 ): Promise<Identity | null> {
 	const headers = webHeadersToIncoming(request.headers)
-	const result = await auth.api.getSession({ headers, asResponse: false })
+	let result: Awaited<ReturnType<typeof auth.api.getSession>> | null = null
+	try {
+		result = await auth.api.getSession({ headers, asResponse: false })
+	} catch {
+		return null
+	}
 	if (!result) return null
 	const userId = result.user?.id
 	if (typeof userId !== "string" || userId.length === 0) return null

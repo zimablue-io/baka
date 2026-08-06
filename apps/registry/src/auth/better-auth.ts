@@ -65,6 +65,23 @@ interface BetterAuthConfig {
 	emailAndPassword?: {
 		enabled: boolean
 	}
+	/**
+	 * API-key rate limit overrides (Better-Auth's `apiKey` plugin).
+	 *
+	 * The plugin defaults to 10 requests per 24h per key, which trips
+	 * concurrent validators and annoys self-hosters. These env-driven
+	 * knobs let operators raise the ceiling or disable rate limiting
+	 * entirely (e.g. `REGISTRY_API_KEY_RATE_LIMIT=off` for tests).
+	 *
+	 * Unset fields preserve the upstream default (`maxRequests: 10`,
+	 * `timeWindow: 86_400_000` ms); `enabled: false` disables the
+	 * check globally for the boot.
+	 */
+	apiKeyRateLimit?: {
+		enabled?: boolean
+		maxRequests?: number
+		timeWindowMs?: number
+	}
 }
 
 export interface BetterAuthHandle {
@@ -131,6 +148,12 @@ export async function createBetterAuth(pool: PgPool, config: BetterAuthConfig): 
 				// 403 the hook throws on malformed keys into a 401
 				// so the contract's "401, not 500" surface holds.
 				enableSessionForAPIKeys: true,
+				// Operator-tunable rate limit (see apiKeyRateLimit on
+				// BetterAuthConfig). Better-Auth omits fields it does
+				// not receive, so passing an empty object restores the
+				// upstream default — the env-parsing helper applies
+				// the user's overrides only when the env var is set.
+				rateLimit: buildApiKeyRateLimit(config.apiKeyRateLimit),
 			}),
 		],
 	}
@@ -154,6 +177,77 @@ export async function createBetterAuth(pool: PgPool, config: BetterAuthConfig): 
 			await runMigrations()
 		},
 	}
+}
+
+/**
+ * Translates the env-driven `apiKeyRateLimit` overrides into the
+ * Better-Auth plugin's `rateLimit` shape. Returns `undefined` when no
+ * overrides are set so the plugin falls back to its upstream defaults
+ * (10 requests per 24h per key).
+ *
+ * Recognized env vars (all optional, parsed via `parseApiKeyRateLimitEnv`):
+ *   - `REGISTRY_API_KEY_RATE_LIMIT=off`    → `enabled: false` (disable).
+ *   - `REGISTRY_API_KEY_RATE_LIMIT_MAX`    → `maxRequests` (positive integer).
+ *   - `REGISTRY_API_KEY_RATE_LIMIT_WINDOW_MS` → `timeWindow` (positive integer, ms).
+ */
+function buildApiKeyRateLimit(
+	override: BetterAuthConfig["apiKeyRateLimit"],
+): { enabled: boolean; maxRequests: number; timeWindow: number } | undefined {
+	if (override === undefined) return undefined
+	const out: { enabled?: boolean; maxRequests?: number; timeWindow?: number } = {}
+	if (override.enabled === false) out.enabled = false
+	if (typeof override.maxRequests === "number" && override.maxRequests > 0) {
+		out.maxRequests = override.maxRequests
+	}
+	if (typeof override.timeWindowMs === "number" && override.timeWindowMs > 0) {
+		out.timeWindow = override.timeWindowMs
+	}
+	// Nothing was set → defer to upstream defaults rather than
+	// emitting an empty object Better-Auth would silently ignore.
+	if (Object.keys(out).length === 0) return undefined
+	return {
+		enabled: out.enabled ?? true,
+		maxRequests: out.maxRequests ?? 10,
+		timeWindow: out.timeWindow ?? 86_400_000,
+	}
+}
+
+/**
+ * Parses the `REGISTRY_API_KEY_RATE_LIMIT*` env vars into the
+ * `apiKeyRateLimit` shape `createBetterAuth` consumes.
+ *
+ * `REGISTRY_API_KEY_RATE_LIMIT=off` disables the check entirely;
+ * any other value (or unset) leaves the default behavior in place.
+ * `REGISTRY_API_KEY_RATE_LIMIT_MAX` and `_WINDOW_MS` raise the
+ * ceiling without disabling. Malformed values fall through silently —
+ * the documented contract is "default unchanged when unset".
+ */
+export function parseApiKeyRateLimitEnv(env: NodeJS.ProcessEnv = process.env): BetterAuthConfig["apiKeyRateLimit"] {
+	const flag = env.REGISTRY_API_KEY_RATE_LIMIT?.trim().toLowerCase()
+	const maxRaw = env.REGISTRY_API_KEY_RATE_LIMIT_MAX?.trim()
+	const windowRaw = env.REGISTRY_API_KEY_RATE_LIMIT_WINDOW_MS?.trim()
+
+	if (flag === undefined && maxRaw === undefined && windowRaw === undefined) {
+		return undefined
+	}
+
+	const result: NonNullable<BetterAuthConfig["apiKeyRateLimit"]> = {}
+	if (flag === "off" || flag === "0" || flag === "false" || flag === "disabled") {
+		result.enabled = false
+	}
+	if (maxRaw !== undefined && maxRaw.length > 0) {
+		const parsed = Number.parseInt(maxRaw, 10)
+		if (Number.isFinite(parsed) && parsed > 0) {
+			result.maxRequests = parsed
+		}
+	}
+	if (windowRaw !== undefined && windowRaw.length > 0) {
+		const parsed = Number.parseInt(windowRaw, 10)
+		if (Number.isFinite(parsed) && parsed > 0) {
+			result.timeWindowMs = parsed
+		}
+	}
+	return result
 }
 
 /**

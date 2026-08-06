@@ -1,5 +1,22 @@
 import { resolve } from "node:path"
 import { z } from "zod"
+import { parseApiKeyRateLimitEnv } from "./auth/better-auth"
+
+/**
+ * Env-driven registry config (architecture §4.1, §4.4).
+ *
+ * Every option has a documented default so the registry boots with zero
+ * env vars set. The values are validated with zod at boot so a typo or
+ * a malformed `PORT=abc` fails fast with a typed error naming the field,
+ * not an opaque downstream crash.
+ *
+ * The API-key rate limit env vars (`REGISTRY_API_KEY_RATE_LIMIT*`) are
+ * NOT in the zod schema because the env parser applies the documented
+ * "unset = upstream default" policy per field rather than rejecting
+ * any malformed value. They are merged into the returned config after
+ * zod validation so a typo in `MAX=abc` is silently ignored rather than
+ * refusing to boot (the documented contract).
+ */
 
 /**
  * Env-driven registry config (architecture §4.1, §4.4).
@@ -39,12 +56,22 @@ const ConfigSchema = z.object({
 	seedPlans: z.string().optional(),
 })
 
-export type RegistryConfig = z.infer<typeof ConfigSchema>
+export type RegistryConfig = z.infer<typeof ConfigSchema> & {
+	/** Parsed from `REGISTRY_API_KEY_RATE_LIMIT*` env vars (see `.env.example`). */
+	apiKeyRateLimit?: ReturnType<typeof parseApiKeyRateLimitEnv>
+}
 
 /**
  * Reads the registry config from environment variables and resolves any
  * relative paths against `cwd`. Throws on invalid input (zod issues are
  * formatted as a single human-readable message naming the field).
+ *
+ * The API-key rate limit env vars (`REGISTRY_API_KEY_RATE_LIMIT*`) are
+ * parsed via `parseApiKeyRateLimitEnv` and attached to the returned
+ * config so the Better-Auth bootstrap can wire them into the
+ * `apiKey` plugin. When unset, the parser returns undefined and the
+ * upstream plugin defaults (10 requests per 24h per key) apply
+ * unchanged — see `.env.example` for the documented knobs.
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd: string = process.cwd()): RegistryConfig {
 	const parsed = ConfigSchema.safeParse({
@@ -70,5 +97,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd: string = p
 		dataDir,
 		storageDir: resolve(dataDir, cfg.storageDir),
 		pgliteDir: resolve(dataDir, cfg.pgliteDir),
+		apiKeyRateLimit: parseApiKeyRateLimitEnv(env),
 	}
 }

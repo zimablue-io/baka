@@ -179,6 +179,14 @@ async function readBody(request: Request): Promise<Record<string, unknown>> {
  * The URL is rewritten to `authPath`; the headers (including the api
  * key / cookie credential) are forwarded untouched. The body is
  * re-serialized from the `body` argument.
+ *
+ * When the caller supplies a JSON body but the original request did
+ * NOT carry `content-type: application/json` (e.g. a DELETE that this
+ * handler turns into a POST with a server-built body), we explicitly
+ * set `content-type: application/json` on the forwarded request —
+ * Better-Auth's router returns 415 Unsupported Media Type otherwise.
+ * The original headers are preserved so cookies / api keys still pass
+ * through; only the missing content-type header is added.
  */
 async function forwardToAuth(
 	c: { req: { raw: Request; url: string } },
@@ -190,9 +198,13 @@ async function forwardToAuth(
 	const url = new URL(c.req.url)
 	url.pathname = authPath
 	url.search = ""
+	const headers = new Headers(c.req.raw.headers)
+	if (body !== null) {
+		headers.set("content-type", "application/json")
+	}
 	const init: RequestInit = {
 		method,
-		headers: c.req.raw.headers,
+		headers,
 	}
 	if (body !== null) {
 		init.body = JSON.stringify(body)

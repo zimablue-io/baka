@@ -25,6 +25,14 @@
 --   - ON DELETE CASCADE for child tables so a hard-removed module cleans
 --     up its versions / artifacts / screenings. Tombstones (the deletion
 --     path) use `removed_at` and never delete the row.
+--   - All CREATE TABLE statements use IF NOT EXISTS so a mid-apply crash
+--     on a fresh data dir (process killed between, e.g., `modules` and
+--     `module_versions`) is recoverable on the next boot: the runner
+--     reads the `app_migrations` tracking row, sees 0002 is not yet
+--     applied, re-runs the SQL, and the already-created tables are
+--     skipped rather than failing the boot. The `app_migrations` INSERT
+--     at the bottom is the single point that flips the row, so re-runs
+--     against a fully-applied data dir remain idempotent.
 --   - `app_migrations` is the in-DB tracking table; it lives next to the
 --     registry's on-disk `schema_version` file (see schema-version.ts) but
 --     records which app migrations have been applied. The two are kept in
@@ -39,7 +47,7 @@ CREATE TABLE IF NOT EXISTS app_migrations (
 -- ---------------------------------------------------------------------------
 -- modules (architecture §4.3)
 -- ---------------------------------------------------------------------------
-CREATE TABLE modules (
+CREATE TABLE IF NOT EXISTS modules (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   scope VARCHAR(64) NOT NULL,
   name VARCHAR(64) NOT NULL,
@@ -60,7 +68,7 @@ CREATE TABLE modules (
 -- ---------------------------------------------------------------------------
 -- module_versions (architecture §4.3)
 -- ---------------------------------------------------------------------------
-CREATE TABLE module_versions (
+CREATE TABLE IF NOT EXISTS module_versions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   module_id UUID NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
   version VARCHAR(64) NOT NULL,
@@ -77,12 +85,12 @@ CREATE TABLE module_versions (
   )
 );
 
-CREATE INDEX module_versions_content_hash_idx ON module_versions (content_hash);
+CREATE INDEX IF NOT EXISTS module_versions_content_hash_idx ON module_versions (content_hash);
 
 -- ---------------------------------------------------------------------------
 -- artifacts (architecture §4.3)
 -- ---------------------------------------------------------------------------
-CREATE TABLE artifacts (
+CREATE TABLE IF NOT EXISTS artifacts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   version_id UUID NOT NULL REFERENCES module_versions(id) ON DELETE CASCADE,
   kind VARCHAR(32) NOT NULL,
@@ -97,7 +105,7 @@ CREATE TABLE artifacts (
 -- ---------------------------------------------------------------------------
 -- screening_results (architecture §4.3)
 -- ---------------------------------------------------------------------------
-CREATE TABLE screening_results (
+CREATE TABLE IF NOT EXISTS screening_results (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   version_id UUID NOT NULL REFERENCES module_versions(id) ON DELETE CASCADE,
   verdict VARCHAR(32) NOT NULL,
@@ -113,7 +121,7 @@ CREATE TABLE screening_results (
 -- ---------------------------------------------------------------------------
 -- plan_limits (architecture §4.3, decision 3 monetization seam)
 -- ---------------------------------------------------------------------------
-CREATE TABLE plan_limits (
+CREATE TABLE IF NOT EXISTS plan_limits (
   plan VARCHAR(32) PRIMARY KEY,
   max_private_modules INTEGER NOT NULL,
   max_members INTEGER NOT NULL,

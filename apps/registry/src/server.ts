@@ -95,6 +95,7 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 		githubClientId: config.githubClientId,
 		githubClientSecret: config.githubClientSecret,
 		secret: config.authSecret,
+		apiKeyRateLimit: config.apiKeyRateLimit,
 	})
 	await betterAuth.ensureTables()
 
