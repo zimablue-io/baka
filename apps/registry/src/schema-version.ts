@@ -31,9 +31,15 @@ import { applyAppMigrations } from "./db/migrate"
  *        version; the actual auth-table DDL is applied at boot by
  *        `auth/ensure-auth-tables.ts` (idempotent introspection via
  *        Better-Auth's `getMigrations`).
+ *   - 4: monetization seams — `organization.plan` column added
+ *        (architecture §4.7, decision 3) so the registry can enforce
+ *        per-plan limits. `plan_limits` was already seeded by 0002;
+ *        this migration only extends the auth-side schema. The column
+ *        defaults to `free` and is server-attached: no public API
+ *        surface can mutate it (VAL-AUTH-017).
  */
 
-export const CURRENT_SCHEMA_VERSION = "3"
+export const CURRENT_SCHEMA_VERSION = "4"
 
 const SCHEMA_FILE = "schema_version"
 

@@ -7,6 +7,7 @@ import { PGLiteSocketServer } from "@electric-sql/pglite-socket"
 import type { Hono } from "hono"
 import { type BetterAuthHandle, createBetterAuth } from "../src/auth/better-auth"
 import { createPgPool } from "../src/auth/kysely-db"
+import { ensureOrgPlanColumn } from "../src/auth/plan-limits"
 import { applyAppMigrations } from "../src/db/migrate"
 import { buildApp } from "../src/index"
 
@@ -75,6 +76,12 @@ export async function buildOrgTestStack(): Promise<OrgTestStack> {
 		emailAndPassword: { enabled: true },
 	})
 	await betterAuth.ensureTables()
+
+	// App migrations run before Better-Auth bootstraps, so the
+	// `organization.plan` column could not be added by 0004_orgs_plan
+	// at first boot. Apply it now that the table exists (matches the
+	// production server.ts boot order). Idempotent on subsequent boots.
+	await ensureOrgPlanColumn(pglite)
 
 	const app = buildApp({ auth: betterAuth.auth, pglite })
 

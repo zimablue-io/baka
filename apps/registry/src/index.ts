@@ -61,7 +61,7 @@ export function buildApp(deps: AppDeps): Hono {
 	// Org management: create, list, invite, accept, list members,
 	// role change, delete. Each route proxies to the Better-Auth
 	// organization plugin so role enforcement lives in one place.
-	const orgRoutes = createOrgRoutes({ auth: deps.auth })
+	const orgRoutes = createOrgRoutes({ auth: deps.auth, pglite: deps.pglite })
 	app.route("/", orgRoutes)
 
 	return app

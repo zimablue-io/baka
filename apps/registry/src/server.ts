@@ -2,6 +2,7 @@ import { existsSync, mkdirSync } from "node:fs"
 import { serve } from "@hono/node-server"
 import { type BetterAuthHandle, createBetterAuth } from "./auth/better-auth"
 import { createPgPool } from "./auth/kysely-db"
+import { applySeedPlans, ensureOrgPlanColumn } from "./auth/plan-limits"
 import type { RegistryConfig } from "./config"
 import { createDatabase, type DatabaseHandle } from "./db/client"
 import { buildApp } from "./index"
@@ -93,6 +94,19 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 		secret: config.authSecret,
 	})
 	await betterAuth.ensureTables()
+
+	// App migrations run BEFORE Better-Auth bootstraps, so the
+	// `organization.plan` column could not be added by 0004_orgs_plan
+	// at first boot (the table didn't exist yet). Apply it now that
+	// the table exists; idempotent on subsequent boots. (VAL-AUTH-017
+	// seam; the column default pins every new org to `free`.)
+	await ensureOrgPlanColumn(database.pglite)
+
+	// Operator-supplied plan overrides (architecture §8 decision 3).
+	// Idempotent UPSERT; missing/extra plans vs. the migration defaults
+	// are kept verbatim. A malformed value fails fast at boot with a
+	// field-naming error.
+	await applySeedPlans(database.pglite, config.seedPlans)
 
 	const app = buildApp({ auth: betterAuth.auth, pglite: database.pglite })
 

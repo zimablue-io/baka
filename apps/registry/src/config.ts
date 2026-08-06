@@ -29,6 +29,14 @@ const ConfigSchema = z.object({
 	githubClientSecret: z.string().default("test-github-client-secret"),
 	/** Secret for signing cookies/sessions. Defaults to a derived value. */
 	authSecret: z.string().optional(),
+	/**
+	 * Operator-supplied plan overrides applied at boot (architecture
+	 * §4.7, decision 3). JSON array of
+	 *   `{plan, max_private_modules, max_members, max_registries}`
+	 * entries; each is upserted into `plan_limits`. When unset the
+	 * migration-0002 defaults (`free`/`pro`) are the active set.
+	 */
+	seedPlans: z.string().optional(),
 })
 
 export type RegistryConfig = z.infer<typeof ConfigSchema>
@@ -49,6 +57,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd: string = p
 		githubClientId: env.GITHUB_CLIENT_ID,
 		githubClientSecret: env.GITHUB_CLIENT_SECRET,
 		authSecret: env.AUTH_SECRET,
+		seedPlans: env.REGISTRY_SEED_PLANS,
 	})
 	if (!parsed.success) {
 		const issues = parsed.error.issues.map((i) => `  - ${i.path.join(".") || "(root)"}: ${i.message}`).join("\n")

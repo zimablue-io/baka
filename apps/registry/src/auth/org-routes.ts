@@ -1,3 +1,4 @@
+import type { PGlite } from "@electric-sql/pglite"
 import type { betterAuth } from "better-auth"
 import { Hono } from "hono"
 
@@ -29,10 +30,11 @@ import { Hono } from "hono"
 
 interface OrgRoutesDeps {
 	auth: ReturnType<typeof betterAuth>
+	pglite: PGlite
 }
 
 export function createOrgRoutes(deps: OrgRoutesDeps): Hono {
-	const { auth } = deps
+	const { auth, pglite } = deps
 	const app = new Hono()
 
 	// POST /v1/orgs → POST /api/auth/organization/create
@@ -70,6 +72,8 @@ export function createOrgRoutes(deps: OrgRoutesDeps): Hono {
 	// GET /v1/orgs/:slug/members → GET /api/auth/organization/list-members?organizationSlug=...
 	app.get("/v1/orgs/:slug/members", async (c) => {
 		const slug = c.req.param("slug")
+		const lookup = await findOrgIdBySlug(auth, c.req.raw, slug)
+		if ("response" in lookup) return lookup.response
 		const url = new URL(c.req.url)
 		url.pathname = "/api/auth/organization/list-members"
 		url.search = ""
@@ -93,11 +97,27 @@ export function createOrgRoutes(deps: OrgRoutesDeps): Hono {
 		return normalizeAuthResponse(c, response)
 	})
 
-	// DELETE /v1/orgs/:slug → POST /api/auth/organization/delete (owner-only)
+	// DELETE /v1/orgs/:slug → POST /api/auth/organization/delete (owner-only).
+	// The registry-side check (architecture §8 decision 2, VAL-AUTH-016)
+	// refuses to delete an org that owns any non-tombstoned modules; the
+	// response names the block. When the org is empty, the request is
+	// forwarded to Better-Auth, which handles owner-only enforcement and
+	// cascades members / invitations (VAL-AUTH-015).
 	app.delete("/v1/orgs/:slug", async (c) => {
 		const slug = c.req.param("slug")
 		const lookup = await findOrgIdBySlug(auth, c.req.raw, slug)
 		if ("response" in lookup) return lookup.response
+		const ownsModules = await countOrgModules(pglite, slug)
+		if (ownsModules > 0) {
+			return c.json(
+				{
+					error: `organization '${slug}' cannot be deleted because it owns ${ownsModules} published module(s); unpublish them first`,
+					scope: slug,
+					modulesOwned: ownsModules,
+				},
+				409,
+			)
+		}
 		const body = { organizationId: lookup.id }
 		// DELETE has no body semantics for the underlying plugin, so we
 		// POST the delete body and let Better-Auth handle the auth.
@@ -318,4 +338,23 @@ function notFoundJson(): { response: Response } {
 			headers: { "content-type": "application/json" },
 		}),
 	}
+}
+
+/**
+ * Counts the non-tombstoned modules under a given org slug. Used by
+ * the DELETE handler to enforce "orgs that own published modules
+ * cannot be deleted" (architecture §8 decision 2, VAL-AUTH-016).
+ * Public and org-visibility modules both count; removed_at IS NULL
+ * excludes tombstoned modules so an unpublished module does not
+ * forever block its org's deletion.
+ */
+async function countOrgModules(pglite: PGlite, slug: string): Promise<number> {
+	const result = await pglite.query<{ count: string }>(
+		`SELECT COUNT(*)::text AS count
+		   FROM modules
+		  WHERE scope = $1
+		    AND removed_at IS NULL`,
+		[slug],
+	)
+	return Number.parseInt(result.rows[0]?.count ?? "0", 10)
 }
