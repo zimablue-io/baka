@@ -148,8 +148,11 @@ export function createPublishRoutes(deps: PublishRoutesDeps): Hono {
 		}
 
 		// Resolve the target org. An unknown org is 404 (VAL-PUB-011).
-		// Existence is not leaked in the 403 path — a caller who is
-		// not a member sees 403 with no org-existence signal.
+		// Outsiders see 403 on an existing org — that distinction
+		// (404 unknown vs 403 known-but-not-a-member) DOES leak
+		// org existence and is mandated by VAL-PUB-011. The
+		// downstream visibility filter on module reads is the
+		// surface that does NOT leak; this 403 is honest.
 		const orgRow = await pglite.query<{ id: string; slug: string; plan: string }>(
 			`SELECT id, slug, plan FROM "organization" WHERE slug = $1`,
 			[body.org],
@@ -180,26 +183,15 @@ export function createPublishRoutes(deps: PublishRoutesDeps): Hono {
 			)
 		}
 
-		// Plan limit (VAL-SELF-006): only `visibility: "org"` consumes
-		// the `max_private_modules` quota. Public community publishes
-		// bypass this check — public modules are not "private". The
-		// verdict body names both the limit and the plan verbatim so
-		// a caller can route to billing without parsing free text.
-		if (body.visibility === "org") {
-			const verdict = await checkPlanLimit(pglite, org.id, "max_private_modules")
-			if (!verdict.ok) {
-				return c.json(
-					{
-						error: verdict.message,
-						limit: verdict.capability,
-						plan: verdict.plan,
-						usage: verdict.usage,
-						limitValue: verdict.limit,
-					},
-					403,
-				)
-			}
-		}
+		// Plan limit (VAL-SELF-006) — applied below after the manifest
+		// is read (so we know the resolved moduleName), BEFORE the
+		// module row is upserted, and only when the (scope, name)
+		// row does NOT yet exist. Re-publishing a NEW VERSION of an
+		// existing module (same scope + name) must not be blocked
+		// by the max_private_modules quota: the limit counts
+		// modules, not versions. The plan-limit verdict names both
+		// the limit and the plan verbatim so a caller can route to
+		// billing without parsing free text.
 
 		// Clone the repo at the tag and read the manifest. The clone
 		// is bounded by `INGEST_CLONE_TIMEOUT_MS` (default 60s); a
@@ -255,12 +247,28 @@ export function createPublishRoutes(deps: PublishRoutesDeps): Hono {
 			// publishing `@otherScope/foo` to `acme` is rejected
 			// because the manifest's scope does not match the target
 			// org (it would otherwise squat in the wrong namespace).
+			// After stripping, the resulting moduleName must be
+			// non-empty (`@acme/` and `@acme//foo` are rejected) and
+			// must not start with another `/` (a malformed scope strip).
 			let moduleName: string
 			if (org.slug === officialOrg) {
 				// Official org accepts both bare names (`baka-base`)
 				// and scoped names (`@baka/widget` → `widget`).
 				if (manifest.name.startsWith(`@${officialOrg}/`)) {
 					moduleName = manifest.name.slice(`@${officialOrg}/`.length)
+				} else if (manifest.name.startsWith("@")) {
+					// Some other scope (`@other/foo`) — the official
+					// org accepts only its OWN scope prefix; foreign
+					// scopes are rejected with 422, mirroring the
+					// non-official path's scope-match rule.
+					return c.json(
+						{
+							error:
+								`manifest name '${manifest.name}' has a scope that does not match the official org '${officialOrg}' ` +
+								`(decision 26); publish to '${manifest.name.split("/")[0]?.slice(1) ?? "<scope>"}' instead, or use a bare name or '@${officialOrg}/<name>'`,
+						},
+						422,
+					)
 				} else {
 					moduleName = manifest.name
 				}
@@ -289,11 +297,47 @@ export function createPublishRoutes(deps: PublishRoutesDeps): Hono {
 					)
 				}
 			}
+			if (moduleName.length === 0 || moduleName.startsWith("/")) {
+				return c.json(
+					{
+						error: `manifest name '${manifest.name}' strips to an empty or malformed module name; expected '@${org.slug}/<name>' with a non-empty name`,
+					},
+					422,
+				)
+			}
 
 			// All checks passed — create the module + version rows in
 			// `pending` status. The worker (next feature) will pick up
 			// the pending rows, run the loadability gate, content-hash,
 			// and pack the tarball.
+			//
+			// Pre-existence check: a new VERSION of an existing
+			// module (same scope+name) skips the plan-limit gate —
+			// the limit counts modules, not versions. Done BEFORE
+			// the upsert so the limit count excludes the about-to-
+			// be-inserted row.
+			const moduleExists = await pglite.query<{ id: string }>(`SELECT id FROM modules WHERE scope = $1 AND name = $2`, [
+				org.slug,
+				moduleName,
+			])
+			const isNewModule = moduleExists.rows.length === 0
+
+			if (isNewModule && body.visibility === "org") {
+				const verdict = await checkPlanLimit(pglite, org.id, "max_private_modules")
+				if (!verdict.ok) {
+					return c.json(
+						{
+							error: verdict.message,
+							limit: verdict.capability,
+							plan: verdict.plan,
+							usage: verdict.usage,
+							limitValue: verdict.limit,
+						},
+						403,
+					)
+				}
+			}
+
 			const moduleRow = await upsertModuleRow(pglite, {
 				scope: org.slug,
 				name: moduleName,
@@ -303,6 +347,11 @@ export function createPublishRoutes(deps: PublishRoutesDeps): Hono {
 				createdBy: identity.userId,
 			})
 			const moduleId = moduleRow.id
+			// Stored visibility is what the row actually holds
+			// (first-publish wins); the response echoes the stored
+			// value so callers do not see a "public" response for a
+			// row that the catalog still hides as org-private.
+			const storedVisibility = moduleRow.visibility
 
 			const versionRow = await pglite.query<{ id: string }>(
 				`INSERT INTO module_versions (module_id, version, commit_sha, content_hash, manifest, status, error)
@@ -380,7 +429,7 @@ export function createPublishRoutes(deps: PublishRoutesDeps): Hono {
 					version: body.tag,
 					commitSha: clone.commitSha,
 					status: "pending",
-					visibility: body.visibility,
+					visibility: storedVisibility,
 					versionId,
 				},
 				202,
@@ -431,7 +480,16 @@ async function readBody(request: Request): Promise<BodyResult> {
  * The unique key `(scope, name)` is the conflict target. The
  * `description` column is initialized empty and updated by the
  * worker when it reads the manifest. Returns the upserted row's
- * id so the version insert can reference it.
+ * id, the stored visibility (NOT the requested one), and a `created`
+ * flag distinguishing a first-publish from a re-publish of an
+ * existing module. The caller uses these to:
+ *   - apply the plan-limit gate ONLY when `created === true`,
+ *     so re-publishing a new VERSION of an existing module is
+ *     not blocked at max_private_modules;
+ *   - echo the stored visibility in the 202 response, so the
+ *     body always matches what the catalog/detail endpoints
+ *     actually serve (first-publish wins on re-publish of the
+ *     same scope+name).
  *
  * Tombstone-replacement (architecture §8 decision 19): if a
  * previous publish of the same scope/name was tombstoned via
@@ -454,13 +512,25 @@ async function upsertModuleRow(
 		description: string
 		createdBy: string
 	},
-): Promise<{ id: string; scope: string; name: string }> {
+): Promise<{ id: string; scope: string; name: string; visibility: "org" | "public"; created: boolean }> {
 	// Tombstone replacement — must run before the INSERT so the
 	// (scope, name) conflict target has a clear slot.
 	await pglite.query(`DELETE FROM modules WHERE scope = $1 AND name = $2 AND removed_at IS NOT NULL`, [
 		args.scope,
 		args.name,
 	])
+
+	// Detect create-vs-update BEFORE the INSERT so the plan-limit
+	// gate can branch on it. Reading the row's current visibility
+	// also lets the response echo the stored value (first-publish
+	// wins on re-publish).
+	const existing = await pglite.query<{ id: string; visibility: "org" | "public" }>(
+		`SELECT id, visibility FROM modules WHERE scope = $1 AND name = $2`,
+		[args.scope, args.name],
+	)
+	const preExisting = existing.rows[0]
+	const created = !preExisting
+	const storedVisibility: "org" | "public" = preExisting?.visibility ?? args.visibility
 
 	const inserted = await pglite.query<{ id: string }>(
 		`INSERT INTO modules (scope, name, visibility, tier, description, created_by)
@@ -472,5 +542,5 @@ async function upsertModuleRow(
 	)
 	const id = inserted.rows[0]?.id
 	if (!id) throw new Error("upsertModuleRow: insert returned no id")
-	return { id, scope: args.scope, name: args.name }
+	return { id, scope: args.scope, name: args.name, visibility: storedVisibility, created }
 }

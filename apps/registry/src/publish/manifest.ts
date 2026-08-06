@@ -139,6 +139,16 @@ export async function extractManifestFields(
 	cloneDir: string,
 	modulePath: string | undefined,
 ): Promise<ExtractedManifest | null> {
+	if (modulePath && modulePath.length > 0 && (modulePath.includes("..") || modulePath.startsWith("/"))) {
+		// Mirrors `worker/ingest.ts:resolveModuleDir`: a publish
+		// body must not be able to make the reader escape the
+		// clone dir via `..` or an absolute path. The worker
+		// enforces the same confinement; doing it here as well
+		// means the publish endpoint rejects the request with a
+		// 422 instead of letting the worker surprise the operator
+		// with an `IngestFailure` after a successful 202.
+		return null
+	}
 	const relative =
 		modulePath && modulePath.length > 0 ? join(cloneDir, modulePath, "manifest.ts") : join(cloneDir, "manifest.ts")
 	let source: string

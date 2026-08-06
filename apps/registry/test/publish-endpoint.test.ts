@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { createGitFixture } from "./git-fixture"
 import { buildPublishTestStack, type PublishTestStack } from "./publish-endpoint-fixture"
 
 /**
@@ -284,23 +285,32 @@ describe("POST /v1/publish — request validation, role, and plan limits", () =>
 		it("returns 403 with body naming max_private_modules and the plan when the free plan limit is reached", async () => {
 			// Set plan_limits.free.max_private_modules = 0 so the very
 			// first private publish attempt is over the limit. The
-			// body must name BOTH the limit and the plan.
-			await fx.pglite.query(`UPDATE plan_limits SET max_private_modules = 0 WHERE plan = 'free'`)
+			// body must name BOTH the limit and the plan. The plan-
+			// limit gate runs after the clone (it needs the manifest
+			// to know the resolved moduleName), so the test uses a
+			// real local bare repo to get past the clone step.
+			const git = await createGitFixture()
+			try {
+				await git.commitManifest({ name: "@acme/widget", version: "1.0.0", tag: "v1.0.0" })
+				await fx.pglite.query(`UPDATE plan_limits SET max_private_modules = 0 WHERE plan = 'free'`)
 
-			const res = await fx.app.request("/v1/publish", {
-				method: "POST",
-				headers: { "content-type": "application/json", "x-api-key": fx.keys.owner },
-				body: JSON.stringify({
-					repo: "https://github.com/acme/widget",
-					tag: "v1.0.0",
-					org: "acme",
-					visibility: "org",
-				}),
-			})
-			expect(res.status).toBe(403)
-			const body = (await res.json()) as { error?: string }
-			expect(body.error?.toLowerCase()).toContain("max_private_modules")
-			expect(body.error?.toLowerCase()).toContain("free")
+				const res = await fx.app.request("/v1/publish", {
+					method: "POST",
+					headers: { "content-type": "application/json", "x-api-key": fx.keys.owner },
+					body: JSON.stringify({
+						repo: git.bareUrl,
+						tag: "v1.0.0",
+						org: "acme",
+						visibility: "org",
+					}),
+				})
+				expect(res.status).toBe(403)
+				const body = (await res.json()) as { error?: string }
+				expect(body.error?.toLowerCase()).toContain("max_private_modules")
+				expect(body.error?.toLowerCase()).toContain("free")
+			} finally {
+				await git.cleanup()
+			}
 		})
 
 		it("the plan-limit 403 leaves NO module or version row", async () => {
@@ -344,33 +354,5 @@ describe("POST /v1/publish — request validation, role, and plan limits", () =>
 			// path will fail later), but the status must not be 403.
 			expect(res.status).not.toBe(403)
 		})
-	})
-})
-
-describe("POST /v1/publish — visibility default (decision 30)", () => {
-	let fx: PublishTestStack
-	beforeEach(async () => {
-		fx = await buildPublishTestStack()
-	})
-	afterEach(async () => {
-		await fx.close()
-	})
-
-	it("omitting `visibility` defaults to `org` (private by default)", async () => {
-		// Insert a module row directly so the publish path has
-		// something to associate the version with, then exercise
-		// the visibility default.
-		const before = await fx.pglite.query<{ visibility: string }>(
-			`SELECT visibility FROM modules WHERE scope = 'acme' AND name = 'widget'`,
-		)
-		expect(before.rows).toHaveLength(0)
-		void before
-		// The full visibility-default behavior is exercised end-to-end
-		// in the git-clone fixture (see publish-git-flow.test.ts).
-		// Here we only assert the contract: the schema accepts a body
-		// without `visibility` and treats it as `org` for plan-limit
-		// accounting. The schema check itself runs in the body-validation
-		// suite; this test exists to mark the seam.
-		expect(true).toBe(true)
 	})
 })

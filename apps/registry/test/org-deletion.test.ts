@@ -227,7 +227,7 @@ describe("VAL-AUTH-016 — org owning modules cannot be deleted", () => {
 
 		// Modules are still readable via the catalog/detail surface
 		// (the module is org-visibility, so the request carries the
-		// owner's API key — see stub-routes.ts visibility gate).
+		// owner's API key — see catalog/routes.ts checkOrgMembership).
 		const detail = await fx.app.request("/v1/modules/acme/widget", {
 			headers: { "x-api-key": seeded.owner.apiKey },
 		})

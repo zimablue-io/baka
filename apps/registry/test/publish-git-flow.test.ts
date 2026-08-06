@@ -279,4 +279,140 @@ describe("POST /v1/publish — clone-and-validate (VAL-PUB-002 / 010 / 024)", ()
 			expect(res.status).toBe(202)
 		})
 	})
+
+	// ----------------------------------------------------------------------------
+	// Scrutiny-round-1 polish: visibility echo on re-publish, plan-limit semantics
+	// for new versions, foreign-scope enforcement on the official-org path, and
+	// empty moduleName rejection.
+	// ----------------------------------------------------------------------------
+
+	describe("VAL-SCRUTINY-1: re-publish reflects stored visibility, not the requested value", () => {
+		it("re-publishing an existing module echoes the FIRST-publish visibility, not the requested one", async () => {
+			await git.commitManifest({ name: "@acme/widget", version: "1.0.0", tag: "v1.0.0" })
+			const first = await fx.app.request("/v1/publish", {
+				method: "POST",
+				headers: { "content-type": "application/json", "x-api-key": fx.keys.owner },
+				body: JSON.stringify({ repo: git.bareUrl, tag: "v1.0.0", org: "acme", visibility: "org" }),
+			})
+			expect(first.status).toBe(202)
+			expect(((await first.json()) as { visibility: string }).visibility).toBe("org")
+
+			// Re-publish v2 with visibility: "public" — the row stays org
+			// (first-publish wins on re-publish of the same module), so the
+			// response must echo "org" rather than the requested "public".
+			await git.commitManifest({ name: "@acme/widget", version: "1.0.1", tag: "v1.0.1" })
+			const second = await fx.app.request("/v1/publish", {
+				method: "POST",
+				headers: { "content-type": "application/json", "x-api-key": fx.keys.owner },
+				body: JSON.stringify({ repo: git.bareUrl, tag: "v1.0.1", org: "acme", visibility: "public" }),
+			})
+			expect(second.status).toBe(202)
+			const secondBody = (await second.json()) as { visibility: string }
+			expect(secondBody.visibility).toBe("org")
+		})
+	})
+
+	describe("VAL-SCRUTINY-1: plan limit counts modules, not versions", () => {
+		it("publishing a new VERSION of an existing module is NOT blocked when at the max_private_modules limit", async () => {
+			// Set the private-module quota to 1 so the first publish
+			// creates the one allowed module. A second publish of a
+			// new VERSION of the same module must succeed — the limit
+			// counts modules, not versions.
+			await fx.pglite.query(`UPDATE plan_limits SET max_private_modules = 1 WHERE plan = 'free'`)
+
+			await git.commitManifest({ name: "@acme/widget", version: "1.0.0", tag: "v1.0.0" })
+			const first = await fx.app.request("/v1/publish", {
+				method: "POST",
+				headers: { "content-type": "application/json", "x-api-key": fx.keys.owner },
+				body: JSON.stringify({ repo: git.bareUrl, tag: "v1.0.0", org: "acme", visibility: "org" }),
+			})
+			expect(first.status).toBe(202)
+
+			// New version, same module — must NOT 403 on plan limit.
+			await git.commitManifest({ name: "@acme/widget", version: "1.0.1", tag: "v1.0.1" })
+			const second = await fx.app.request("/v1/publish", {
+				method: "POST",
+				headers: { "content-type": "application/json", "x-api-key": fx.keys.owner },
+				body: JSON.stringify({ repo: git.bareUrl, tag: "v1.0.1", org: "acme", visibility: "org" }),
+			})
+			expect(second.status).toBe(202)
+		})
+
+		it("publishing a SECOND DIFFERENT module is still blocked at the limit", async () => {
+			// Limit = 1, one module already exists. A second DIFFERENT
+			// module must still 403 — the new-version carve-out is
+			// specific to re-publishing the same (scope, name).
+			await fx.pglite.query(`UPDATE plan_limits SET max_private_modules = 1 WHERE plan = 'free'`)
+
+			await git.commitManifest({ name: "@acme/widget", version: "1.0.0", tag: "v1.0.0" })
+			await fx.app.request("/v1/publish", {
+				method: "POST",
+				headers: { "content-type": "application/json", "x-api-key": fx.keys.owner },
+				body: JSON.stringify({ repo: git.bareUrl, tag: "v1.0.0", org: "acme", visibility: "org" }),
+			})
+
+			await git.commitManifest({ name: "@acme/gadget", version: "1.0.1", tag: "v1.0.1" })
+			const second = await fx.app.request("/v1/publish", {
+				method: "POST",
+				headers: { "content-type": "application/json", "x-api-key": fx.keys.owner },
+				body: JSON.stringify({ repo: git.bareUrl, tag: "v1.0.1", org: "acme", visibility: "org" }),
+			})
+			expect(second.status).toBe(403)
+			const body = (await second.json()) as { error?: string }
+			expect(body.error?.toLowerCase()).toContain("max_private_modules")
+		})
+	})
+
+	describe("VAL-SCRUTINY-1: official-org path rejects foreign-scope manifest names", () => {
+		it("rejects a manifest named `@other/foo` published into the official scope with 422", async () => {
+			await git.commitManifest({ name: "@other/foo", version: "1.0.0", tag: "v1.0.0" })
+
+			const res = await fx.app.request("/v1/publish", {
+				method: "POST",
+				headers: { "content-type": "application/json", "x-api-key": fx.keys.officialPublisher },
+				body: JSON.stringify({ repo: git.bareUrl, tag: "v1.0.0", org: fx.officialOrg }),
+			})
+			expect(res.status).toBe(422)
+			const body = (await res.json()) as { error?: string }
+			expect(body.error ?? "").toContain("@other/foo")
+		})
+
+		it("accepts a manifest named `@<officialOrg>/widget` (own scope is stripped)", async () => {
+			await git.commitManifest({ name: `@${fx.officialOrg}/widget`, version: "1.0.0", tag: "v1.0.0" })
+
+			const res = await fx.app.request("/v1/publish", {
+				method: "POST",
+				headers: { "content-type": "application/json", "x-api-key": fx.keys.officialPublisher },
+				body: JSON.stringify({ repo: git.bareUrl, tag: "v1.0.0", org: fx.officialOrg }),
+			})
+			expect(res.status).toBe(202)
+			const body = (await res.json()) as { scope: string; name: string }
+			expect(body.scope).toBe(fx.officialOrg)
+			expect(body.name).toBe("widget")
+		})
+	})
+
+	describe("VAL-SCRUTINY-1: empty moduleName after scope strip is rejected", () => {
+		it("rejects a manifest named `@<org>/` (scope stripped to empty)", async () => {
+			await git.commitManifest({ name: "@acme/", version: "1.0.0", tag: "v1.0.0" })
+
+			const res = await fx.app.request("/v1/publish", {
+				method: "POST",
+				headers: { "content-type": "application/json", "x-api-key": fx.keys.owner },
+				body: JSON.stringify({ repo: git.bareUrl, tag: "v1.0.0", org: "acme" }),
+			})
+			expect(res.status).toBe(422)
+		})
+
+		it("rejects a manifest named `@<org>//foo` (scope stripped to `/foo`)", async () => {
+			await git.commitManifest({ name: "@acme//foo", version: "1.0.0", tag: "v1.0.0" })
+
+			const res = await fx.app.request("/v1/publish", {
+				method: "POST",
+				headers: { "content-type": "application/json", "x-api-key": fx.keys.owner },
+				body: JSON.stringify({ repo: git.bareUrl, tag: "v1.0.0", org: "acme" }),
+			})
+			expect(res.status).toBe(422)
+		})
+	})
 })
