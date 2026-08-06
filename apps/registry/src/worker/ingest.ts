@@ -1,5 +1,7 @@
 import type { PGlite } from "@electric-sql/pglite"
 import type { ModuleManifest } from "@repo/protocol"
+import { writeScreeningResult } from "../screening/screening-result"
+import { runStaticScan, type StaticScanFinding } from "../screening/static-scan"
 import { cleanupClone, shallowCloneAtTag } from "./clone"
 import { checkLoadability, IngestFailure, loadManifest } from "./manifest"
 import { packTarball } from "./tarball"
@@ -264,6 +266,34 @@ async function runIngestJobInner(payload: IngestVersionPayload, deps: IngestDeps
 		// `baka validate` — the dishonesty this gate exists to prevent.
 		await checkLoadability(moduleDir, manifest)
 
+		// Step 4b — static capability scan (architecture §4.6 layer 1,
+		// VAL-SCAN-002 / 015 / 016). Public-visibility modules enter
+		// the screening pipeline; org-visibility modules skip it
+		// entirely (decision 30, "private by default"). The scan
+		// never executes the module's own code — it parses every
+		// `.ts` file with the TypeScript Compiler API and walks
+		// every Handlebars template with a regex detector, looking
+		// for network / child_process / eval / dynamic-import /
+		// writes-outside-patterns / handlebars-helper violations.
+		//
+		// On failure: write a screening_results row with verdict
+		// 'failed' + the static_scan payload + an explicit dry_run
+		// skip marker, then throw IngestFailure so the wrapper
+		// routes the version to `failed` with the honest diagnostic.
+		// The dry-run layer (next milestone) is NEVER invoked for a
+		// version that did not pass the static scan — the dry_run
+		// field carries the skip reason so the read surface can
+		// explain why no preview artifacts exist.
+		//
+		// On pass: write a screening_results row with verdict
+		// 'unverified' (the overall verdict only becomes 'screened'
+		// once the dry-run + validator layers complete in a later
+		// milestone). This lets the catalog surface "static scan
+		// passed" without prematurely claiming screened status.
+		if (moduleRow.visibility === "public") {
+			await runScreeningStep(deps.pglite, payload.versionId, moduleDir, manifest)
+		}
+
 		// Step 5 — content hash + tarball pack.
 		const pack = await packTarball(moduleDir)
 
@@ -346,6 +376,67 @@ async function recordArtifact(pglite: PGlite, input: ArtifactInput): Promise<voi
 
 function stripV(value: string): string {
 	return value.startsWith("v") ? value.slice(1) : value
+}
+
+/**
+ * Runs the static capability scan (architecture §4.6 layer 1) over
+ * the cloned module and records the result in `screening_results`.
+ *
+ * Three terminal states:
+ *
+ *   - scan passes → screening_results verdict='unverified' (dry-run
+ *     layer is the next gate; "screened" only after all three layers
+ *     pass). The version continues to the tarball pack step.
+ *   - scan fails  → screening_results verdict='failed' +
+ *     dry_run={ skipped:true, reason:'static_scan_failed' }. The
+ *     function then throws `IngestFailure`, the worker wrapper
+ *     marks the version `failed` with the static-scan summary, and
+ *     no tarball is packed or stored.
+ *   - scan errors  → the same failure path; a parse failure surfaces
+ *     as a `parse` finding (VAL-SCAN-018: "never `screened`").
+ *
+ * The screening_results row is UPSERTED on `version_id` so a
+ * re-run of the worker over the same row (operator-driven re-publish
+ * at a different tag, etc.) leaves a coherent record. Subsequent
+ * layers (dry-run, validator gate) will overwrite the row with their
+ * own payload in the same UPSERT path.
+ */
+async function runScreeningStep(
+	pglite: PGlite,
+	versionId: string,
+	moduleDir: string,
+	manifest: ModuleManifest,
+): Promise<void> {
+	const result = await runStaticScan(moduleDir, manifest)
+	if (result.passed) {
+		await writeScreeningResult(pglite, versionId, {
+			verdict: "unverified",
+			staticScan: result,
+			dryRun: null,
+		})
+		return
+	}
+
+	// Failure path: write the screening record first (so the
+	// read surface can surface the named findings even after the
+	// version is marked failed), then throw.
+	await writeScreeningResult(pglite, versionId, {
+		verdict: "failed",
+		staticScan: result,
+		dryRun: {
+			skipped: true,
+			reason: "static_scan_failed",
+			at: new Date().toISOString(),
+		},
+	})
+
+	const findingsText = result.findings
+		.slice(0, 5)
+		.map((f: StaticScanFinding) => `${f.capability}@${f.file}:${f.line}`)
+		.join("; ")
+	const moreCount = Math.max(0, result.findings.length - 5)
+	const summary = `${result.summary}${moreCount > 0 ? ` (+${moreCount} more)` : ""}`
+	throw new IngestFailure("screening", `${summary}: ${findingsText}`)
 }
 
 function resolveModuleDir(cloneDir: string, modulePath: string | null): string {

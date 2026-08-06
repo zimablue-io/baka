@@ -63,6 +63,14 @@ export interface GitFixture {
 		modulePath?: string
 		tag: string
 		manifestFormat?: "ts" | "json"
+		/**
+		 * Extra files written under the module root before commit.
+		 * Paths are relative to the module root (NOT the repo root)
+		 * when `modulePath` is set, matching the manifest layout the
+		 * worker reads. Used by the screening tests to drop fixture
+		 * files that exercise specific AST detection rules.
+		 */
+		extras?: Array<{ path: string; content: string }>
 	}) => Promise<{ commitSha: string }>
 	cleanup: () => Promise<void>
 }
@@ -203,6 +211,20 @@ export async function createGitFixture(): Promise<GitFixture> {
 				}
 			}
 
+			// Optional extra files (screening tests use these to drop
+			// fixture content that exercises specific AST detection
+			// rules — e.g. a Handlebars template, a sub-action.ts
+			// containing `fetch(`, etc.). Paths are relative to the
+			// module root when `modulePath` is set, matching the
+			// manifest layout the worker reads. The `git add`
+			// step below turns each into a repo-root-relative path.
+			for (const extra of opts.extras ?? []) {
+				const fullPath = join(targetDir, extra.path)
+				const parentDir = join(fullPath, "..")
+				await mkdir(parentDir, { recursive: true })
+				await writeFile(fullPath, extra.content, "utf8")
+			}
+
 			// `git add` takes paths relative to the repo root.
 			// `manifest.ts` lives under `modulePath` when set, so
 			// the relative path is `${modulePath}/${filename}`. Each
@@ -212,6 +234,9 @@ export async function createGitFixture(): Promise<GitFixture> {
 			relativePaths.push(manifestRel)
 			for (const action of declaredActions) {
 				relativePaths.push(modulePath.length > 0 ? `${modulePath}/${action.id}` : action.id)
+			}
+			for (const extra of opts.extras ?? []) {
+				relativePaths.push(modulePath.length > 0 ? `${modulePath}/${extra.path}` : extra.path)
 			}
 			exec({ cmd: "git", args: ["-C", workDir, "add", "--", ...relativePaths] })
 

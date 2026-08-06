@@ -27,7 +27,7 @@ import { createJiti } from "jiti"
  */
 
 interface IngestError {
-	step: "manifest" | "loadability"
+	step: "manifest" | "loadability" | "screening"
 	message: string
 }
 
