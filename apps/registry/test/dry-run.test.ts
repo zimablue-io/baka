@@ -99,32 +99,53 @@ describe("sandboxed dry-run (VAL-SCAN-003 / 013 / 014)", () => {
 			const canaryPath = join(canaryDir, "canary.txt")
 			const canaryContent = `BAKA_CANARY_SECRET_${Math.random().toString(36).slice(2)}`
 			writeFileSync(canaryPath, canaryContent, "utf8")
-			// Resolved canary path for the action's argv (the action
-			// receives absolute paths to the canary file + the
-			// sibling dir so it can also test the parent-of-sandbox
-			// write escape).
+			// Canary paths flow into the action via env vars (the
+			// dry-run subprocess inherits process.env). The action's
+			// body never references the canary paths as string
+			// literals — the static capability scan would otherwise
+			// flag `writeFileSync("<literal>", ...)` as
+			// `writes-outside-patterns` and the dry-run would never
+			// run. Computing the paths at runtime lets the static
+			// scan defer to the sandbox layer that actually
+			// exercises the escape.
 			const canaryParent = join(canaryDir, "..")
+			process.env.BAKA_CANARY_PATH = canaryPath
+			process.env.BAKA_CANARY_PARENT = canaryDir
 
 			// The action attempts BOTH a read of the canary file AND
-			// a write to the sandbox-parent dir. Both paths must be
-			// blocked by `--permission`; the verdict text quotes the
-			// ERR_ACCESS_DENIED message verbatim.
+			// a write to the sandbox-parent dir. Both paths are
+			// computed at runtime (process.env + join) so the
+			// static scan sees only non-literal expressions; the
+			// sandbox then blocks them as ERR_ACCESS_DENIED and the
+			// verdict text quotes the message verbatim.
+			//
+			// The blocked-write case must NOT propagate a second
+			// throw inside the catch block (the marker write would
+			// be blocked too — a double-throw bubbles out of
+			// execute() and the parent surfaces a generic
+			// "subprocess exited with code 1" load-error instead of
+			// the BLOCKED text the verdict needs). Track the block
+			// in `leaked` and return the soft-failure envelope
+			// instead.
 			const actionBody = `
 import { readFileSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
+const canaryPath = process.env.BAKA_CANARY_PATH
+const canaryParent = process.env.BAKA_CANARY_PARENT
 export default {
   name: "escape",
   role: 1,
   async execute() {
     let leaked = "NOT-LEAKED"
     try {
-      leaked = readFileSync(${JSON.stringify(canaryPath)}, "utf8")
+      leaked = readFileSync(canaryPath, "utf8")
     } catch (err) {
       leaked = "BLOCKED:" + err.code + ":" + err.message
     }
     try {
-      writeFileSync(${JSON.stringify(join(canaryParent, "leak.txt"))}, "PWNED")
+      writeFileSync(join(canaryParent, "leak.txt"), "PWNED")
     } catch (err) {
-      writeFileSync(${JSON.stringify(join(canaryParent, "write-blocked.txt"))}, "BLOCKED:" + err.code)
+      leaked = leaked + " WRITE-BLOCKED:" + err.code
     }
     return { success: false, error: leaked }
   },
@@ -195,13 +216,25 @@ export default {
 		})
 
 		it("write escape to the sandbox parent and to a relative path are both blocked", async () => {
-			// This variant asserts the relative escape (`../escape.txt`)
-			// is blocked by the `--permission` flags — Node 24
-			// verifies the resolved path against the allow list before
-			// any write attempt.
+			// Absolute-path targets are passed in via env vars so the
+			// action body never references them as string literals —
+			// the static capability scan would otherwise flag
+			// `writeFileSync("<literal>", ...)` as
+			// `writes-outside-patterns` and the dry-run would never
+			// run. The relative-path escape (`../escape.txt`) is
+			// already a `join(...)` call expression so the static
+			// scan skips it; only the absolute path needed
+			// runtime-computation.
+			process.env.BAKA_ABS_PATH = "/tmp/this-is-outside-sandbox.txt"
+
+			// The action attempts a relative-path escape AND an
+			// absolute-path escape; both are blocked by
+			// `--permission`, and the verdict text quotes the
+			// ERR_ACCESS_DENIED message verbatim.
 			const actionBody = `
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
+const absPath = process.env.BAKA_ABS_PATH
 export default {
   name: "write-escape",
   role: 1,
@@ -214,7 +247,7 @@ export default {
       lastErr = "BLOCKED-RELATIVE:" + err.code
     }
     try {
-      writeFileSync("/tmp/this-is-outside-sandbox.txt", "PWNED")
+      writeFileSync(absPath, "PWNED")
     } catch (err) {
       lastErr += " BLOCKED-ABS:" + err.code
     }
@@ -329,7 +362,7 @@ export default {
 				} | null
 			}
 			expect(body.screening?.verdict).toBe("screened")
-			expect(body.screening?.dryRun?.policy).toMatch(/own.s own tree/)
+			expect(body.screening?.dryRun?.policy).toMatch(/module's own tree/)
 			expect(body.screening?.dryRun?.policy).toMatch(/NOT fetched or installed/)
 
 			const writer = body.screening?.dryRun?.perAction.find((p) => p.actionId === "writer")
@@ -567,10 +600,9 @@ export default {
 			const terminal = await stack.fx.waitForTerminal(versionId)
 			expect(terminal.status).toBe("failed")
 
-			const previewsRes = await stack.fx.app.request(
-				"/v1/modules/acme/mixed/v1.0.0/previews",
-				{ headers: { "x-api-key": stack.fx.keys.owner } },
-			)
+			const previewsRes = await stack.fx.app.request("/v1/modules/acme/mixed/v1.0.0/previews", {
+				headers: { "x-api-key": stack.fx.keys.owner },
+			})
 			expect(previewsRes.status).toBe(200)
 			const previewsBody = (await previewsRes.json()) as {
 				previews: Array<{ actionId: string; state: string; files?: Array<{ path: string }> }>
@@ -686,8 +718,8 @@ export default {
 
 		await stack.git.commitManifest({
 			name: "@acme/recovers",
-			version: "1.0.0",
-			tag: "v1.0.0",
+			version: "1.0.1",
+			tag: "v1.0.1",
 			modulePath: "recovers",
 			actions: [
 				{
@@ -703,7 +735,7 @@ export default {
 			headers: { "content-type": "application/json", "x-api-key": stack.fx.keys.owner },
 			body: JSON.stringify({
 				repo: stack.git.bareUrl,
-				tag: "v1.0.0",
+				tag: "v1.0.1",
 				org: "acme",
 				visibility: "public",
 				modulePath: "recovers",
@@ -713,7 +745,7 @@ export default {
 		const terminal2 = await stack.fx.waitForTerminal(versionId2, { timeoutMs: 30_000 })
 		expect(terminal2.status).toBe("ready")
 
-		const detail2 = await stack.fx.app.request("/v1/modules/acme/recovers/v1.0.0", {
+		const detail2 = await stack.fx.app.request("/v1/modules/acme/recovers/v1.0.1", {
 			headers: { "x-api-key": stack.fx.keys.owner },
 		})
 		const body2 = (await detail2.json()) as {
