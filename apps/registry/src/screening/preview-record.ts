@@ -92,7 +92,20 @@ function toRow(result: PerActionResult, versionId: string): PreviewRecordRow {
 				versionId,
 				actionId: result.actionId,
 				state: "needs-llm",
-				files: null,
+				// Sentinel renders populate `previewFiles`; a
+				// reasoning action without a sentinel template
+				// keeps `files` null and the read surface
+				// continues to return the existing needs-llm
+				// shape (state + reason, no files carrier).
+				files:
+					result.previewFiles !== undefined && result.previewFiles.length > 0
+						? result.previewFiles.map((f) => ({
+								path: f.path,
+								contentHash: f.contentHash,
+								size: f.size,
+								storageKey: f.storageKey,
+							}))
+						: null,
 				error: result.reason,
 				timedOutAt: null,
 			}

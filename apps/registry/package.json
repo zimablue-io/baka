@@ -24,6 +24,7 @@
 		"@repo/protocol": "workspace:*",
 		"better-auth": "1.6.25",
 		"drizzle-orm": "^0.45.2",
+		"handlebars": "^4.7.8",
 		"hono": "^4.7.0",
 		"jiti": "^2.7.0",
 		"kysely": "0.29.4",

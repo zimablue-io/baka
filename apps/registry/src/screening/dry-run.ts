@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process"
-import { existsSync, mkdirSync, realpathSync, rmSync } from "node:fs"
+import { type Dirent, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs"
 import { mkdtemp, readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
@@ -61,6 +61,19 @@ const OWN_TREE_ONLY_POLICY =
 const DEFAULT_DRY_RUN_TIMEOUT_MS = 60_000
 
 /**
+ * Handlebars comment sentinel that mirrors the engine-side
+ * `NO_LLM_SENTINEL` (`packages/ast-tooling/src/worker.ts:24`). A
+ * `.hbs` template carrying the comment anywhere in its source
+ * opts out of LLM reasoning — the registry's dry-run renders it
+ * with Handlebars inside the sandbox and surfaces the rendered
+ * bytes as the action's preview files. The state stays
+ * `needs-llm` because the action is still `requiresReasoning`;
+ * the sentinel only previews what a non-LLM render would
+ * produce.
+ */
+const NO_LLM_SENTINEL = /\{\{!--\s*no-llm\s*--\}\}/
+
+/**
  * Returns the minimal allowlist passed to every dry-run subprocess
  * via `spawn(env)`. The shape is the architectural decision 39
  * contract: PATH / HOME / TMPDIR / `NODE_OPTIONS:''`. Empty /
@@ -113,6 +126,20 @@ export interface PerActionResultNeedsLlm {
 	status: "needs-llm"
 	needsLlm: true
 	reason: string
+	/**
+	 * Rendered preview files produced when the action ships a
+	 * `{{!-- no-llm --}}` sentinel template. The action itself
+	 * still requires LLM reasoning at apply time, so `state`
+	 * stays `needs-llm`; the rendered bytes are surfaced as a
+	 * deterministic preview so the catalog's tile-level "would
+	 * the LLM add anything here?" answer is `no` for these
+	 * templates. Populated only when the dry-run subprocess
+	 * actually rendered at least one sentinel template;
+	 * otherwise the field is absent and the catalog's
+	 * `state=needs-llm` shape is unchanged from before this
+	 * feature.
+	 */
+	previewFiles?: PreviewFile[]
 }
 
 export interface PerActionResultFailed {
@@ -140,7 +167,7 @@ export type PerActionResult =
  */
 export type PerActionState =
 	| { actionId: string; status: "screened"; needsLlm: false; previewFiles: PreviewFile[] }
-	| { actionId: string; status: "needs-llm"; needsLlm: true; reason: string }
+	| { actionId: string; status: "needs-llm"; needsLlm: true; reason: string; previewFiles?: PreviewFile[] }
 	| { actionId: string; status: "failed"; error: string }
 	| { actionId: string; status: "timed-out"; timedOutAt: string }
 
@@ -213,6 +240,90 @@ export async function runDryRun(opts: RunDryRunOptions): Promise<DryRunResult> {
 
 	for (const action of opts.manifest.actions) {
 		if (action.requiresReasoning) {
+			// Sentinel preview path (architecture §4.6 layer 2 +
+			// VAL-SCAN-005 conditional clause): a reasoning action
+			// shipping a `{{!-- no-llm --}}`-marked template gets a
+			// sandboxed Handlebars render of those templates; the
+			// rendered bytes are captured as preview files alongside
+			// the `needs-llm` state. Reasoning actions without a
+			// sentinel template keep the pre-existing behavior:
+			// `needs-llm` with no files carrier.
+			//
+			// Detection is parent-side (cheap file walk under the
+			// already-realpath-resolved module dir); rendering is
+			// sandbox-side so the same env scrub and `--allow-fs-*`
+			// guarantees that protect the action execute path apply
+			// to the Handlebars render too. The render context is
+			// `{}` (the same empty fixture params the non-reasoning
+			// branches call the action with), and the script falls
+			// back to the no-sentinel needs-llm record if the
+			// sandbox render itself fails (e.g. Handlebars compile
+			// error) — a broken template is not a screen-fail, it is
+			// "needs an LLM to fill in or template fix at apply
+			// time".
+			if (actionHasSentinelTemplates(opts.moduleDir, action.id)) {
+				const sandboxDir = await mkdtemp(join(tmpdir(), "baka-sentinel-"))
+				const sandboxReal = realpathSync(sandboxDir)
+				try {
+					const outcome = await runOneAction({
+						actionId: action.id,
+						moduleReal: moduleReal,
+						jitiRootReal: jitiRootReal,
+						sandboxReal: sandboxReal,
+						timeoutMs: timeoutMs,
+						mode: "render-sentinel",
+					})
+
+					if (outcome.kind === "success") {
+						const previewFiles: PreviewFile[] = []
+						for (const file of outcome.files ?? []) {
+							const fullPath = join(sandboxReal, file.path)
+							try {
+								const content = await readFile(fullPath)
+								const stored = await opts.storage.put(content)
+								previewFiles.push({
+									path: file.path,
+									contentHash: stored.sha256,
+									size: stored.size,
+									storageKey: stored.key,
+								})
+							} catch {
+								// Per-file read failure: skip silently,
+								// same as the non-reasoning branch.
+							}
+						}
+						const result: PerActionResultNeedsLlm = {
+							actionId: action.id,
+							status: "needs-llm",
+							needsLlm: true,
+							reason: "action skipped because it requires LLM reasoning",
+							previewFiles: previewFiles.length > 0 ? previewFiles : undefined,
+						}
+						perAction.push(toState(result))
+						await writePreviewRecord(opts.pglite, result, opts.versionId)
+						continue
+					}
+					// Sentinel render produced no files (subprocess
+					// reported failure or load-error): fall through
+					// to the no-sentinel needs-llm record below. The
+					// verdict is honest (the action still requires
+					// an LLM at apply time), and the row remains a
+					// candidate for the spec's `community-screened`
+					// tier once layer 3 runs.
+				} finally {
+					try {
+						rmSync(sandboxDir, { recursive: true, force: true })
+					} catch {
+						// best effort; sandbox cleanup is cosmetic
+					}
+				}
+			}
+
+			// No sentinel templates, or sentinel render failed:
+			// pre-existing behavior preserved exactly. The
+			// `state: "needs-llm"` row carries the skip reason
+			// and no files carrier; the read surface (preview list
+			// + detail endpoint) surfaces that shape unchanged.
 			const result: PerActionResultNeedsLlm = {
 				actionId: action.id,
 				status: "needs-llm",
@@ -349,6 +460,20 @@ export async function runDryRun(opts: RunDryRunOptions): Promise<DryRunResult> {
  * the Promise result but does not surface the underlying child
  * with a stable type, so the timeout-kill logic was harder to
  * reason about.
+ *
+ * `mode` selects the subprocess's behavior:
+ *   - `execute` (default) — load the action via jiti and call
+ *     its `execute()` against the sandbox. Used by every
+ *     non-reasoning action.
+ *   - `render-sentinel` — skip the action body entirely;
+ *     walk `<moduleDir>/<actionId>/templates/` for
+ *     `{{!-- no-llm --}}`-marked `.hbs` files, render each
+ *     with Handlebars (empty fixture params context), and
+ *     write the rendered bytes to the sandbox. Used by the
+ *     reasoning branch's sentinel path. The script keeps
+ *     invoking the env scrub / sandbox allow lists so the
+ *     Handlebars render inherits the same guarantees as the
+ *     action execute path.
  */
 function runOneAction(opts: {
 	actionId: string
@@ -356,6 +481,7 @@ function runOneAction(opts: {
 	jitiRootReal: string
 	sandboxReal: string
 	timeoutMs: number
+	mode?: "execute" | "render-sentinel"
 }): Promise<SubprocessOutcome> {
 	return new Promise((resolve) => {
 		// Node 24 dropped support for comma-separated `--allow-fs-read`
@@ -399,6 +525,9 @@ function runOneAction(opts: {
 			"--jiti-root",
 			opts.jitiRootReal,
 		)
+		if (opts.mode !== undefined) {
+			args.push("--mode", opts.mode)
+		}
 
 		// Test-only canary channel (architecture §8 decision 39).
 		//
@@ -676,10 +805,60 @@ function topmostNodeModulesParent(start: string): string | null {
 	if (!lastNodeModules) return null
 	return dirname(lastNodeModules)
 }
-
 function basename(p: string): string {
 	const sep = p.lastIndexOf("/")
 	return sep < 0 ? p : p.substring(sep + 1)
+}
+
+/**
+ * Returns true iff `<moduleDir>/<actionId>/templates/` contains
+ * at least one `.hbs` or `.handlebars` file carrying the
+ * `{{!-- no-llm --}}` sentinel comment. Parent-side detection
+ * only — no module code is invoked. The actual render runs in
+ * the subprocess (sandboxed, decision 39); this helper exists
+ * so the parent can decide whether to spawn a render-sentinel
+ * subprocess at all (a no-sentinel reasoning action keeps the
+ * pre-existing `needs-llm`-without-files behavior, no spawn
+ * needed).
+ *
+ * Symlinks are skipped to match the dry-run script's walk
+ * policy; `node_modules`, `out`, and dotfiles are skipped to
+ * match the static-scan / preview-walk filters. A broken file
+ * (unreadable Handlebars payload) is treated as "no sentinel
+ * here" — the subprocess carries the real compile error if
+ * the file turns out to be malformed when rendered.
+ */
+function actionHasSentinelTemplates(moduleDir: string, actionId: string): boolean {
+	const templatesDir = join(moduleDir, actionId, "templates")
+	if (!existsSync(templatesDir)) return false
+	return walkForSentinel(templatesDir)
+}
+
+function walkForSentinel(cur: string): boolean {
+	let entries: Dirent[]
+	try {
+		entries = readdirSync(cur, { withFileTypes: true })
+	} catch {
+		return false
+	}
+	for (const entry of entries) {
+		if (entry.name === "node_modules" || entry.name === "out" || entry.name.startsWith(".")) continue
+		const full = join(cur, entry.name)
+		if (entry.isDirectory()) {
+			if (walkForSentinel(full)) return true
+			continue
+		}
+		if (!entry.isFile()) continue
+		if (!(entry.name.endsWith(".hbs") || entry.name.endsWith(".handlebars"))) continue
+		let content: string
+		try {
+			content = readFileSync(full, "utf8")
+		} catch {
+			continue
+		}
+		if (NO_LLM_SENTINEL.test(content)) return true
+	}
+	return false
 }
 
 function toState(result: PerActionResult): PerActionState {
@@ -687,7 +866,15 @@ function toState(result: PerActionResult): PerActionState {
 		case "screened":
 			return { actionId: result.actionId, status: "screened", needsLlm: false, previewFiles: result.previewFiles }
 		case "needs-llm":
-			return { actionId: result.actionId, status: "needs-llm", needsLlm: true, reason: result.reason }
+			return result.previewFiles !== undefined
+				? {
+						actionId: result.actionId,
+						status: "needs-llm",
+						needsLlm: true,
+						reason: result.reason,
+						previewFiles: result.previewFiles,
+					}
+				: { actionId: result.actionId, status: "needs-llm", needsLlm: true, reason: result.reason }
 		case "failed":
 			return { actionId: result.actionId, status: "failed", error: result.error }
 		case "timed-out":

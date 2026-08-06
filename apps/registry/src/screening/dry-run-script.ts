@@ -14,6 +14,16 @@
  *     --jiti-root <path>     directory jiti uses for resolving
  *                            workspace imports (the registry install
  *                            root, or the workspace root in dev/test)
+ *     --mode <m>             OPTIONAL — defaults to "execute";
+ *                            "render-sentinel" walks
+ *                            <moduleDir>/<actionId>/templates/ for
+ *                            {{!-- no-llm --}} marked `.hbs` /
+ *                            `.handlebars` files, renders each via
+ *                            Handlebars with the empty fixture
+ *                            params, writes the rendered bytes to
+ *                            the sandbox. Used by reasoning actions
+ *                            whose templates ship a sentinel (see
+ *                            dry-run.ts reasoning branch).
  *     --canary-config <json> OPTIONAL — test-only channel
  *                            (architecture §8 decision 39): the
  *                            JSON object is decoded and written
@@ -40,8 +50,9 @@
  *         that case so the parent can distinguish a hard load error
  *         (script exits 1) from an action-level soft failure.
  *     1 — hard failure: the action could not be loaded (jiti throw),
- *         the script could not parse its argv, or the filesystem
- *         walk exploded. The error message is on stdout.
+ *         the script could not parse its argv, the sentinel template
+ *         did not compile, or the filesystem walk exploded. The
+ *         error message is on stdout.
  *
  * Sandbox enforcement (parent-side, not the script):
  *   - --allow-fs-read=<module-dir>,<sandbox-dir>,<jiti-root>
@@ -95,7 +106,8 @@ async function main() {
   const moduleDir = argValue('--module-dir')
   const sandboxDir = argValue('--sandbox-dir')
   const jitiRoot = argValue('--jiti-root') || moduleDir
-  process.stderr.write('[dryrun-script] parsed: actionId=' + actionId + ' moduleDir=' + moduleDir + ' sandboxDir=' + sandboxDir + ' jitiRoot=' + jitiRoot + '\n')
+  const mode = argValue('--mode') || 'execute'
+  process.stderr.write('[dryrun-script] parsed: actionId=' + actionId + ' moduleDir=' + moduleDir + ' sandboxDir=' + sandboxDir + ' jitiRoot=' + jitiRoot + ' mode=' + mode + '\n')
 
   if (!actionId || !moduleDir || !sandboxDir) {
     emit({ success: false, error: 'dry-run subprocess: missing --action-id, --module-dir, or --sandbox-dir' })
@@ -163,137 +175,269 @@ async function main() {
     process.exit(1)
   }
 
-  process.stderr.write('[dryrun-script] before jiti(actionPath)\n')
-  const actionPath = path.join(moduleDir, actionId, 'action.ts')
-  let mod
-  try {
-    mod = jiti(actionPath)
-    process.stderr.write('[dryrun-script] after jiti load, keys=' + Object.keys(mod || {}).join(',') + '\n')
-  } catch (err) {
-    const msg = err && err.message ? err.message : String(err)
-    process.stderr.write('[dryrun-script] jiti(actionPath) threw: ' + msg + '\n')
-    emit({ success: false, error: 'action load failed for ' + actionId + ': ' + msg })
-    process.exit(1)
-  }
+  // SENTINEL RENDER MODE (architecture §4.6 layer 2, VAL-SCAN-005
+  // conditional clause): walk <moduleDir>/<actionId>/templates/
+  // for Handlebars files carrying the {{!-- no-llm --}} sentinel
+  // comment, render each with the empty fixture params context
+  // (matching what the non-reasoning action branch would call
+  // step.execute with), write the rendered bytes to the sandbox.
+  // Mirror the engine-side semantics
+  // (packages/ast-tooling/src/worker.ts:24):
+  //   - key = templatesDir-relative path with .hbs /
+  //     .handlebars extension stripped, forward-slashes only.
+  //   - render = Handlebars.compile(content)(input.parameters),
+  //     where input.parameters is {} (the dry-run's empty
+  //     fixture context, matching non-reasoning actions).
+  // The renderer runs in this same subprocess so the env scrub
+  // (decision 39: PATH / HOME / TMPDIR / NODE_OPTIONS:''), the
+  // --allow-fs-write (sandbox-only), and the read-allow list
+  // (module root + sandbox + jiti root) all apply.
+if (mode === "render-sentinel") {
+	const NO_LLM_SENTINEL = /\{\{!--\s*no-llm\s*--\}\}/
+	const HandlebarsMod = jiti("handlebars")
+	// jiti's interop wrapping can place the CJS export on either
+	// the module object itself or its default-export field; pick
+	// the one that exposes compile().
+	const Handlebars =
+		HandlebarsMod && typeof HandlebarsMod.compile === "function"
+			? HandlebarsMod
+			: HandlebarsMod && HandlebarsMod.default
+	if (!Handlebars || typeof Handlebars.compile !== "function") {
+		emit({ success: false, error: "handlebars load failed in render-sentinel mode" })
+		process.exit(1)
+	}
 
-  // Resolution order mirrors loadAction in action-loader.ts:
-  //   camelCase(id), camelCase(id)+"Action", exact id, id+"Action", "default".
-  // The first candidate that exports a WorkflowStep (execute +
-  // compensate functions) is the winner; the rest are ignored.
-  const camelCaseId = actionId.replace(/-([a-z])/g, function (_m, c) { return c.toUpperCase() })
-  const candidates = [camelCaseId, camelCaseId + 'Action', actionId, actionId + 'Action', 'default']
-  let step = null
-  for (const name of candidates) {
-    const c = mod[name]
-    if (c && typeof c.execute === 'function' && typeof c.compensate === 'function') {
-      step = c
-      break
-    }
-  }
-  if (!step) {
-    emit({ success: false, error: 'action ' + actionId + ' did not resolve to a WorkflowStep (expected one of ' + candidates.join(', ') + ')' })
-    process.exit(1)
-  }
+const templatesDir = path.join(moduleDir, actionId, "templates")
+let written = 0
+if (fs.existsSync(templatesDir)) {
+	try {
+		walkRenderTemplates(templatesDir, "", templatesDir, Handlebars, NO_LLM_SENTINEL)
+		written = walkRenderTemplatesCount
+	} catch (err) {
+		const msg = err && err.message ? err.message : String(err)
+		emit({ success: false, error: "sentinel render failed: " + msg })
+		process.exit(1)
+	}
+}
+process.stderr.write("[dryrun-script] render-sentinel wrote " + written + " template(s)\n")
 
-  // Build a minimal OrchestrationState. The action's execute()
-  // receives this as state; targetDirectory points at the sandbox
-  // so the action's filesystem writes land inside the write scope.
-  // The other fields are the protocol's required schema defaults;
-  // reasoning-template fill (worker.ts) is bypassed because the
-  // action loader is invoked outside the SAGA here (no LLM provider,
-  // no rendered templates).
-  const state = {
-    userIntent: '',
-    targetDirectory: sandboxDir,
-    status: 2, // RUNNING
-    executionPlan: { steps: [], currentStepIndex: 0 },
-    logs: [],
-    artifacts: {}
-  }
+// Walk the sandbox to surface what was written. Mirrors the
+// execute-mode walk below: omit node_modules, dotfiles,
+// /out/, and the test-only _canary.json plumbing.
+const files = []
+try {
+	walk(sandboxDir, ".", files)
+} catch (err) {
+	emit({ success: false, error: "sandbox walk failed: " + (err && err.message ? err.message : String(err)) })
+	process.exit(1)
+}
+emit({ success: true, files: files })
+process.exit(0)
+}
 
-  let result
-  try {
-    result = await step.execute({}, state, { llmProvider: null })
-  } catch (err) {
-    // Hard failure inside the action's execute(): surface the
-    // actual error message verbatim. If the error is the Node
-    // ERR_ACCESS_DENIED from --permission, the parent's per-action
-    // aggregator reports the version as failed and the verdict
-    // text quotes the message.
-    const msg = err && err.message ? err.message : String(err)
-    const code = err && err.code ? err.code + ': ' : ''
-    emit({ success: false, error: code + msg })
-    process.exit(1)
-  }
+process.stderr.write("[dryrun-script] before jiti(actionPath)\n")
+const actionPath = path.join(moduleDir, actionId, "action.ts")
+let mod
+try {
+	mod = jiti(actionPath)
+	process.stderr.write("[dryrun-script] after jiti load, keys=" + Object.keys(mod || {}).join(",") + "\n")
+} catch (err) {
+	const msg = err && err.message ? err.message : String(err)
+	process.stderr.write("[dryrun-script] jiti(actionPath) threw: " + msg + "\n")
+	emit({ success: false, error: "action load failed for " + actionId + ": " + msg })
+	process.exit(1)
+}
 
-  // Soft failure (action returned { success: false, error: ... }):
-  // the produced files in the sandbox are still recorded so the
-  // catalog surface can show what the action managed to produce
-  // before the failure. The verdict text carries the error.
-  let softError = null
-  if (result && result.success === false) {
-    softError = (result.error !== undefined && result.error !== null) ? String(result.error) : 'action reported failure'
-  }
+// Resolution order mirrors loadAction in action-loader.ts:
+//   camelCase(id), camelCase(id)+"Action", exact id, id+"Action", "default".
+// The first candidate that exports a WorkflowStep (execute +
+// compensate functions) is the winner; the rest are ignored.
+const camelCaseId = actionId.replace(/-([a-z])/g, (_m, c) => c.toUpperCase())
+const candidates = [camelCaseId, camelCaseId + "Action", actionId, actionId + "Action", "default"]
+let step = null
+for (const name of candidates) {
+	const c = mod[name]
+	if (c && typeof c.execute === "function" && typeof c.compensate === "function") {
+		step = c
+		break
+	}
+}
+if (!step) {
+	emit({
+		success: false,
+		error: "action " + actionId + " did not resolve to a WorkflowStep (expected one of " + candidates.join(", ") + ")",
+	})
+	process.exit(1)
+}
 
-  // Walk the sandbox AFTER execution so we only count newly created
-  // files. node_modules / dotfiles are skipped (mirrors the static
-  // scan's filter - keeps the preview list focused on real output).
-  const files = []
-  try {
-    walk(sandboxDir, '.', files)
-  } catch (err) {
-    emit({ success: false, error: 'sandbox walk failed: ' + (err && err.message ? err.message : String(err)) })
-    process.exit(1)
-  }
+// Build a minimal OrchestrationState. The action's execute()
+// receives this as state; targetDirectory points at the sandbox
+// so the action's filesystem writes land inside the write scope.
+// The other fields are the protocol's required schema defaults;
+// reasoning-template fill (worker.ts) is bypassed because the
+// action loader is invoked outside the SAGA here (no LLM provider,
+// no rendered templates).
+const state = {
+	userIntent: "",
+	targetDirectory: sandboxDir,
+	status: 2, // RUNNING
+	executionPlan: { steps: [], currentStepIndex: 0 },
+	logs: [],
+	artifacts: {},
+}
 
-  if (softError !== null) {
-    emit({ success: false, error: softError, files: files })
-    process.exit(0)
-  }
-  emit({ success: true, files: files })
-  process.exit(0)
+let result
+try {
+	result = await step.execute({}, state, { llmProvider: null })
+} catch (err) {
+	// Hard failure inside the action's execute(): surface the
+	// actual error message verbatim. If the error is the Node
+	// ERR_ACCESS_DENIED from --permission, the parent's per-action
+	// aggregator reports the version as failed and the verdict
+	// text quotes the message.
+	const msg = err && err.message ? err.message : String(err)
+	const code = err && err.code ? err.code + ": " : ""
+	emit({ success: false, error: code + msg })
+	process.exit(1)
+}
+
+// Soft failure (action returned { success: false, error: ... }):
+// the produced files in the sandbox are still recorded so the
+// catalog surface can show what the action managed to produce
+// before the failure. The verdict text carries the error.
+let softError = null
+if (result && result.success === false) {
+	softError = result.error !== undefined && result.error !== null ? String(result.error) : "action reported failure"
+}
+
+// Walk the sandbox AFTER execution so we only count newly created
+// files. node_modules / dotfiles are skipped (mirrors the static
+// scan's filter - keeps the preview list focused on real output).
+const files = []
+try {
+	walk(sandboxDir, ".", files)
+} catch (err) {
+	emit({ success: false, error: "sandbox walk failed: " + (err && err.message ? err.message : String(err)) })
+	process.exit(1)
+}
+
+if (softError !== null) {
+	emit({ success: false, error: softError, files: files })
+	process.exit(0)
+}
+emit({ success: true, files: files })
+process.exit(0)
+}
+
+// Counter side-channel so the sentinel render branch above can
+// report the number of templates rendered without breaking the
+// closure. Updated by walkRenderTemplates; read by the
+// render-sentinel branch.
+let walkRenderTemplatesCount = 0
+
+// Render every {{!-- no-llm --}}-marked .hbs / .handlebars file
+// under cur (rooted at the action's templates dir) into the
+// sandbox. The function is recursive and includes nested
+// subdirectories. rel is the templates-relative POSIX path,
+// used as both the file-content key (engine convention) and the
+// in-sandbox output path (sandboxDir / rel-without-extension).
+function walkRenderTemplates(cur, rel, templatesDir, Handlebars, NO_LLM_SENTINEL) {
+	let entries
+	try {
+		entries = fs.readdirSync(cur, { withFileTypes: true })
+	} catch (_err) {
+		return
+	}
+	for (const entry of entries) {
+		if (entry.name === "node_modules" || entry.name === "out" || entry.name.startsWith(".")) continue
+		const full = path.join(cur, entry.name)
+		const r = rel === "" ? entry.name : path.posix.join(rel, entry.name)
+		if (entry.isDirectory()) {
+			walkRenderTemplates(full, r, templatesDir, Handlebars, NO_LLM_SENTINEL)
+			continue
+		}
+		if (!entry.isFile()) continue
+		if (!(entry.name.endsWith(".hbs") || entry.name.endsWith(".handlebars"))) continue
+		let content
+		try {
+			content = fs.readFileSync(full, "utf8")
+		} catch (_err) {
+			continue
+		}
+		if (!NO_LLM_SENTINEL.test(content)) continue
+		const key = r.replace(/.(hbs|handlebars)$/, "")
+		// input.parameters is {} - the dry-run's empty fixture
+		// context, mirroring what the engine fills the templates
+		// with on the no-LLM path (worker.ts:188).
+		let rendered
+		try {
+			rendered = Handlebars.compile(content)({})
+		} catch (err) {
+			const msg = err && err.message ? err.message : String(err)
+			// Surface the line / column / context Handlebars
+			// provided so the verdict text remains useful. A compile
+			// error means the template is broken in isolation —
+			// render-sentinel mode reports the exact position.
+			throw new Error("Handlebars compile failed for " + key + ": " + msg)
+		}
+		const sandboxBase = process.cwd()
+		const outPath = path.join(sandboxBase, key)
+		try {
+			fs.mkdirSync(path.dirname(outPath), { recursive: true })
+			fs.writeFileSync(outPath, rendered)
+			walkRenderTemplatesCount++
+		} catch (err) {
+			const msg = err && err.message ? err.message : String(err)
+			// ERR_ACCESS_DENIED surfaces here the same way as the
+			// action-escape path: the sandbox's --allow-fs-write
+			// allow list is sandboxDir, so a path escape attempt (e.g.
+			// via a pre-stripped "../foo") bubbles up here with a
+			// verbatim message the parent can quote.
+			throw new Error("Handlebars write failed for " + key + ": " + msg)
+		}
+	}
 }
 
 function walk(dir, rel, out) {
-  let entries
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true })
-  } catch (_err) {
-    return
-  }
-  for (const entry of entries) {
-    if (entry.name === 'node_modules' || entry.name === 'out' || entry.name.startsWith('.')) continue
-    // The parent may have materialized a test-only canary
-    // config as <sandboxDir>/_canary.json BEFORE chdir (see
-    // the --canary-config argv handling near the top of
-    // main()). The action's body can read it via readFileSync
-    // but it must NOT show up in the action's "produced
-    // files" walk — the file is plumbing, not output.
-    // Excluding it here keeps layer 2's per-action preview
-    // surface honest ("files the action wrote") and avoids
-    // a spurious layer-3 writes-subset-failure when the
-    // action's declared filePatterns do not name the
-    // canary file.
-    if (entry.name === '_canary.json') continue
-    const full = path.join(dir, entry.name)
-    const r = rel === '.' ? entry.name : path.posix.join(rel, entry.name)
-    if (entry.isDirectory()) {
-      walk(full, r, out)
-    } else if (entry.isFile()) {
-      try {
-        const stat = fs.statSync(full)
-        out.push({ path: r, size: stat.size })
-      } catch (_err) {
-        // unreadable / dangling symlink - skip
-      }
-    } else if (entry.isSymbolicLink()) {
-      // Symlinks are skipped: the dry-run is about files the
-      // action actually wrote, not symlinks the action pointed at.
-    }
-  }
+	let entries
+	try {
+		entries = fs.readdirSync(dir, { withFileTypes: true })
+	} catch (_err) {
+		return
+	}
+	for (const entry of entries) {
+		if (entry.name === "node_modules" || entry.name === "out" || entry.name.startsWith(".")) continue
+		// The parent may have materialized a test-only canary
+		// config as <sandboxDir>/_canary.json BEFORE chdir (see
+		// the --canary-config argv handling near the top of
+		// main()). The action's body can read it via readFileSync
+		// but it must NOT show up in the action's "produced
+		// files" walk — the file is plumbing, not output.
+		// Excluding it here keeps layer 2's per-action preview
+		// surface honest ("files the action wrote") and avoids
+		// a spurious layer-3 writes-subset-failure when the
+		// action's declared filePatterns do not name the
+		// canary file.
+		if (entry.name === "_canary.json") continue
+		const full = path.join(dir, entry.name)
+		const r = rel === "." ? entry.name : path.posix.join(rel, entry.name)
+		if (entry.isDirectory()) {
+			walk(full, r, out)
+		} else if (entry.isFile()) {
+			try {
+				const stat = fs.statSync(full)
+				out.push({ path: r, size: stat.size })
+			} catch (_err) {
+				// unreadable / dangling symlink - skip
+			}
+		} else if (entry.isSymbolicLink()) {
+			// Symlinks are skipped: the dry-run is about files the
+			// action actually wrote, not symlinks the action pointed at.
+		}
+	}
 }
 
-main().catch(function (err) {
+main().catch((err) => {
   emit({ success: false, error: 'unhandled: ' + (err && err.message ? err.message : String(err)) })
   process.exit(1)
 })

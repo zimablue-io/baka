@@ -352,12 +352,13 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		const name = c.req.param("name")
 		const version = c.req.param("version")
 
-		const row = await pglite.query<VersionDetailRow & { removed_at: Date | null }>(
+		const row = await pglite.query<VersionDetailRow & { removed_at: Date | null; tier: string }>(
 			`SELECT m.id             AS module_id,
 			        m.scope          AS scope,
 			        m.name           AS name,
 			        m.visibility     AS visibility,
 			        m.removed_at     AS removed_at,
+			        m.tier           AS tier,
 			        v.id             AS version_id,
 			        v.version        AS version,
 			        v.commit_sha     AS commit_sha,
@@ -425,6 +426,14 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			{
 				scope: detail.scope,
 				name: detail.name,
+				// Tier surfaces on every read surface (catalog list,
+				// module detail, version detail) — VAL-SCAN-008
+				// requires the same tier value to appear on all
+				// three, byte-for-byte. The screened version of a
+				// module carries tier=community-screened on every
+				// surface; an unverified one carries
+				// tier=community-unverified on every surface.
+				tier: detail.tier,
 				version: detail.version,
 				status: detail.status,
 				commitSha: detail.commit_sha,
@@ -647,11 +656,62 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		}
 
 		if (row.state === "needs-llm") {
+			const files = row.files ?? []
+			if (files.length === 0) {
+				// No sentinel template was rendered — the canonical
+				// `needs-llm` shape: state + reason, no files
+				// carrier. Decision 31 keeps the serve shape for
+				// the pre-existing reasoning-only case unchanged.
+				return c.json(
+					{
+						actionId,
+						state: "needs-llm",
+						reason: row.error ?? "action skipped because it requires LLM reasoning",
+					},
+					200,
+					NO_STORE_HEADERS,
+				)
+			}
+
+			// Sentinel render produced bytes (architecture §4.6
+			// layer 2 + VAL-SCAN-005 conditional clause): serve
+			// the rendered files alongside the `needs-llm` state
+			// so the landing-page preview tile can render the
+			// generated code without an extra indirection. The
+			// same content-fetch path as the rendered branch —
+			// the bytes live in the storage adapter keyed by
+			// content hash.
+			if (storage === undefined) {
+				return c.json({ error: `preview endpoint unavailable: storage adapter not configured` }, 503, NO_STORE_HEADERS)
+			}
+
+			const fileContents: Array<{ path: string; content: string; size: number; sha256: string }> = []
+			for (const file of files) {
+				const bytes = await storage.get(file.storageKey)
+				if (bytes === null) {
+					return c.json(
+						{
+							error:
+								`preview file '${file.path}' storage key '${file.storageKey}' is missing from storage ` +
+								`for action '${actionId}' on '${scope}/${name}@${version}'; the operator must re-publish`,
+						},
+						500,
+						NO_STORE_HEADERS,
+					)
+				}
+				fileContents.push({
+					path: file.path,
+					content: bytesToString(bytes),
+					size: file.size,
+					sha256: file.contentHash,
+				})
+			}
 			return c.json(
 				{
 					actionId,
 					state: "needs-llm",
 					reason: row.error ?? "action skipped because it requires LLM reasoning",
+					files: fileContents,
 				},
 				200,
 				NO_STORE_HEADERS,
@@ -1052,6 +1112,7 @@ interface VersionDetailRow {
 	screening_dry_run: unknown
 	screening_output_validation: unknown
 	screening_created_at: Date | null
+	tier?: string
 }
 
 /**
