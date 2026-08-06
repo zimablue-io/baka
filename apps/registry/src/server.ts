@@ -2,6 +2,7 @@ import { existsSync, mkdirSync } from "node:fs"
 import { serve } from "@hono/node-server"
 import { type BetterAuthHandle, createBetterAuth } from "./auth/better-auth"
 import { createPgPool } from "./auth/kysely-db"
+import { ensureOfficialOrg } from "./auth/official-org"
 import { applySeedPlans, ensureOrgPlanColumn } from "./auth/plan-limits"
 import { seedBuiltInCatalog } from "./catalog/seed"
 import type { RegistryConfig } from "./config"
@@ -112,12 +113,49 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 	// field-naming error.
 	await applySeedPlans(database.pglite, config.seedPlans)
 
+	// Official-org bootstrap (architecture §8 decisions 26 and 29).
+	// Creates the official org (system-owned) if absent and grants
+	// owner role to every identity listed in REGISTRY_OFFICIAL_PUBLISHERS.
+	// The function is idempotent — re-running on an already-bootstrapped
+	// data dir is a no-op for the org creation and an UPSERT for the
+	// member rows. Publishers that fail to resolve (unknown API key, no
+	// matching GitHub user) are logged and skipped — the bootstrap
+	// never refuses to boot because of a bad publisher entry.
+	const officialOrgResult = await ensureOfficialOrg(database.pglite, betterAuth.auth, {
+		officialOrg: config.officialOrg,
+		officialPublishers: config.officialPublishers,
+	})
+
 	// Seed the built-in catalog (architecture §2 / §4.5, decision 17).
-	// Inserts baka-base / sdd / ts-style under the official `baka` scope
-	// at `tier: "official"` and `visibility: "public"`, with one ready
-	// version per module. Idempotent — a re-run against an already-seeded
-	// data dir is a no-op.
-	await seedBuiltInCatalog(database.pglite)
+	// Inserts baka-base / sdd / ts-style under the official scope
+	// (`REGISTRY_OFFICIAL_ORG`, default `baka`) at `tier: "official"`
+	// and `visibility: "public"`, with one ready version per module.
+	// Idempotent — a re-run against an already-seeded data dir is a
+	// no-op. Bare-name resolution and the publish route map to the
+	// official scope the seed uses here.
+	await seedBuiltInCatalog(database.pglite, config.officialOrg)
+
+	// Surface the official-org bootstrap outcome so the operator log
+	// records what the boot did. Failures are logged, not fatal —
+	// publishing-403 enforcement happens at the publish route.
+	if (officialOrgResult.created) {
+		process.stdout.write(`baka-registry: official org '${config.officialOrg}' created\n`)
+	}
+	if (officialOrgResult.publishersGranted > 0) {
+		process.stdout.write(
+			`baka-registry: granted owner role to ${officialOrgResult.publishersGranted} publisher(s) on '${config.officialOrg}'\n`,
+		)
+	}
+	if (officialOrgResult.publishersFailed > 0) {
+		process.stdout.write(
+			`baka-registry: WARNING ${officialOrgResult.publishersFailed} publisher(s) failed to resolve on '${config.officialOrg}':\n`,
+		)
+		for (const outcome of officialOrgResult.publishers) {
+			if (outcome.error) {
+				process.stdout.write(`  - ${outcome.value.slice(0, 24)}...: ${outcome.error}\n`)
+			}
+		}
+	}
 
 	const app = buildApp({ auth: betterAuth.auth, pglite: database.pglite })
 

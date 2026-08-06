@@ -27,6 +27,14 @@
       "project": ["src/**/*.{ts,tsx,js,jsx}"]
     },
 
+    "apps/registry": {
+      "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"],
+      // Validator-built seed harness: spawned directly via `tsx` by
+      // user-testing flows (drives the registry through curl against a
+      // real HTTP port). Not imported by the registry source itself.
+      "ignore": ["test/seed-server.ts"]
+    },
+
     "modules/baka-base": {
       // ModuleRegistry loads action and validator exports by manifest ID through jiti.
       "entry": ["*/action.ts", "**/validators/**/*.ts"],

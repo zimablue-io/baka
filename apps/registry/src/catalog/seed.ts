@@ -23,9 +23,14 @@ import { BUILT_IN_CATALOG } from "@repo/protocol"
  * ship in-tree and are vetted by the engine maintainers), so the
  * version-detail JSON returns `screening: null` — the same shape an
  * unscreened community publish produces.
+ *
+ * `officialOrg` is the slug the registry booted with (architecture
+ * §8 decision 26); bare-name resolution and the publish route map
+ * to this scope. The seeder pins the built-in modules to the same
+ * scope so the catalog list and the publish route agree on where
+ * bare names live.
  */
 
-const OFFICIAL_SCOPE = "baka"
 const BUILT_IN_TIER = "official"
 const BUILT_IN_VISIBILITY = "public"
 const BUILT_IN_STATUS = "ready"
@@ -64,12 +69,12 @@ interface SeededCounts {
  * version)` is left alone, so re-publishing a built-in module
  * intentionally is a no-op).
  */
-export async function seedBuiltInCatalog(pglite: PGlite): Promise<SeededCounts> {
+export async function seedBuiltInCatalog(pglite: PGlite, officialOrg: string = "baka"): Promise<SeededCounts> {
 	const counts: SeededCounts = { modulesInserted: 0, versionsInserted: 0, modulesSkipped: 0 }
 
 	for (const entry of BUILT_IN_CATALOG.modules) {
 		const existingModule = await pglite.query<{ id: string }>(`SELECT id FROM modules WHERE scope = $1 AND name = $2`, [
-			OFFICIAL_SCOPE,
+			officialOrg,
 			entry.name,
 		])
 		let moduleId: string
@@ -81,7 +86,7 @@ export async function seedBuiltInCatalog(pglite: PGlite): Promise<SeededCounts> 
 				`INSERT INTO modules (scope, name, visibility, tier, description)
 				 VALUES ($1, $2, $3, $4, $5)
 				 RETURNING id`,
-				[OFFICIAL_SCOPE, entry.name, BUILT_IN_VISIBILITY, BUILT_IN_TIER, entry.description],
+				[officialOrg, entry.name, BUILT_IN_VISIBILITY, BUILT_IN_TIER, entry.description],
 			)
 			const id = inserted.rows[0]?.id
 			if (!id) throw new Error(`seedBuiltInCatalog: failed to insert module ${entry.name}`)

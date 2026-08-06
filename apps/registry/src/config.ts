@@ -54,6 +54,23 @@ const ConfigSchema = z.object({
 	 * migration-0002 defaults (`free`/`pro`) are the active set.
 	 */
 	seedPlans: z.string().optional(),
+	/**
+	 * The slug of the official org (architecture §8 decisions 26 and 29).
+	 * Bare-name publishing and resolution map to this scope; the registry
+	 * creates the org at boot if absent. Defaults to `baka` so the
+	 * upstream registry-binary behavior is preserved with no env config.
+	 */
+	officialOrg: z.string().min(1).default("baka"),
+	/**
+	 * Comma-separated list of identities authorized to publish to the
+	 * official scope (architecture §8 decision 29). Each entry is either
+	 * a raw Better-Auth API key (starts with the configured prefix, e.g.
+	 * `baka_…`) or a GitHub login. At boot the registry resolves entries
+	 * to users and grants them `owner` role on the official org; GitHub
+	 * logins that match no existing user are deferred to first login.
+	 * Empty / unset means nobody can publish to the official scope.
+	 */
+	officialPublishers: z.string().optional(),
 })
 
 export type RegistryConfig = z.infer<typeof ConfigSchema> & {
@@ -85,6 +102,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd: string = p
 		githubClientSecret: env.GITHUB_CLIENT_SECRET,
 		authSecret: env.AUTH_SECRET,
 		seedPlans: env.REGISTRY_SEED_PLANS,
+		officialOrg: env.REGISTRY_OFFICIAL_ORG,
+		officialPublishers: env.REGISTRY_OFFICIAL_PUBLISHERS,
 	})
 	if (!parsed.success) {
 		const issues = parsed.error.issues.map((i) => `  - ${i.path.join(".") || "(root)"}: ${i.message}`).join("\n")
