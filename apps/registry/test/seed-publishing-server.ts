@@ -29,8 +29,17 @@
  *                        into the org; "0" leaves the org owner-only
  *                        (plan-limit member tests need headroom).
  *   REGISTRY_SEED_PLANS  passed through to applySeedPlans at every boot.
+ *   REGISTRY_VERIFIED_MODULES  passed through to applyVerifiedModules at
+ *                        every boot (SEED=0 restarts included), mirroring
+ *                        the production boot path in src/server.ts — a
+ *                        validator publishes first, then restarts with the
+ *                        env set and observes the verified-tier pin
+ *                        (VAL-SCAN-010).
  *   REGISTRY_API_KEY_RATE_LIMIT  "off" recommended (seeded keys are
  *                        hammered during validation).
+ *   SCREEN_DRYRUN_TIMEOUT_MS  forwarded to the worker's per-action dry-run
+ *                        timeout (architecture §8 decision 6, VAL-SCAN-013).
+ *                        Unset keeps the 60s default.
  *   WORKER_DISABLED      "1" boots without the polling worker (rows
  *                        stay pending) — used by kill-resume flows.
  */
@@ -48,6 +57,7 @@ import { applySeedPlans, ensureOrgPlanColumn } from "../src/auth/plan-limits"
 import { seedBuiltInCatalog } from "../src/catalog/seed"
 import { applyAppMigrations } from "../src/db/migrate"
 import { buildApp } from "../src/index"
+import { applyVerifiedModules } from "../src/screening/tier-assignment"
 import { createFilesystemStorage } from "../src/storage"
 import { createInMemoryEnqueuer } from "../src/worker/enqueue"
 import { startWorker } from "../src/worker/runner"
@@ -147,12 +157,25 @@ async function main(): Promise<void> {
 	await ensureOrgPlanColumn(pglite)
 	await applySeedPlans(pglite, process.env.REGISTRY_SEED_PLANS)
 	await seedBuiltInCatalog(pglite, OFFICIAL_ORG)
+	// Mirrors src/server.ts: the verified-tier seeder runs at every
+	// boot, after the built-in catalog seed, and never refuses to
+	// boot on a malformed entry.
+	const verifiedResult = await applyVerifiedModules(pglite, process.env.REGISTRY_VERIFIED_MODULES)
+	if (verifiedResult.applied > 0) {
+		process.stdout.write(`seed-publishing-server: pinned ${verifiedResult.applied} module(s) to the verified tier\n`)
+	}
+	for (const failure of verifiedResult.failures) {
+		process.stdout.write(`seed-publishing-server: WARNING REGISTRY_VERIFIED_MODULES entry invalid: ${failure.error}\n`)
+	}
 
 	const storage = createFilesystemStorage(storageDir)
 	const enqueueIngest = createInMemoryEnqueuer()
+	const screenDryRunTimeoutMs = process.env.SCREEN_DRYRUN_TIMEOUT_MS
+		? Number(process.env.SCREEN_DRYRUN_TIMEOUT_MS)
+		: undefined
 	let worker: Awaited<ReturnType<typeof startWorker>> | null = null
 	if (process.env.WORKER_DISABLED !== "1") {
-		worker = await startWorker({ pglite, storage })
+		worker = await startWorker({ pglite, storage, screenDryRunTimeoutMs })
 	}
 
 	const app = buildApp({
@@ -297,6 +320,7 @@ async function main(): Promise<void> {
 		process.stdout.write(
 			`seed-publishing-server: listening on http://127.0.0.1:${info.port} ` +
 				`(data=${DATA_DIR}, worker=${worker ? "enabled" : "disabled"}, seed=${SEED}, ` +
+				`dryRunTimeoutMs=${screenDryRunTimeoutMs ?? "default"}, ` +
 				`officialOrg=${OFFICIAL_ORG} created=${officialResult.created} granted=${officialResult.publishersGranted}, ` +
 				`creds=${CREDS_FILE})\n`,
 		)
