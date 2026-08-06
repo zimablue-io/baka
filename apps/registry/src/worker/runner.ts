@@ -79,6 +79,15 @@ export async function startWorker(opts: {
 	 * default is `120_000` (the contract ceiling).
 	 */
 	sweepThresholdMs?: number
+	/**
+	 * Per-action dry-run timeout in milliseconds (architecture §8
+	 * decision 6). Forwarded to `runIngestJob` so the dry-run
+	 * executor (layer 2 of screening) sees the operator's override.
+	 * The default (60_000, 60s) is the documented ceiling; tests
+	 * pass a smaller value to exercise VAL-SCAN-013's timeout path
+	 * without waiting 60s.
+	 */
+	screenDryRunTimeoutMs?: number
 }): Promise<WorkerHandle> {
 	const pollIntervalMs = opts.pollIntervalMs ?? 1_000
 	// Per-cycle sweep threshold (VAL-PUB-028). The explicit
@@ -145,6 +154,7 @@ export async function startWorker(opts: {
 			currentJob = runIngestJob({ versionId: claim.id } satisfies IngestVersionPayload, {
 				pglite: opts.pglite,
 				storage: opts.storage,
+				screenDryRunTimeoutMs: opts.screenDryRunTimeoutMs,
 			}).finally(() => {
 				currentJob = null
 			})

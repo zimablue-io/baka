@@ -124,6 +124,37 @@ const planLimits = pgTable("plan_limits", {
 })
 
 // ---------------------------------------------------------------------------
+// screening_previews (architecture §4.6 layer 2, dry-run)
+// ---------------------------------------------------------------------------
+//
+// One row per (version_id, action_id). Carries the per-action outcome
+// of the sandboxed dry-run (rendered / needs-llm / failed / timed-out),
+// the preview file metadata (when state='rendered'), and the surface
+// error string (when state='failed' / 'timed-out'). UPSERT semantics
+// on (version_id, action_id) so a re-run overwrites the previous row
+// cleanly; the storage adapter is the source of truth for the preview
+// file bytes (this row stores the key, not the bytes).
+
+const screeningPreviews = pgTable(
+	"screening_previews",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		versionId: uuid("version_id")
+			.notNull()
+			.references(() => moduleVersions.id, { onDelete: "cascade" }),
+		actionId: varchar("action_id", { length: 64 }).notNull(),
+		state: varchar("state", { length: 16 }).notNull(),
+		files: jsonb("files"),
+		error: text("error"),
+		timedOutAt: timestamp("timed_out_at", { withTimezone: true }),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => ({
+		versionActionUniq: unique("screening_previews_version_action_uniq").on(t.versionId, t.actionId),
+	}),
+)
+
+// ---------------------------------------------------------------------------
 // app_migrations (internal tracking; not part of architecture §4.3)
 // ---------------------------------------------------------------------------
 //
@@ -142,6 +173,7 @@ export const schema = {
 	moduleVersions,
 	artifacts,
 	screeningResults,
+	screeningPreviews,
 	planLimits,
 	appMigrations,
 }

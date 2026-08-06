@@ -87,7 +87,9 @@ async function pickEphemeralPort(): Promise<number> {
 	})
 }
 
-export async function buildIngestTestStack(opts: { officialOrg?: string } = {}): Promise<IngestTestStack> {
+export async function buildIngestTestStack(
+	opts: { officialOrg?: string; screenDryRunTimeoutMs?: number } = {},
+): Promise<IngestTestStack> {
 	const dataDir = mkdtempSync(join(tmpdir(), "baka-registry-ingest-"))
 	const pgliteDir = join(dataDir, "pg")
 	const storageDir = join(dataDir, "artifacts")
@@ -190,6 +192,7 @@ export async function buildIngestTestStack(opts: { officialOrg?: string } = {}):
 		pglite,
 		storage,
 		pollIntervalMs: 250,
+		screenDryRunTimeoutMs: opts.screenDryRunTimeoutMs,
 	})
 
 	const waitForTerminal = async (

@@ -43,9 +43,19 @@ import { applyAppMigrations } from "./db/migrate"
  *        the creating user id for audit. No data backfill: existing rows
  *        keep `NULL` because the column was never populated under the
  *        UUID shape.
+ *   - 6: sandboxed-dry-run — `screening_previews` table added so the
+ *        dry-run layer can record per-action outcome (rendered /
+ *        needs-llm / failed / timed-out) with optional preview file
+ *        metadata. The `screening_results.dry_run` jsonb column now
+ *        carries a discriminated payload (`{ policy, perAction,
+ *        timedOutAt? }`) for passing / unverified verdicts and the
+ *        existing `{ skipped: true, reason: "static_scan_failed", at }`
+ *        marker for the static-scan-failed path. The schema-version
+ *        bump is forward-only; older binaries refuse to boot against
+ *        a v6 data dir.
  */
 
-export const CURRENT_SCHEMA_VERSION = "5"
+export const CURRENT_SCHEMA_VERSION = "6"
 
 const SCHEMA_FILE = "schema_version"
 

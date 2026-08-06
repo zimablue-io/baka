@@ -444,6 +444,97 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		)
 	})
 
+	// GET /v1/modules/:scope/:name/:version/previews — preview
+	// artifact list (architecture §4.6 dry-run surface). Returns
+	// the per-action preview records produced by the dry-run layer
+	// in screening_previews:
+	//
+	//   - rendered   — the action ran successfully; the response
+	//                  carries the file list (path / size / sha256)
+	//                  for each artifact the action produced.
+	//   - needs-llm  — the action declares `requiresReasoning: true`
+	//                  and was not executed; no files.
+	//
+	// The 'failed' and 'timed-out' states are NOT surfaced here —
+	// they appear on the `screening.dry_run.perAction` field of
+	// the version-detail endpoint. The previews list is the
+	// "happy path" surface; failures are part of the verdict, not
+	// the catalog.
+	app.get("/v1/modules/:scope/:name/:version/previews", async (c) => {
+		const scope = c.req.param("scope")
+		const name = c.req.param("name")
+		const version = c.req.param("version")
+
+		// Single JOIN so the visibility / tombstone gates mirror
+		// the version-detail endpoint exactly. A non-member never
+		// learns the version exists via this endpoint; the same
+		// uniform 404 as the detail endpoint applies (VAL-AUTH-003).
+		const moduleRow = await pglite.query<{
+			visibility: string
+			removed_at: Date | null
+			version_id: string | null
+		}>(
+			`SELECT m.visibility      AS visibility,
+			        m.removed_at      AS removed_at,
+			        v.id              AS version_id
+			   FROM modules m
+			   LEFT JOIN module_versions v
+			          ON v.module_id = m.id AND v.version = $3
+			  WHERE m.scope = $1
+			    AND m.name = $2`,
+			[scope, name, version],
+		)
+		const mod = moduleRow.rows[0]
+		if (!mod) {
+			return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
+		}
+		if (mod.visibility === "org") {
+			const memberCheck = await checkOrgMembership(pglite, auth, c.req.raw, scope)
+			if (!memberCheck.ok) {
+				return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
+			}
+		}
+		if (mod.removed_at !== null) {
+			return removedModuleResponse(scope, name, mod.removed_at, 404)
+		}
+		if (mod.version_id === null) {
+			return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
+		}
+
+		const previews = await pglite.query<{
+			action_id: string
+			state: string
+			files: Array<{ path: string; size: number; contentHash: string }> | null
+		}>(
+			`SELECT action_id, state, files
+			   FROM screening_previews
+			  WHERE version_id = $1
+			    AND state IN ('rendered', 'needs-llm')
+			  ORDER BY action_id`,
+			[mod.version_id],
+		)
+
+		return c.json(
+			{
+				previews: previews.rows.map((p) => ({
+					actionId: p.action_id,
+					state: p.state === "rendered" ? ("rendered" as const) : ("needs-llm" as const),
+					...(p.files
+						? {
+								files: p.files.map((f) => ({
+									path: f.path,
+									size: f.size,
+									sha256: f.contentHash,
+								})),
+							}
+						: {}),
+				})),
+			},
+			200,
+			NO_STORE_HEADERS,
+		)
+	})
+
 	// GET /v1/download/:scope/:name/:version — tarball download
 	// (VAL-PUB-007 / VAL-PUB-017 / VAL-AUTH-003).
 	//

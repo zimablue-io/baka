@@ -236,6 +236,14 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 			// registry converges within the ceiling without any
 			// env configuration.
 			sweepThresholdMs: config.ingestStaleMs,
+			// Per-action dry-run timeout (architecture §8 decision 6).
+			// Wired through to the worker so the operator knob
+			// `SCREEN_DRYRUN_TIMEOUT_MS` is a first-class input to
+			// the ingest pipeline rather than an implicit env read
+			// at the executor level. The default (60_000, 60s) is
+			// the documented ceiling; operators tighten it for
+			// fast-fail tests via the env var.
+			screenDryRunTimeoutMs: config.screenDryRunTimeoutMs,
 		})
 		// The polling worker discovers rows directly from
 		// `module_versions`; the publish endpoint still records the

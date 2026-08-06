@@ -1,5 +1,6 @@
 import type { PGlite } from "@electric-sql/pglite"
 import type { ModuleManifest } from "@repo/protocol"
+import { type DryRunResult, runDryRun } from "../screening/dry-run"
 import { writeScreeningResult } from "../screening/screening-result"
 import { runStaticScan, type StaticScanFinding } from "../screening/static-scan"
 import { cleanupClone, shallowCloneAtTag } from "./clone"
@@ -105,6 +106,12 @@ interface PublishPayload {
 interface IngestDeps {
 	pglite: PGlite
 	storage: import("../storage").StorageAdapter
+	/**
+	 * Per-action dry-run timeout in milliseconds (architecture §8
+	 * decision 6). Forwarded to the dry-run executor; `undefined`
+	 * falls back to the executor's 60s default.
+	 */
+	screenDryRunTimeoutMs?: number
 }
 
 interface ArtifactInput {
@@ -291,7 +298,12 @@ async function runIngestJobInner(payload: IngestVersionPayload, deps: IngestDeps
 		// milestone). This lets the catalog surface "static scan
 		// passed" without prematurely claiming screened status.
 		if (moduleRow.visibility === "public") {
-			await runScreeningStep(deps.pglite, payload.versionId, moduleDir, manifest)
+			const staticResult = await runStaticScan(moduleDir, manifest)
+			if (!staticResult.passed) {
+				await runScreeningFailureStep(deps.pglite, payload.versionId, manifest, staticResult)
+				return
+			}
+			await runDryRunStep(deps, payload.versionId, moduleDir, manifest, staticResult)
 		}
 
 		// Step 5 — content hash + tarball pack.
@@ -382,18 +394,12 @@ function stripV(value: string): string {
  * Runs the static capability scan (architecture §4.6 layer 1) over
  * the cloned module and records the result in `screening_results`.
  *
- * Three terminal states:
+ * Two outcomes:
  *
- *   - scan passes → screening_results verdict='unverified' (dry-run
- *     layer is the next gate; "screened" only after all three layers
- *     pass). The version continues to the tarball pack step.
- *   - scan fails  → screening_results verdict='failed' +
- *     dry_run={ skipped:true, reason:'static_scan_failed' }. The
- *     function then throws `IngestFailure`, the worker wrapper
- *     marks the version `failed` with the static-scan summary, and
- *     no tarball is packed or stored.
- *   - scan errors  → the same failure path; a parse failure surfaces
- *     as a `parse` finding (VAL-SCAN-018: "never `screened`").
+ *   - scan passes → call `runDryRunStep` (layer 2).
+ *   - scan fails  → call `runScreeningFailureStep`, which writes
+ *     the failure record and throws so the wrapper marks the
+ *     version failed.
  *
  * The screening_results row is UPSERTED on `version_id` so a
  * re-run of the worker over the same row (operator-driven re-publish
@@ -416,10 +422,21 @@ async function runScreeningStep(
 		})
 		return
 	}
+	await runScreeningFailureStep(pglite, versionId, manifest, result)
+}
 
-	// Failure path: write the screening record first (so the
-	// read surface can surface the named findings even after the
-	// version is marked failed), then throw.
+/**
+ * Static-scan failure branch. Writes the failure row, then throws
+ * `IngestFailure` so the worker wrapper marks the version failed
+ * with the diagnostic. No dry-run is invoked when the static scan
+ * failed — the dry_run field carries the skip reason.
+ */
+async function runScreeningFailureStep(
+	pglite: PGlite,
+	versionId: string,
+	manifest: ModuleManifest,
+	result: Awaited<ReturnType<typeof runStaticScan>>,
+): Promise<never> {
 	await writeScreeningResult(pglite, versionId, {
 		verdict: "failed",
 		staticScan: result,
@@ -429,7 +446,6 @@ async function runScreeningStep(
 			at: new Date().toISOString(),
 		},
 	})
-
 	const findingsText = result.findings
 		.slice(0, 5)
 		.map((f: StaticScanFinding) => `${f.capability}@${f.file}:${f.line}`)
@@ -437,6 +453,126 @@ async function runScreeningStep(
 	const moreCount = Math.max(0, result.findings.length - 5)
 	const summary = `${result.summary}${moreCount > 0 ? ` (+${moreCount} more)` : ""}`
 	throw new IngestFailure("screening", `${summary}: ${findingsText}`)
+}
+
+/**
+ * Sandboxed dry-run step (architecture §4.6 layer 2, VAL-SCAN-003
+ * / 013 / 014). Runs every non-reasoning action in its own
+ * `node --permission` subprocess and aggregates the per-action
+ * outcomes into a verdict transition on `screening_results`:
+ *
+ *   - ok: true                              → verdict `screened`,
+ *                                            row continues to pack.
+ *   - ok: false, reason: 'timeout'         → verdict `unverified`,
+ *                                            `dry_run.timedOutAt`
+ *                                            recorded, row continues
+ *                                            to pack. NO
+ *                                            `IngestFailure` thrown
+ *                                            — the contract says
+ *                                            timeout does NOT fail
+ *                                            the version.
+ *   - ok: false, reason: 'failure'         → verdict `failed`,
+ *                                            `IngestFailure` thrown
+ *                                            so the wrapper marks
+ *                                            the row failed with
+ *                                            the action's error
+ *                                            message as the
+ *                                            diagnostic.
+ *
+ * The `policy` field on `dry_run` is the own-tree-only statement
+ * (VAL-SCAN-014): the action's runtime NEVER fetched or installed
+ * manifest dependencies; any attempt to import outside the
+ * module's own tree was reported honestly as a per-action
+ * `failed` result (the sandbox enforcement is the `--permission`
+ * flags; the policy text is the user-facing commitment).
+ */
+async function runDryRunStep(
+	deps: IngestDeps,
+	versionId: string,
+	moduleDir: string,
+	manifest: ModuleManifest,
+	staticResult: Awaited<ReturnType<typeof runStaticScan>>,
+): Promise<void> {
+	const result = await runDryRun({
+		moduleDir,
+		manifest,
+		storage: deps.storage,
+		versionId,
+		pglite: deps.pglite,
+		timeoutMs: deps.screenDryRunTimeoutMs,
+	})
+	await applyDryRunVerdict(deps.pglite, versionId, manifest, staticResult, result)
+}
+
+/**
+ * UPSERTs the screening_results row with the dry-run verdict and
+ * either returns (screened / unverified) or throws IngestFailure
+ * (failed).
+ */
+async function applyDryRunVerdict(
+	pglite: PGlite,
+	versionId: string,
+	manifest: ModuleManifest,
+	staticResult: Awaited<ReturnType<typeof runStaticScan>>,
+	result: DryRunResult,
+): Promise<void> {
+	// Build the discriminated `dry_run` payload. Both branches
+	// carry the same fields; the failure branch's `timedOutAt` is
+	// included unconditionally because it is required for the
+	// VAL-SCAN-013 verdict text (the worker always sets it).
+	const completedPayload: {
+		policy: string
+		perAction: DryRunResult["perAction"]
+		timeoutMs: number
+		timedOutAt?: string
+	} = {
+		policy: result.policy,
+		perAction: result.perAction,
+		timeoutMs: result.timeoutMs,
+	}
+	if (!result.ok) {
+		completedPayload.timedOutAt = result.timedOutAt
+	}
+
+	if (result.ok) {
+		await writeScreeningResult(pglite, versionId, {
+			verdict: "screened",
+			staticScan: staticResult,
+			dryRun: completedPayload,
+		})
+		return
+	}
+
+	if (result.reason === "timeout") {
+		// Timeout → verdict `unverified`, NO IngestFailure. The
+		// worker wrapper leaves the row to continue to pack
+		// (`ready`); the verdict text honestly states the
+		// dry-run could not complete in time.
+		await writeScreeningResult(pglite, versionId, {
+			verdict: "unverified",
+			staticScan: staticResult,
+			dryRun: completedPayload,
+		})
+		return
+	}
+
+	// Failure → verdict `failed`, throw so the wrapper marks the
+	// row failed with the diagnostic. The dry_run field carries
+	// the per-action error for the read surface to surface.
+	await writeScreeningResult(pglite, versionId, {
+		verdict: "failed",
+		staticScan: staticResult,
+		dryRun: completedPayload,
+	})
+
+	const failedActions = result.perAction.filter((p) => p.status === "failed")
+	const firstFailure = failedActions[0]
+	const errorSummary = firstFailure
+		? `dry-run action '${firstFailure.actionId}' failed: ${firstFailure.error}`
+		: "dry-run failed for at least one action"
+
+	const moduleName = manifest.name ?? "module"
+	throw new IngestFailure("screening", `${errorSummary} (module '${moduleName}')`)
 }
 
 function resolveModuleDir(cloneDir: string, modulePath: string | null): string {

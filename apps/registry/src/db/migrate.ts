@@ -44,6 +44,10 @@ const MIGRATIONS: readonly Migration[] = [
 		version: "0005_publish_columns",
 		sql: readFileSync(join(dirname(fileURLToPath(import.meta.url)), "migrations", "0005_publish_columns.sql"), "utf8"),
 	},
+	{
+		version: "0006_dry_run_previews",
+		sql: readFileSync(join(dirname(fileURLToPath(import.meta.url)), "migrations", "0006_dry_run_previews.sql"), "utf8"),
+	},
 ]
 
 /**

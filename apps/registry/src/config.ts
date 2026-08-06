@@ -74,6 +74,16 @@ const ConfigSchema = z.object({
 	 * `ingesting` row at boot is recovered regardless of age.
 	 */
 	ingestStaleMs: z.coerce.number().int().positive().optional(),
+	/**
+	 * Per-action dry-run timeout in milliseconds (architecture §8
+	 * decision 6). Each non-reasoning action runs in its own
+	 * `node --permission` subprocess; this bound is the max wall
+	 * time before the parent SIGKILLs the child. The default
+	 * (`60_000`, 60s) is decision 6's documented ceiling; operators
+	 * who need a tighter bound for fast tests set this lower (e.g.
+	 * `500` for VAL-SCAN-013 unit-level timeout tests).
+	 */
+	screenDryRunTimeoutMs: z.coerce.number().int().positive().optional(),
 })
 
 export type RegistryConfig = z.infer<typeof ConfigSchema> & {
@@ -108,6 +118,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd: string = p
 		officialOrg: env.REGISTRY_OFFICIAL_ORG,
 		officialPublishers: env.REGISTRY_OFFICIAL_PUBLISHERS,
 		ingestStaleMs: env.REGISTRY_INGEST_STALE_MS,
+		screenDryRunTimeoutMs: env.SCREEN_DRYRUN_TIMEOUT_MS,
 	})
 	if (!parsed.success) {
 		const issues = parsed.error.issues.map((i) => `  - ${i.path.join(".") || "(root)"}: ${i.message}`).join("\n")

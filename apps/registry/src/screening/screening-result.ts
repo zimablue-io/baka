@@ -1,13 +1,16 @@
 import type { PGlite } from "@electric-sql/pglite"
+import type { PerActionState } from "./dry-run"
 import type { StaticScanResult } from "./static-scan"
 
 /**
  * `screening_results` row payload (architecture §4.3).
  *
  *   - `verdict` is one of the CHECK-constrained values:
- *     `screened` / `unverified` / `failed`. Only the dry-run
- *     milestone flips `unverified` to `screened`; this layer
- *     writes `unverified` (pass) or `failed` (deny).
+ *     `screened` / `unverified` / `failed`. The dry-run layer
+ *     transitions `unverified` (post-static-scan) to `screened`
+ *     (all non-reasoning actions passed), keeps it `unverified`
+ *     (at least one action timed out — the row continues to
+ *     `ready`), or sets `failed` (at least one action failed).
  *
  *   - `static_scan` carries the named findings from the static
  *     capability scan. The catalog surfaces this verbatim on
@@ -15,10 +18,11 @@ import type { StaticScanResult } from "./static-scan"
  *     the per-finding table without re-running the scan.
  *
  *   - `dry_run` is NULL when the dry-run layer has not run yet,
- *     or `{ skipped: true, reason: "static_scan_failed" }` when
- *     the static scan failed (so the catalog surfaces an
- *     explicit "dry-run skipped" marker instead of pretending
- *     the layer never ran).
+ *     the static-scan-failed skip marker when the static scan
+ *     failed (so the catalog surfaces an explicit "dry-run
+ *     skipped" marker instead of pretending the layer never ran),
+ *     or the discriminated per-action payload after the dry-run
+ *     completes (pass / unverified / failed).
  *
  * The row is UPSERTED on `version_id` — a re-run of the worker
  * over the same row (operator-driven re-publish at a new tag,
@@ -28,16 +32,31 @@ import type { StaticScanResult } from "./static-scan"
  * the worker itself; future layers will reach for the same
  * shape and widen the type when they add new fields.
  */
+interface DryRunSkipped {
+	skipped: true
+	reason: string
+	at: string
+}
+
+interface DryRunCompleted {
+	policy: string
+	perAction: PerActionState[]
+	timedOutAt?: string
+	timeoutMs?: number
+}
+
+type DryRunPayload = DryRunSkipped | DryRunCompleted
+
 interface ScreeningRow {
 	verdict: "screened" | "unverified" | "failed"
 	staticScan: StaticScanResult | Record<string, unknown>
-	dryRun: { skipped: true; reason: string; at: string } | Record<string, unknown> | null
+	dryRun: DryRunPayload | null
 }
 
 /**
  * Upserts a `screening_results` row for the given version. The
- * row's `static_scan` and `dry_run` fields are JSON-encoded so
- * the catalog can read the named findings / skip marker verbatim.
+ * row's `static_scan` and `dry_run` fields are JSON-encoded so the
+ * catalog can read the named findings / skip marker verbatim.
  *
  * Idempotent on `version_id`: re-running the static scan for the
  * same row (operator-driven re-publish) overwrites the previous

@@ -58,6 +58,13 @@ export interface GitFixture {
 			 *  check at the loader level (VAL-PUB-014 fixture,
 			 *  scrutiny-round-1 fix). */
 			loadable?: boolean
+			/** Optional source body for `<id>/action.ts`. When set,
+			 *  the fixture writes this verbatim instead of the
+			 *  default loadable body. Used by the dry-run tests
+			 *  to drop fixture-specific source (canary escapes,
+			 *  infinite loops, file writers) without polluting
+			 *  every other consumer of `commitManifest`. */
+			body?: string
 		}>
 		moduleValidators?: string[]
 		modulePath?: string
@@ -192,7 +199,14 @@ export async function createGitFixture(): Promise<GitFixture> {
 				const loadable = action.loadable !== false
 				const actionDir = join(targetDir, action.id)
 				await mkdir(actionDir, { recursive: true })
-				if (loadable) {
+				if (action.body !== undefined) {
+					// Custom body: drop the fixture author's source
+					// verbatim. Used by the dry-run tests (canary
+					// escapes, infinite loops, file writers). The
+					// `loadable` flag is irrelevant — a custom body
+					// is presumed loadable by its author.
+					await writeFile(join(actionDir, "action.ts"), action.body, "utf8")
+				} else if (loadable) {
 					const actionSource = loadableActionSource(action.id)
 					await writeFile(join(actionDir, "action.ts"), actionSource, "utf8")
 				} else {

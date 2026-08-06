@@ -387,9 +387,12 @@ describe("static capability scan (VAL-SCAN-002 / 015 / 016)", () => {
 					{
 						path: "scaffold/action.ts",
 						content: [
-							`import { writeFileSync } from "node:fs";`,
+							`import { mkdirSync, writeFileSync } from "node:fs";`,
 							`export default {`,
-							`  execute: () => writeFileSync("src/index.ts", "ok"),`,
+							`  execute: () => {`,
+							`    mkdirSync("src", { recursive: true });`,
+							`    writeFileSync("src/index.ts", "ok");`,
+							`  },`,
 							`  compensate: () => {},`,
 							`}`,
 						].join("\n"),
@@ -418,17 +421,27 @@ describe("static capability scan (VAL-SCAN-002 / 015 / 016)", () => {
 				screening: {
 					verdict: string
 					staticScan: { passed: boolean }
-					dryRun: unknown
+					dryRun: {
+						policy: string
+						perAction: Array<{ actionId: string; status: string }>
+					} | null
 				} | null
 			}
-			// The static scan ran and passed; the overall verdict is
-			// `unverified` because the dry-run layer has not landed
-			// yet. Future features will update the verdict once
-			// downstream layers complete.
+			// The static scan ran and passed; the dry-run layer
+			// (architecture §4.6 layer 2) also ran and the action
+			// wrote `src/index.ts` to the sandbox cleanly. The
+			// overall verdict is therefore `screened` and the
+			// `dry_run` field carries the per-action payload +
+			// the own-tree-only policy text. The static_scan
+			// verdict remains `passed: true` so the catalog
+			// surface can render both layers' findings.
 			expect(body.screening).not.toBeNull()
-			expect(body.screening?.verdict).toBe("unverified")
+			expect(body.screening?.verdict).toBe("screened")
 			expect(body.screening?.staticScan.passed).toBe(true)
-			expect(body.screening?.dryRun).toBeNull()
+			expect(body.screening?.dryRun).not.toBeNull()
+			expect(body.screening?.dryRun?.policy).toMatch(/module's own tree/)
+			const scaffoldAction = body.screening?.dryRun?.perAction.find((p) => p.actionId === "scaffold")
+			expect(scaffoldAction?.status).toBe("screened")
 		})
 
 		it("org-private module skips screening entirely (no screening_results row)", async () => {
