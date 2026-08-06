@@ -154,10 +154,12 @@ describe("VAL-AUTH-006 — org listing reflects membership exactly", () => {
 		expect(body).toHaveLength(1)
 		expect(body[0]?.slug).toBe("acme")
 		expect(body[0]?.name).toBe("Acme")
-		// Better-Auth does not return a role per row in listOrganizations
-		// (the role is implicit: the caller is a member). The contract
-		// observation that the founder sees a single org is what we
-		// pin here; the role query lives on the member list endpoint.
+		// Better-Auth's listOrganizations does not return a role per
+		// row, so the registry enriches each item via the `member`
+		// table (see `enrichOrgListWithRole` in org-routes.ts). The
+		// founder sees `role: "owner"` without needing a round trip
+		// to the members endpoint.
+		expect(body[0]?.role).toBe("owner")
 	})
 
 	it("the outsider's GET /v1/orgs returns an empty list (no membership leakage)", async () => {
@@ -322,14 +324,19 @@ describe("VAL-AUTH-008 — role enforcement on privileged org actions", () => {
 		expect(res.status).toBe(403)
 	})
 
-	it("as OUTSIDER: any org mutation on `acme` returns 403 (or 404, never 200)", async () => {
+	it("as OUTSIDER: any org mutation on `acme` returns 403 or 404 (never 200, never 401)", async () => {
+		// 401 is reserved for credential rejection (per the new
+		// `isCredentialRejectionCode` convention in AGENTS.md). An
+		// outsider carries a valid API key (credential is honored),
+		// but the membership 403 has been translated to 404 to avoid
+		// leaking existence. Either 403 or 404 is acceptable for
+		// every mutation — the contract forbids 401 here because
+		// authentication is not what's failing.
 		const invite = await inviteAs(fx, seeded.outsider.apiKey, "acme", "x@example.com", "member")
-		expect(invite.status).toBeGreaterThanOrEqual(400)
-		expect(invite.status).toBeLessThan(500)
+		expect([403, 404]).toContain(invite.status)
 
 		const list = await authedFetch(fx, "/v1/orgs/acme/members", { apiKey: seeded.outsider.apiKey })
-		expect(list.status).toBeGreaterThanOrEqual(400)
-		expect(list.status).toBeLessThan(500)
+		expect([403, 404]).toContain(list.status)
 
 		const del = await fx.app.request("/v1/orgs/acme", {
 			method: "DELETE",
@@ -339,7 +346,6 @@ describe("VAL-AUTH-008 — role enforcement on privileged org actions", () => {
 				"x-api-key": seeded.outsider.apiKey,
 			},
 		})
-		expect(del.status).toBeGreaterThanOrEqual(400)
-		expect(del.status).toBeLessThan(500)
+		expect([403, 404]).toContain(del.status)
 	})
 })
