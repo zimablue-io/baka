@@ -1,10 +1,12 @@
 import { apiKey } from "@better-auth/api-key"
 import { kyselyAdapter } from "@better-auth/kysely-adapter"
-import { type Auth, betterAuth } from "better-auth"
+import type { PGlite } from "@electric-sql/pglite"
+import { APIError, type Auth, betterAuth } from "better-auth"
 import { getMigrations } from "better-auth/db/migration"
 import { organization } from "better-auth/plugins"
 import type { Pool as PgPool } from "pg"
 import { createKysely } from "./kysely-db"
+import { checkPlanLimit } from "./plan-limits"
 
 /**
  * Better-Auth's `database` config accepts several shapes. For our
@@ -82,6 +84,24 @@ interface BetterAuthConfig {
 		maxRequests?: number
 		timeWindowMs?: number
 	}
+	/**
+	 * Optional PGlite handle for plan-limit enforcement hooks
+	 * (VAL-SELF-006 step 3). When supplied, the Better-Auth instance
+	 * is configured with `organizationHooks.beforeCreateInvitation`
+	 * and `beforeAcceptInvitation` callbacks that call
+	 * `checkPlanLimit(... "max_members")` and throw a 403 APIError
+	 * naming the limit and plan when the org is at/over the limit.
+	 *
+	 * When `undefined`, no hooks are installed and the org
+	 * invite/accept flow has no plan-limit gate. The field is
+	 * optional so existing test fixtures and offline-only paths
+	 * (e.g. auth-only hermetic tests) keep working unchanged — the
+	 * production bootstrap (`server.ts`) and any test fixture that
+	 * needs the gate (`publish-endpoint-fixture.ts`,
+	 * `seed-publishing-server.ts`, the plan-member-limit suite)
+	 * MUST pass `pglite`.
+	 */
+	pglite?: PGlite
 }
 
 export interface BetterAuthHandle {
@@ -135,6 +155,36 @@ export async function createBetterAuth(pool: PgPool, config: BetterAuthConfig): 
 			organization({
 				allowUserToCreateOrganization: true,
 				creatorRole: "owner",
+				// Plan-limit gate (VAL-SELF-006 step 3) — the
+				// organization plugin's documented
+				// `organizationHooks.beforeCreateInvitation` and
+				// `beforeAcceptInvitation` hooks fire for every
+				// create-invite and accept-invitation call, including
+				// the routes `/v1/orgs/:slug/invite` and
+				// `/v1/orgs/:slug/accept-invitation` proxy to via
+				// `/api/auth/organization/{invite-member,accept-invitation}`.
+				// Both hooks call the same `checkPlanLimit(...,
+				// "max_members")` helper the publish route uses for
+				// `max_private_modules`, and throw an APIError 403
+				// with the publish-route-shaped body (`{error, limit,
+				// plan, usage, limitValue}`) when usage >= limit.
+				//
+				// The gate is gated behind `config.pglite` so test
+				// fixtures that don't pass it (e.g. auth-only hermetic
+				// tests) keep their original behavior; production
+				// (`server.ts`) and any feature test that exercises
+				// the gate MUST pass `pglite` in the config.
+				//
+				// Better-Auth's built-in `membershipLimit` would fire
+				// BEFORE the hook (default 100) — for plans whose
+				// max_members is well under 100, the built-in is
+				// harmless. Setting it to `Infinity` is reserved for
+				// if/when a real plan exceeds 100 members (currently
+				// not the case; the migration's max is 25 for the
+				// `pro` plan). Pin `Infinity` here to make the
+				// semantic clearer: "this plugin's built-in is
+				// disabled; our hook is the only gate."
+				organizationHooks: config.pglite ? buildPlanLimitOrganizationHooks(config.pglite) : undefined,
 			}),
 			apiKey({
 				apiKeyHeaders: ["x-api-key"],
@@ -260,4 +310,74 @@ export function parseApiKeyRateLimitEnv(env: NodeJS.ProcessEnv = process.env): B
  */
 function deriveSecret(baseUrl: string): string {
 	return `baka-registry-dev-secret::${baseUrl}`
+}
+
+/**
+ * Builds the `organizationHooks` payload for the Better-Auth
+ * organization plugin. The hooks enforce the `max_members` plan
+ * limit at both invite-creation and accept-invitation time, mirroring
+ * the publish route's `max_private_modules` gate.
+ *
+ * The hooks fire on every path that lands on Better-Auth's
+ * `/api/auth/organization/{invite-member,accept-invitation}` routes
+ * (including the `/v1/orgs/:slug/*` registry routes that proxy to
+ * them). Closing the gate HERE rather than duplicating it on each
+ * route preserves the contract that plan-limit enforcement is a
+ * single seam surface — `checkPlanLimit()` is the only place that
+ * reads `plan_limits` and decides between an OK and a reject verdict.
+ *
+ * The hooks throw an `APIError` (FORBIDDEN status, custom body shape)
+ * rather than returning a verdict object. Better-Auth's
+ * exception-to-response adapter passes the `body` through as the
+ * response JSON, so the body fields are exactly what callers see.
+ * The `code` is `PLAN_MEMBER_LIMIT_REACHED` (a registry-private
+ * discriminator that the Hono api-key mount's 403→401 translator
+ * ignores — it's not in the credential-rejection code set, so a
+ * 403 here stays 403, which matches the publish route's behavior).
+ */
+function buildPlanLimitOrganizationHooks(pglite: PGlite): {
+	beforeCreateInvitation: (data: {
+		invitation: { organizationId: string; email: string; role: string }
+		inviter: { id: string } & Record<string, unknown>
+		organization: { id: string } & Record<string, unknown>
+	}) => Promise<void>
+	beforeAcceptInvitation: (data: {
+		invitation: { organizationId: string } & Record<string, unknown>
+		user: { id: string } & Record<string, unknown>
+		organization: { id: string } & Record<string, unknown>
+	}) => Promise<void>
+} {
+	const enforceMaxMembers = async (orgId: string, where: "create-invitation" | "accept-invitation"): Promise<void> => {
+		const verdict = await checkPlanLimit(pglite, orgId, "max_members")
+		if (verdict.ok) return
+		// The body shape mirrors the publish route's plan-limit
+		// rejection so the two seams emit identical JSON fields; the
+		// `code` discriminator is a stable string a caller can
+		// branch on without parsing free text. Better-Auth's
+		// exception-to-response passes the body verbatim through
+		// `JSON.stringify`, so the 403 response body is exactly:
+		//
+		//   { error, limit, plan, usage, limitValue, code, where }
+		//
+		// where `where` makes the gate location obvious in logs
+		// (rejected at create-time vs rejected at accept-time — the
+		// two paths have different remediation for the caller).
+		throw new APIError("FORBIDDEN", {
+			error: verdict.message,
+			limit: verdict.capability,
+			plan: verdict.plan,
+			usage: verdict.usage,
+			limitValue: verdict.limit,
+			code: "PLAN_MEMBER_LIMIT_REACHED",
+			where,
+		})
+	}
+	return {
+		beforeCreateInvitation: async (data) => {
+			await enforceMaxMembers(data.invitation.organizationId, "create-invitation")
+		},
+		beforeAcceptInvitation: async (data) => {
+			await enforceMaxMembers(data.invitation.organizationId, "accept-invitation")
+		},
+	}
 }

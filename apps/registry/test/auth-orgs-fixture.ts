@@ -74,6 +74,7 @@ export async function buildOrgTestStack(): Promise<OrgTestStack> {
 		githubClientSecret: "test-github-client-secret",
 		secret: "test-secret-do-not-use-in-production",
 		emailAndPassword: { enabled: true },
+		pglite,
 	})
 	await betterAuth.ensureTables()
 
@@ -82,6 +83,12 @@ export async function buildOrgTestStack(): Promise<OrgTestStack> {
 	// at first boot. Apply it now that the table exists (matches the
 	// production server.ts boot order). Idempotent on subsequent boots.
 	await ensureOrgPlanColumn(pglite)
+	// Lift the migration's default max_members (3) so the auth-orgs
+	// test scenarios (which add 3-4 members per case and pre-date the
+	// plan-limit gate, VAL-SELF-006 step 3) don't accidentally trip
+	// the gate. The plan-member-limit suite sets this value
+	// per-test, so lowering it here only affects the auth/orgs tests.
+	await pglite.query(`UPDATE plan_limits SET max_members = 100 WHERE plan = 'free'`)
 
 	const app = buildApp({ auth: betterAuth.auth, pglite, officialOrg: "baka" })
 

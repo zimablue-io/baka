@@ -108,6 +108,20 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 		githubClientSecret: config.githubClientSecret,
 		secret: config.authSecret,
 		apiKeyRateLimit: config.apiKeyRateLimit,
+		// Plan-limit enforcement hooks (VAL-SELF-006 step 3) run on
+		// the Better-Auth organization plugin's `beforeCreateInvitation`
+		// and `beforeAcceptInvitation` callbacks. They share the same
+		// `checkPlanLimit()` seam the publish route uses for
+		// `max_private_modules` and emit the same body shape (so the
+		// api-key surface is honestly the same family of failures
+		// whether the rejection came from publish or from the org
+		// flow). The hooks need read access to the `member` and
+		// `plan_limits` tables via the in-process PGlite handle —
+		// a TCP round-trip through pglite-socket would deadlock the
+		// same connection a publish-path pglite-socket query holds
+		// (the ingest worker's claimer is on the same pool), so we
+		// hand the hooks the in-process handle instead.
+		pglite: database.pglite,
 	})
 	await betterAuth.ensureTables()
 

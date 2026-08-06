@@ -132,6 +132,16 @@ async function main(): Promise<void> {
 		secret: "test-secret-do-not-use-in-production",
 		emailAndPassword: { enabled: true },
 		apiKeyRateLimit: { enabled: false },
+		// Plan-limit enforcement hooks (VAL-SELF-006 step 3) wired
+		// through `organizationHooks.beforeCreateInvitation` and
+		// `...beforeAcceptInvitation`. The hooks share the in-process
+		// PGlite handle that the worker uses; a TCP round-trip through
+		// pglite-socket could deadlock against the worker's own
+		// FOR UPDATE SKIP LOCKED claim, so we hand the hooks the
+		// direct handle. Without this, the smoke server has no
+		// member-limit gate and user-testing validators would
+		// observe the bug.
+		pglite,
 	})
 	await betterAuth.ensureTables()
 	await ensureOrgPlanColumn(pglite)
