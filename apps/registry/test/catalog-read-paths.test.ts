@@ -156,10 +156,12 @@ describe("catalog read paths — seeded from BUILT_IN_CATALOG", () => {
 				scope: string
 				name: string
 				tier: string
+				latestVersion: string | null
 				description: string
 				versions?: Array<{ version: string }>
 			}
 			expect(detail.tier).toBe(summary?.tier)
+			expect(detail.latestVersion).toBe(summary?.latestVersion)
 			expect(detail.description).toBe(summary?.description)
 			expect(detail.versions?.[0]?.version).toBe(summary?.latestVersion)
 		})

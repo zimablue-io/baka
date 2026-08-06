@@ -333,8 +333,10 @@ describe("latest-version pointer follows semver order (VAL-PUB-013 / VAL-PUB-025
 		const detailBody = (await detail.json()) as {
 			scope: string
 			name: string
+			latestVersion: string | null
 			versions: Array<{ version: string }>
 		}
+		expect(detailBody.latestVersion).toBe(summary?.latestVersion)
 		// Detail endpoint surfaces every version in its list; the
 		// highest-precedence version MUST appear there (the catalog
 		// list's latestVersion is sourced from the same set).

@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { PGlite } from "@electric-sql/pglite"
 import { PGLiteSocketServer } from "@electric-sql/pglite-socket"
 import type { Hono } from "hono"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { type BetterAuthHandle, createBetterAuth } from "../src/auth/better-auth"
 import { createPgPool } from "../src/auth/kysely-db"
 import { ensureOfficialOrg } from "../src/auth/official-org"
@@ -27,7 +27,7 @@ import { startServer } from "../src/server"
  * role on the official org via `ensureOfficialOrg`.
  *
  * The bootstrap itself is data-driven — the test calls
- * `ensureOfficialOrg(direnv, auth, config)` directly after booting
+ * `ensureOfficialOrg(pglite, config)` directly after booting
  * the stack, which is the same path `startServer` executes at boot.
  * The boot-flow integration is covered by the explicit `startServer`
  * test at the bottom of the file.
@@ -192,7 +192,7 @@ describe("ensureOfficialOrg — idempotent org creation", () => {
 	})
 
 	it("creates the official org if absent", async () => {
-		const result = await ensureOfficialOrg(fx.pglite, fx.betterAuth.auth, {
+		const result = await ensureOfficialOrg(fx.pglite, {
 			officialOrg: "baka",
 		})
 		expect(result.created).toBe(true)
@@ -200,15 +200,15 @@ describe("ensureOfficialOrg — idempotent org creation", () => {
 	})
 
 	it("is idempotent — a second call does not duplicate the org", async () => {
-		await ensureOfficialOrg(fx.pglite, fx.betterAuth.auth, { officialOrg: "baka" })
-		const result = await ensureOfficialOrg(fx.pglite, fx.betterAuth.auth, { officialOrg: "baka" })
+		await ensureOfficialOrg(fx.pglite, { officialOrg: "baka" })
+		const result = await ensureOfficialOrg(fx.pglite, { officialOrg: "baka" })
 		expect(result.created).toBe(false)
 		const rows = await fx.pglite.query<{ id: string }>(`SELECT id FROM "organization" WHERE slug = $1`, ["baka"])
 		expect(rows.rows).toHaveLength(1)
 	})
 
 	it("uses the configured REGISTRY_OFFICIAL_ORG slug (not hardcoded 'baka')", async () => {
-		const result = await ensureOfficialOrg(fx.pglite, fx.betterAuth.auth, {
+		const result = await ensureOfficialOrg(fx.pglite, {
 			officialOrg: "myhub",
 		})
 		expect(result.created).toBe(true)
@@ -217,7 +217,7 @@ describe("ensureOfficialOrg — idempotent org creation", () => {
 	})
 
 	it("rejects an empty slug with an honest error", async () => {
-		await expect(ensureOfficialOrg(fx.pglite, fx.betterAuth.auth, { officialOrg: "" })).rejects.toThrow(/non-empty/)
+		await expect(ensureOfficialOrg(fx.pglite, { officialOrg: "" })).rejects.toThrow(/non-empty/)
 	})
 })
 
@@ -234,7 +234,7 @@ describe("ensureOfficialOrg — publisher authority", () => {
 		const alice = await signUp(fx, "alice@example.com", "password-12345")
 		const aliceKey = await createApiKey(fx, alice.sessionCookie, "alice-key")
 
-		const result = await ensureOfficialOrg(fx.pglite, fx.betterAuth.auth, {
+		const result = await ensureOfficialOrg(fx.pglite, {
 			officialOrg: "baka",
 			officialPublishers: aliceKey.key,
 		})
@@ -249,7 +249,7 @@ describe("ensureOfficialOrg — publisher authority", () => {
 		const aliceKey = await createApiKey(fx, alice.sessionCookie, "alice-key")
 		const bobKey = await createApiKey(fx, bob.sessionCookie, "bob-key")
 
-		const result = await ensureOfficialOrg(fx.pglite, fx.betterAuth.auth, {
+		const result = await ensureOfficialOrg(fx.pglite, {
 			officialOrg: "baka",
 			officialPublishers: `${aliceKey.key},${bobKey.key}`,
 		})
@@ -259,7 +259,7 @@ describe("ensureOfficialOrg — publisher authority", () => {
 	})
 
 	it("reports invalid API keys as failed (not a 500 to the caller)", async () => {
-		const result = await ensureOfficialOrg(fx.pglite, fx.betterAuth.auth, {
+		const result = await ensureOfficialOrg(fx.pglite, {
 			officialOrg: "baka",
 			officialPublishers: "definitely-not-a-real-key",
 		})
@@ -268,18 +268,36 @@ describe("ensureOfficialOrg — publisher authority", () => {
 		expect(result.publishers[0]?.error).toBeDefined()
 	})
 
-	it("skips GitHub logins that don't match any existing user (deferred to first login)", async () => {
-		const result = await ensureOfficialOrg(fx.pglite, fx.betterAuth.auth, {
+	it("grants owner role when the GitHub user ID matches accountId", async () => {
+		const alice = await signUp(fx, "alice@example.com", "password-12345")
+		await fx.pglite.query(
+			`INSERT INTO "account" (id, "accountId", "providerId", "userId", "createdAt", "updatedAt")
+			 VALUES (gen_random_uuid(), $1, 'github', $2, NOW(), NOW())`,
+			["123456", alice.userId],
+		)
+
+		const result = await ensureOfficialOrg(fx.pglite, {
 			officialOrg: "baka",
-			officialPublishers: "github:alice",
+			officialPublishers: "github:123456",
+		})
+
+		expect(result.publishersGranted).toBe(1)
+		expect(result.publishersFailed).toBe(0)
+		expect(await memberRole(fx, alice.userId, "baka")).toBe("owner")
+	})
+
+	it("skips GitHub user IDs that do not match any existing account", async () => {
+		const result = await ensureOfficialOrg(fx.pglite, {
+			officialOrg: "baka",
+			officialPublishers: "github:999999",
 		})
 		expect(result.publishersGranted).toBe(0)
-		expect(result.publishers[0]?.resolved).toBe("github-login")
+		expect(result.publishers[0]?.resolved).toBe("github-user-id")
 		expect(result.publishers[0]?.error).toBeUndefined()
 	})
 
 	it("treats an empty publishers list as 'no publishers' (org still created, no members added)", async () => {
-		const result = await ensureOfficialOrg(fx.pglite, fx.betterAuth.auth, {
+		const result = await ensureOfficialOrg(fx.pglite, {
 			officialOrg: "baka",
 			officialPublishers: "",
 		})
@@ -289,7 +307,7 @@ describe("ensureOfficialOrg — publisher authority", () => {
 	})
 
 	it("treats an unset publishers list as 'no publishers'", async () => {
-		const result = await ensureOfficialOrg(fx.pglite, fx.betterAuth.auth, {
+		const result = await ensureOfficialOrg(fx.pglite, {
 			officialOrg: "baka",
 		})
 		expect(result.created).toBe(true)
@@ -304,7 +322,7 @@ describe("ensureOfficialOrg — publisher authority", () => {
 		const alice = await signUp(fx, "alice@example.com", "password-12345")
 		const aliceKey = await createApiKey(fx, alice.sessionCookie, "alice-key")
 
-		await ensureOfficialOrg(fx.pglite, fx.betterAuth.auth, {
+		await ensureOfficialOrg(fx.pglite, {
 			officialOrg: "baka",
 			officialPublishers: aliceKey.key,
 		})
@@ -320,7 +338,7 @@ describe("ensureOfficialOrg — publisher authority", () => {
 		expect(await memberRole(fx, alice.userId, "baka")).toBe("member")
 
 		// Re-run bootstrap with the same key — must reset to owner.
-		await ensureOfficialOrg(fx.pglite, fx.betterAuth.auth, {
+		await ensureOfficialOrg(fx.pglite, {
 			officialOrg: "baka",
 			officialPublishers: aliceKey.key,
 		})
@@ -341,8 +359,8 @@ describe("ensureOfficialOrg — publisher authority", () => {
 		// A user with a GitHub-style name is forced to be an API-key
 		// lookup. The apiKey verify rejects the garbage value, so
 		// the publisher is reported as failed rather than treated
-		// as a GitHub login.
-		const result = await ensureOfficialOrg(fx.pglite, fx.betterAuth.auth, {
+		// as a GitHub publisher identity.
+		const result = await ensureOfficialOrg(fx.pglite, {
 			officialOrg: "baka",
 			officialPublishers: "key:github-tools",
 		})
@@ -355,7 +373,7 @@ describe("ensureOfficialOrg — publisher authority", () => {
 		const alice = await signUp(fx, "alice@example.com", "password-12345")
 		const aliceKey = await createApiKey(fx, alice.sessionCookie, "alice-key")
 
-		const result = await ensureOfficialOrg(fx.pglite, fx.betterAuth.auth, {
+		const result = await ensureOfficialOrg(fx.pglite, {
 			officialOrg: "baka",
 			officialPublishers: `  ${aliceKey.key}  ,  `,
 		})
@@ -401,6 +419,23 @@ describe("startServer — official-org bootstrap is wired into the boot", () => 
 			expect(rows.rows).toHaveLength(1)
 		} finally {
 			await handle.close()
+		}
+	})
+
+	it("logs skipped GitHub publishers during boot", async () => {
+		const output: string[] = []
+		const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+			output.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"))
+			return true
+		})
+		const config = loadConfig(env({ REGISTRY_OFFICIAL_PUBLISHERS: "github:999999" }), dataDir)
+		const handle = await startServer(config)
+		try {
+			expect(output.join("")).toContain("GitHub publisher(s) skipped")
+			expect(output.join("")).toContain("github:999999")
+		} finally {
+			await handle.close()
+			writeSpy.mockRestore()
 		}
 	})
 

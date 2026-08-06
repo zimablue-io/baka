@@ -69,7 +69,7 @@ interface SeededCounts {
  * version)` is left alone, so re-publishing a built-in module
  * intentionally is a no-op).
  */
-export async function seedBuiltInCatalog(pglite: PGlite, officialOrg: string = "baka"): Promise<SeededCounts> {
+export async function seedBuiltInCatalog(pglite: PGlite, officialOrg: string): Promise<SeededCounts> {
 	const counts: SeededCounts = { modulesInserted: 0, versionsInserted: 0, modulesSkipped: 0 }
 
 	for (const entry of BUILT_IN_CATALOG.modules) {

@@ -18,15 +18,6 @@ import { parseApiKeyRateLimitEnv } from "./auth/better-auth"
  * refusing to boot (the documented contract).
  */
 
-/**
- * Env-driven registry config (architecture §4.1, §4.4).
- *
- * Every option has a documented default so the registry boots with zero
- * env vars set. The values are validated with zod at boot so a typo or
- * a malformed `PORT=abc` fails fast with a typed error naming the field,
- * not an opaque downstream crash.
- */
-
 const ConfigSchema = z.object({
 	/** HTTP listener port (decision: default 4300). `0` means OS-assigned (tests). */
 	port: z.coerce.number().int().nonnegative().default(4300),
@@ -65,9 +56,9 @@ const ConfigSchema = z.object({
 	 * Comma-separated list of identities authorized to publish to the
 	 * official scope (architecture §8 decision 29). Each entry is either
 	 * a raw Better-Auth API key (starts with the configured prefix, e.g.
-	 * `baka_…`) or a GitHub login. At boot the registry resolves entries
-	 * to users and grants them `owner` role on the official org; GitHub
-	 * logins that match no existing user are deferred to first login.
+	 * `baka_…`) or a numeric GitHub user ID. At boot the registry resolves
+	 * entries to users and grants them `owner` role on the official org;
+	 * GitHub user IDs that match no existing account are skipped.
 	 * Empty / unset means nobody can publish to the official scope.
 	 */
 	officialPublishers: z.string().optional(),

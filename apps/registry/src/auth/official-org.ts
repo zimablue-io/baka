@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto"
 import type { PGlite } from "@electric-sql/pglite"
-import type { betterAuth } from "better-auth"
 
 /**
  * Official-org bootstrap (architecture §8 decisions 26 and 29).
@@ -20,11 +19,9 @@ import type { betterAuth } from "better-auth"
  *     value with the plugin's `defaultKeyHasher` (SHA-256 →
  *     base64url, no padding) and looks up the hash in the `apikey`
  *     table; a match grants the user `owner` role on the official org.
- *   - A GitHub login. At boot, the registry looks up an existing
+ *   - A GitHub user ID. At boot, the registry looks up an existing
  *     user with that GitHub `accountId` and grants owner role; if no
- *     such user exists yet, the entry is skipped (the "at first login"
- *     semantics from the decision — wiring a GitHub login hook is
- *     a future feature, but the data path is no-op-safe).
+ *     such user exists yet, the entry is skipped.
  *
  * When `REGISTRY_OFFICIAL_PUBLISHERS` is unset or empty, no identities
  * are granted owner role and the official org has no members; the
@@ -55,8 +52,8 @@ interface OfficialOrgConfig {
 interface PublisherOutcome {
 	/** The raw value from the env var (after trimming). */
 	value: string
-	/** Resolved identity kind — `api-key` when the value verified, `github-login` otherwise. */
-	resolved: "api-key" | "github-login" | "unknown"
+	/** Resolved identity kind — `api-key` when the value verified, `github-user-id` otherwise. */
+	resolved: "api-key" | "github-user-id" | "unknown"
 	/** True when the entry actually granted owner role on the official org. */
 	granted: boolean
 	/** Set when an error was encountered resolving the entry. */
@@ -68,7 +65,7 @@ interface OfficialOrgResult {
 	created: boolean
 	/** Number of publishers that were granted owner role on this boot. */
 	publishersGranted: number
-	/** Number of publishers that failed to resolve (unknown API key, no matching user). */
+	/** Number of publishers whose identity resolution returned an error. */
 	publishersFailed: number
 	/** Per-entry resolution log (one entry per env-var value, ordered). */
 	publishers: PublisherOutcome[]
@@ -80,17 +77,13 @@ interface OfficialOrgResult {
  * conditional insert or an `ON CONFLICT … UPDATE` UPSERT.
  *
  * The function does NOT throw on per-publisher failures. A bad API
- * key, a GitHub login that doesn't match any user, or a transient
+ * key, a GitHub user ID that doesn't match any user, or a transient
  * verification error is logged into `publishers[*].error` and the
  * rest of the publisher list still runs. The function only throws
  * on a programmer error (e.g. the official org row is missing after
  * the insert attempt — a DB invariant violation).
  */
-export async function ensureOfficialOrg(
-	pglite: PGlite,
-	auth: ReturnType<typeof betterAuth>,
-	config: OfficialOrgConfig,
-): Promise<OfficialOrgResult> {
+export async function ensureOfficialOrg(pglite: PGlite, config: OfficialOrgConfig): Promise<OfficialOrgResult> {
 	const slug = config.officialOrg
 	if (slug.length === 0) {
 		throw new Error("ensureOfficialOrg: officialOrg slug must be non-empty")
@@ -120,7 +113,7 @@ export async function ensureOfficialOrg(
 	let failed = 0
 
 	for (const value of rawPublishers) {
-		const outcome = await resolveAndGrant(pglite, auth, value, slug)
+		const outcome = await resolveAndGrant(pglite, value, slug)
 		outcomes.push(outcome)
 		if (outcome.error) {
 			failed++
@@ -138,29 +131,20 @@ export async function ensureOfficialOrg(
  * on the official org. The default intent is API key: the value is
  * hashed with the plugin's `defaultKeyHasher` and looked up directly
  * in the `apikey` table. A failed API-key match is never silently
- * treated as a GitHub login — that would let a typo in a key
- * masquerade as a username lookup. The fallback to GitHub login is
+ * treated as a GitHub user ID — that would let a typo in a key
+ * masquerade as a username lookup. The fallback to GitHub user ID is
  * opt-in via the `github:` prefix documented in `parsePublisherIntent`.
  */
-async function resolveAndGrant(
-	pglite: PGlite,
-	auth: ReturnType<typeof betterAuth>,
-	value: string,
-	slug: string,
-): Promise<PublisherOutcome> {
-	void auth
+async function resolveAndGrant(pglite: PGlite, value: string, slug: string): Promise<PublisherOutcome> {
 	const intent = parsePublisherIntent(value)
 	try {
-		if (intent.kind === "github-login") {
-			const userId = await findUserByGitHubLogin(pglite, intent.value)
+		if (intent.kind === "github-user-id") {
+			const userId = await findUserByGitHubUserId(pglite, intent.value)
 			if (userId === null) {
-				// Defer to first login — no user has linked that
-				// GitHub account yet. The entry is neither granted
-				// nor failed; the operator log shows it as skipped.
-				return { value: intent.value, resolved: "github-login", granted: false }
+				return { value: intent.value, resolved: "github-user-id", granted: false }
 			}
 			await addOwnerMember(pglite, userId, slug)
-			return { value: intent.value, resolved: "github-login", granted: true }
+			return { value: intent.value, resolved: "github-user-id", granted: true }
 		}
 		// API key path (default). Hash the raw key with the plugin's
 		// default hasher (SHA-256 → base64url, no padding) and look
@@ -227,20 +211,19 @@ function hashApiKey(rawKey: string): string {
 }
 
 /**
- * Looks up a user by their GitHub `accountId` (the GitHub login).
- * Better-Auth stores OAuth providers in the `account` table with
- * `providerId = "github"` and `accountId = <github-login-or-id>`.
- * Returns `null` when no user has linked that GitHub account yet
- * (the "at first login" deferral).
+ * Looks up a user by their GitHub provider account ID.
+ * Better-Auth stores the GitHub provider's numeric user ID in
+ * `account.accountId` with `providerId = "github"`.
+ * Returns `null` when no user has linked that GitHub account yet.
  */
-async function findUserByGitHubLogin(pglite: PGlite, login: string): Promise<string | null> {
+async function findUserByGitHubUserId(pglite: PGlite, githubAccountId: string): Promise<string | null> {
 	const result = await pglite.query<{ userId: string }>(
 		`SELECT "userId"
 		   FROM "account"
 		  WHERE "providerId" = 'github'
 		    AND "accountId" = $1
 		  LIMIT 1`,
-		[login],
+		[githubAccountId],
 	)
 	const userId = result.rows[0]?.userId
 	if (typeof userId !== "string" || userId.length === 0) return null
@@ -303,20 +286,19 @@ function parsePublishers(raw: string | undefined): string[] {
 /**
  * Classifies a single publisher entry. Recognized forms:
  *   - `key:<value>` — force treats the entry as an API key.
- *   - `github:<value>` — force treats the entry as a GitHub login.
+ *   - `github:<value>` — force treats the entry as a GitHub user ID.
  *   - `<value>` — defaults to API key (the verify-or-skip path).
  *
  * The explicit prefixes exist for self-host operators who want to
- * list identifiers that could otherwise be ambiguous (e.g. a login
- * named `baka_backup` that happens to overlap with the API key
- * prefix). They are not required.
+ * list identifiers that could otherwise be ambiguous. They are not
+ * required.
  */
-function parsePublisherIntent(value: string): { kind: "api-key" | "github-login"; value: string } {
+function parsePublisherIntent(value: string): { kind: "api-key" | "github-user-id"; value: string } {
 	const colon = value.indexOf(":")
 	if (colon > 0) {
 		const prefix = value.slice(0, colon).toLowerCase()
 		const rest = value.slice(colon + 1)
-		if (prefix === "github") return { kind: "github-login", value: rest }
+		if (prefix === "github") return { kind: "github-user-id", value: rest }
 		if (prefix === "key") return { kind: "api-key", value: rest }
 	}
 	return { kind: "api-key", value }

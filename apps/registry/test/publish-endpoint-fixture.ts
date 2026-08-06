@@ -101,7 +101,7 @@ export async function buildPublishTestStack(opts: { officialOrg?: string } = {})
 	await ensureOrgPlanColumn(pglite)
 
 	const officialOrg = opts.officialOrg ?? "baka"
-	await ensureOfficialOrg(pglite, betterAuth.auth, { officialOrg })
+	await ensureOfficialOrg(pglite, { officialOrg })
 
 	const app = buildApp({ auth: betterAuth.auth, pglite, officialOrg, storage })
 
@@ -127,7 +127,7 @@ export async function buildPublishTestStack(opts: { officialOrg?: string } = {})
 
 	// Re-run official-org bootstrap with the new API key so the
 	// publisher is granted owner role on the official scope.
-	await ensureOfficialOrg(pglite, betterAuth.auth, {
+	await ensureOfficialOrg(pglite, {
 		officialOrg,
 		officialPublishers: officialPublisherKey.key,
 	})

@@ -2,7 +2,7 @@ import type { PGlite } from "@electric-sql/pglite"
 import type { betterAuth } from "better-auth"
 import { Hono } from "hono"
 import { resolveIdentity } from "../auth/identity"
-import { compareSemver } from "../semver-compare"
+import { compareSemver, maxSemver } from "../semver-compare"
 import type { StorageAdapter } from "../storage"
 
 /**
@@ -161,7 +161,7 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		if (effectiveTier) params.push(effectiveTier)
 		if (memberSlugs.length > 0) params.push(memberSlugs)
 
-		const rows = await pglite.query<ModuleVersionRow>(sql, params)
+		const rows = await pglite.query<ModuleSummaryRow>(sql, params)
 
 		// Group by module; pick the highest-precedence `ready` version
 		// via `compareSemver`. A module with zero `ready` versions
@@ -264,6 +264,7 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			  ORDER BY created_at DESC, version DESC`,
 			[mod.id],
 		)
+		const latestVersion = maxSemver(versions.rows.filter((v) => v.status === "ready").map((v) => v.version))
 
 		return c.json(
 			{
@@ -272,6 +273,7 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 				tier: mod.tier,
 				visibility: mod.visibility,
 				description: mod.description,
+				latestVersion,
 				versions: versions.rows.map((v) => ({
 					version: v.version,
 					status: v.status,
@@ -484,14 +486,12 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			removed_at: Date | null
 			artifact_path: string | null
 			artifact_sha256: string | null
-			content_hash: string
 			version_status: string
 		}>(
 			`SELECT m.visibility      AS visibility,
 			        m.removed_at      AS removed_at,
 			        a.path             AS artifact_path,
 			        a.sha256           AS artifact_sha256,
-			        v.content_hash     AS content_hash,
 			        v.status           AS version_status
 			   FROM modules m
 			   JOIN module_versions v ON v.module_id = m.id
@@ -733,13 +733,6 @@ interface ModuleSummaryRow {
 	version: string | null
 	status: string | null
 }
-
-/**
- * Alias kept for compatibility with the older LATERAL-JOIN shape.
- * The list endpoint now joins `module_versions` directly (one row
- * per ready version per module) and picks the max semver in JS.
- */
-type ModuleVersionRow = ModuleSummaryRow
 
 interface ModuleRow {
 	id: string

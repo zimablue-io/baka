@@ -419,11 +419,15 @@ describe("0002_app_schema survives a mid-apply crash on a fresh data dir", () =>
 				  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 				  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 				  removed_at TIMESTAMPTZ,
-				  CONSTRAINT modules_scope_name_uniq UNIQUE (scope, name)
+				  CONSTRAINT modules_scope_name_uniq UNIQUE (scope, name),
+				  CONSTRAINT modules_visibility_check CHECK (visibility IN ('public', 'org')),
+				  CONSTRAINT modules_tier_check CHECK (
+				    tier IN ('official', 'verified', 'community-screened', 'community-unverified')
+				  )
 				);
 				CREATE TABLE module_versions (
 				  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-				  module_id UUID NOT NULL,
+				  module_id UUID NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
 				  version VARCHAR(64) NOT NULL,
 				  commit_sha VARCHAR(64) NOT NULL,
 				  content_hash VARCHAR(64) NOT NULL,
@@ -432,8 +436,12 @@ describe("0002_app_schema survives a mid-apply crash on a fresh data dir", () =>
 				  error TEXT,
 				  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 				  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-				  CONSTRAINT module_versions_module_id_version_uniq UNIQUE (module_id, version)
+				  CONSTRAINT module_versions_module_id_version_uniq UNIQUE (module_id, version),
+				  CONSTRAINT module_versions_status_check CHECK (
+				    status IN ('pending', 'ingesting', 'ready', 'failed')
+				  )
 				);
+				CREATE INDEX module_versions_content_hash_idx ON module_versions (content_hash);
 			`)
 			await pglite.close()
 			pglite = null

@@ -34,11 +34,8 @@
  *
  * Returns -1 when `a < b`, 0 when equal, +1 when `a > b`. The
  * `Array#sort` callback contract is honored directly: `(a, b) =>
- * compareSemver(a, b)`. The function is total over the input domain
- * (no throw on valid semver); an invalid input falls back to
- * lexicographic order as a defensive last resort — callers that need
- * strict ordering MUST validate inputs upstream (the publish endpoint
- * already does).
+ * compareSemver(a, b)`. Inputs are expected to be valid SemVer strings
+ * from the publish validation boundary.
  */
 
 /** Strips a leading `v` or `V` from a semver string. */
@@ -118,8 +115,6 @@ function comparePrereleaseLists(a: string[], b: string[]): number {
  *
  * Caller is expected to have validated inputs as strict semver
  * (the publish endpoint does this — see `publish/semver.ts`).
- * Invalid inputs fall through to lexicographic order; this is a
- * defensive last resort, NOT the contract.
  */
 export function compareSemver(a: string, b: string): -1 | 0 | 1 {
 	if (a === b) return 0

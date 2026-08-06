@@ -159,7 +159,7 @@ export async function createGitFixture(): Promise<GitFixture> {
 			const sourceExt = opts.manifestFormat ?? "ts"
 			const filename = sourceExt === "json" ? "manifest.json" : "manifest.ts"
 			const body =
-				sourceExt === "json" ? JSON.stringify(manifestToJsonShape(opts), null, 2) + "\n" : manifestSource(opts)
+				sourceExt === "json" ? `${JSON.stringify(manifestToJsonShape(opts), null, 2)}\n` : manifestSource(opts)
 			await writeFile(join(targetDir, filename), body, "utf8")
 
 			// Write a loadable action.ts for every declared action

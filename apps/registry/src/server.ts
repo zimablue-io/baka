@@ -132,7 +132,7 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 	// member rows. Publishers that fail to resolve (unknown API key, no
 	// matching GitHub user) are logged and skipped — the bootstrap
 	// never refuses to boot because of a bad publisher entry.
-	const officialOrgResult = await ensureOfficialOrg(database.pglite, betterAuth.auth, {
+	const officialOrgResult = await ensureOfficialOrg(database.pglite, {
 		officialOrg: config.officialOrg,
 		officialPublishers: config.officialPublishers,
 	})
@@ -165,6 +165,17 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 			if (outcome.error) {
 				process.stdout.write(`  - ${outcome.value.slice(0, 24)}...: ${outcome.error}\n`)
 			}
+		}
+	}
+	const skippedPublishers = officialOrgResult.publishers.filter(
+		(outcome) => outcome.resolved === "github-user-id" && !outcome.granted && !outcome.error,
+	)
+	if (skippedPublishers.length > 0) {
+		process.stdout.write(
+			`baka-registry: WARNING ${skippedPublishers.length} GitHub publisher(s) skipped because no matching account was found on '${config.officialOrg}':\n`,
+		)
+		for (const outcome of skippedPublishers) {
+			process.stdout.write(`  - github:${outcome.value}\n`)
 		}
 	}
 
