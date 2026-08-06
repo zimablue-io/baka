@@ -73,10 +73,20 @@ interface PublishRoutesDeps {
 	auth: ReturnType<typeof betterAuth>
 	pglite: PGlite
 	officialOrg: string
+	/**
+	 * Optional enqueue seam for the ingest worker (architecture §4.5).
+	 * When supplied, the publish endpoint enqueues an
+	 * `ingest_module_version` job for the created row. When omitted
+	 * (e.g. tests that don't exercise the worker), the row is left
+	 * at `pending` and no job is enqueued — the worker will pick
+	 * the row up on its next poll or, in tests, the caller
+	 * advances the row manually.
+	 */
+	enqueueIngest?: (versionId: string) => Promise<void>
 }
 
 export function createPublishRoutes(deps: PublishRoutesDeps): Hono {
-	const { auth, pglite, officialOrg } = deps
+	const { auth, pglite, officialOrg, enqueueIngest } = deps
 	const app = new Hono()
 
 	app.post("/v1/publish", async (c) => {
@@ -299,11 +309,63 @@ export function createPublishRoutes(deps: PublishRoutesDeps): Hono {
 				       error = NULL,
 				       updated_at = NOW()
 				 RETURNING id`,
-				[moduleId, body.tag, clone.commitSha, JSON.stringify(manifest.manifest)],
+				[
+					moduleId,
+					body.tag,
+					clone.commitSha,
+					JSON.stringify({
+						// The publish-time manifest reader returns
+						// `unknown` for the body. The worker re-evaluates
+						// the full schema via jiti; the publish-time
+						// shape is best-effort and is what we ship to
+						// the DB for transparency. Cast to object
+						// before spreading so the `_publish` keys can
+						// be merged underneath.
+						...(typeof manifest.manifest === "object" && manifest.manifest !== null && !Array.isArray(manifest.manifest)
+							? (manifest.manifest as Record<string, unknown>)
+							: {}),
+						// Persist the publish body under a private
+						// `_publish` key so the ingest worker can read
+						// the repo URL and modulePath without a
+						// dedicated column. The schema validator
+						// ignores unknown keys; the catalog
+						// surfaces strip `_publish` so the field
+						// never leaks into served metadata.
+						_publish: {
+							repo: body.repo,
+							modulePath: body.modulePath ?? null,
+							visibility: body.visibility,
+							publishedAt: new Date().toISOString(),
+						},
+					}),
+				],
 			)
 			const versionId = versionRow.rows[0]?.id
 			if (!versionId) {
 				throw new Error("publish: failed to create module_versions row")
+			}
+
+			// Enqueue the ingest job (architecture §4.5 step: "enqueues
+			// ingest job"). The enqueue is async and durable — graphile-
+			// worker persists the job to its `graphile_worker.jobs`
+			// table so a process restart mid-enqueue leaves the row
+			// recoverable (the worker picks up pending rows on the
+			// next poll, and the boot sweep resets stale `ingesting`
+			// rows for the kill-resume case).
+			//
+			// The enqueue is best-effort: a failure here does NOT
+			// roll back the publish. The version row is durable; the
+			// job can be re-enqueued by the boot sweep on the next
+			// worker start (the stale-ingesting sweep re-enqueues
+			// too). Returning a 202 with the versionId is honest —
+			// the row IS tracked; the worker will pick it up.
+			if (enqueueIngest) {
+				try {
+					await enqueueIngest(versionId)
+				} catch (err) {
+					const message = err instanceof Error ? err.message : String(err)
+					process.stderr.write(`publish: enqueue failed for version ${versionId}: ${message}\n`)
+				}
 			}
 
 			return c.json(

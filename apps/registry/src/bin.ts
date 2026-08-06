@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 /**
- * Bin entry point for `baka-registry` (architecture §4.1).
+ * Bin entry point for `baka-registry` (architecture §4.1, §4.5).
  *
  * Boots the Hono app on the configured port, runs the schema-version gate,
- * and stays up until SIGINT/SIGTERM. Subsequent milestones wire the
- * graphile-worker into this same process (self-host simplicity).
+ * and stays up until SIGINT/SIGTERM. The graphile-worker is embedded in
+ * the same process by default (self-host simplicity); the `--no-worker`
+ * flag splits them for multi-process deploys (e.g. a dedicated worker
+ * host pointed at the registry's pglite-socket).
  *
  * Env-driven config: see `config.ts`. All defaults boot a working server
  * with zero env vars set.
@@ -13,6 +15,13 @@ import { loadConfig } from "./config"
 import { startServer } from "./server"
 
 async function main(): Promise<void> {
+	// `--no-worker` is read directly from `process.argv` so the
+	// command-line flag mirrors the env-driven knob the server reads.
+	// Splitting the worker into its own process is documented in
+	// architecture §4.1; the binary accepts both forms.
+	if (process.argv.includes("--no-worker")) {
+		process.env.WORKER_DISABLED = "1"
+	}
 	const config = loadConfig()
 	const handle = await startServer(config)
 

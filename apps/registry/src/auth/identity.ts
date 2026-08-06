@@ -72,14 +72,8 @@ function webHeadersToIncoming(headers: Headers): IncomingHttpHeaders {
 	return out
 }
 
-/**
- * Returns a 401 JSON response for endpoints that require authentication.
- * The shape is stable so future validators can grep for the `error`
- * field without parsing free text.
- */
-export function unauthorizedJson(): Response {
-	return new Response(JSON.stringify({ error: "authentication required" }), {
-		status: 401,
-		headers: { "content-type": "application/json" },
-	})
-}
+// 401 envelope helper is intentionally not exported — every
+// auth-gated route uses `resolveIdentity` + a hand-rolled `c.json(...)`
+// 401 response so the response shape matches the per-route error
+// vocabulary. If a future caller needs a reusable helper, re-export
+// the function and wire it into the routes that consume it.

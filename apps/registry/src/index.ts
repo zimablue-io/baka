@@ -27,14 +27,15 @@ import { createPublishRoutes } from "./publish/routes"
  *                      BUILT_IN_CATALOG — feature: registry-catalog-read-paths;
  *                      list endpoint filters by visibility).
  *   - /v1/publish     (request validation, role + plan-limit gate,
- *                      pending row creation — feature: publish-endpoint).
+ *                      pending row creation, worker enqueue —
+ *                      feature: publish-endpoint + ingest-worker).
  *   - /v1/orgs/*      (org CRUD, membership, invitations, role
  *                      enforcement — feature: registry-orgs).
  *
- * Additional routes (worker-driven ingest, screening, previews,
- * unpublish, etc.) land in subsequent publishing-ingest milestones
- * and reuse the identity resolver, plan-limit helper, and visibility
- * filter from `auth/` and `catalog/`.
+ * Additional routes (screening/preview pipeline, unpublish, etc.)
+ * land in subsequent publishing-ingest milestones and reuse the
+ * identity resolver, plan-limit helper, and visibility filter from
+ * `auth/` and `catalog/`.
  */
 
 export interface AppDeps {
@@ -47,6 +48,13 @@ export interface AppDeps {
 	 * the seam is wired in this milestone.
 	 */
 	officialOrg?: string
+	/**
+	 * Optional enqueue seam for the ingest worker (architecture §4.5).
+	 * The publish endpoint calls this with the freshly-created
+	 * `module_versions.id`; the production wiring is the
+	 * graphile-worker enqueuer (see `worker/runner.ts`).
+	 */
+	enqueueIngest?: (versionId: string) => Promise<void>
 }
 
 /**
@@ -79,12 +87,13 @@ export function buildApp(deps: AppDeps): Hono {
 
 	// Publish endpoint (architecture §4.5, decision 30):
 	//   POST /v1/publish — request validation, role enforcement,
-	//                       plan-limit gate, pending row creation.
-	//                       Worker (next milestone) clones + validates.
+	//                       plan-limit gate, pending row creation,
+	//                       worker enqueue (ingest-worker feature).
 	const publishRoutes = createPublishRoutes({
 		auth: deps.auth,
 		pglite: deps.pglite,
 		officialOrg: deps.officialOrg ?? "baka",
+		enqueueIngest: deps.enqueueIngest,
 	})
 	app.route("/", publishRoutes)
 

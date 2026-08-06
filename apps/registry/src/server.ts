@@ -10,9 +10,12 @@ import { createDatabase, type DatabaseHandle } from "./db/client"
 import { buildApp } from "./index"
 import { ensureSchemaVersion } from "./schema-version"
 import { createFilesystemStorage, type StorageAdapter } from "./storage"
+import { createInMemoryEnqueuer, type IngestEnqueuer } from "./worker/enqueue"
+import { startWorker, type WorkerHandle } from "./worker/runner"
+import { sweepStaleIngestingRows } from "./worker/sweep"
 
 /**
- * Server bootstrap (architecture §4.1, §4.2, §4.4).
+ * Server bootstrap (architecture §4.1, §4.2, §4.4, §4.5).
  *
  * Responsibilities:
  *   1. Ensure the data dir, storage dir, and pglite dir exist.
@@ -21,19 +24,23 @@ import { createFilesystemStorage, type StorageAdapter } from "./storage"
  *      gate file. Refuses to boot if the recorded version is newer.
  *   3. Open the database (in-process PGlite + Drizzle client).
  *   4. Start the pglite-socket TCP server on the configured port so
- *      graphile-worker (milestone 3) and Better-Auth's Kysely adapter
- *      (this milestone) can reach the same data. `maxConnections=10`
- *      per the verified dependency fact.
+ *      graphile-worker and Better-Auth's Kysely adapter can reach the
+ *      same data. `maxConnections=10` per the verified dependency fact.
  *   5. Build the Better-Auth instance against a `pg.Pool` wired to the
  *      pglite-socket, then run Better-Auth's introspection-driven
- *      migrations so the auth tables (user, session, account,
- *      verification, organization, member, invitation, apikey) exist.
- *   6. Build the Hono app with auth + pglite wired in, and bind it to
- *      `config.port` on the configured hostname.
+ *      migrations so the auth tables exist.
+ *   6. Run the boot-time stale-ingesting sweep (VAL-PUB-028: a kill
+ *      mid-ingest must not strand a version).
+ *   7. Start the graphile-worker runner (architecture §4.5, embedded
+ *      in the same process for self-host simplicity). The worker
+ *      wires the IngestEnqueuer the publish endpoint calls.
+ *   8. Build the Hono app with auth + pglite + enqueuer wired in, and
+ *      bind it to `config.port` on the configured hostname.
  *
- * Returns the live `DatabaseHandle`, the `BetterAuthHandle`, and an
- * `http.Server` handle so the caller can shut everything down cleanly.
- * The process entry point (`bin.ts`) wires that to SIGINT/SIGTERM.
+ * Returns the live `DatabaseHandle`, the `BetterAuthHandle`, the
+ * `WorkerHandle`, and an `http.Server` handle so the caller can shut
+ * everything down cleanly. The process entry point (`bin.ts`) wires
+ * that to SIGINT/SIGTERM.
  */
 
 interface ServerHandle {
@@ -42,6 +49,7 @@ interface ServerHandle {
 	database: DatabaseHandle
 	betterAuth: BetterAuthHandle
 	storage: StorageAdapter
+	worker: WorkerHandle | null
 	close: () => Promise<void>
 }
 
@@ -49,9 +57,10 @@ interface ServerHandle {
  * Logs a single honest startup line (architecture §8 decision-bound
  * boot contract; this is what the validation contract expects).
  */
-function logStartupLine(config: RegistryConfig, version: string, actualPort: number): void {
+function logStartupLine(config: RegistryConfig, version: string, actualPort: number, workerEnabled: boolean): void {
+	const workerTag = workerEnabled ? "worker=enabled" : "worker=disabled"
 	process.stdout.write(
-		`baka-registry: listening on http://localhost:${actualPort} (data=${config.dataDir}, schema_version=${version})\n`,
+		`baka-registry: listening on http://localhost:${actualPort} (data=${config.dataDir}, schema_version=${version}, ${workerTag})\n`,
 	)
 }
 
@@ -157,10 +166,43 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 		}
 	}
 
+	// Boot-time stale-ingesting sweep (VAL-PUB-028). A SIGKILL of a
+	// previous worker mid-job leaves a row pinned at `status='ingesting'`
+	// with no live job holding it; resetting to `pending` lets the new
+	// worker pick it up on its next poll.
+	const sweep = await sweepStaleIngestingRows(database.pglite)
+	if (sweep.rowsReset > 0) {
+		process.stdout.write(`baka-registry: recovered ${sweep.rowsReset} stale ingesting row(s) from a previous run\n`)
+	}
+
+	const storage = createFilesystemStorage(config.storageDir)
+
+	// Start the in-process polling worker UNLESS the operator
+	// disabled it via `--no-worker` (architecture §4.1: "baka-registry
+	// bin starts both; --no-worker flag splits them for multi-process
+	// deploys"). The flag is forwarded via the WORKER_DISABLED env
+	// var by bin.ts; the production binary defaults to embedded-
+	// worker.
+	let worker: WorkerHandle | null = null
+	const enqueueIngest: IngestEnqueuer = createInMemoryEnqueuer()
+	if (process.env.WORKER_DISABLED !== "1") {
+		worker = await startWorker({
+			pglite: database.pglite,
+			storage,
+		})
+		// The polling worker discovers rows directly from
+		// `module_versions`; the publish endpoint still records the
+		// enqueue (in-memory, since there's no separate job queue) so
+		// tests that count enqueues keep working.
+	}
+
 	const app = buildApp({
 		auth: betterAuth.auth,
 		pglite: database.pglite,
 		officialOrg: config.officialOrg,
+		enqueueIngest: async (versionId) => {
+			await enqueueIngest.enqueue(versionId)
+		},
 	})
 
 	const bindHost = process.env.PORT_BIND ?? "127.0.0.1"
@@ -185,10 +227,9 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 		}
 	})
 
-	logStartupLine(config, gate.version, actualPort)
+	logStartupLine(config, gate.version, actualPort, worker !== null)
 
 	const url = () => `http://127.0.0.1:${actualPort}`
-	const storage = createFilesystemStorage(config.storageDir)
 
 	return {
 		port: actualPort,
@@ -196,12 +237,20 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 		database,
 		betterAuth,
 		storage,
+		worker,
 		close: () =>
 			new Promise<void>((resolveClose, reject) => {
 				server.close(async (err) => {
 					if (err) {
 						reject(err)
 						return
+					}
+					try {
+						if (worker) {
+							await worker.stop()
+						}
+					} catch (closeErr) {
+						process.stderr.write(`[server] worker stop failed: ${(closeErr as Error).message}\n`)
 					}
 					try {
 						await betterAuth.close()
@@ -218,5 +267,20 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 					resolveClose()
 				})
 			}),
+	}
+}
+
+/**
+ * Placeholder enqueuer used when the worker is disabled (the
+ * `--no-worker` path). The publish endpoint logs (but does not
+ * surface) a missing enqueue so operators can spot a split-process
+ * deploy where the worker is on another host.
+ */
+function createWorkerDisabledEnqueuer(): IngestEnqueuer {
+	return {
+		async enqueue(versionId: string): Promise<number | null> {
+			process.stderr.write(`publish: enqueue skipped for version ${versionId} (worker disabled; row remains pending)\n`)
+			return null
+		},
 	}
 }

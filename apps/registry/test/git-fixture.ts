@@ -45,7 +45,17 @@ export interface GitFixture {
 		version: string
 		description?: string
 		dependencies?: string[]
-		actions?: Array<{ id: string; description?: string; filePatterns?: string[]; requiresReasoning?: boolean }>
+		actions?: Array<{
+			id: string
+			description?: string
+			filePatterns?: string[]
+			requiresReasoning?: boolean
+			/** When `true` (default), the fixture writes a loadable
+			 *  `action.ts` file. When `false`, the action's directory
+			 *  is created with no `action.ts` so the loadability
+			 *  gate rejects it (VAL-PUB-014 fixture). */
+			loadable?: boolean
+		}>
 		modulePath?: string
 		tag: string
 		manifestFormat?: "ts" | "json"
@@ -139,10 +149,42 @@ export async function createGitFixture(): Promise<GitFixture> {
 			const body =
 				sourceExt === "json" ? JSON.stringify(manifestToJsonShape(opts), null, 2) + "\n" : manifestSource(opts)
 			await writeFile(join(targetDir, filename), body, "utf8")
-			exec({ cmd: "git", args: ["-C", workDir, "add", filename] })
-			if (modulePath.length > 0) {
-				exec({ cmd: "git", args: ["-C", workDir, "add", modulePath] })
+
+			// Write a loadable action.ts for every declared action
+			// (including the implicit default `noop`). The exported
+			// shape is the engine's WorkflowStep contract (execute +
+			// compensate functions); the loadability gate in the
+			// worker pins VAL-PUB-014 (an unloadable action fails the
+			// version with a diagnostic naming the id).
+			//
+			// When `loadable: false` is set on a specific action, the
+			// directory is created but NO `action.ts` is written — the
+			// worker fails the loadability gate for that action id.
+			const declaredActions = opts.actions ?? [
+				{ id: "noop", description: "no-op action", filePatterns: [], requiresReasoning: false },
+			]
+			for (const action of declaredActions) {
+				const loadable = action.loadable !== false
+				const actionDir = join(targetDir, action.id)
+				await mkdir(actionDir, { recursive: true })
+				if (loadable) {
+					const actionSource = loadableActionSource(action.id)
+					await writeFile(join(actionDir, "action.ts"), actionSource, "utf8")
+				}
 			}
+
+			// `git add` takes paths relative to the repo root.
+			// `manifest.ts` lives under `modulePath` when set, so
+			// the relative path is `${modulePath}/${filename}`. Each
+			// action dir is added the same way.
+			const relativePaths: string[] = []
+			const manifestRel = modulePath.length > 0 ? `${modulePath}/${filename}` : filename
+			relativePaths.push(manifestRel)
+			for (const action of declaredActions) {
+				relativePaths.push(modulePath.length > 0 ? `${modulePath}/${action.id}` : action.id)
+			}
+			exec({ cmd: "git", args: ["-C", workDir, "add", "--", ...relativePaths] })
+
 			exec({ cmd: "git", args: ["-C", workDir, "commit", "-m", `manifest for ${opts.tag}`] })
 			exec({ cmd: "git", args: ["-C", workDir, "tag", opts.tag] })
 			exec({ cmd: "git", args: ["-C", workDir, "push", "origin", opts.tag] })
@@ -181,4 +223,26 @@ function manifestToJsonShape(opts: {
 		],
 		moduleValidators: [],
 	}
+}
+
+/**
+ * Minimal but VALID WorkflowStep shape. The default export matches
+ * the engine's resolution order (`default` is the last candidate;
+ * a named export like `${camelCase}Action` would resolve earlier
+ * but the default is always honored). The execute / compensate
+ * bodies are no-ops — the loadability gate only imports the file,
+ * it does not invoke the actions.
+ */
+function loadableActionSource(actionId: string): string {
+	return `export default {
+  name: ${JSON.stringify(actionId)},
+  role: 1,
+  async execute() {
+    return { success: true, output: undefined, compensationData: undefined }
+  },
+  async compensate() {
+    // no-op
+  },
+}
+`
 }

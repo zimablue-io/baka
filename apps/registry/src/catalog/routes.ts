@@ -295,7 +295,7 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 				commitSha: detail.commit_sha,
 				contentHash: detail.content_hash,
 				error: detail.error,
-				manifest: detail.manifest,
+				manifest: stripPrivatePublishKeys(detail.manifest),
 				screening,
 				artifacts: artifacts.rows.map((a) => ({
 					kind: a.kind,
@@ -371,6 +371,24 @@ interface VersionDetailRow {
 	screening_static_scan: unknown
 	screening_dry_run: unknown
 	screening_created_at: Date | null
+}
+
+/**
+ * Strips the publish endpoint's private `_publish` payload from the
+ * served manifest. The publish endpoint persists `repo`, `modulePath`,
+ * and `publishedAt` under a `_publish` key so the ingest worker can
+ * re-clone without a dedicated column. The catalog surfaces MUST
+ * NOT expose those fields (they are operator metadata, not module
+ * contract); a fresh publish writes them once, and every read
+ * surfaces the manifest without them.
+ */
+function stripPrivatePublishKeys(manifest: unknown): Record<string, unknown> | unknown {
+	if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest)) {
+		return manifest
+	}
+	const copy = { ...(manifest as Record<string, unknown>) }
+	delete copy._publish
+	return copy
 }
 
 interface ArtifactRow {
