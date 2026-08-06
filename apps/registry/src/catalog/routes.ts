@@ -537,6 +537,188 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		)
 	})
 
+	// GET /v1/modules/:scope/:name/:version/previews/:actionId —
+	// single-action preview detail (architecture §4.6 dry-run
+	// surface, decision 31, VAL-SCAN-004 / 005 / 019).
+	//
+	// The list endpoint above carries the per-action metadata
+	// (action id, state, file list with path / size / sha256); this
+	// endpoint carries the FILE CONTENTS for the same record so a
+	// landing page can render the rendered code without an extra
+	// indirection.
+	//
+	// Response shapes match the discriminated preview-record state:
+	//
+	//   - `rendered`   — action ran successfully; `files[]` carries
+	//                    each path with its bytes + size + sha256.
+	//                    The bytes are fetched from the storage
+	//                    adapter (the `screening_previews.files`
+	//                    row only stores the storage key).
+	//   - `needs-llm`  — `requiresReasoning: true`; the action was
+	//                    never executed. The response carries the
+	//                    documented reason verbatim; `files` is
+	//                    absent (the action produced no output).
+	//   - `failed` / `timed-out` — NOT surfaced here; those states
+	//                    are part of the verdict on
+	//                    `screening.dry_run.perAction`. The single-
+	//                    action endpoint returns 404 with an honest
+	//                    error so the caller can tell "this action
+	//                    has no happy-path preview" from "the action
+	//                    does not exist".
+	//
+	// Visibility (VAL-SCAN-019, decision 23): the same uniform
+	// membership gate as the list endpoint. Public modules are
+	// reachable without authentication (the landing site depends on
+	// this). Org-visibility modules require a member credential;
+	// outsiders see a uniform 404 (existence not leaked).
+	//
+	// Storage adapter requirement: the endpoint reads the preview
+	// bytes from the storage adapter (the `screening_previews.files`
+	// row stores the storage key, not the bytes themselves). When
+	// the storage adapter is not configured, the endpoint returns
+	// 503 — same shape as the tarball download endpoint. Tests
+	// that don't exercise the preview-detail wire path can omit
+	// the storage adapter and rely on the JSON list endpoint.
+	app.get("/v1/modules/:scope/:name/:version/previews/:actionId", async (c) => {
+		const scope = c.req.param("scope")
+		const name = c.req.param("name")
+		const version = c.req.param("version")
+		const actionId = c.req.param("actionId")
+
+		// Single JOIN so the visibility / tombstone gates mirror
+		// the list endpoint exactly. A non-member never learns the
+		// version exists via this endpoint; the same uniform 404 as
+		// the list endpoint applies (VAL-AUTH-003).
+		const moduleRow = await pglite.query<{
+			visibility: string
+			removed_at: Date | null
+			version_id: string | null
+		}>(
+			`SELECT m.visibility      AS visibility,
+			        m.removed_at      AS removed_at,
+			        v.id              AS version_id
+			   FROM modules m
+			   LEFT JOIN module_versions v
+			          ON v.module_id = m.id AND v.version = $3
+			  WHERE m.scope = $1
+			    AND m.name = $2`,
+			[scope, name, version],
+		)
+		const mod = moduleRow.rows[0]
+		if (!mod) {
+			return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
+		}
+		if (mod.visibility === "org") {
+			const memberCheck = await checkOrgMembership(pglite, auth, c.req.raw, scope)
+			if (!memberCheck.ok) {
+				return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
+			}
+		}
+		if (mod.removed_at !== null) {
+			return removedModuleResponse(scope, name, mod.removed_at, 404)
+		}
+		if (mod.version_id === null) {
+			return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
+		}
+
+		// Fetch the per-action preview record. The `files` jsonb
+		// column is null for non-rendered states; the storageKey
+		// field on each file row resolves to the actual bytes via
+		// the storage adapter below.
+		const previewRow = await pglite.query<{
+			state: string
+			files: Array<{ path: string; size: number; contentHash: string; storageKey: string }> | null
+			error: string | null
+			timed_out_at: Date | null
+		}>(
+			`SELECT state, files, error, timed_out_at
+			   FROM screening_previews
+			  WHERE version_id = $1
+			    AND action_id = $2`,
+			[mod.version_id, actionId],
+		)
+		const row = previewRow.rows[0]
+		if (!row) {
+			return c.json(
+				{ error: `no preview record for action '${actionId}' on version '${scope}/${name}@${version}'` },
+				404,
+				NO_STORE_HEADERS,
+			)
+		}
+
+		if (row.state === "needs-llm") {
+			return c.json(
+				{
+					actionId,
+					state: "needs-llm",
+					reason: row.error ?? "action skipped because it requires LLM reasoning",
+				},
+				200,
+				NO_STORE_HEADERS,
+			)
+		}
+
+		if (row.state !== "rendered") {
+			// failed / timed-out: NOT surfaced on this endpoint
+			// (the verdict text on the version-detail endpoint is
+			// the canonical place for failure diagnostics). Return
+			// 404 with the action id so the caller can branch.
+			return c.json(
+				{ error: `preview for action '${actionId}' is not available (state='${row.state}')` },
+				404,
+				NO_STORE_HEADERS,
+			)
+		}
+
+		const files = row.files ?? []
+		if (files.length === 0) {
+			// Rendered but produced no files — the action's
+			// `execute()` ran successfully but wrote nothing.
+			// The list endpoint already filters empty-file
+			// rendered rows the same way; this endpoint matches
+			// the same shape with an empty `files` array.
+			return c.json({ actionId, state: "rendered", files: [] }, 200, NO_STORE_HEADERS)
+		}
+
+		if (storage === undefined) {
+			return c.json({ error: `preview endpoint unavailable: storage adapter not configured` }, 503, NO_STORE_HEADERS)
+		}
+
+		// Fetch the bytes for each file from the storage adapter.
+		// The storage adapter is content-addressed (sha256 = key),
+		// so identical bytes across publishes resolve to the
+		// SAME blob on disk — the determinism invariant that
+		// makes VAL-CROSS-020 hold (no run-to-run variance in the
+		// served preview content for identical module content).
+		const fileContents: Array<{ path: string; content: string; size: number; sha256: string }> = []
+		for (const file of files) {
+			const bytes = await storage.get(file.storageKey)
+			if (bytes === null) {
+				// The metadata row says the blob exists but the
+				// storage adapter cannot find it — surface the
+				// inconsistency honestly (an operator action is
+				// needed: re-publish or re-upload).
+				return c.json(
+					{
+						error:
+							`preview file '${file.path}' storage key '${file.storageKey}' is missing from storage ` +
+							`for action '${actionId}' on '${scope}/${name}@${version}'; the operator must re-publish`,
+					},
+					500,
+					NO_STORE_HEADERS,
+				)
+			}
+			fileContents.push({
+				path: file.path,
+				content: bytesToString(bytes),
+				size: file.size,
+				sha256: file.contentHash,
+			})
+		}
+
+		return c.json({ actionId, state: "rendered", files: fileContents }, 200, NO_STORE_HEADERS)
+	})
+
 	// GET /v1/download/:scope/:name/:version — tarball download
 	// (VAL-PUB-007 / VAL-PUB-017 / VAL-AUTH-003).
 	//
@@ -969,4 +1151,26 @@ async function checkOrgMembership(
 	const memberSlugs = await loadMemberSlugs(pglite, identity.userId)
 	if (!memberSlugs.includes(scope)) return { ok: false }
 	return { ok: true, userId: identity.userId }
+}
+
+/**
+ * Decodes a `Uint8Array` (the storage adapter's return shape) into
+ * a UTF-8 string. The preview files the dry-run writes are textual
+ * (Handlebars templates, scaffolded source files, config blobs),
+ * so a lossy UTF-8 fallback to the raw bytes is the right call —
+ * a non-UTF-8 binary preview is unusual enough that the contract
+ * accepts the replacement-character rendering over a 500.
+ *
+ * The endpoint serves the bytes verbatim so the same content
+ * produces the same bytes across publishes (VAL-CROSS-020
+ * determinism); the storage adapter is content-addressed
+ * (sha256 = key), so identical input bytes resolve to the same
+ * stored blob.
+ */
+function bytesToString(bytes: Uint8Array): string {
+	try {
+		return new TextDecoder("utf-8", { fatal: true }).decode(bytes)
+	} catch {
+		return new TextDecoder("utf-8").decode(bytes)
+	}
 }
