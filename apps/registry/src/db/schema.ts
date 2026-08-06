@@ -39,14 +39,14 @@ export const modules = pgTable(
 	}),
 )
 
-export type ModuleRow = typeof modules.$inferSelect
-export type NewModuleRow = typeof modules.$inferInsert
+type ModuleRow = typeof modules.$inferSelect
+type NewModuleRow = typeof modules.$inferInsert
 
 // ---------------------------------------------------------------------------
 // module_versions
 // ---------------------------------------------------------------------------
 
-export const moduleVersions = pgTable(
+const moduleVersions = pgTable(
 	"module_versions",
 	{
 		id: uuid("id").primaryKey().defaultRandom(),
@@ -68,14 +68,14 @@ export const moduleVersions = pgTable(
 	}),
 )
 
-export type ModuleVersionRow = typeof moduleVersions.$inferSelect
-export type NewModuleVersionRow = typeof moduleVersions.$inferInsert
+type ModuleVersionRow = typeof moduleVersions.$inferSelect
+type NewModuleVersionRow = typeof moduleVersions.$inferInsert
 
 // ---------------------------------------------------------------------------
 // artifacts
 // ---------------------------------------------------------------------------
 
-export const artifacts = pgTable(
+const artifacts = pgTable(
 	"artifacts",
 	{
 		id: uuid("id").primaryKey().defaultRandom(),
@@ -93,14 +93,14 @@ export const artifacts = pgTable(
 	}),
 )
 
-export type ArtifactRow = typeof artifacts.$inferSelect
-export type NewArtifactRow = typeof artifacts.$inferInsert
+type ArtifactRow = typeof artifacts.$inferSelect
+type NewArtifactRow = typeof artifacts.$inferInsert
 
 // ---------------------------------------------------------------------------
 // screening_results
 // ---------------------------------------------------------------------------
 
-export const screeningResults = pgTable(
+const screeningResults = pgTable(
 	"screening_results",
 	{
 		id: uuid("id").primaryKey().defaultRandom(),
@@ -117,22 +117,22 @@ export const screeningResults = pgTable(
 	}),
 )
 
-export type ScreeningResultRow = typeof screeningResults.$inferSelect
-export type NewScreeningResultRow = typeof screeningResults.$inferInsert
+type ScreeningResultRow = typeof screeningResults.$inferSelect
+type NewScreeningResultRow = typeof screeningResults.$inferInsert
 
 // ---------------------------------------------------------------------------
 // plan_limits
 // ---------------------------------------------------------------------------
 
-export const planLimits = pgTable("plan_limits", {
+const planLimits = pgTable("plan_limits", {
 	plan: varchar("plan", { length: 32 }).primaryKey(),
 	maxPrivateModules: integer("max_private_modules").notNull(),
 	maxMembers: integer("max_members").notNull(),
 	maxRegistries: integer("max_registries").notNull(),
 })
 
-export type PlanLimitRow = typeof planLimits.$inferSelect
-export type NewPlanLimitRow = typeof planLimits.$inferInsert
+type PlanLimitRow = typeof planLimits.$inferSelect
+type NewPlanLimitRow = typeof planLimits.$inferInsert
 
 // ---------------------------------------------------------------------------
 // app_migrations (internal tracking; not part of architecture §4.3)
@@ -143,14 +143,14 @@ export type NewPlanLimitRow = typeof planLimits.$inferInsert
 // SQL migrations have been applied so the SQL itself can be re-applied
 // idempotently against an upgraded binary.
 
-export const appMigrations = pgTable("app_migrations", {
+const appMigrations = pgTable("app_migrations", {
 	version: text("version").primaryKey(),
 	appliedAt: timestamp("applied_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
-export type AppMigrationRow = typeof appMigrations.$inferSelect
+type AppMigrationRow = typeof appMigrations.$inferSelect
 
-export const schema = {
+const schema = {
 	modules,
 	moduleVersions,
 	artifacts,
