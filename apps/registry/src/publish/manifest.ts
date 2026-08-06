@@ -73,10 +73,21 @@ function stripTypeScript(source: string): string {
 	// start with an UPPERCASE letter (PascalCase — TS convention) or
 	// that match a known primitive type allowlist. Lowercase
 	// identifiers that look like values (`false`, `true`, `null`, etc.)
-	// are left alone so the conversion never eats a literal. The `[]`
-	// case is handled by removing `: []` annotations explicitly,
-	// because `[]` represents an empty array type literal in TS.
-	out = out.replace(/(:\s*)\[\]/g, (_match, lead) => `${lead}undefined`)
+	// are left alone so the conversion never eats a literal.
+	//
+	// Note: a `: []` strip was considered but is intentionally
+	// omitted. The TS source uses `: []` for both type-literal
+	// annotations (`let x: [] = ...`) AND value initializations
+	// (`field: []`). The TypeName regex below already handles
+	// `field: TypeName[]` annotations (PascalCase / primitive with
+	// its optional `[]` suffix is consumed in full). Stripping the
+	// standalone `: []` is too aggressive — it converts the source's
+	// explicit `field: []` value to `field: undefined`, which then
+	// disappears under JSON.stringify and breaks schema validation
+	// for required array fields (`params`, etc.). Empty-array values
+	// in source manifests MUST survive into the VM evaluation intact
+	// so the served manifest round-trips through ModuleManifestSchema
+	// (VAL-PUB-004).
 	// First segment must be PascalCase or a known primitive; subsequent
 	// segments in a union are matched identically.
 	out = out.replace(

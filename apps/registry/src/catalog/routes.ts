@@ -1,4 +1,5 @@
 import type { PGlite } from "@electric-sql/pglite"
+import { ModuleManifestSchema } from "@repo/protocol"
 import type { betterAuth } from "better-auth"
 import { Hono } from "hono"
 import { resolveIdentity } from "../auth/identity"
@@ -779,16 +780,38 @@ interface VersionDetailRow {
 
 /**
  * Strips the publish endpoint's private `_publish` payload from the
- * served manifest. The publish endpoint persists `repo`, `modulePath`,
- * and `publishedAt` under a `_publish` key so the ingest worker can
- * re-clone without a dedicated column. The catalog surfaces MUST
- * NOT expose those fields (they are operator metadata, not module
- * contract); a fresh publish writes them once, and every read
- * surfaces the manifest without them.
+ * served manifest and applies the protocol schema defaults. The
+ * publish endpoint persists `repo`, `modulePath`, and `publishedAt`
+ * under a `_publish` key so the ingest worker can re-clone without a
+ * dedicated column. The catalog surfaces MUST NOT expose those fields
+ * (they are operator metadata, not module contract).
+ *
+ * The function also re-runs `ModuleManifestSchema.parse` so every
+ * schema-defaulted field (`filePatterns`, `validators`,
+ * `dependencies`, `conflictsWith`, `moduleValidators`, ...) is
+ * guaranteed to appear in the served JSON, even when the stored row
+ * was written by an older publish path that did not apply defaults.
+ * The contract (VAL-PUB-004) demands "no fields dropped, renamed,
+ * or reworded" — an absent empty-array field violates that even
+ * though it is semantically equivalent to `[]`. The read surface
+ * is the single chokepoint for the served manifest, so applying
+ * defaults here covers both the publish-time store and any future
+ * migration path that back-fills rows from external sources.
+ *
+ * When the stored manifest fails schema validation (the worker
+ * already enforces the canonical schema, so this should not happen
+ * in practice), the function falls back to the previous
+ * "delete `_publish` only" behavior — surfacing a partial manifest
+ * is better than 500-ing the read surface.
  */
-function stripPrivatePublishKeys(manifest: unknown): Record<string, unknown> | unknown {
+function stripPrivatePublishKeys(manifest: unknown): unknown {
 	if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest)) {
 		return manifest
+	}
+	const parsed = ModuleManifestSchema.safeParse(manifest)
+	if (parsed.success) {
+		const { _publish: _omit, ...rest } = parsed.data as Record<string, unknown> & { _publish?: unknown }
+		return rest
 	}
 	const copy = { ...(manifest as Record<string, unknown>) }
 	delete copy._publish

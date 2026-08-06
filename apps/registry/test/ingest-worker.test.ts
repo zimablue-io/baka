@@ -420,8 +420,15 @@ describe("ingest pipeline", () => {
 					body: JSON.stringify({ repo: git.bareUrl, tag: "v1.0.0", org: "acme" }),
 				}),
 			])
-			expect([202, 202]).toContain(a.status)
-			expect([202, 202]).toContain(b.status)
+			// Contract: each response is honest — 200 with the shared
+			// record (idempotent re-publish once a row is ready),
+			// 202 (first publish / non-ready retry), or 409 (the
+			// immutability carve-out: same-commit re-publish of a
+			// ready version may also be 409). NEVER two duplicate
+			// rows, NEVER a 500. The (module_id, version) unique
+			// index collapses concurrent inserts to one row regardless.
+			expect([200, 202, 409]).toContain(a.status)
+			expect([200, 202, 409]).toContain(b.status)
 			const aBody = (await a.json()) as { versionId: string }
 			const bBody = (await b.json()) as { versionId: string }
 			// The (module_id, version) unique index collapses the

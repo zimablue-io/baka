@@ -306,6 +306,119 @@ export function createPublishRoutes(deps: PublishRoutesDeps): Hono {
 				)
 			}
 
+			// Ready-version immutability (architecture §8 decision 38,
+			// VAL-CROSS-004 / VAL-PUB-008).
+			//
+			// When a (scope, name, version) row already exists, the
+			// publish endpoint checks its status + recorded commit_sha
+			// against the freshly-cloned commit_sha:
+			//
+			//   - status='ready' + commit_sha matches → 200 idempotent
+			//     (the same row, no re-ingest). The contract's
+			//     "200 with the same record, or 409 stating the
+			//     version exists" pin.
+			//   - status='ready' + commit_sha differs → 409-class
+			//     immutability error naming both shas. A ready
+			//     version's commit_sha / content_hash / artifact blob
+			//     are NEVER overwritten — pinned downloads continue
+			//     to serve the original bytes. The fix for the
+			//     user-testing round-1 ON CONFLICT overwrite bug.
+			//   - status='ingesting' → 409 with a "re-publish during
+			//     ingest in progress" message. Resetting the row to
+			//     pending would race the worker's FOR UPDATE SKIP
+			//     LOCKED claim.
+			//   - status='pending' or 'failed' → fall through to the
+			//     normal 202 + re-ingest path (the contract's
+			//     "non-ready rows still accept 202 re-ingest
+			//     retries").
+			//
+			// The check runs BEFORE `upsertModuleRow` and the
+			// `module_versions` INSERT so neither row is mutated on
+			// the rejection path. The query joins on the module's
+			// `(scope, name)` and filters out tombstoned modules so a
+			// post-unpublish re-publish (decision 19) reaches the
+			// fresh-row path below without colliding with the old
+			// tombstone.
+			const existingVersion = await pglite.query<{
+				id: string
+				status: string
+				commit_sha: string
+				content_hash: string
+			}>(
+				`SELECT mv.id, mv.status, mv.commit_sha, mv.content_hash
+				   FROM module_versions mv
+				   JOIN modules m ON m.id = mv.module_id
+				  WHERE m.scope = $1
+				    AND m.name = $2
+				    AND mv.version = $3
+				    AND m.removed_at IS NULL`,
+				[org.slug, moduleName, body.tag],
+			)
+			const priorVersion = existingVersion.rows[0]
+			if (priorVersion && priorVersion.status === "ready") {
+				if (priorVersion.commit_sha === clone.commitSha) {
+					// Idempotent re-publish (VAL-PUB-008). The row
+					// already exists with the exact same commit_sha;
+					// the worker is NOT re-signaled. The response
+					// echoes the existing record so the caller can
+					// detect "no-op" without polling.
+					return c.json(
+						{
+							scope: org.slug,
+							name: moduleName,
+							version: body.tag,
+							commitSha: priorVersion.commit_sha,
+							contentHash: priorVersion.content_hash,
+							status: "ready",
+							visibility: moduleRowVisibility(pglite, org.slug, moduleName),
+							versionId: priorVersion.id,
+							idempotent: true,
+						},
+						200,
+					)
+				}
+				// Immutability violation (VAL-CROSS-004). The tag
+				// was force-moved (or otherwise points at a
+				// different commit) AFTER the row reached `ready`.
+				// The original commit_sha / content_hash / artifact
+				// blob are preserved; the operator must publish at
+				// a new tag if they want to ship the new tree.
+				return c.json(
+					{
+						error:
+							`immutability violation: tag '${body.tag}' resolves to a different commit than the recorded READY version ` +
+							`(existing commit_sha='${priorVersion.commit_sha}', requested commit_sha='${clone.commitSha}') ` +
+							`(decision 38); the existing ready version's content is preserved — publish a new tag to ship the new tree`,
+						scope: org.slug,
+						name: moduleName,
+						version: body.tag,
+						existingCommitSha: priorVersion.commit_sha,
+						requestedCommitSha: clone.commitSha,
+						existingContentHash: priorVersion.content_hash,
+						versionId: priorVersion.id,
+					},
+					409,
+				)
+			}
+			if (priorVersion && priorVersion.status === "ingesting") {
+				// An ingest job is currently in flight; resetting the
+				// row would race the worker's FOR UPDATE SKIP LOCKED
+				// claim. The caller retries once the worker converges
+				// (the polling loop's per-cycle sweep resets stale
+				// ingesting rows on a 5-minute threshold).
+				return c.json(
+					{
+						error: `re-publish refused: version '${body.tag}' is currently being ingested; retry once the worker converges (decision 38)`,
+						scope: org.slug,
+						name: moduleName,
+						version: body.tag,
+						versionId: priorVersion.id,
+						status: priorVersion.status,
+					},
+					409,
+				)
+			}
+
 			// All checks passed — create the module + version rows in
 			// `pending` status. The worker (next feature) will pick up
 			// the pending rows, run the loadability gate, content-hash,
@@ -450,6 +563,24 @@ export function createPublishRoutes(deps: PublishRoutesDeps): Hono {
  * a non-object body is a 400; a missing body is a 400.
  */
 type BodyResult = { kind: "ok"; value: unknown } | { kind: "error"; message: string }
+
+/**
+ * Returns the visibility of the module row identified by
+ * `(scope, name)`, or `"org"` as the safe default when the row is
+ * absent (e.g. a re-publish raced a tombstone-replacement delete).
+ * Used by the idempotent-200 branch of the publish endpoint so the
+ * response echoes the stored visibility without re-running the
+ * module upsert — the row's visibility is first-publish-wins
+ * (architecture §8 decision 30) and the caller must see the same
+ * value the catalog surfaces.
+ */
+async function moduleRowVisibility(pglite: PGlite, scope: string, name: string): Promise<"org" | "public"> {
+	const row = await pglite.query<{ visibility: "org" | "public" }>(
+		`SELECT visibility FROM modules WHERE scope = $1 AND name = $2 AND removed_at IS NULL`,
+		[scope, name],
+	)
+	return row.rows[0]?.visibility ?? "org"
+}
 
 async function readBody(request: Request): Promise<BodyResult> {
 	const text = await request.clone().text()
