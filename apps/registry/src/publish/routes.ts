@@ -1,0 +1,391 @@
+import type { PGlite } from "@electric-sql/pglite"
+import type { betterAuth } from "better-auth"
+import { Hono } from "hono"
+import { z } from "zod"
+import { resolveIdentity } from "../auth/identity"
+import { checkPlanLimit } from "../auth/plan-limits"
+import { cleanupClone, shallowCloneAtTag } from "./clone"
+import { extractManifestFields } from "./manifest"
+import { isValidRepoUrl } from "./repo"
+import { isStrictSemver } from "./semver"
+
+/**
+ * POST /v1/publish — request-level validation, role/namespace
+ * enforcement, plan-limit gate, manifest validation, and pending
+ * row creation.
+ *
+ * Architecture §4.5 pins the publish flow as: "server verifies
+ * repo URL + org namespace → creates module_versions row (pending)
+ * → enqueues ingest job → worker: shallow clone → schema
+ * validation → loadability gate → content hash → tarball".
+ *
+ * The architecture's "verify" step is read narrowly here: the
+ * publish endpoint does the work that can be done WITHOUT
+ * ingesting the module — body validation, role + namespace check,
+ * plan-limit gate — AND the work that REQUIRES a manifest read,
+ * because the validation contract (VAL-PUB-010, VAL-PUB-024)
+ * mandates publish-time rejection for those cases. The full
+ * loadability gate + content hash + tarball pack stay in the
+ * worker.
+ *
+ * Validation surface (this endpoint):
+ *   - Body shape (zod)          → 400 with field-naming body (VAL-PUB-020)
+ *   - Repo URL shape            → 422 (VAL-PUB-021)
+ *   - Semver tag                → 422 (VAL-PUB-032, decision 18)
+ *   - Auth                      → 401 (VAL-AUTH-002)
+ *   - Org membership            → 403 (VAL-PUB-011)
+ *   - Role (owner/admin)        → 403 (VAL-AUTH-009)
+ *   - Plan limit                → 403 naming limit + plan (VAL-SELF-006)
+ *   - Org does not exist        → 404 (VAL-PUB-011)
+ *   - Bare name (non-official)  → 422 (VAL-PUB-010, decision 26)
+ *   - Manifest/tag mismatch     → 422 (VAL-PUB-024, decision 11)
+ *
+ * The clone is `git clone --depth 1 --branch <tag>` with the
+ * `INGEST_CLONE_TIMEOUT_MS` cap (default 60_000) so a stalled
+ * remote fails the publish instead of wedging the request. The
+ * clone is cleaned up on every exit path so /tmp does not fill
+ * up under concurrent publishes.
+ *
+ * The endpoint does NOT enqueue a worker job in this milestone —
+ * the worker (next milestone) picks up pending rows via a
+ * polling task. The pending row carries the manifest source
+ * the worker can ingest directly; the publish endpoint also
+ * writes the commit sha it observed into the row so the worker
+ * does not have to re-clone just to verify pinning.
+ *
+ * Visibility defaulting (decision 30): `visibility` defaults to
+ * `"org"` when omitted. The default is private so a typo in the
+ * public toggle never publishes private modules to the community
+ * catalog.
+ */
+
+const PublishBodySchema = z
+	.object({
+		repo: z.string().min(1, "repo must be a non-empty URL"),
+		tag: z.string().min(1, "tag must be a non-empty string"),
+		modulePath: z.string().optional(),
+		visibility: z.enum(["org", "public"]).default("org"),
+		org: z.string().min(1, "org must be a non-empty slug"),
+	})
+	.strict()
+
+interface PublishRoutesDeps {
+	auth: ReturnType<typeof betterAuth>
+	pglite: PGlite
+	officialOrg: string
+}
+
+export function createPublishRoutes(deps: PublishRoutesDeps): Hono {
+	const { auth, pglite, officialOrg } = deps
+	const app = new Hono()
+
+	app.post("/v1/publish", async (c) => {
+		const identity = await resolveIdentity(auth, c.req.raw)
+		if (!identity) {
+			return c.json({ error: "authentication required" }, 401)
+		}
+
+		const rawBody = await readBody(c.req.raw)
+		if (rawBody.kind === "error") {
+			return c.json({ error: rawBody.message }, 400)
+		}
+
+		const parsed = PublishBodySchema.safeParse(rawBody.value)
+		if (!parsed.success) {
+			const issue = parsed.error.issues[0]
+			if (!issue) {
+				return c.json({ error: "invalid publish body" }, 400)
+			}
+			const fieldName = issue.path.length > 0 ? issue.path.join(".") : "(body)"
+			return c.json(
+				{
+					error: `field '${fieldName}': ${issue.message}`,
+					allowedValues: fieldName === "visibility" ? ["org", "public"] : undefined,
+				},
+				400,
+			)
+		}
+		const body = parsed.data
+
+		// Repo URL format check (VAL-PUB-021): a malformed URL is a
+		// 422 (semantic error). The contract says no `module_versions`
+		// row is created. The check is shape-only; the worker will
+		// actually try to clone and mark failed if the URL is valid
+		// shape but unreachable.
+		if (!isValidRepoUrl(body.repo)) {
+			return c.json(
+				{
+					error: "field 'repo': must be a valid git URL (https://, http://, git://, or ssh-style)",
+				},
+				422,
+			)
+		}
+
+		// Semver tag (VAL-PUB-032, decision 18): 422 with a body
+		// naming the field and the expected grammar.
+		if (!isStrictSemver(body.tag)) {
+			return c.json(
+				{
+					error: `field 'tag': must be valid semver (e.g. '1.0.0' or 'v1.0.0-rc.1'); got '${body.tag}'`,
+				},
+				422,
+			)
+		}
+
+		// Resolve the target org. An unknown org is 404 (VAL-PUB-011).
+		// Existence is not leaked in the 403 path — a caller who is
+		// not a member sees 403 with no org-existence signal.
+		const orgRow = await pglite.query<{ id: string; slug: string; plan: string }>(
+			`SELECT id, slug, plan FROM "organization" WHERE slug = $1`,
+			[body.org],
+		)
+		const org = orgRow.rows[0]
+		if (!org) {
+			return c.json({ error: `organization '${body.org}' not found` }, 404)
+		}
+
+		// Membership + role (VAL-AUTH-009): the caller must be owner
+		// or admin of the target org. Outsiders / members get 403.
+		// The membership query mirrors the org-list role enrichment
+		// in `org-routes.ts` — same DB shape, same role vocabulary.
+		const memberRow = await pglite.query<{ role: string }>(
+			`SELECT role
+			   FROM "member"
+			  WHERE "userId" = $1
+			    AND "organizationId" = $2`,
+			[identity.userId, org.id],
+		)
+		const role = memberRow.rows[0]?.role
+		if (role !== "owner" && role !== "admin") {
+			return c.json(
+				{
+					error: `publish requires owner or admin role on org '${body.org}'`,
+				},
+				403,
+			)
+		}
+
+		// Plan limit (VAL-SELF-006): only `visibility: "org"` consumes
+		// the `max_private_modules` quota. Public community publishes
+		// bypass this check — public modules are not "private". The
+		// verdict body names both the limit and the plan verbatim so
+		// a caller can route to billing without parsing free text.
+		if (body.visibility === "org") {
+			const verdict = await checkPlanLimit(pglite, org.id, "max_private_modules")
+			if (!verdict.ok) {
+				return c.json(
+					{
+						error: verdict.message,
+						limit: verdict.capability,
+						plan: verdict.plan,
+						usage: verdict.usage,
+						limitValue: verdict.limit,
+					},
+					403,
+				)
+			}
+		}
+
+		// Clone the repo at the tag and read the manifest. The clone
+		// is bounded by `INGEST_CLONE_TIMEOUT_MS` (default 60s); a
+		// stalled remote becomes a 422 with a field-naming message
+		// rather than wedging the request.
+		let clone: Awaited<ReturnType<typeof shallowCloneAtTag>> | null = null
+		try {
+			try {
+				clone = await shallowCloneAtTag(body.repo, body.tag)
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err)
+				return c.json(
+					{
+						error: `could not clone repository at tag '${body.tag}': ${message}`,
+					},
+					422,
+				)
+			}
+
+			const manifest = await extractManifestFields(clone.dir, body.modulePath)
+			if (manifest === null) {
+				return c.json(
+					{
+						error: `manifest not found or unreadable at '${body.modulePath ?? ""}/manifest.ts' (tag '${body.tag}')`,
+					},
+					422,
+				)
+			}
+
+			// Manifest/tag version match (VAL-PUB-024, decision 11):
+			// the served version equals the git tag. Compare against
+			// the tag stripped of any leading `v` (the conventional
+			// git tag prefix). A mismatch is 422 with both values.
+			const tagWithoutV = body.tag.startsWith("v") ? body.tag.slice(1) : body.tag
+			const manifestVersionWithoutV = manifest.version.startsWith("v") ? manifest.version.slice(1) : manifest.version
+			if (manifestVersionWithoutV !== tagWithoutV) {
+				return c.json(
+					{
+						error:
+							`manifest version '${manifest.version}' does not match git tag '${body.tag}' ` +
+							`(decision 11: the served version equals the git tag)`,
+						tag: body.tag,
+						manifestVersion: manifest.version,
+					},
+					422,
+				)
+			}
+
+			// Bare-name rule (VAL-PUB-010, decision 26): bare names
+			// exist only under the official org. A non-official org
+			// must publish a scoped manifest name (`@<orgSlug>/<name>`).
+			// The scope prefix is stripped to derive the row's `name`;
+			// publishing `@otherScope/foo` to `acme` is rejected
+			// because the manifest's scope does not match the target
+			// org (it would otherwise squat in the wrong namespace).
+			let moduleName: string
+			if (org.slug === officialOrg) {
+				// Official org accepts both bare names (`baka-base`)
+				// and scoped names (`@baka/widget` → `widget`).
+				if (manifest.name.startsWith(`@${officialOrg}/`)) {
+					moduleName = manifest.name.slice(`@${officialOrg}/`.length)
+				} else {
+					moduleName = manifest.name
+				}
+			} else {
+				if (manifest.name.includes("/")) {
+					if (!manifest.name.startsWith(`@${org.slug}/`)) {
+						return c.json(
+							{
+								error:
+									`manifest name '${manifest.name}' has a scope that does not match the target org '${org.slug}' ` +
+									`(decision 26); use '@${org.slug}/<name>'`,
+							},
+							422,
+						)
+					}
+					moduleName = manifest.name.slice(`@${org.slug}/`.length)
+				} else {
+					return c.json(
+						{
+							error:
+								`bare module name '${manifest.name}' is reserved for the official org '${officialOrg}' ` +
+								`(decision 26); use a scoped name like '@${org.slug}/${manifest.name}' in the manifest's ` +
+								"`name` field",
+						},
+						422,
+					)
+				}
+			}
+
+			// All checks passed — create the module + version rows in
+			// `pending` status. The worker (next feature) will pick up
+			// the pending rows, run the loadability gate, content-hash,
+			// and pack the tarball.
+			const moduleRow = await upsertModuleRow(pglite, {
+				scope: org.slug,
+				name: moduleName,
+				visibility: body.visibility,
+				tier: "community-unverified",
+				description: "",
+				createdBy: identity.userId,
+			})
+			const moduleId = moduleRow.id
+
+			const versionRow = await pglite.query<{ id: string }>(
+				`INSERT INTO module_versions (module_id, version, commit_sha, content_hash, manifest, status, error)
+				   VALUES ($1, $2, $3, '', $4::jsonb, 'pending', NULL)
+				 ON CONFLICT (module_id, version) DO UPDATE
+				   SET commit_sha = EXCLUDED.commit_sha,
+				       manifest = EXCLUDED.manifest,
+				       status = 'pending',
+				       error = NULL,
+				       updated_at = NOW()
+				 RETURNING id`,
+				[moduleId, body.tag, clone.commitSha, JSON.stringify(manifest.manifest)],
+			)
+			const versionId = versionRow.rows[0]?.id
+			if (!versionId) {
+				throw new Error("publish: failed to create module_versions row")
+			}
+
+			return c.json(
+				{
+					scope: org.slug,
+					name: moduleName,
+					version: body.tag,
+					commitSha: clone.commitSha,
+					status: "pending",
+					visibility: body.visibility,
+					versionId,
+				},
+				202,
+			)
+		} finally {
+			if (clone !== null) {
+				await cleanupClone(clone.dir)
+			}
+		}
+	})
+
+	return app
+}
+
+/**
+ * Reads the publish body and returns a discriminated union. A
+ * syntactically malformed JSON body is a 400 with the parser error;
+ * a non-object body is a 400; a missing body is a 400.
+ */
+type BodyResult = { kind: "ok"; value: unknown } | { kind: "error"; message: string }
+
+async function readBody(request: Request): Promise<BodyResult> {
+	const text = await request.clone().text()
+	if (text.length === 0) {
+		return { kind: "error", message: "request body is empty; expected a JSON object" }
+	}
+	let value: unknown
+	try {
+		value = JSON.parse(text)
+	} catch (err) {
+		const detail = err instanceof Error ? err.message : String(err)
+		return { kind: "error", message: `request body is not valid JSON: ${detail}` }
+	}
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return { kind: "error", message: "request body must be a JSON object" }
+	}
+	return { kind: "ok", value }
+}
+
+/**
+ * Upserts a `modules` row for the given scope/name combination.
+ * The first publish creates the row at `tier: "community-unverified"`
+ * (the worker's screening verdict will update the tier on success);
+ * subsequent publishes of additional versions of the same module
+ * leave the row alone (visibility + tier are mutable only via
+ * unpublish / re-publish flows).
+ *
+ * The unique key `(scope, name)` is the conflict target. The
+ * `description` column is initialized empty and updated by the
+ * worker when it reads the manifest. Returns the upserted row's
+ * id so the version insert can reference it.
+ */
+async function upsertModuleRow(
+	pglite: PGlite,
+	args: {
+		scope: string
+		name: string
+		visibility: "org" | "public"
+		tier: string
+		description: string
+		createdBy: string
+	},
+): Promise<{ id: string; scope: string; name: string }> {
+	const inserted = await pglite.query<{ id: string }>(
+		`INSERT INTO modules (scope, name, visibility, tier, description, created_by)
+		   VALUES ($1, $2, $3, $4, $5, $6)
+		 ON CONFLICT (scope, name) DO UPDATE
+		   SET updated_at = NOW()
+		 RETURNING id`,
+		[args.scope, args.name, args.visibility, args.tier, args.description, args.createdBy],
+	)
+	const id = inserted.rows[0]?.id
+	if (!id) throw new Error("upsertModuleRow: insert returned no id")
+	return { id, scope: args.scope, name: args.name }
+}

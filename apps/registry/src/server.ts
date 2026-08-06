@@ -157,7 +157,11 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 		}
 	}
 
-	const app = buildApp({ auth: betterAuth.auth, pglite: database.pglite })
+	const app = buildApp({
+		auth: betterAuth.auth,
+		pglite: database.pglite,
+		officialOrg: config.officialOrg,
+	})
 
 	const bindHost = process.env.PORT_BIND ?? "127.0.0.1"
 

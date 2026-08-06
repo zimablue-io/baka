@@ -63,12 +63,13 @@ describe("startServer", () => {
 		const handle = await startServer(config)
 		try {
 			const recorded = readFileSync(join(dataDir, "schema_version"), "utf8").trim()
-			// The monetization-seams feature bumps schema_version to "4"
-			// so the 0004_orgs_plan migration is recorded. The data-layer
-			// v2 and auth-marker v3 still run their own migrations
+			// The publish-endpoint feature bumps schema_version to "5"
+			// so the 0005_publish_columns migration is recorded. The
+			// earlier migrations (data-layer v2, auth-marker v3,
+			// monetization-seams v4) still run their own migrations
 			// (idempotent) so the app tables continue to exist after
 			// the bump.
-			expect(recorded).toBe("4")
+			expect(recorded).toBe("5")
 		} finally {
 			await handle.close()
 		}

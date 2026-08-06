@@ -29,7 +29,11 @@ export const modules = pgTable(
 		visibility: varchar("visibility", { length: 16 }).notNull(),
 		tier: varchar("tier", { length: 32 }).notNull(),
 		description: text("description").notNull().default(""),
-		createdBy: uuid("created_by"),
+		// TEXT (not UUID) so it matches Better-Auth's user.id shape.
+		// The publish endpoint records the creating user's id here so
+		// the audit trail is honest. Migration 0005_publish_columns
+		// changed the underlying column type from UUID to TEXT.
+		createdBy: text("created_by"),
 		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 		removedAt: timestamp("removed_at", { withTimezone: true }),

@@ -29,15 +29,15 @@ afterEach(() => {
 })
 
 describe("ensureSchemaVersion (data-layer version bump)", () => {
-	it("CURRENT_SCHEMA_VERSION is the bumped value '4' (monetization seams)", () => {
-		expect(CURRENT_SCHEMA_VERSION).toBe("4")
+	it("CURRENT_SCHEMA_VERSION is the bumped value '5' (publish endpoint, created_by text)", () => {
+		expect(CURRENT_SCHEMA_VERSION).toBe("5")
 	})
 
-	it("writes schema_version='4' on a fresh data dir after migrations", async () => {
+	it("writes schema_version='5' on a fresh data dir after migrations", async () => {
 		const result = await ensureSchemaVersion({ dataDir, pgliteDir })
 		expect(result.ok).toBe(true)
-		if (result.ok) expect(result.version).toBe("4")
-		expect(readSchemaVersion(dataDir)).toBe("4")
+		if (result.ok) expect(result.version).toBe("5")
+		expect(readSchemaVersion(dataDir)).toBe("5")
 	})
 
 	it("is idempotent: a second call after migrations is a no-op", async () => {
@@ -45,7 +45,7 @@ describe("ensureSchemaVersion (data-layer version bump)", () => {
 		expect(first.ok).toBe(true)
 		const second = await ensureSchemaVersion({ dataDir, pgliteDir })
 		expect(second.ok).toBe(true)
-		if (second.ok) expect(second.version).toBe("4")
+		if (second.ok) expect(second.version).toBe("5")
 	})
 
 	it("migrates a v1 data dir in place and applies the app schema", async () => {
@@ -55,7 +55,7 @@ describe("ensureSchemaVersion (data-layer version bump)", () => {
 
 		const result = await ensureSchemaVersion({ dataDir, pgliteDir })
 		expect(result.ok).toBe(true)
-		expect(readSchemaVersion(dataDir)).toBe("4")
+		expect(readSchemaVersion(dataDir)).toBe("5")
 
 		// After migration, the app tables exist.
 		const db = await createDatabase({ dataDir: pgliteDir, startSocket: false })
@@ -138,6 +138,6 @@ describe("ensureSchemaVersion (data-layer version bump)", () => {
 	it("schema_version file content is exactly the version string + newline", async () => {
 		await ensureSchemaVersion({ dataDir, pgliteDir })
 		const raw = readFileSync(join(dataDir, "schema_version"), "utf8")
-		expect(raw).toBe("4\n")
+		expect(raw).toBe("5\n")
 	})
 })

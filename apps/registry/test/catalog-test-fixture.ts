@@ -79,7 +79,7 @@ export async function buildCatalogTestStack(): Promise<CatalogTestStack> {
 
 	await seedBuiltInCatalog(pglite)
 
-	const app = buildApp({ auth: betterAuth.auth, pglite })
+	const app = buildApp({ auth: betterAuth.auth, pglite, officialOrg: "baka" })
 
 	return {
 		app,

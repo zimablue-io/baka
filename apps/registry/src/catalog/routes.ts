@@ -72,39 +72,48 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		}
 		const effectiveTier = tierParam !== undefined && tierParam.length > 0 ? tierParam : null
 
-		const rows = effectiveTier
-			? await pglite.query<ModuleSummaryRow>(
-					`SELECT m.scope, m.name, m.tier, m.visibility, m.description,
-					        v.version   AS latest_version,
-					        v.status    AS latest_status
-					   FROM modules m
-					   LEFT JOIN LATERAL (
-					     SELECT version, status
-					       FROM module_versions
-					      WHERE module_id = m.id
-					      ORDER BY created_at DESC
-					      LIMIT 1
-					   ) v ON TRUE
-					  WHERE m.removed_at IS NULL
-					    AND m.tier = $1
-					  ORDER BY m.scope, m.name`,
-					[effectiveTier],
-				)
-			: await pglite.query<ModuleSummaryRow>(
-					`SELECT m.scope, m.name, m.tier, m.visibility, m.description,
-					        v.version   AS latest_version,
-					        v.status    AS latest_status
-					   FROM modules m
-					   LEFT JOIN LATERAL (
-					     SELECT version, status
-					       FROM module_versions
-					      WHERE module_id = m.id
-					      ORDER BY created_at DESC
-					      LIMIT 1
-					   ) v ON TRUE
-					  WHERE m.removed_at IS NULL
-					  ORDER BY m.scope, m.name`,
-				)
+		// Visibility filter (VAL-AUTH-003, VAL-PUB-016, registry-core
+		// scrutiny regression): anonymous callers and authenticated
+		// non-members see `visibility='public'` modules only; members
+		// of an org see that org's `visibility='org'` modules too.
+		// Existence is never leaked (an org-visibility module never
+		// appears in the list response when the caller cannot prove
+		// membership — matching the 404 semantics on the detail
+		// endpoint).
+		const identity = await resolveIdentity(auth, c.req.raw)
+		const memberSlugs = identity ? await loadMemberSlugs(pglite, identity.userId) : ([] as string[])
+
+		const tierClause = effectiveTier ? "AND m.tier = $1" : ""
+		const tierParamIndex = effectiveTier ? 1 : 0
+		const memberParamIndex = tierParamIndex + 1
+		const visibilityClause =
+			memberSlugs.length > 0
+				? `AND (m.visibility = 'public' OR m.scope = ANY($${memberParamIndex}::text[]))`
+				: `AND m.visibility = 'public'`
+
+		const sql = `
+			SELECT m.scope, m.name, m.tier, m.visibility, m.description,
+			       v.version   AS latest_version,
+			       v.status    AS latest_status
+			  FROM modules m
+			  LEFT JOIN LATERAL (
+			    SELECT version, status
+			      FROM module_versions
+			     WHERE module_id = m.id
+			     ORDER BY created_at DESC
+			     LIMIT 1
+			  ) v ON TRUE
+			 WHERE m.removed_at IS NULL
+			   ${tierClause}
+			   ${visibilityClause}
+			 ORDER BY m.scope, m.name
+		`
+
+		const params: unknown[] = []
+		if (effectiveTier) params.push(effectiveTier)
+		if (memberSlugs.length > 0) params.push(memberSlugs)
+
+		const rows = await pglite.query<ModuleSummaryRow>(sql, params)
 
 		const modules = rows.rows.map((row) => ({
 			scope: row.scope,
@@ -371,4 +380,28 @@ interface ArtifactRow {
 	size: number
 	sha256: string
 	created_at: Date
+}
+
+/**
+ * Returns the set of org slugs the given user is a member of (any
+ * role — owner / admin / member all qualify for visibility). Empty
+ * array when the user is not authenticated or has no memberships.
+ *
+ * The query joins Better-Auth's `member` table to the `organization`
+ * table to map user ids to org slugs in one round trip. The slug list
+ * is fed directly into a PostgreSQL `ANY($1::text[])` so the SQL stays
+ * parameterized (no string interpolation, no SQL injection surface).
+ *
+ * Identity resolution lives one level up (`resolveIdentity`); this
+ * helper trusts the user id passed to it.
+ */
+async function loadMemberSlugs(pglite: PGlite, userId: string): Promise<string[]> {
+	const rows = await pglite.query<{ slug: string }>(
+		`SELECT o.slug
+		   FROM "member" m
+		   JOIN "organization" o ON o.id = m."organizationId"
+		  WHERE m."userId" = $1`,
+		[userId],
+	)
+	return rows.rows.map((r) => r.slug)
 }

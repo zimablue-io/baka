@@ -94,7 +94,7 @@ export async function buildAuthTestStack(options: BuildAuthStackOptions = {}): P
 	})
 	await betterAuth.ensureTables()
 
-	const app = buildApp({ auth: betterAuth.auth, pglite })
+	const app = buildApp({ auth: betterAuth.auth, pglite, officialOrg: "baka" })
 
 	return {
 		app,

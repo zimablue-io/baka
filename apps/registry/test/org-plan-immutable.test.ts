@@ -122,9 +122,10 @@ describe("VAL-AUTH-017 — org plan is not settable through any public API", () 
 	})
 
 	it('POST /v1/publish with a body carrying `plan: "pro"` does not change the org\'s plan', async () => {
-		// /v1/publish is the publish stub (the real flow lands in the
-		// publishing-ingest milestone). The stub must NOT honor a `plan`
-		// field on the incoming body — billing is deferred.
+		// /v1/publish is the real publish endpoint (publishing-ingest
+		// milestone). The body schema is zod `.strict()` so unknown
+		// fields are a 400 — `plan` is rejected with a body that names
+		// the offending field. Billing is deferred entirely.
 		const create = await authedFetch(fx, "/v1/orgs", {
 			method: "POST",
 			apiKey: founder.apiKey,
@@ -137,7 +138,10 @@ describe("VAL-AUTH-017 — org plan is not settable through any public API", () 
 			apiKey: founder.apiKey,
 			body: { repo: "https://github.com/example/example", tag: "v1.0.0", plan: "pro" },
 		})
-		expect(res.status).toBe(200)
+		// Body is rejected with a typed error. The exact status is 400
+		// (field-naming) or 422 (semantic) depending on which check
+		// fires first; either way the body is NOT honored.
+		expect(res.status).toBeGreaterThanOrEqual(400)
 		const plan = await currentPlanForOrg(fx, "acme")
 		expect(plan).toBe("free")
 	})

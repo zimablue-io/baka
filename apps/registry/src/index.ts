@@ -3,8 +3,8 @@ import type { betterAuth } from "better-auth"
 import { Hono } from "hono"
 import { createAuthMount } from "./auth/handlers"
 import { createOrgRoutes } from "./auth/org-routes"
-import { createAuthRoutes } from "./auth/stub-routes"
 import { createCatalogRoutes } from "./catalog/routes"
+import { createPublishRoutes } from "./publish/routes"
 
 /**
  * The registry HTTP app (architecture §4.1, §4.4).
@@ -24,20 +24,29 @@ import { createCatalogRoutes } from "./catalog/routes"
  *                      plugin endpoints).
  *   - /v1/modules*, /v1/modules/:scope/:name[/...]
  *                      (catalog read paths, DB-backed, seeded from
- *                      BUILT_IN_CATALOG — feature: registry-catalog-read-paths).
- *   - /v1/publish     (auth-gated stub; the real publish flow lands in
- *                      the publishing-ingest milestone).
+ *                      BUILT_IN_CATALOG — feature: registry-catalog-read-paths;
+ *                      list endpoint filters by visibility).
+ *   - /v1/publish     (request validation, role + plan-limit gate,
+ *                      pending row creation — feature: publish-endpoint).
  *   - /v1/orgs/*      (org CRUD, membership, invitations, role
  *                      enforcement — feature: registry-orgs).
  *
- * Additional routes (publish metadata, screening, previews, etc.)
- * land in subsequent registry-core milestones and reuse the identity
- * resolver and visibility helpers from `auth/`.
+ * Additional routes (worker-driven ingest, screening, previews,
+ * unpublish, etc.) land in subsequent publishing-ingest milestones
+ * and reuse the identity resolver, plan-limit helper, and visibility
+ * filter from `auth/` and `catalog/`.
  */
 
 export interface AppDeps {
 	auth: ReturnType<typeof betterAuth>
 	pglite: PGlite
+	/**
+	 * The slug of the official org (architecture §8 decision 26).
+	 * Publish route uses it to resolve bare-name scoping at ingest
+	 * time (deferred to the worker); the value is passed through so
+	 * the seam is wired in this milestone.
+	 */
+	officialOrg?: string
 }
 
 /**
@@ -56,18 +65,28 @@ export function buildApp(deps: AppDeps): Hono {
 	const authApp = createAuthMount({ auth: deps.auth })
 	app.route("/", authApp)
 
-	// Auth-aware endpoints: visibility reads + auth-gated writes.
-	const authRoutes = createAuthRoutes({ auth: deps.auth, pglite: deps.pglite })
-	app.route("/", authRoutes)
-
 	// Catalog read paths (DB-backed, seeded from BUILT_IN_CATALOG):
 	//   GET  /v1/modules[?tier=...]
 	//   GET  /v1/modules/:scope/:name
 	//   GET  /v1/modules/:scope/:name/versions
 	//   GET  /v1/modules/:scope/:name/:version
 	// All responses carry Cache-Control: no-store (decision 25).
+	// The list endpoint applies a visibility WHERE clause so
+	// org-visibility modules are hidden from callers without
+	// proven org membership (VAL-AUTH-003, VAL-PUB-016).
 	const catalogRoutes = createCatalogRoutes({ auth: deps.auth, pglite: deps.pglite })
 	app.route("/", catalogRoutes)
+
+	// Publish endpoint (architecture §4.5, decision 30):
+	//   POST /v1/publish — request validation, role enforcement,
+	//                       plan-limit gate, pending row creation.
+	//                       Worker (next milestone) clones + validates.
+	const publishRoutes = createPublishRoutes({
+		auth: deps.auth,
+		pglite: deps.pglite,
+		officialOrg: deps.officialOrg ?? "baka",
+	})
+	app.route("/", publishRoutes)
 
 	// Org management: create, list, invite, accept, list members,
 	// role change, delete. Each route proxies to the Better-Auth

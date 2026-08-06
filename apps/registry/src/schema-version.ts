@@ -37,9 +37,15 @@ import { applyAppMigrations } from "./db/migrate"
  *        this migration only extends the auth-side schema. The column
  *        defaults to `free` and is server-attached: no public API
  *        surface can mutate it (VAL-AUTH-017).
+ *   - 5: publish-endpoint — `modules.created_by` column type changed
+ *        from UUID to TEXT so it can store Better-Auth's user ids
+ *        (which are non-UUID strings). The publish endpoint now records
+ *        the creating user id for audit. No data backfill: existing rows
+ *        keep `NULL` because the column was never populated under the
+ *        UUID shape.
  */
 
-export const CURRENT_SCHEMA_VERSION = "4"
+export const CURRENT_SCHEMA_VERSION = "5"
 
 const SCHEMA_FILE = "schema_version"
 

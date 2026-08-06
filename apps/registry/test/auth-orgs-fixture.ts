@@ -83,7 +83,7 @@ export async function buildOrgTestStack(): Promise<OrgTestStack> {
 	// production server.ts boot order). Idempotent on subsequent boots.
 	await ensureOrgPlanColumn(pglite)
 
-	const app = buildApp({ auth: betterAuth.auth, pglite })
+	const app = buildApp({ auth: betterAuth.auth, pglite, officialOrg: "baka" })
 
 	return {
 		app,

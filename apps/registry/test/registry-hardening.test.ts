@@ -95,7 +95,7 @@ async function buildStack(): Promise<Stack> {
 	})
 	await betterAuth.ensureTables()
 
-	const app = buildApp({ auth: betterAuth.auth, pglite })
+	const app = buildApp({ auth: betterAuth.auth, pglite, officialOrg: "baka" })
 
 	return {
 		app,
