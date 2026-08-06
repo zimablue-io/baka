@@ -52,8 +52,11 @@ export interface AppDeps {
 	/**
 	 * Optional enqueue seam for the ingest worker (architecture §4.5).
 	 * The publish endpoint calls this with the freshly-created
-	 * `module_versions.id`; the production wiring is the
-	 * graphile-worker enqueuer (see `worker/runner.ts`).
+	 * `module_versions.id`. With the polling-loop worker the seam is
+	 * purely a hint — the worker discovers rows by polling
+	 * `module_versions.status='pending'` regardless (decision 35);
+	 * the call exists so tests can observe "publish signaled a new
+	 * row" through a simple counter.
 	 */
 	enqueueIngest?: (versionId: string) => Promise<void>
 	/**

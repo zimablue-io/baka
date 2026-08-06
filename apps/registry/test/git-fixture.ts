@@ -50,12 +50,16 @@ export interface GitFixture {
 			description?: string
 			filePatterns?: string[]
 			requiresReasoning?: boolean
+			validators?: string[]
 			/** When `true` (default), the fixture writes a loadable
-			 *  `action.ts` file. When `false`, the action's directory
-			 *  is created with no `action.ts` so the loadability
-			 *  gate rejects it (VAL-PUB-014 fixture). */
+			 *  `action.ts` file. When `false`, the action's
+			 *  `action.ts` exists but has no WorkflowStep export —
+			 *  the loadability gate fails on the resolution-order
+			 *  check at the loader level (VAL-PUB-014 fixture,
+			 *  scrutiny-round-1 fix). */
 			loadable?: boolean
 		}>
+		moduleValidators?: string[]
 		modulePath?: string
 		tag: string
 		manifestFormat?: "ts" | "json"
@@ -77,7 +81,14 @@ function manifestSource(opts: {
 	version: string
 	description?: string
 	dependencies?: string[]
-	actions?: Array<{ id: string; description?: string; filePatterns?: string[]; requiresReasoning?: boolean }>
+	actions?: Array<{
+		id: string
+		description?: string
+		filePatterns?: string[]
+		requiresReasoning?: boolean
+		validators?: string[]
+	}>
+	moduleValidators?: string[]
 }): string {
 	const description = opts.description ?? `module ${opts.name}`
 	const dependencies = opts.dependencies ?? []
@@ -92,10 +103,11 @@ function manifestSource(opts: {
 	const renderedActions = actions
 		.map(
 			(a) =>
-				`    { id: ${JSON.stringify(a.id)}, description: ${JSON.stringify(a.description ?? "")}, params: [], requiresReasoning: ${a.requiresReasoning ? "true" : "false"}, filePatterns: ${JSON.stringify(a.filePatterns ?? [])}, validators: [] }`,
+				`    { id: ${JSON.stringify(a.id)}, description: ${JSON.stringify(a.description ?? "")}, params: [], requiresReasoning: ${a.requiresReasoning ? "true" : "false"}, filePatterns: ${JSON.stringify(a.filePatterns ?? [])}, validators: ${JSON.stringify(a.validators ?? [])} }`,
 		)
 		.join(",\n")
 	const renderedDeps = dependencies.map((d) => JSON.stringify(d)).join(", ")
+	const renderedModuleValidators = (opts.moduleValidators ?? []).map((v) => JSON.stringify(v)).join(", ")
 	return `export default {
   name: ${JSON.stringify(opts.name)},
   version: ${JSON.stringify(opts.version)},
@@ -105,7 +117,7 @@ function manifestSource(opts: {
   actions: [
 ${renderedActions}
   ],
-  moduleValidators: [],
+  moduleValidators: [${renderedModuleValidators}],
 } satisfies never
 `
 }
@@ -158,8 +170,13 @@ export async function createGitFixture(): Promise<GitFixture> {
 			// version with a diagnostic naming the id).
 			//
 			// When `loadable: false` is set on a specific action, the
-			// directory is created but NO `action.ts` is written — the
-			// worker fails the loadability gate for that action id.
+			// directory is created and the action.ts FILE is written,
+			// but its export set is empty — the loadability gate
+			// fails on the resolution-order check at the loader level
+			// (the contract's stated intent: "the file exists in the
+			// repo; it fails to import"). This is the truthful failure
+			// mode for VAL-PUB-014; the previous "no file written"
+			// fixture tripped the pathExists check instead.
 			const declaredActions = opts.actions ?? [
 				{ id: "noop", description: "no-op action", filePatterns: [], requiresReasoning: false },
 			]
@@ -170,6 +187,19 @@ export async function createGitFixture(): Promise<GitFixture> {
 				if (loadable) {
 					const actionSource = loadableActionSource(action.id)
 					await writeFile(join(actionDir, "action.ts"), actionSource, "utf8")
+				} else {
+					// File EXISTS (so the pathExists check at the
+					// top of the loadability gate does NOT trip), but
+					// the export set is empty — none of the resolution-
+					// order candidates (camelCase(id), camelCase(id)+
+					// "Action", exact id, id+"Action", "default") is
+					// a WorkflowStep, so the gate's loader-resolution
+					// branch fails.
+					await writeFile(
+						join(actionDir, "action.ts"),
+						`// Intentionally unloadable: the file exists so the gate's\n// pathExists check passes, but the export set has no\n// WorkflowStep-shaped symbol — the loadability gate fails on\n// the resolution-order check, naming the action id.\nexport const somethingElse = "not-a-workflow-step";\n`,
+						"utf8",
+					)
 				}
 			}
 
@@ -203,7 +233,14 @@ function manifestToJsonShape(opts: {
 	version: string
 	description?: string
 	dependencies?: string[]
-	actions?: Array<{ id: string; description?: string; filePatterns?: string[]; requiresReasoning?: boolean }>
+	actions?: Array<{
+		id: string
+		description?: string
+		filePatterns?: string[]
+		requiresReasoning?: boolean
+		validators?: string[]
+	}>
+	moduleValidators?: string[]
 }): Record<string, unknown> {
 	return {
 		name: opts.name,
@@ -221,7 +258,7 @@ function manifestToJsonShape(opts: {
 				validators: [],
 			},
 		],
-		moduleValidators: [],
+		moduleValidators: opts.moduleValidators ?? [],
 	}
 }
 

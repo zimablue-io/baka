@@ -59,6 +59,19 @@ export interface IngestVersionPayload {
  *     polling loop's per-cycle ceiling.
  *   - No cloned child process can outlive a timeout: the clone
  *     helper uses an AbortController that kills the child process.
+ *
+ * Error routing invariant (scrutiny-round-1 fix):
+ *   The runner's per-cycle catch (`runner.ts`) only logs to stderr
+ *   — it does NOT mark the row failed. Every error that escapes
+ *   `runIngestJob` must therefore terminate the row failed with
+ *   diagnostics BEFORE the function returns or throws. The single
+ *   `try { ... } catch { markFailed; rethrow }` wrapper below is
+ *   the load-bearing mechanism for this invariant. Pinning test:
+ *   `ingest-worker.test.ts` "an unreachable re-clone after publish
+ *   terminates the row failed with diagnostics" — the bare fixture
+ *   repo is deleted AFTER the publish returns 202 and BEFORE the
+ *   worker re-clones, so the only way the row reaches `failed` is
+ *   via this wrapper.
  */
 
 interface IngestRow {
@@ -66,7 +79,7 @@ interface IngestRow {
 	module_id: string
 	version: string
 	commit_sha: string
-	manifest: ModuleManifest
+	manifest: ModuleManifest & { _publish?: PublishPayload }
 	status: string
 	error: string | null
 	created_at: Date
@@ -78,6 +91,13 @@ interface ModuleRow {
 	name: string
 	visibility: string
 	tier: string
+}
+
+interface PublishPayload {
+	repo: string
+	modulePath: string | null
+	visibility: string
+	publishedAt: string
 }
 
 interface IngestDeps {
@@ -99,14 +119,14 @@ interface ArtifactInput {
  * everything else). Returns when the row reaches a terminal
  * state (`ready` or `failed`).
  *
- * Throws `IngestFailure` for any unexpected error (e.g. the
- * loadability gate's underlying jiti loader crashed). For expected
- * failures (loadability rejected, manifest missing, etc.) the
- * function catches the error, writes the diagnostic to
- * `module_versions.error`, and returns cleanly. The polling loop's
- * next cycle will not pick the row up again (its status is no
- * longer `pending`), so the contract is one polling cycle → one
- * terminal state, never "still ingesting" forever.
+ * Throws `IngestFailure` for any expected failure (loadability
+ * rejected, manifest missing, etc.); the wrapper below converts
+ * those to `markFailed` calls. Unexpected errors (network, DB,
+ * pack, store) follow the same path — they are also errors and
+ * must also reach `failed`. The polling loop's next cycle will
+ * not pick the row up again (its status is no longer `pending`),
+ * so the contract is one polling cycle → one terminal state,
+ * never "still ingesting" forever.
  *
  * The polling worker's claim (`runner.ts`) moved the row from
  * `pending` to `ingesting` BEFORE invoking this function, so the
@@ -117,6 +137,41 @@ interface ArtifactInput {
  * this version".
  */
 export async function runIngestJob(payload: IngestVersionPayload, deps: IngestDeps): Promise<void> {
+	let terminalErr: Error | null = null
+	try {
+		await runIngestJobInner(payload, deps)
+	} catch (err) {
+		// Every failure path — clone, modulePath escape, manifest
+		// load, loadability gate, pack, store, DB — must terminate
+		// the row failed with diagnostics. We rethrow after marking
+		// so the runner's per-cycle catch still observes the failure
+		// for logging, but the row is durable in its terminal state.
+		const message = err instanceof Error ? err.message : String(err)
+		try {
+			await markFailed(deps.pglite, payload.versionId, message)
+		} catch (markErr) {
+			// If even the markFailed write fails, log the secondary
+			// error so the operator can investigate; the row will
+			// still be swept back to `pending` by the next cycle and
+			// the worker will retry on a fresh claim.
+			const secondary = markErr instanceof Error ? markErr.message : String(markErr)
+			process.stderr.write(
+				`[ingest] failed to markFailed for ${payload.versionId}: ${secondary} (original: ${message})\n`,
+			)
+		}
+		terminalErr = err instanceof Error ? err : new Error(String(err))
+		throw terminalErr
+	}
+}
+
+/**
+ * Inner execution: every step is unguarded (the wrapper above
+ * routes ALL exceptions through markFailed). Internal helpers
+ * throw either `IngestFailure` (expected — keeps the source line
+ * in the diagnostic) or plain `Error` (pack/store/DB faults —
+ * the wrapper converts them too).
+ */
+async function runIngestJobInner(payload: IngestVersionPayload, deps: IngestDeps): Promise<void> {
 	const row = await fetchRow(deps.pglite, payload.versionId)
 	if (row === null) {
 		// The row was deleted between claim and execution — should
@@ -138,41 +193,53 @@ export async function runIngestJob(payload: IngestVersionPayload, deps: IngestDe
 
 	const moduleRow = await fetchModule(deps.pglite, row.module_id)
 	if (moduleRow === null) {
-		await markFailed(deps.pglite, payload.versionId, `module row missing for id '${row.module_id}'`)
-		return
+		throw new IngestFailure("manifest", `module row missing for id '${row.module_id}' (cannot determine scope/name)`)
 	}
 
-	const repoRow = await fetchRepo(deps.pglite, row.module_id)
-	if (repoRow === null) {
-		await markFailed(
-			deps.pglite,
-			payload.versionId,
+	// Read repo + modulePath from the INGESTED row's own _publish
+	// payload (scrutiny-round-1 fix #2). Earlier the worker queried
+	// manifest->_publish from the module's NEWEST version row, which
+	// silently redirected an older pending version onto a newer
+	// version's repo/modulePath when two versions were queued
+	// simultaneously. The row's own payload is the canonical source;
+	// `_publish` is written by the publish endpoint at the moment the
+	// row is created.
+	const publish = row.manifest._publish
+	if (!publish || typeof publish.repo !== "string" || publish.repo.length === 0) {
+		throw new IngestFailure(
+			"manifest",
 			`publish body not found for module '${moduleRow.scope}/${moduleRow.name}' (cannot determine repo URL)`,
 		)
-		return
 	}
+	const repoUrl = publish.repo
+	const modulePath = typeof publish.modulePath === "string" && publish.modulePath.length > 0 ? publish.modulePath : null
 
 	// Step 1 — clone (bounded by INGEST_CLONE_TIMEOUT_MS, default 120s).
-	const clone = await shallowCloneAtTag(repoRow.repo_url, row.version).catch((err: unknown) => {
-		const message = err instanceof Error ? err.message : String(err)
-		// Re-thrown as IngestFailure so the worker records the diagnostic
-		// and the version is marked failed honestly.
-		throw new IngestFailure("manifest", `clone failed for ${repoRow.repo_url}@${row.version}: ${message}`)
-	})
+	const clone = await shallowCloneAtTag(repoUrl, row.version)
+
+	// Re-clone commit_sha verification (library/registry-publish-endpoint.md):
+	// The publish endpoint recorded the commit_sha it observed for this
+	// row; if the tag moved between publish and ingest, the re-clone's
+	// sha diverges from the row's commit_sha. In that case the row's
+	// served version would not equal the row's content (decision 11).
+	// We fail the version honestly so a re-publish at the new tag is
+	// required. Without this check, the worker would happily pack a
+	// tarball from a tag-pushed tree that no longer matches what was
+	// originally recorded.
+	if (row.commit_sha.length > 0 && clone.commitSha.length > 0 && clone.commitSha !== row.commit_sha) {
+		await cleanupClone(clone.dir)
+		throw new IngestFailure(
+			"manifest",
+			`re-clone commit_sha '${clone.commitSha}' at tag '${row.version}' differs from the publish-time commit_sha '${row.commit_sha}' — the tag moved; re-publish required`,
+		)
+	}
 
 	try {
 		// Step 2 — locate module dir.
-		const moduleDir = resolveModuleDir(clone.dir, repoRow.module_path)
+		const moduleDir = resolveModuleDir(clone.dir, modulePath)
 
 		// Step 3 — validate manifest (jiti + ModuleManifestSchema).
-		let manifest: ModuleManifest
-		try {
-			manifest = await loadManifest(moduleDir)
-		} catch (err) {
-			const message = err instanceof IngestFailure ? err.message : err instanceof Error ? err.message : String(err)
-			await markFailed(deps.pglite, payload.versionId, `manifest: ${message}`)
-			return
-		}
+		const manifest = await loadManifest(moduleDir)
 
 		// Verify the worker's parsed manifest agrees with the version
 		// the row already records — the publish endpoint did the
@@ -183,23 +250,19 @@ export async function runIngestJob(payload: IngestVersionPayload, deps: IngestDe
 		const rowManifestVersion = stripV((row.manifest as { version?: string }).version ?? "")
 		const freshManifestVersion = stripV(manifest.version)
 		if (rowManifestVersion !== freshManifestVersion) {
-			await markFailed(
-				deps.pglite,
-				payload.versionId,
+			throw new IngestFailure(
+				"manifest",
 				`worker's parsed manifest version '${manifest.version}' disagrees with publish-time version '${rowManifestVersion || "(missing)"}'`,
 			)
-			return
 		}
 
-		// Step 4 — loadability gate (every action resolves through
-		// the real loader).
-		try {
-			await checkLoadability(moduleDir, manifest)
-		} catch (err) {
-			const message = err instanceof IngestFailure ? err.message : err instanceof Error ? err.message : String(err)
-			await markFailed(deps.pglite, payload.versionId, `loadability: ${message}`)
-			return
-		}
+		// Step 4 — loadability gate: every action, every module
+		// validator, and every action validator must resolve through
+		// the real engine loader (scrutiny-round-1 fix #3). Previously
+		// the gate iterated actions only, so a module with a missing
+		// validator file reached `ready` and failed later at user-side
+		// `baka validate` — the dishonesty this gate exists to prevent.
+		await checkLoadability(moduleDir, manifest)
 
 		// Step 5 — content hash + tarball pack.
 		const pack = await packTarball(moduleDir)
@@ -239,41 +302,6 @@ async function fetchModule(pglite: PGlite, moduleId: string): Promise<ModuleRow 
 		moduleId,
 	])
 	return result.rows[0] ?? null
-}
-
-interface RepoUrlRow {
-	repo_url: string
-	module_path: string | null
-}
-
-/**
- * The publish endpoint stores repo + tag + modulePath in the
- * `module_versions.manifest` JSONB (the publish-side parsed shape)
- * but does NOT persist a dedicated repo_url column. This helper
- * reads the repo URL out of the manifest payload, falling back to
- * the publish body's shape if the manifest was malformed at publish
- * time.
- */
-async function fetchRepo(pglite: PGlite, moduleId: string): Promise<RepoUrlRow | null> {
-	// We do not currently persist `repo` and `modulePath` in their
-	// own columns — they live in the publish-time manifest JSONB
-	// under `_publish` keys written by the publish endpoint. The
-	// worker is the canonical consumer of those keys; a row whose
-	// manifest does not carry them is a server bug, not a normal
-	// failure mode.
-	const result = await pglite.query<{ repo_url: string | null; module_path: string | null }>(
-		`SELECT manifest->'_publish'->>'repo'   AS repo_url,
-		        manifest->'_publish'->>'modulePath' AS module_path
-		   FROM module_versions mv
-		  WHERE mv.module_id = $1
-		    AND mv.manifest ? '_publish'
-		  ORDER BY mv.created_at DESC
-		  LIMIT 1`,
-		[moduleId],
-	)
-	const row = result.rows[0]
-	if (!row || !row.repo_url) return null
-	return { repo_url: row.repo_url, module_path: row.module_path }
 }
 
 async function markReady(pglite: PGlite, versionId: string, contentHash: string): Promise<void> {
@@ -335,11 +363,6 @@ function joinSafe(base: string, sub: string): string {
 	// absolute paths. Node's path.join will still collapse leading
 	// `/` in `sub`, so the explicit check above is the actual
 	// defense.
-	return joinFromParts(base, sub)
-}
-
-function joinFromParts(base: string, sub: string): string {
-	// Use a tiny non-recursive join to keep this file's deps small.
 	if (sub.length === 0) return base
 	const left = base.endsWith("/") ? base : `${base}/`
 	return `${left}${sub}`

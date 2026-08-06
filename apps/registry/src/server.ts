@@ -24,16 +24,18 @@ import { sweepStaleIngestingRows } from "./worker/sweep"
  *      gate file. Refuses to boot if the recorded version is newer.
  *   3. Open the database (in-process PGlite + Drizzle client).
  *   4. Start the pglite-socket TCP server on the configured port so
- *      graphile-worker and Better-Auth's Kysely adapter can reach the
- *      same data. `maxConnections=10` per the verified dependency fact.
+ *      Better-Auth's Kysely adapter can reach the same data.
+ *      `maxConnections=10` per the verified dependency fact.
  *   5. Build the Better-Auth instance against a `pg.Pool` wired to the
  *      pglite-socket, then run Better-Auth's introspection-driven
  *      migrations so the auth tables exist.
  *   6. Run the boot-time stale-ingesting sweep (VAL-PUB-028: a kill
  *      mid-ingest must not strand a version).
- *   7. Start the graphile-worker runner (architecture §4.5, embedded
- *      in the same process for self-host simplicity). The worker
- *      wires the IngestEnqueuer the publish endpoint calls.
+ *   7. Start the in-process polling worker (architecture §4.5,
+ *      embedded in the same process for self-host simplicity). The
+ *      worker reads `module_versions.status='pending'` directly via
+ *      `FOR UPDATE SKIP LOCKED` (decision 35; the enqueue seam is a
+ *      hint, not the discovery mechanism).
  *   8. Build the Hono app with auth + pglite + enqueuer wired in, and
  *      bind it to `config.port` on the configured hostname.
  *
@@ -185,7 +187,12 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 	// worker.
 	let worker: WorkerHandle | null = null
 	const enqueueIngest: IngestEnqueuer = createInMemoryEnqueuer()
-	if (process.env.WORKER_DISABLED !== "1") {
+	if (process.env.WORKER_DISABLED === "1") {
+		// Worker disabled (split-process deploy): the in-memory
+		// enqueuer records the seam for tests, but the worker is
+		// not running, so rows stay `pending` until an external
+		// worker process picks them up.
+	} else {
 		worker = await startWorker({
 			pglite: database.pglite,
 			storage,
@@ -195,6 +202,12 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 		// enqueue (in-memory, since there's no separate job queue) so
 		// tests that count enqueues keep working.
 	}
+
+	// The capture list inside `enqueueIngest` grows unbounded in a
+	// long-lived server process; in production it is harmless (only
+	// tests read it), but a periodic `reset()` is the right pattern
+	// once we want to expose telemetry. For v1 the seam stays in
+	// tests-only territory.
 
 	const app = buildApp({
 		auth: betterAuth.auth,
@@ -268,20 +281,5 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 					resolveClose()
 				})
 			}),
-	}
-}
-
-/**
- * Placeholder enqueuer used when the worker is disabled (the
- * `--no-worker` path). The publish endpoint logs (but does not
- * surface) a missing enqueue so operators can spot a split-process
- * deploy where the worker is on another host.
- */
-function createWorkerDisabledEnqueuer(): IngestEnqueuer {
-	return {
-		async enqueue(versionId: string): Promise<number | null> {
-			process.stderr.write(`publish: enqueue skipped for version ${versionId} (worker disabled; row remains pending)\n`)
-			return null
-		},
 	}
 }

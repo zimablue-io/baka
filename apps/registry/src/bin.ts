@@ -3,10 +3,11 @@
  * Bin entry point for `baka-registry` (architecture §4.1, §4.5).
  *
  * Boots the Hono app on the configured port, runs the schema-version gate,
- * and stays up until SIGINT/SIGTERM. The graphile-worker is embedded in
- * the same process by default (self-host simplicity); the `--no-worker`
- * flag splits them for multi-process deploys (e.g. a dedicated worker
- * host pointed at the registry's pglite-socket).
+ * and stays up until SIGINT/SIGTERM. The polling-loop ingest worker is
+ * embedded in the same process by default (self-host simplicity,
+ * decision 35); the `--no-worker` flag splits them for multi-process
+ * deploys (e.g. a dedicated worker host pointed at the registry's
+ * pglite-socket).
  *
  * Env-driven config: see `config.ts`. All defaults boot a working server
  * with zero env vars set.

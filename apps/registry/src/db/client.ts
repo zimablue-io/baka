@@ -2,7 +2,7 @@ import { PGlite } from "@electric-sql/pglite"
 import { PGLiteSocketServer } from "@electric-sql/pglite-socket"
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite"
 import { applyAppMigrations } from "./migrate"
-import * as schema from "./schema"
+import { schema } from "./schema"
 
 /**
  * Database client (architecture §4.2).
@@ -10,11 +10,12 @@ import * as schema from "./schema"
  * One in-process PGlite instance backs two surfaces:
  *   1. A Drizzle ORM client used by Hono route handlers in the same process.
  *   2. A pglite-socket TCP server (port 5444 by default) that exposes the
- *      same PGlite to out-of-process clients (graphile-worker via node-pg).
+ *      same PGlite to out-of-process clients (Better-Auth's Kysely
+ *      adapter via node-pg).
  *
  * The pglite-socket is the proven interop seam (verified dependency fact
  * `library/environment.md`): maxConnections=10 keeps the query queue from
- * deadlocking under the worker's pool; the default of 1 ECONNRESETs under
+ * deadlocking under node-pg pool reuse; the default of 1 ECONNRESETs under
  * any concurrency.
  *
  * Migrations are applied as part of every boot so a self-host cold start
@@ -43,7 +44,8 @@ export interface DatabaseHandle {
 /**
  * The maximum number of concurrent TCP connections the pglite-socket accepts.
  * Architecture §4.2 verified dependency fact: default 1 breaks pooling under
- * graphile-worker; 10 matches the worker's per-process pool size.
+ * node-pg clients (Better-Auth's Kysely adapter, the publish-route clone
+ * helpers, tests); 10 matches the verified per-process pool size.
  */
 const DEFAULT_SOCKET_MAX_CONNECTIONS = 10
 

@@ -4,53 +4,39 @@ import type { IngestVersionPayload } from "./ingest"
 import { runIngestJob } from "./ingest"
 
 /**
- * Ingest polling worker (architecture §4.5).
+ * Ingest polling worker (architecture §4.5, decision 35).
  *
- * This is a hand-rolled polling loop on top of PGlite rather than
- * graphile-worker. The reason is documented in the runner's
- * `_runTaskList` JSDoc below: graphile-worker relies on cross-
- * connection LISTEN/NOTIFY for cross-process job wake-ups, and
- * through pglite-socket the cross-connection NOTIFY signal is
- * unreliable (see `library/environment.md`: "Cross-connection
- * LISTEN/NOTIFY is unreliable through the socket mux"). With the
- * default `localQueue` enabled, a worker can deadlock on its
- * deferred promise after completing a job, waiting for a wake-up
- * that never arrives. With `localQueue.size: -1` to disable
- * batching, the worker DOES poll correctly via its `pollInterval`,
- * but the prepared-statement-based `getJobs` query path interacts
- * poorly with pglite-socket's connection multiplexing and the
- * worker consistently reports zero available jobs even when rows
- * are present in `graphile_worker._private_jobs`.
- *
- * The polling loop below avoids graphile-worker entirely: it
- * claims pending rows from `module_versions` directly via a
- * `SELECT ... FOR UPDATE SKIP LOCKED` query on the table the
- * registry owns, then dispatches each claim to the same
- * `runIngestJob` orchestrator that graphile-worker would have
- * called. The semantics are identical:
+ * Hand-rolled `FOR UPDATE SKIP LOCKED` polling loop on top of
+ * PGlite. A dedicated job-queue package was tried first and
+ * proved incompatible with pglite-socket's connection
+ * multiplexer (prepared-statement caching interacts poorly with
+ * the per-connection rotation); the polling loop below avoids
+ * that pathway by claiming rows from `module_versions` directly
+ * — see `library/registry-ingest-worker.md` and architecture §8
+ * decision 35 for the full abandonment note. The semantics are
+ * identical to a job-queue abstraction:
  *
  *   - jobs are claimed atomically (UPDATE-WHERE RETURNING)
- *   - jobs are at-least-once (the same `module_versions.id` may
- *     appear in the next poll if the previous attempt failed
- *     mid-flight; the atomic claim ensures only one worker can
- *     hold the row at a time)
+ *   - jobs are at-least-once (a crash mid-flight leaves the row
+ *     in `ingesting`; the boot + per-cycle sweep resets it)
  *   - jobs are idempotent (the orchestrator writes the same
  *     terminal state regardless of how many times it runs)
  *
- * Tradeoffs vs graphile-worker:
+ * Tradeoffs vs a dedicated job queue:
  *
- *   - (+) No prepared-statement / LISTEN-NOTIFY interaction with
- *     pglite-socket — the polling loop works deterministically.
- *   - (+) Job retention is the `module_versions` row itself; the
- *     `graphile_worker._private_jobs` and `graphile_worker.jobs`
- *     tables are never touched.
+ *   - (+) No pglite-socket interaction issues.
+ *   - (+) Job retention is the `module_versions` row itself; no
+ *     extra job-queue tables to keep in sync.
  *   - (-) No cron support (out of scope for v1).
- *   - (-) No retry-with-backoff (out of scope; the v1 contract
- *     is `maxAttempts: 1`).
- *   - (-) No distributed worker coordination; if multiple
- *     `startWorker` instances run, each polls independently and
- *     the `FOR UPDATE SKIP LOCKED` claim is the only coordination
- *     mechanism. That's exactly what v1 needs.
+ *   - (-) No retry-with-backoff (out of scope; v1 is `maxAttempts: 1`).
+ *   - (-) No distributed coordination beyond `FOR UPDATE SKIP LOCKED`.
+ *
+ * Error-routing invariant: the per-cycle catch below ONLY logs to
+ * stderr — it does NOT mark the row failed. Errors that escape
+ * `runIngestJob` leave the row cycling `ingesting → pending` on
+ * every sweep forever; the executor's own wrapper (`ingest.ts`)
+ * is the load-bearing place where every failure path routes
+ * through `markFailed`. Do not weaken that contract.
  */
 
 export interface WorkerHandle {
@@ -68,19 +54,18 @@ export interface WorkerHandle {
 }
 
 /**
- * Polls `module_versions` for rows with status='pending' or
- * status='failed' (after a sweep) and dispatches them to
- * `runIngestJob`. Returns a handle the caller can use to stop the
- * worker.
+ * Polls `module_versions` for rows with status='pending' (after a
+ * sweep may have just reset stale ingesting rows) and dispatches
+ * them to `runIngestJob`. Returns a handle the caller can use to
+ * stop the worker.
  *
  * Configuration:
  *
- *   - `pollIntervalMs` defaults to 1000 (1s). Matches the
- *     graphile-worker config we previously used.
- *   - The atomic claim query resets `status='pending'` rows with
- *     `updated_at < now() - 5 minutes` from `ingesting` back to
+ *   - `pollIntervalMs` defaults to 1000 (1s).
+ *   - The atomic claim query resets `status='ingesting'` rows whose
+ *     `updated_at` is older than `sweepThresholdMs` back to
  *     `pending` on each cycle. This is the "sweep" described in
- *     `architecture §4.5` — it converges kill-resume cases.
+ *     architecture §4.5 — it converges kill-resume cases.
  */
 export async function startWorker(opts: {
 	pglite: PGlite
@@ -103,22 +88,30 @@ export async function startWorker(opts: {
 			try {
 				await currentJob
 			} catch {
-				// ignore — currentJob rejects on failure, but the
-				// failure is already recorded in module_versions.error
+				// ignore — the row's terminal state is already
+				// durable in module_versions; the runner's own
+				// catch recorded it for the operator log.
 			}
 		}
 	}
 
+	let resolveStopped: () => void
 	const stoppedPromise = new Promise<void>((resolve) => {
-		// We can't await a void on stop directly because `stop` is
-		// defined above as a closure that captures `stopped`. Instead,
-		// poll `stopped` at the cycle boundary.
-		const checkStopped = (): void => {
-			if (stopped) resolve()
-			else setTimeout(checkStopped, 50)
-		}
-		checkStopped()
+		resolveStopped = resolve
 	})
+
+	function checkStopped(): void {
+		// Polled at cycle boundaries; the `stop` closure sets the
+		// flag and may also be awaiting `currentJob`. Reaching
+		// `stopped=true` from both pathways is the shared exit
+		// signal.
+		if (stopped) {
+			resolveStopped()
+		} else {
+			setTimeout(checkStopped, 50)
+		}
+	}
+	checkStopped()
 
 	// Boot sweep: reset stale `ingesting` rows so a kill-resume
 	// converges. We do this once at boot and once per cycle (the
@@ -146,8 +139,10 @@ export async function startWorker(opts: {
 			await currentJob
 			jobsProcessed++
 		} catch (err) {
-			// Cycle errors are logged but do not stop the worker —
-			// the next poll will retry.
+			// Cycle errors are logged but do not stop the worker.
+			// Note: runIngestJob's wrapper has ALREADY marked the
+			// claimed row failed before this catch fires — the
+			// log line is for operator forensics only.
 			process.stderr.write(`[worker] cycle error: ${(err as Error).message}\n`)
 		}
 	}

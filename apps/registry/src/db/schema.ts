@@ -43,9 +43,6 @@ export const modules = pgTable(
 	}),
 )
 
-type ModuleRow = typeof modules.$inferSelect
-type NewModuleRow = typeof modules.$inferInsert
-
 // ---------------------------------------------------------------------------
 // module_versions
 // ---------------------------------------------------------------------------
@@ -72,9 +69,6 @@ const moduleVersions = pgTable(
 	}),
 )
 
-type ModuleVersionRow = typeof moduleVersions.$inferSelect
-type NewModuleVersionRow = typeof moduleVersions.$inferInsert
-
 // ---------------------------------------------------------------------------
 // artifacts
 // ---------------------------------------------------------------------------
@@ -97,9 +91,6 @@ const artifacts = pgTable(
 	}),
 )
 
-type ArtifactRow = typeof artifacts.$inferSelect
-type NewArtifactRow = typeof artifacts.$inferInsert
-
 // ---------------------------------------------------------------------------
 // screening_results
 // ---------------------------------------------------------------------------
@@ -121,9 +112,6 @@ const screeningResults = pgTable(
 	}),
 )
 
-type ScreeningResultRow = typeof screeningResults.$inferSelect
-type NewScreeningResultRow = typeof screeningResults.$inferInsert
-
 // ---------------------------------------------------------------------------
 // plan_limits
 // ---------------------------------------------------------------------------
@@ -134,9 +122,6 @@ const planLimits = pgTable("plan_limits", {
 	maxMembers: integer("max_members").notNull(),
 	maxRegistries: integer("max_registries").notNull(),
 })
-
-type PlanLimitRow = typeof planLimits.$inferSelect
-type NewPlanLimitRow = typeof planLimits.$inferInsert
 
 // ---------------------------------------------------------------------------
 // app_migrations (internal tracking; not part of architecture §4.3)
@@ -152,9 +137,7 @@ const appMigrations = pgTable("app_migrations", {
 	appliedAt: timestamp("applied_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
-type AppMigrationRow = typeof appMigrations.$inferSelect
-
-const schema = {
+export const schema = {
 	modules,
 	moduleVersions,
 	artifacts,

@@ -2,17 +2,22 @@
  * Ingest enqueue seam (architecture §4.5).
  *
  * The publish endpoint calls `enqueueIngest(versionId)` after
- * creating a new `module_versions` row. With the in-process
- * polling worker, this is a best-effort "tell the worker a new
- * row is ready" notification — the worker actually discovers
- * pending rows by polling `module_versions.status='pending'` on
- * each cycle. The `jobKey` dedup story moves from graphile-worker's
- * `_private_jobs.key` UNIQUE to the worker claim's
- * `FOR UPDATE SKIP LOCKED` atomicity (VAL-PUB-026): two concurrent
- * polls pick two different rows, never the same one.
+ * creating a new `module_versions` row. With the polling-loop
+ * worker this is a best-effort "tell the worker a new row is
+ * ready" notification — the worker actually discovers pending
+ * rows by polling `module_versions.status='pending'` on each
+ * cycle. Concurrent same-tag publishes are deduped by the
+ * `(module_id, version)` UNIQUE index (VAL-PUB-026) plus the
+ * worker's `FOR UPDATE SKIP LOCKED` claim: two concurrent polls
+ * pick two different rows, never the same one.
  *
  * The seam is still useful for tests that want to assert "the
  * publish endpoint signaled a new row" without inspecting the DB.
+ *
+ * The capture list is bounded only by the number of publishes the
+ * process serves since the last `reset()`. Tests reset it between
+ * cases; production servers never read it. A telemetry seam can
+ * consume it in v2.
  */
 
 export interface IngestEnqueuer {

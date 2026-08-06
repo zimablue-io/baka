@@ -31,6 +31,18 @@ import { listModuleFiles } from "./manifest"
  * The caller hands the produced bytes to the storage adapter for
  * content-addressed dedup (architecture §4.5: same hash → same
  * blob).
+ *
+ * Scrutiny-round-1 hygiene fix: the ustar header layout pins the
+ * 100-byte `name` field at offset 0 (scrutiny-round-1 finding:
+ * `Buffer.write` clamps to 512 bytes, not to 100, so a >100-byte
+ * path was bleeding into the mode/uid/gid fields before the explicit
+ * mode write stomped it). For paths longer than 100 bytes we use
+ * the POSIX.1-1988 (ustar) `prefix` field at offset 345 with a
+ * 155-byte capacity — splits "packages/something/deep/nested/<id>/action.ts"
+ * into prefix="packages/something/deep/nested" + name="<id>/action.ts",
+ * or, for paths that exceed 100 bytes WITHOUT a split-able directory
+ * boundary (the rare case for a very long action id), we fail
+ * loudly rather than corrupt the tarball silently.
  */
 
 interface PackResult {
@@ -38,6 +50,9 @@ interface PackResult {
 	contentHash: string
 	size: number
 }
+
+const USTAR_NAME_MAX = 100
+const USTAR_PREFIX_MAX = 155
 
 /**
  * Packs the module's tree at `moduleDir` into a deterministic tar
@@ -76,13 +91,24 @@ export async function packTarball(moduleDir: string): Promise<PackResult> {
 /**
  * Builds a POSIX ustar header for the given file path + length.
  * mtime, uid, and gid are pinned to 0 so the archive is
- * deterministic across runs and platforms.
+ * deterministic across runs and platforms. Paths longer than 100
+ * bytes use the `prefix` field at offset 345 (155-byte capacity)
+ * so they do not corrupt the mode/uid/gid region.
  */
 function buildTarHeader(name: string, size: number): Buffer {
 	const header = Buffer.alloc(512)
-	header.write(name, 0, "utf8")
+	// Clear the prefix field (bytes 345..500) — `Buffer.alloc` already
+	// zeroes the buffer, but write this defensively to make the intent
+	// explicit and guard against future mutations.
+	for (let i = 345; i < 500; i++) header[i] = 0
+
+	const { name: nameField, prefix } = splitUstarName(name)
+	header.write(nameField, 0, "utf8")
 	// Pad name with NULs if shorter than 100 chars.
-	for (let i = name.length; i < 100; i++) header[i] = 0
+	for (let i = nameField.length; i < USTAR_NAME_MAX; i++) header[i] = 0
+	if (prefix.length > 0) {
+		header.write(prefix, 345, "utf8")
+	}
 	header.write("0000644", 100, "ascii") // file mode
 	header.write("0000000", 108, "ascii") // uid
 	header.write("0000000", 116, "ascii") // gid
@@ -98,6 +124,34 @@ function buildTarHeader(name: string, size: number): Buffer {
 	header[154] = 0
 	header[155] = 0x20
 	return header
+}
+
+/**
+ * Split a relative path into the (name, prefix) pair that fits the
+ * ustar header's two string fields. Returns `{ name, prefix }`
+ * where `prefix` is empty when the name alone fits in 100 bytes.
+ *
+ * The split tries the longest directory prefix that keeps the
+ * trailing `name` portion within 100 bytes AND keeps the prefix
+ * itself within 155 bytes. If no such split exists (a leaf name
+ * longer than 100 bytes on its own), this throws — the caller
+ * surfaces the diagnostic so the situation is visible.
+ */
+function splitUstarName(path: string): { name: string; prefix: string } {
+	if (path.length <= USTAR_NAME_MAX) {
+		return { name: path, prefix: "" }
+	}
+	const slash = path.lastIndexOf("/")
+	if (slash > 0) {
+		const prefixCandidate = path.slice(0, slash)
+		const nameCandidate = path.slice(slash + 1)
+		if (nameCandidate.length <= USTAR_NAME_MAX && prefixCandidate.length <= USTAR_PREFIX_MAX) {
+			return { name: nameCandidate, prefix: prefixCandidate }
+		}
+	}
+	throw new Error(
+		`cannot encode path '${path}' into a ustar header (leaf longer than ${USTAR_NAME_MAX} bytes and no split-able directory prefix within ${USTAR_PREFIX_MAX} bytes)`,
+	)
 }
 
 function computeTarChecksum(header: Buffer): number {

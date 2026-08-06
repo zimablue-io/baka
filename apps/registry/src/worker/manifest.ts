@@ -16,12 +16,14 @@ import { createJiti } from "jiti"
  * loader (the same resolution order the engine uses at runtime,
  * pinned by VAL-FOUND-021).
  *
- * Two failure modes return null:
- *   - `loadManifest(moduleDir)` returns null when the manifest is
- *     missing, syntactically invalid, or fails schema validation.
- *   - `checkLoadability(moduleDir, manifest)` returns null on
- *     success, or an `IngestError` naming the action that failed to
- *     resolve when any action is unloadable.
+ * Scrutiny-round-1 fix #3: the loadability gate now extends beyond
+ * `manifest.actions` to module validators (`_shared/validators/<id>.ts`,
+ * id in `manifest.moduleValidators`) and per-action validators
+ * (`<actionId>/validators/<id>.ts`, id in `action.validators`). The
+ * engine's real resolution paths are at `packages/ast-tooling/src/
+ * action-loader.ts` (`loadModuleValidator` and `loadActionValidator`);
+ * the gate here mirrors them so a module that declares a missing or
+ * unloadable validator cannot reach `ready`.
  */
 
 interface IngestError {
@@ -58,24 +60,54 @@ export async function loadManifest(moduleDir: string): Promise<ModuleManifest> {
 }
 
 /**
- * Walks the module's `<actionId>/action.ts` exports and verifies
- * each declared action id resolves through the engine's resolution
- * order:
- *   camelCase(id), camelCase(id)+"Action", exact id, id+"Action",
- *   "default" — pinned by VAL-FOUND-021.
+ * Walks the module's `action.ts` exports and the validator files
+ * the manifest declares, and verifies every id resolves through
+ * the engine's real loader. Pinned by VAL-FOUND-021 for actions
+ * and by `packages/ast-tooling/src/action-loader.ts`'s
+ * `loadModuleValidator` / `loadActionValidator` for validators.
  *
- * Throws `IngestFailure` naming the first unloadable action id. The
- * worker catches and stores the action id in the row's `error`
- * column so the validator can pin VAL-PUB-014.
+ * Throws `IngestFailure` naming the first unloadable id. The row
+ * terminates `failed` with the diagnostic so callers can pin
+ * VAL-PUB-014 (action), and the new validator cases (missing
+ * module validator, missing action validator) get the same
+ * treatment.
  */
 export async function checkLoadability(moduleDir: string, manifest: ModuleManifest): Promise<void> {
 	const jiti = createJiti(moduleDir, { interopDefault: true })
+
+	// Module-level validators: `_shared/validators/<kebabId>.ts`. jiti
+	// throws a non-IngestFailure on syntax errors; we rewrap so the
+	// wrapper in `ingest.ts` records the diagnostic verbatim.
+	for (const validatorId of manifest.moduleValidators ?? []) {
+		const validatorPath = join(moduleDir, "_shared", "validators", `${kebabCase(validatorId)}.ts`)
+		if (!(await pathExists(validatorPath))) {
+			throw new IngestFailure("loadability", `module validator '${validatorId}' has no file at '${validatorPath}'`)
+		}
+		try {
+			const mod = jiti(validatorPath) as Record<string, unknown>
+			const fn = (mod[validatorId] ?? mod.default) as unknown
+			if (typeof fn !== "function") {
+				throw new IngestFailure(
+					"loadability",
+					`module validator '${validatorId}' must export a function named '${validatorId}' (or as the default export)`,
+				)
+			}
+		} catch (err) {
+			if (err instanceof IngestFailure) throw err
+			const message = err instanceof Error ? err.message : String(err)
+			throw new IngestFailure(
+				"loadability",
+				`module validator '${validatorId}' at '${validatorPath}' failed to load: ${message}`,
+			)
+		}
+	}
+
+	// Per-action files and per-action validators. Action resolution
+	// order is pinned by VAL-FOUND-021: camelCase(id), camelCase(id)+
+	// "Action", exact id, id+"Action", "default".
 	for (const action of manifest.actions) {
 		const actionDir = join(moduleDir, action.id)
 		const actionPath = join(actionDir, "action.ts")
-		// Per-load check: confirm the file exists before invoking
-		// jiti (jiti throws on ENOENT, but the resolution-order check
-		// below is the gate the validation contract exercises).
 		if (!(await pathExists(actionPath))) {
 			throw new IngestFailure("loadability", `action '${action.id}' has no action.ts at '${actionPath}'`)
 		}
@@ -88,6 +120,34 @@ export async function checkLoadability(moduleDir: string, manifest: ModuleManife
 					`expected one of '${toCamelCase(action.id)}', '${toCamelCase(action.id)}Action', ` +
 					`'${action.id}', '${action.id}Action', or a default export`,
 			)
+		}
+		// Per-action validators (architecture §4.5 + action-loader.ts
+		// `loadActionValidator`): live at `<actionId>/validators/<kebabId>.ts`.
+		for (const validatorId of action.validators ?? []) {
+			const validatorPath = join(actionDir, "validators", `${kebabCase(validatorId)}.ts`)
+			if (!(await pathExists(validatorPath))) {
+				throw new IngestFailure(
+					"loadability",
+					`action '${action.id}' validator '${validatorId}' has no file at '${validatorPath}'`,
+				)
+			}
+			try {
+				const validatorMod = jiti(validatorPath) as Record<string, unknown>
+				const fn = (validatorMod[validatorId] ?? validatorMod.default) as unknown
+				if (typeof fn !== "function") {
+					throw new IngestFailure(
+						"loadability",
+						`action '${action.id}' validator '${validatorId}' must export a function named '${validatorId}' (or as the default export)`,
+					)
+				}
+			} catch (err) {
+				if (err instanceof IngestFailure) throw err
+				const message = err instanceof Error ? err.message : String(err)
+				throw new IngestFailure(
+					"loadability",
+					`action '${action.id}' validator '${validatorId}' at '${validatorPath}' failed to load: ${message}`,
+				)
+			}
 		}
 	}
 }
@@ -162,6 +222,16 @@ async function pathExists(p: string): Promise<boolean> {
 
 function toCamelCase(id: string): string {
 	return id.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())
+}
+
+/**
+ * Convert a camelCase validator id (e.g. "hasPackageJson") to its
+ * kebab-case filename stem (e.g. "has-package-json"). Mirrors
+ * `validatorFilename` in `packages/ast-tooling/src/action-loader.ts`
+ * so the gate's path layout exactly matches the engine's.
+ */
+function kebabCase(id: string): string {
+	return id.replace(/[A-Z]/g, (m, offset) => (offset > 0 ? "-" : "") + m.toLowerCase())
 }
 
 /**

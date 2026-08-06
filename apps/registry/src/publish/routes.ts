@@ -46,12 +46,17 @@ import { isStrictSemver } from "./semver"
  * clone is cleaned up on every exit path so /tmp does not fill
  * up under concurrent publishes.
  *
- * The endpoint does NOT enqueue a worker job in this milestone —
- * the worker (next milestone) picks up pending rows via a
- * polling task. The pending row carries the manifest source
- * the worker can ingest directly; the publish endpoint also
- * writes the commit sha it observed into the row so the worker
- * does not have to re-clone just to verify pinning.
+ * The endpoint signals the worker's in-memory enqueuer and writes
+ * the pending row in the same transaction. The polling-loop worker
+ * (decision 35) discovers the row by polling
+ * `module_versions.status='pending'` regardless of the in-memory
+ * hint, so a process restart mid-publish does not strand the row.
+ * The pending row carries the manifest source the worker can ingest
+ * directly; the publish endpoint also writes the commit sha it
+ * observed into the row so the worker does not have to re-clone
+ * just to verify pinning (the worker does re-clone for the
+ * loadability gate + tarball pack; the row's commit_sha is the
+ * canonical pin it verifies the re-clone against).
  *
  * Visibility defaulting (decision 30): `visibility` defaults to
  * `"org"` when omitted. The default is private so a typo in the
@@ -345,20 +350,20 @@ export function createPublishRoutes(deps: PublishRoutesDeps): Hono {
 				throw new Error("publish: failed to create module_versions row")
 			}
 
-			// Enqueue the ingest job (architecture §4.5 step: "enqueues
-			// ingest job"). The enqueue is async and durable — graphile-
-			// worker persists the job to its `graphile_worker.jobs`
-			// table so a process restart mid-enqueue leaves the row
-			// recoverable (the worker picks up pending rows on the
-			// next poll, and the boot sweep resets stale `ingesting`
-			// rows for the kill-resume case).
+			// Signal the worker (architecture §4.5 step: "enqueues
+			// ingest job"). The polling-loop worker (decision 35)
+			// discovers rows by polling `module_versions.status='
+			// pending'`, so the in-memory enqueue is a hint only —
+			// tests can assert "publish signaled a new row" against
+			// it, and a process restart mid-publish is recovered by
+			// the next poll cycle regardless.
 			//
 			// The enqueue is best-effort: a failure here does NOT
-			// roll back the publish. The version row is durable; the
-			// job can be re-enqueued by the boot sweep on the next
-			// worker start (the stale-ingesting sweep re-enqueues
-			// too). Returning a 202 with the versionId is honest —
-			// the row IS tracked; the worker will pick it up.
+			// roll back the publish. The version row is durable and
+			// the polling worker will pick it up on its next pass
+			// (the stale-ingesting sweep converges kill-resume too).
+			// Returning a 202 with the versionId is honest — the row
+			// IS tracked; the worker will pick it up.
 			if (enqueueIngest) {
 				try {
 					await enqueueIngest(versionId)

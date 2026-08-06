@@ -4,7 +4,7 @@ export default defineConfig({
 	test: {
 		include: ["test/**/*.test.ts"],
 		// Some suites (notably the ingest-worker end-to-end stack)
-		// run a real PGlite socket + graphile-worker, which needs
+		// run a real PGlite socket + polling worker, which needs
 		// well over the 5s default per test. Tests that do
 		// multiple publishes can compound waits, so we set a
 		// generous per-test ceiling.

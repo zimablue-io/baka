@@ -18,17 +18,17 @@ import { startWorker, type WorkerHandle } from "../src/worker/runner"
  * VAL-PUB-003 / 004 / 008 / 009 / 012 / 014 / 015 / 018 / 022 /
  * 023 / 026 / 027 / 028).
  *
- * Boots a real PGlite + Better-Auth + Hono stack, then starts a
- * graphile-worker runner against the same data via pglite-socket.
+ * Boots a real PGlite + Better-Auth + Hono stack, then starts the
+ * polling-loop worker against the same data via pglite-socket.
  * The publish endpoint is wired with a real enqueuer so a normal
- * `POST /v1/publish` produces a real `ingest_module_version` job
- * that the worker picks up on its next poll.
+ * `POST /v1/publish` produces a row the worker picks up on its
+ * next poll.
  *
  * Each test gets its own data dir, port, and fixture so workers
  * and storage are isolated. The fixture exposes `waitForTerminal`
  * for assertions that need to poll until a version reaches
- * `ready` / `failed` (the worker's pollInterval is 1000ms; the
- * helper polls the DB every 200ms with a 30s ceiling).
+ * `ready` / `failed` (the worker's pollInterval is 250ms in this
+ * fixture; the helper polls the DB every 200ms with a 30s ceiling).
  */
 
 export interface IngestTestStack {
@@ -185,8 +185,7 @@ export async function buildIngestTestStack(opts: { officialOrg?: string } = {}):
 
 	// Start the polling worker LAST so it observes rows that the
 	// app creates via the publish endpoint. The worker reads
-	// `module_versions.status='pending'` directly; no graphile-
-	// worker coordination needed.
+	// `module_versions.status='pending'` directly.
 	const worker = await startWorker({
 		pglite,
 		storage,

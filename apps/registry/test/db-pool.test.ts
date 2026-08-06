@@ -11,12 +11,12 @@ import { createDatabase } from "../src/db/client"
  * server on an ephemeral port and exercises multiple concurrent clients
  * through node-pg to prove the pool discipline holds.
  *
- * The real graphile-worker process is NOT booted here; this is the
- * prerequisite check that the pool will not wedge under concurrent
- * connections when the worker lands in milestone 3.
+ * The pool supports Better-Auth's Kysely adapter (which the runtime
+ * authentication path uses), the publish-route clone helpers, and any
+ * future out-of-process worker pointing at the socket. They all reuse
+ * the same verified 10-slot discipline.
  *
- * `pg` is a devDep used purely for this harness. graphile-worker
- * (milestone 3) ships its own node-pg transitively.
+ * `pg` is a devDep used purely for this harness.
  */
 
 let dataDir: string
