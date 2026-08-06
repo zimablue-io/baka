@@ -74,6 +74,20 @@ describe("startServer", () => {
 		}
 	})
 
+	it("uses STORAGE_DIR for content-addressed blobs", async () => {
+		const config = loadConfig(env({ STORAGE_DIR: "objects" }), dataDir)
+		const handle = await startServer(config)
+		try {
+			const content = Buffer.from("server-wired storage")
+			const stored = await handle.storage.put(content)
+
+			expect(await handle.storage.get(stored.key)).toEqual(content)
+			expect(readFileSync(join(dataDir, "objects", stored.key))).toEqual(content)
+		} finally {
+			await handle.close()
+		}
+	})
+
 	it("refuses to boot (process.exit) when the data dir has a newer schema_version", async () => {
 		// Seed a newer version than the binary supports, then expect startServer
 		// to invoke process.exit(1) BEFORE returning. We intercept the exit.

@@ -7,6 +7,7 @@ import type { RegistryConfig } from "./config"
 import { createDatabase, type DatabaseHandle } from "./db/client"
 import { buildApp } from "./index"
 import { ensureSchemaVersion } from "./schema-version"
+import { createFilesystemStorage, type StorageAdapter } from "./storage"
 
 /**
  * Server bootstrap (architecture §4.1, §4.2, §4.4).
@@ -38,6 +39,7 @@ interface ServerHandle {
 	url: () => string
 	database: DatabaseHandle
 	betterAuth: BetterAuthHandle
+	storage: StorageAdapter
 	close: () => Promise<void>
 }
 
@@ -135,12 +137,14 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 	logStartupLine(config, gate.version, actualPort)
 
 	const url = () => `http://127.0.0.1:${actualPort}`
+	const storage = createFilesystemStorage(config.storageDir)
 
 	return {
 		port: actualPort,
 		url,
 		database,
 		betterAuth,
+		storage,
 		close: () =>
 			new Promise<void>((resolveClose, reject) => {
 				server.close(async (err) => {
