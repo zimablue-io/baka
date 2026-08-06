@@ -1,0 +1,11 @@
+{
+	"extends": "@repo/typescript-config/base.json",
+	"compilerOptions": {
+		"lib": ["es2022"],
+		"types": ["node"],
+		"module": "ESNext",
+		"moduleResolution": "Bundler"
+	},
+	"include": ["src", "test", "vitest.config.ts"],
+	"exclude": ["node_modules", "dist"]
+}
