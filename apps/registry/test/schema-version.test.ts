@@ -12,6 +12,10 @@ import { CURRENT_SCHEMA_VERSION, ensureSchemaVersion, readSchemaVersion } from "
  *
  * The schema version lives at `<dataDir>/schema_version` as a plain string
  * (one integer per line).
+ *
+ * The data layer bumps CURRENT_SCHEMA_VERSION to 2; the migrator opens
+ * PGlite at `pgliteDir` and applies the app-schema SQL before writing the
+ * gate file.
  */
 
 function makeTmpDataDir(): string {
@@ -19,9 +23,11 @@ function makeTmpDataDir(): string {
 }
 
 let dataDir: string
+let pgliteDir: string
 
 beforeEach(() => {
 	dataDir = makeTmpDataDir()
+	pgliteDir = join(dataDir, "pg")
 })
 
 afterEach(() => {
@@ -51,22 +57,22 @@ describe("schema_version", () => {
 	})
 
 	describe("ensureSchemaVersion", () => {
-		it("writes the current version when the data dir is fresh", () => {
-			const result = ensureSchemaVersion(dataDir)
+		it("writes the current version when the data dir is fresh", async () => {
+			const result = await ensureSchemaVersion({ dataDir, pgliteDir })
 			expect(result).toEqual({ ok: true, version: CURRENT_SCHEMA_VERSION })
 			expect(readSchemaVersion(dataDir)).toBe(CURRENT_SCHEMA_VERSION)
 		})
 
-		it("proceeds when the existing version equals the current version", () => {
+		it("proceeds when the existing version equals the current version", async () => {
 			writeFileSync(join(dataDir, "schema_version"), `${CURRENT_SCHEMA_VERSION}\n`, "utf8")
-			const result = ensureSchemaVersion(dataDir)
+			const result = await ensureSchemaVersion({ dataDir, pgliteDir })
 			expect(result.ok).toBe(true)
 		})
 
-		it("refuses to boot when the data dir has a newer version than the binary supports", () => {
+		it("refuses to boot when the data dir has a newer version than the binary supports", async () => {
 			const newerVersion = String(Number.parseInt(CURRENT_SCHEMA_VERSION, 10) + 1)
 			writeFileSync(join(dataDir, "schema_version"), `${newerVersion}\n`, "utf8")
-			const result = ensureSchemaVersion(dataDir)
+			const result = await ensureSchemaVersion({ dataDir, pgliteDir })
 			expect(result.ok).toBe(false)
 			if (!result.ok) {
 				expect(result.error.toLowerCase()).toContain("newer")
@@ -75,17 +81,17 @@ describe("schema_version", () => {
 			}
 		})
 
-		it("does NOT modify a newer-versioned data dir (forward-only)", () => {
+		it("does NOT modify a newer-versioned data dir (forward-only)", async () => {
 			const newerVersion = String(Number.parseInt(CURRENT_SCHEMA_VERSION, 10) + 1)
 			writeFileSync(join(dataDir, "schema_version"), `${newerVersion}\n`, "utf8")
-			ensureSchemaVersion(dataDir)
+			await ensureSchemaVersion({ dataDir, pgliteDir })
 			expect(readSchemaVersion(dataDir)).toBe(newerVersion)
 		})
 
-		it("upgrades an older-versioned data dir in place (forward-only migrations)", () => {
+		it("upgrades an older-versioned data dir in place (forward-only migrations)", async () => {
 			const olderVersion = String(Number.parseInt(CURRENT_SCHEMA_VERSION, 10) - 1)
 			writeFileSync(join(dataDir, "schema_version"), `${olderVersion}\n`, "utf8")
-			const result = ensureSchemaVersion(dataDir)
+			const result = await ensureSchemaVersion({ dataDir, pgliteDir })
 			expect(result.ok).toBe(true)
 			expect(readSchemaVersion(dataDir)).toBe(CURRENT_SCHEMA_VERSION)
 		})

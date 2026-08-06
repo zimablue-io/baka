@@ -63,7 +63,11 @@ describe("startServer", () => {
 		const handle = await startServer(config)
 		try {
 			const recorded = readFileSync(join(dataDir, "schema_version"), "utf8").trim()
-			expect(recorded).toBe("1")
+			// The data-layer feature bumps schema_version to "2" so the app
+			// schema (modules, module_versions, artifacts, screening_results,
+			// plan_limits) is migrated at boot. The scaffold's v1 has no
+			// app tables yet.
+			expect(recorded).toBe("2")
 		} finally {
 			await handle.close()
 		}

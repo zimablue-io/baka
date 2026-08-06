@@ -1,5 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import { PGlite } from "@electric-sql/pglite"
+import { applyAppMigrations } from "./db/migrate"
 
 /**
  * Schema version (architecture §8 decision 28, forward-only).
@@ -7,17 +9,24 @@ import { join } from "node:path"
  * The registry data dir records a `schema_version` as a single integer
  * string in `<dataDir>/schema_version`. Bumping this constant is the only
  * way to change the on-disk shape; migrations between versions run at boot
- * in `applyMigrations`.
+ * via `applyAppMigrations`.
  *
  * Boot rules:
  *   - data dir absent or unreadable → treated as fresh (write current).
- *   - existing version < current → run forward migrations, then write current.
+ *   - existing version < current → open PGlite, run unapplied migrations,
+ *     then write current.
  *   - existing version === current → no-op.
  *   - existing version > current → REFUSE boot. Migrations are forward-only
  *     and an older binary cannot know how to read newer data.
+ *
+ * Version history:
+ *   - 1: scaffold (no app tables; just the on-disk version file).
+ *   - 2: data layer — modules, module_versions, artifacts, screening_results,
+ *        plan_limits (architecture §4.3) + the internal app_migrations
+ *        tracking table.
  */
 
-export const CURRENT_SCHEMA_VERSION = "1"
+export const CURRENT_SCHEMA_VERSION = "2"
 
 const SCHEMA_FILE = "schema_version"
 
@@ -55,15 +64,24 @@ function compareVersions(a: string, b: string): number {
  *
  * Returns `{ ok: false, error }` when the recorded version is NEWER than
  * the binary supports — the caller MUST refuse to boot (forward-only).
+ *
+ * The PGlite at `pgliteDir` is opened transiently to run migrations and
+ * closed before returning. The HTTP server binds only after this resolves,
+ * so a migration failure keeps the port free.
  */
-export function ensureSchemaVersion(dataDir: string): EnsureSchemaVersionResult {
-	if (!existsSync(dataDir)) {
-		mkdirSync(dataDir, { recursive: true })
+export async function ensureSchemaVersion(opts: {
+	dataDir: string
+	pgliteDir: string
+}): Promise<EnsureSchemaVersionResult> {
+	if (!existsSync(opts.dataDir)) {
+		mkdirSync(opts.dataDir, { recursive: true })
 	}
 
-	const existing = readSchemaFile(dataDir)
+	const existing = readSchemaFile(opts.dataDir)
 	if (existing === null) {
-		writeFileSync(join(dataDir, SCHEMA_FILE), `${CURRENT_SCHEMA_VERSION}\n`, "utf8")
+		// Fresh data dir — open PGlite, apply migrations, write the gate file.
+		await runMigrations(opts.pgliteDir)
+		writeFileSync(join(opts.dataDir, SCHEMA_FILE), `${CURRENT_SCHEMA_VERSION}\n`, "utf8")
 		return { ok: true, version: CURRENT_SCHEMA_VERSION }
 	}
 
@@ -79,19 +97,19 @@ export function ensureSchemaVersion(dataDir: string): EnsureSchemaVersionResult 
 		}
 	}
 
-	applyMigrations(dataDir, existing)
-	writeFileSync(join(dataDir, SCHEMA_FILE), `${CURRENT_SCHEMA_VERSION}\n`, "utf8")
+	// Older version: apply migrations forward, then write the gate file.
+	// The migration runner is idempotent (it skips already-applied migrations)
+	// so re-running it after a crash leaves the data dir in a consistent state.
+	await runMigrations(opts.pgliteDir)
+	writeFileSync(join(opts.dataDir, SCHEMA_FILE), `${CURRENT_SCHEMA_VERSION}\n`, "utf8")
 	return { ok: true, version: CURRENT_SCHEMA_VERSION }
 }
 
-/**
- * Forward-only migration hook. Called when the recorded version is older
- * than `CURRENT_SCHEMA_VERSION`. Each future bump adds a branch here.
- *
- * The scaffold milestone has no schema-changing tables yet (the data
- * layer feature lands in the next milestone), so this is a no-op for
- * version 1.
- */
-function applyMigrations(_dataDir: string, _from: string): void {
-	// Intentionally empty. Future: switch (_from) { case "1": /* … */ break }
+async function runMigrations(pgliteDir: string): Promise<void> {
+	const pglite = await PGlite.create(pgliteDir)
+	try {
+		await applyAppMigrations(pglite)
+	} finally {
+		await pglite.close()
+	}
 }

@@ -1,24 +1,33 @@
 import { existsSync, mkdirSync } from "node:fs"
 import { serve } from "@hono/node-server"
 import type { RegistryConfig } from "./config"
+import { createDatabase, type DatabaseHandle } from "./db/client"
 import app from "./index"
 import { ensureSchemaVersion } from "./schema-version"
 
 /**
- * Server bootstrap (architecture §4.1).
+ * Server bootstrap (architecture §4.1, §4.2).
  *
  * Responsibilities:
- *   1. Ensure the data dir exists.
- *   2. Run the schema-version gate (decision 28, forward-only).
- *   3. Bind the Hono app to `config.port` on the configured hostname.
+ *   1. Ensure the data dir, storage dir, and pglite dir exist.
+ *   2. Run the schema-version gate (decision 28, forward-only) — opens
+ *      PGlite transiently, applies every unapplied migration, writes the
+ *      gate file. Refuses to boot if the recorded version is newer.
+ *   3. Open the database (in-process PGlite + Drizzle client).
+ *   4. Start the pglite-socket TCP server on the configured port so
+ *      graphile-worker (milestone 3) and out-of-process clients can reach
+ *      the same data. `maxConnections=10` per the verified dependency fact.
+ *   5. Bind the Hono app to `config.port` on the configured hostname.
  *
- * Returns an `http.Server` so the caller can shut it down cleanly.
- * The process entry point (`bin.ts`) wires that to SIGINT/SIGTERM.
+ * Returns the live `DatabaseHandle` plus an `http.Server` handle so the
+ * caller can shut everything down cleanly. The process entry point
+ * (`bin.ts`) wires that to SIGINT/SIGTERM.
  */
 
 interface ServerHandle {
 	port: number
 	url: () => string
+	database: DatabaseHandle
 	close: () => Promise<void>
 }
 
@@ -43,12 +52,27 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 		mkdirSync(config.pgliteDir, { recursive: true })
 	}
 
-	const gate = ensureSchemaVersion(config.dataDir)
+	const gate = await ensureSchemaVersion({
+		dataDir: config.dataDir,
+		pgliteDir: config.pgliteDir,
+	})
 	if (!gate.ok) {
 		process.stderr.write(`baka-registry: refusing to boot — ${gate.error}\n`)
 		// Hard exit: a newer-schema data dir is unrecoverable without an upgrade.
 		process.exit(1)
 	}
+
+	// Open the database (applies any migrations that did not run during the
+	// gate — applyAppMigrations is idempotent, so this is safe) and start
+	// the pglite-socket so graphile-worker can connect. The HTTP server
+	// only binds after both succeed, so a socket failure keeps the HTTP
+	// port free too.
+	const database = await createDatabase({
+		dataDir: config.pgliteDir,
+		socketPort: config.pgliteSocketPort,
+		socketHost: process.env.PGLITE_SOCKET_HOST ?? "127.0.0.1",
+		startSocket: true,
+	})
 
 	// Bind to localhost (loopback only). The architecture exposes port 4300
 	// on 0.0.0.0 only when BASE_URL implies a public host; for v1 the
@@ -87,11 +111,21 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 	return {
 		port: actualPort,
 		url,
+		database,
 		close: () =>
 			new Promise<void>((resolveClose, reject) => {
-				server.close((err) => {
-					if (err) reject(err)
-					else resolveClose()
+				server.close(async (err) => {
+					if (err) {
+						reject(err)
+						return
+					}
+					try {
+						await database.close()
+					} catch (closeErr) {
+						reject(closeErr as Error)
+						return
+					}
+					resolveClose()
 				})
 			}),
 	}
