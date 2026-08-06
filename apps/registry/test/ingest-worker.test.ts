@@ -669,6 +669,11 @@ describe("ingest pipeline", () => {
 				tag: "v1.0.0",
 			})
 
+			// Stop the in-process worker so the row stays pending
+			// until the fixture repo is deleted — the 250ms poll
+			// would otherwise race the delete.
+			await fx.worker.stop()
+
 			const res = await fx.app.request("/v1/publish", {
 				method: "POST",
 				headers: { "content-type": "application/json", "x-api-key": fx.keys.owner },
@@ -681,13 +686,16 @@ describe("ingest pipeline", () => {
 			])
 			expect(row.rows[0]?.status).toBe("pending")
 
-			// Now delete the bare fixture repo BEFORE the worker
-			// re-clones. The polling worker has up to its
-			// `pollIntervalMs` (250ms in this fixture) to pick the
-			// row up; we delete immediately after publish accepts,
-			// racing it but reliable in practice — the runIngestJob
-			// wrapper turns every clone failure into markFailed.
+			// Delete the bare fixture repo before the worker
+			// re-clones; the runIngestJob wrapper turns every
+			// clone failure into markFailed.
 			await git.cleanup()
+
+			// Restart the worker so it claims the pending row and
+			// hits the clone failure.
+			fx.worker = await import("../src/worker/runner").then((mod) =>
+				mod.startWorker({ pglite: fx.pglite, storage: fx.storage, pollIntervalMs: 250 }),
+			)
 
 			const terminal = await fx.waitForTerminal(versionId, { timeoutMs: 10_000 })
 			expect(terminal.status).toBe("failed")
@@ -896,6 +904,12 @@ describe("ingest pipeline", () => {
 				tag: "v1.0.0",
 			})
 
+			// Stop the in-process worker so it cannot claim the
+			// row before the tag move lands — the 250ms poll would
+			// otherwise race the fixture mutation and ingest the
+			// pre-move sha to `ready`.
+			await fx.worker.stop()
+
 			// Step 2 — publish, capture the recorded commit_sha
 			// (which is the sha of A at publish time).
 			const res = await fx.app.request("/v1/publish", {
@@ -930,12 +944,13 @@ describe("ingest pipeline", () => {
 				stdio: "ignore",
 			})
 
-			// Poll until terminal. The version may reach `failed`
-			// either because the worker's re-clone caught the
-			// post-tag-move commit_sha OR because the worker lost
-			// the row (the per-cycle sweep reset it back to
-			// pending, then re-claim, then re-clone). Either way
-			// the diagnostic must name the divergence.
+			// Restart the worker; its re-clone observes the
+			// post-move sha, which differs from the row's recorded
+			// sha, so the version must fail honestly.
+			fx.worker = await import("../src/worker/runner").then((mod) =>
+				mod.startWorker({ pglite: fx.pglite, storage: fx.storage, pollIntervalMs: 250 }),
+			)
+
 			const terminal = await fx.waitForTerminal(versionId, { timeoutMs: 10_000 })
 			expect(terminal.status).toBe("failed")
 			expect(terminal.error ?? "").toMatch(/commit_sha.*differs|tag moved|differ/i)
