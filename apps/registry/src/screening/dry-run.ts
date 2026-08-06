@@ -55,12 +55,12 @@ import { writePreviewRecord } from "./preview-record"
  * `--allow-fs-*`.
  */
 
-export const OWN_TREE_ONLY_POLICY =
+const OWN_TREE_ONLY_POLICY =
 	"screening executes only the module's own tree; manifest dependencies are preserved verbatim and are NOT fetched or installed; any runtime import outside the module's own tree is reported honestly"
 
-export const DEFAULT_DRY_RUN_TIMEOUT_MS = 60_000
+const DEFAULT_DRY_RUN_TIMEOUT_MS = 60_000
 
-export interface PreviewFile {
+interface PreviewFile {
 	path: string
 	contentHash: string
 	size: number
@@ -128,7 +128,7 @@ export interface DryRunResultFailure {
 
 export type DryRunResult = DryRunResultSuccess | DryRunResultFailure
 
-export interface RunDryRunOptions {
+interface RunDryRunOptions {
 	moduleDir: string
 	manifest: ModuleManifest
 	storage: StorageAdapter

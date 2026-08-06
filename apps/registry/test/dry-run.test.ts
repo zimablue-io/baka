@@ -193,16 +193,16 @@ export default {
 			}
 			expect(body.screening?.verdict).toBe("failed")
 			const perAction = body.screening?.dryRun?.perAction ?? []
-			const escape = perAction.find((p) => p.actionId === "escape")
-			expect(escape).toBeDefined()
-			expect(escape?.status).toBe("failed")
+			const escapeAction = perAction.find((p) => p.actionId === "escape")
+			expect(escapeAction).toBeDefined()
+			expect(escapeAction?.status).toBe("failed")
 			// The action's `execute()` returned `{ success: false,
 			// error: leaked }` — the leaked value is the canary
 			// content if the read succeeded, or `BLOCKED:...`
 			// otherwise. Either way, the verdict text surfaces
 			// the canary attempt honestly and never claims screened.
-			expect(escape?.error ?? "").toContain("BLOCKED")
-			expect(escape?.error ?? "").not.toContain(canaryContent)
+			expect(escapeAction?.error ?? "").toContain("BLOCKED")
+			expect(escapeAction?.error ?? "").not.toContain(canaryContent)
 
 			// Canary file content is unchanged.
 			expect(readFileSync(canaryPath, "utf8")).toBe(canaryContent)

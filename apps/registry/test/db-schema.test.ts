@@ -62,8 +62,8 @@ async function listConstraints(pglite: import("@electric-sql/pglite").PGlite, ta
 }
 
 describe("registry app schema (architecture §4.3)", () => {
-	it("CURRENT_SCHEMA_VERSION is '5' (publish endpoint, created_by text)", () => {
-		expect(CURRENT_SCHEMA_VERSION).toBe("5")
+	it("CURRENT_SCHEMA_VERSION is '6' (sandboxed dry-run, screening_previews)", () => {
+		expect(CURRENT_SCHEMA_VERSION).toBe("6")
 	})
 
 	it("creates the five app tables after boot", async () => {

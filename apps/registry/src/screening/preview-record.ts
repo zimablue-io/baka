@@ -21,7 +21,7 @@ import type { PerActionResult } from "./dry-run"
  * UPSERT semantics on (version_id, action_id): a re-run of the dry-run
  * overwrites the previous row cleanly via `ON CONFLICT ... DO UPDATE`.
  */
-export type PreviewState = "rendered" | "needs-llm" | "failed" | "timed-out"
+type PreviewState = "rendered" | "needs-llm" | "failed" | "timed-out"
 
 interface PreviewFileRow {
 	path: string

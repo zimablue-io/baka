@@ -300,7 +300,7 @@ async function runIngestJobInner(payload: IngestVersionPayload, deps: IngestDeps
 		if (moduleRow.visibility === "public") {
 			const staticResult = await runStaticScan(moduleDir, manifest)
 			if (!staticResult.passed) {
-				await runScreeningFailureStep(deps.pglite, payload.versionId, manifest, staticResult)
+				await runScreeningFailureStep(deps.pglite, payload.versionId, staticResult)
 				return
 			}
 			await runDryRunStep(deps, payload.versionId, moduleDir, manifest, staticResult)
@@ -391,41 +391,6 @@ function stripV(value: string): string {
 }
 
 /**
- * Runs the static capability scan (architecture §4.6 layer 1) over
- * the cloned module and records the result in `screening_results`.
- *
- * Two outcomes:
- *
- *   - scan passes → call `runDryRunStep` (layer 2).
- *   - scan fails  → call `runScreeningFailureStep`, which writes
- *     the failure record and throws so the wrapper marks the
- *     version failed.
- *
- * The screening_results row is UPSERTED on `version_id` so a
- * re-run of the worker over the same row (operator-driven re-publish
- * at a different tag, etc.) leaves a coherent record. Subsequent
- * layers (dry-run, validator gate) will overwrite the row with their
- * own payload in the same UPSERT path.
- */
-async function runScreeningStep(
-	pglite: PGlite,
-	versionId: string,
-	moduleDir: string,
-	manifest: ModuleManifest,
-): Promise<void> {
-	const result = await runStaticScan(moduleDir, manifest)
-	if (result.passed) {
-		await writeScreeningResult(pglite, versionId, {
-			verdict: "unverified",
-			staticScan: result,
-			dryRun: null,
-		})
-		return
-	}
-	await runScreeningFailureStep(pglite, versionId, manifest, result)
-}
-
-/**
  * Static-scan failure branch. Writes the failure row, then throws
  * `IngestFailure` so the worker wrapper marks the version failed
  * with the diagnostic. No dry-run is invoked when the static scan
@@ -434,7 +399,6 @@ async function runScreeningStep(
 async function runScreeningFailureStep(
 	pglite: PGlite,
 	versionId: string,
-	manifest: ModuleManifest,
 	result: Awaited<ReturnType<typeof runStaticScan>>,
 ): Promise<never> {
 	await writeScreeningResult(pglite, versionId, {
