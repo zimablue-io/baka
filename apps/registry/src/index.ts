@@ -2,6 +2,7 @@ import type { PGlite } from "@electric-sql/pglite"
 import type { betterAuth } from "better-auth"
 import { Hono } from "hono"
 import { createAuthMount } from "./auth/handlers"
+import { createOrgRoutes } from "./auth/org-routes"
 import { createAuthRoutes } from "./auth/stub-routes"
 
 /**
@@ -22,8 +23,10 @@ import { createAuthRoutes } from "./auth/stub-routes"
  *                      plugin endpoints).
  *   - /v1/modules/:scope/:name
  *                      (visibility-aware read).
- *   - /v1/orgs, /v1/publish, /v1/orgs/:slug/invite
- *                      (auth-gated writes; 401 without auth).
+ *   - /v1/publish     (auth-gated stub; the real publish flow lands in
+ *                      the publishing-ingest milestone).
+ *   - /v1/orgs/*      (org CRUD, membership, invitations, role
+ *                      enforcement — feature: registry-orgs).
  *
  * Additional routes (publish metadata, catalog search, screening,
  * previews, etc.) land in subsequent registry-core milestones and
@@ -54,6 +57,12 @@ export function buildApp(deps: AppDeps): Hono {
 	// Auth-aware endpoints: visibility reads + auth-gated writes.
 	const authRoutes = createAuthRoutes({ auth: deps.auth, pglite: deps.pglite })
 	app.route("/", authRoutes)
+
+	// Org management: create, list, invite, accept, list members,
+	// role change, delete. Each route proxies to the Better-Auth
+	// organization plugin so role enforcement lives in one place.
+	const orgRoutes = createOrgRoutes({ auth: deps.auth })
+	app.route("/", orgRoutes)
 
 	return app
 }
