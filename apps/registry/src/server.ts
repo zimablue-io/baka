@@ -3,6 +3,7 @@ import { serve } from "@hono/node-server"
 import { type BetterAuthHandle, createBetterAuth } from "./auth/better-auth"
 import { createPgPool } from "./auth/kysely-db"
 import { applySeedPlans, ensureOrgPlanColumn } from "./auth/plan-limits"
+import { seedBuiltInCatalog } from "./catalog/seed"
 import type { RegistryConfig } from "./config"
 import { createDatabase, type DatabaseHandle } from "./db/client"
 import { buildApp } from "./index"
@@ -109,6 +110,13 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 	// are kept verbatim. A malformed value fails fast at boot with a
 	// field-naming error.
 	await applySeedPlans(database.pglite, config.seedPlans)
+
+	// Seed the built-in catalog (architecture §2 / §4.5, decision 17).
+	// Inserts baka-base / sdd / ts-style under the official `baka` scope
+	// at `tier: "official"` and `visibility: "public"`, with one ready
+	// version per module. Idempotent — a re-run against an already-seeded
+	// data dir is a no-op.
+	await seedBuiltInCatalog(database.pglite)
 
 	const app = buildApp({ auth: betterAuth.auth, pglite: database.pglite })
 

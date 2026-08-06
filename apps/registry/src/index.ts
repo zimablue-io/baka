@@ -4,6 +4,7 @@ import { Hono } from "hono"
 import { createAuthMount } from "./auth/handlers"
 import { createOrgRoutes } from "./auth/org-routes"
 import { createAuthRoutes } from "./auth/stub-routes"
+import { createCatalogRoutes } from "./catalog/routes"
 
 /**
  * The registry HTTP app (architecture §4.1, §4.4).
@@ -21,16 +22,17 @@ import { createAuthRoutes } from "./auth/stub-routes"
  *   - /api/auth/*     (Better-Auth handler: GitHub OAuth, session
  *                      cookies, get-session, organization + api-key
  *                      plugin endpoints).
- *   - /v1/modules/:scope/:name
- *                      (visibility-aware read).
+ *   - /v1/modules*, /v1/modules/:scope/:name[/...]
+ *                      (catalog read paths, DB-backed, seeded from
+ *                      BUILT_IN_CATALOG — feature: registry-catalog-read-paths).
  *   - /v1/publish     (auth-gated stub; the real publish flow lands in
  *                      the publishing-ingest milestone).
  *   - /v1/orgs/*      (org CRUD, membership, invitations, role
  *                      enforcement — feature: registry-orgs).
  *
- * Additional routes (publish metadata, catalog search, screening,
- * previews, etc.) land in subsequent registry-core milestones and
- * reuse the identity resolver and visibility helpers from `auth/`.
+ * Additional routes (publish metadata, screening, previews, etc.)
+ * land in subsequent registry-core milestones and reuse the identity
+ * resolver and visibility helpers from `auth/`.
  */
 
 export interface AppDeps {
@@ -57,6 +59,15 @@ export function buildApp(deps: AppDeps): Hono {
 	// Auth-aware endpoints: visibility reads + auth-gated writes.
 	const authRoutes = createAuthRoutes({ auth: deps.auth, pglite: deps.pglite })
 	app.route("/", authRoutes)
+
+	// Catalog read paths (DB-backed, seeded from BUILT_IN_CATALOG):
+	//   GET  /v1/modules[?tier=...]
+	//   GET  /v1/modules/:scope/:name
+	//   GET  /v1/modules/:scope/:name/versions
+	//   GET  /v1/modules/:scope/:name/:version
+	// All responses carry Cache-Control: no-store (decision 25).
+	const catalogRoutes = createCatalogRoutes({ auth: deps.auth, pglite: deps.pglite })
+	app.route("/", catalogRoutes)
 
 	// Org management: create, list, invite, accept, list members,
 	// role change, delete. Each route proxies to the Better-Auth

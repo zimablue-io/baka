@@ -210,6 +210,9 @@ importers:
       '@hono/node-server':
         specifier: ^1.13.0
         version: 1.19.14(hono@4.12.25)
+      '@repo/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       better-auth:
         specifier: 1.6.25
         version: 1.6.25(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.4)(@types/pg@8.20.4)(kysely@0.29.4)(pg@8.22.0))(pg@8.22.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.8(@types/node@22.19.21)(@vitest/coverage-v8@4.1.8)(vite@8.0.16(@types/node@22.19.21)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))
