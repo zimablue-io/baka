@@ -5,6 +5,7 @@ import { createAuthMount } from "./auth/handlers"
 import { createOrgRoutes } from "./auth/org-routes"
 import { createCatalogRoutes } from "./catalog/routes"
 import { createPublishRoutes } from "./publish/routes"
+import type { StorageAdapter } from "./storage"
 
 /**
  * The registry HTTP app (architecture §4.1, §4.4).
@@ -55,6 +56,12 @@ export interface AppDeps {
 	 * graphile-worker enqueuer (see `worker/runner.ts`).
 	 */
 	enqueueIngest?: (versionId: string) => Promise<void>
+	/**
+	 * Optional storage adapter for the tarball download endpoint
+	 * (VAL-PUB-007). When unset, GET /v1/download/* returns 503
+	 * (server-side configuration missing, not a client error).
+	 */
+	storage?: StorageAdapter
 }
 
 /**
@@ -82,7 +89,11 @@ export function buildApp(deps: AppDeps): Hono {
 	// The list endpoint applies a visibility WHERE clause so
 	// org-visibility modules are hidden from callers without
 	// proven org membership (VAL-AUTH-003, VAL-PUB-016).
-	const catalogRoutes = createCatalogRoutes({ auth: deps.auth, pglite: deps.pglite })
+	const catalogRoutes = createCatalogRoutes({
+		auth: deps.auth,
+		pglite: deps.pglite,
+		storage: deps.storage,
+	})
 	app.route("/", catalogRoutes)
 
 	// Publish endpoint (architecture §4.5, decision 30):

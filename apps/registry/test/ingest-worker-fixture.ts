@@ -122,11 +122,15 @@ export async function buildIngestTestStack(opts: { officialOrg?: string } = {}):
 
 	// Build the app FIRST so the publish endpoint can enqueue (it
 	// records the enqueue against an in-memory list — the actual
-	// row discovery is done by the polling worker below).
+	// row discovery is done by the polling worker below). The
+	// storage adapter is wired in so the download endpoint can
+	// serve the tarball after the worker promotes a version to
+	// ready (VAL-PUB-007).
 	const app = buildApp({
 		auth: betterAuth.auth,
 		pglite,
 		officialOrg,
+		storage,
 	})
 
 	// Seed users, orgs, and roles (mirrors publish-endpoint-fixture).

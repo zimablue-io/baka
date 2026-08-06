@@ -2,6 +2,8 @@ import type { PGlite } from "@electric-sql/pglite"
 import type { betterAuth } from "better-auth"
 import { Hono } from "hono"
 import { resolveIdentity } from "../auth/identity"
+import { compareSemver } from "../semver-compare"
+import type { StorageAdapter } from "../storage"
 
 /**
  * Catalog read paths (architecture §4.5, decision 25 / 31).
@@ -47,10 +49,18 @@ function isCatalogTier(value: string): value is CatalogTier {
 interface CatalogRoutesDeps {
 	auth: ReturnType<typeof betterAuth>
 	pglite: PGlite
+	/**
+	 * Storage adapter for serving the tarball artifact. The download
+	 * endpoint (VAL-PUB-007) reads the blob via this adapter; all other
+	 * read endpoints serve JSON only. Optional so test fixtures that
+	 * only exercise the JSON reads can skip wiring storage; the
+	 * download endpoint returns 503 when `storage` is not provided.
+	 */
+	storage?: StorageAdapter
 }
 
 export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
-	const { auth, pglite } = deps
+	const { auth, pglite, storage } = deps
 	const app = new Hono()
 
 	// GET /v1/modules?tier=...
@@ -91,18 +101,24 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 				? `AND (m.visibility = 'public' OR m.scope = ANY($${memberParamIndex}::text[]))`
 				: `AND m.visibility = 'public'`
 
+		// The catalog list returns one row per visible module with
+		// the highest-precedence `ready` version (semver order per
+		// decision 11, NOT insertion order). We fetch the module
+		// metadata + every ready version in one query, then pick the
+		// max semver in JS. The published version is preferred over
+		// pending / failed versions — a freshly failed publish must
+		// never become the latest installable pointer.
 		const sql = `
-			SELECT m.scope, m.name, m.tier, m.visibility, m.description,
-			       v.version   AS latest_version,
-			       v.status    AS latest_status
+			SELECT m.id            AS module_id,
+			       m.scope         AS scope,
+			       m.name          AS name,
+			       m.tier          AS tier,
+			       m.visibility    AS visibility,
+			       m.description   AS description,
+			       v.version       AS version,
+			       v.status        AS status
 			  FROM modules m
-			  LEFT JOIN LATERAL (
-			    SELECT version, status
-			      FROM module_versions
-			     WHERE module_id = m.id
-			     ORDER BY created_at DESC
-			     LIMIT 1
-			  ) v ON TRUE
+			  LEFT JOIN module_versions v ON v.module_id = m.id AND v.status = 'ready'
 			 WHERE m.removed_at IS NULL
 			   ${tierClause}
 			   ${visibilityClause}
@@ -113,17 +129,53 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		if (effectiveTier) params.push(effectiveTier)
 		if (memberSlugs.length > 0) params.push(memberSlugs)
 
-		const rows = await pglite.query<ModuleSummaryRow>(sql, params)
+		const rows = await pglite.query<ModuleVersionRow>(sql, params)
 
-		const modules = rows.rows.map((row) => ({
-			scope: row.scope,
-			name: row.name,
-			tier: row.tier,
-			visibility: row.visibility,
-			description: row.description,
-			latestVersion: row.latest_version,
-			latestStatus: row.latest_status,
-		}))
+		// Group by module; pick the highest-precedence `ready` version
+		// via `compareSemver`. A module with zero `ready` versions
+		// (still being ingested, all versions failed) gets a null
+		// latestVersion — the catalog then surfaces the module but
+		// without a installable version pointer (the detail endpoint
+		// serves the full version history, including failures).
+		const byModule = new Map<
+			string,
+			{
+				scope: string
+				name: string
+				tier: string
+				visibility: string
+				description: string
+				latestVersion: string | null
+				latestStatus: string | null
+			}
+		>()
+		for (const row of rows.rows) {
+			const key = `${row.scope}/${row.name}`
+			let entry = byModule.get(key)
+			if (entry === undefined) {
+				entry = {
+					scope: row.scope,
+					name: row.name,
+					tier: row.tier,
+					visibility: row.visibility,
+					description: row.description,
+					latestVersion: row.version,
+					latestStatus: row.status,
+				}
+				byModule.set(key, entry)
+				continue
+			}
+			if (row.version === null) continue
+			if (entry.latestVersion === null || compareSemver(row.version, entry.latestVersion) > 0) {
+				entry.latestVersion = row.version
+				entry.latestStatus = row.status
+			}
+		}
+
+		const modules = Array.from(byModule.values()).sort((a, b) => {
+			if (a.scope !== b.scope) return a.scope < b.scope ? -1 : 1
+			return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
+		})
 
 		return c.json({ modules }, 200, NO_STORE_HEADERS)
 	})
@@ -145,10 +197,14 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			return c.json({ error: `module '${scope}/${name}' not found` }, 404, NO_STORE_HEADERS)
 		}
 		if (mod.visibility === "org") {
-			// Org-visibility requires a resolved identity; an outsider
-			// sees the same 404 as a missing module.
-			const identity = await resolveIdentity(auth, c.req.raw)
-			if (!identity) {
+			// Org-visibility requires the caller to prove org membership
+			// (VAL-AUTH-003: uniform filtering across the read surface).
+			// An outsider — authenticated but not a member — sees the
+			// same 404 as a missing module. Membership is checked via
+			// the Better-Auth `member` table; any role counts (owner /
+			// admin / member) for visibility.
+			const memberCheck = await checkOrgMembership(pglite, auth, c.req.raw, mod.scope)
+			if (!memberCheck.ok) {
 				return c.json({ error: `module '${scope}/${name}' not found` }, 404, NO_STORE_HEADERS)
 			}
 		}
@@ -184,8 +240,8 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		const scope = c.req.param("scope")
 		const name = c.req.param("name")
 
-		const moduleRow = await pglite.query<{ id: string; visibility: string }>(
-			`SELECT id, visibility FROM modules WHERE scope = $1 AND name = $2 AND removed_at IS NULL`,
+		const moduleRow = await pglite.query<{ id: string; scope: string; visibility: string }>(
+			`SELECT id, scope, visibility FROM modules WHERE scope = $1 AND name = $2 AND removed_at IS NULL`,
 			[scope, name],
 		)
 		const mod = moduleRow.rows[0]
@@ -193,8 +249,8 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			return c.json({ error: `module '${scope}/${name}' not found` }, 404, NO_STORE_HEADERS)
 		}
 		if (mod.visibility === "org") {
-			const identity = await resolveIdentity(auth, c.req.raw)
-			if (!identity) {
+			const memberCheck = await checkOrgMembership(pglite, auth, c.req.raw, mod.scope)
+			if (!memberCheck.ok) {
 				return c.json({ error: `module '${scope}/${name}' not found` }, 404, NO_STORE_HEADERS)
 			}
 		}
@@ -262,8 +318,8 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
 		}
 		if (detail.visibility === "org") {
-			const identity = await resolveIdentity(auth, c.req.raw)
-			if (!identity) {
+			const memberCheck = await checkOrgMembership(pglite, auth, c.req.raw, detail.scope)
+			if (!memberCheck.ok) {
 				return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
 			}
 		}
@@ -311,6 +367,121 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		)
 	})
 
+	// GET /v1/download/:scope/:name/:version — tarball download
+	// (VAL-PUB-007 / VAL-PUB-017 / VAL-AUTH-003).
+	//
+	// The endpoint serves the stored tarball artifact for a ready
+	// version. Visibility rules match the detail endpoint exactly:
+	//   - public module + any caller → 200 with the tarball body
+	//   - public module + missing version → 404 (JSON envelope)
+	//   - org-visibility module + non-member → 404 (existence not
+	//     leaked — same envelope as a missing module)
+	//   - org-visibility module + member → 200 with the tarball body
+	//   - any module + version still pending/ingesting → 404 (the
+	//     tarball is not yet on disk; we do not surface "still
+	//     ingesting" as a 409 because the contract treats
+	//     not-yet-stored and not-found the same way)
+	//   - any module + version failed → 404 (the failed row exists,
+	//     but no artifact was written)
+	//
+	// The body's sha256 MUST equal the `content_hash` recorded on
+	// the version row (VAL-PUB-009). The storage adapter writes the
+	// blob with the content hash as the filename, so we look up the
+	// tarball artifact row directly and serve its bytes.
+	app.get("/v1/download/:scope/:name/:version", async (c) => {
+		const scope = c.req.param("scope")
+		const name = c.req.param("name")
+		const version = c.req.param("version")
+
+		if (storage === undefined) {
+			// Tests that don't exercise download can omit the
+			// storage adapter; the endpoint returns 503 instead
+			// of crashing so the server stays responsive.
+			return c.json({ error: `download endpoint unavailable: storage adapter not configured` }, 503, NO_STORE_HEADERS)
+		}
+
+		// Single JOIN: module visibility + version row + tarball
+		// artifact. The visibility check below is uniform across all
+		// three branches (public, org-visibility + member, not
+		// found / not yet ready) so a non-member cannot probe for
+		// org-visibility modules via timing differences.
+		const row = await pglite.query<{
+			visibility: string
+			artifact_path: string | null
+			artifact_sha256: string | null
+			content_hash: string
+			version_status: string
+		}>(
+			`SELECT m.visibility      AS visibility,
+			        a.path             AS artifact_path,
+			        a.sha256           AS artifact_sha256,
+			        v.content_hash     AS content_hash,
+			        v.status           AS version_status
+			   FROM modules m
+			   JOIN module_versions v ON v.module_id = m.id
+			   LEFT JOIN artifacts a
+			          ON a.version_id = v.id
+			         AND a.kind = 'tarball'
+			  WHERE m.scope = $1
+			    AND m.name = $2
+			    AND v.version = $3
+			    AND m.removed_at IS NULL`,
+			[scope, name, version],
+		)
+		const detail = row.rows[0]
+		if (!detail) {
+			return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
+		}
+		if (detail.visibility === "org") {
+			// Org-visibility requires the caller to prove org membership
+			// (VAL-AUTH-003: uniform filtering across the read surface).
+			// An outsider — authenticated but not a member — sees the
+			// same 404 as a missing module. Existence is not leaked.
+			const memberCheck = await checkOrgMembership(pglite, auth, c.req.raw, scope)
+			if (!memberCheck.ok) {
+				return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
+			}
+		}
+		// The tarball is only present after the worker promotes the
+		// version to `ready`. A pending / ingesting / failed row has
+		// no artifact; we 404 rather than 409 because the catalog
+		// contract treats "not yet installable" and "not found" the
+		// same way (no version-state leak to non-members).
+		if (detail.artifact_path === null || detail.artifact_sha256 === null || detail.version_status !== "ready") {
+			return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
+		}
+
+		const bytes = await storage.get(detail.artifact_sha256)
+		if (bytes === null) {
+			// The DB says the blob exists but the storage adapter
+			// cannot find it — surface the inconsistency honestly
+			// (an operator action is needed: re-publish or
+			// re-upload). A 500 is appropriate here because the
+			// catalog row is in a state the server cannot serve.
+			return c.json(
+				{
+					error:
+						`tarball artifact for version '${scope}/${name}@${version}' is missing from storage ` +
+						`(sha256='${detail.artifact_sha256}'); the operator must re-publish`,
+				},
+				500,
+				NO_STORE_HEADERS,
+			)
+		}
+
+		const filename = `${scope}-${name}-${version}.tar`
+		return new Response(bytes, {
+			status: 200,
+			headers: {
+				"content-type": "application/x-tar",
+				"content-length": String(bytes.byteLength),
+				"content-disposition": `attachment; filename="${filename}"`,
+				"x-content-sha256": detail.artifact_sha256,
+				"cache-control": "no-store",
+			},
+		})
+	})
+
 	return app
 }
 
@@ -321,14 +492,22 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 // ---------------------------------------------------------------------------
 
 interface ModuleSummaryRow {
+	module_id: string
 	scope: string
 	name: string
 	tier: string
 	visibility: string
 	description: string
-	latest_version: string | null
-	latest_status: string | null
+	version: string | null
+	status: string | null
 }
+
+/**
+ * Alias kept for compatibility with the older LATERAL-JOIN shape.
+ * The list endpoint now joins `module_versions` directly (one row
+ * per ready version per module) and picks the max semver in JS.
+ */
+type ModuleVersionRow = ModuleSummaryRow
 
 interface ModuleRow {
 	id: string
@@ -422,4 +601,30 @@ async function loadMemberSlugs(pglite: PGlite, userId: string): Promise<string[]
 		[userId],
 	)
 	return rows.rows.map((r) => r.slug)
+}
+
+/**
+ * Resolves the request's identity and confirms the caller is a member
+ * of the org identified by `scope`. Returns `{ ok: true }` when the
+ * caller is a member of any role (owner / admin / member) and
+ * `{ ok: false }` otherwise (anonymous, authenticated but not a
+ * member, or the org does not exist).
+ *
+ * Used by every read endpoint that gates an org-visibility module
+ * (VAL-AUTH-003: uniform visibility filtering across the read surface).
+ * The detail / version-detail / download endpoints all defer to this
+ * helper so the membership check is identical at every callsite —
+ * a future fix lands in one place, not three.
+ */
+async function checkOrgMembership(
+	pglite: PGlite,
+	auth: ReturnType<typeof betterAuth>,
+	request: Request,
+	scope: string,
+): Promise<{ ok: true; userId: string } | { ok: false }> {
+	const identity = await resolveIdentity(auth, request)
+	if (!identity) return { ok: false }
+	const memberSlugs = await loadMemberSlugs(pglite, identity.userId)
+	if (!memberSlugs.includes(scope)) return { ok: false }
+	return { ok: true, userId: identity.userId }
 }

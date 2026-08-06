@@ -11,6 +11,7 @@ import { createPgPool } from "../src/auth/kysely-db"
 import { ensureOrgPlanColumn } from "../src/auth/plan-limits"
 import { applyAppMigrations } from "../src/db/migrate"
 import { buildApp } from "../src/index"
+import { createFilesystemStorage, type StorageAdapter } from "../src/storage"
 
 /**
  * Catalog visibility filter on the LIST endpoint (architecture §4.5,
@@ -41,6 +42,8 @@ interface Stack {
 	betterAuth: BetterAuthHandle
 	pglite: PGlite
 	socket: PGLiteSocketServer
+	storage: StorageAdapter
+	storageDir: string
 	baseUrl: string
 	dataDir: string
 	pgliteDir: string
@@ -67,6 +70,7 @@ async function pickEphemeralPort(): Promise<number> {
 async function buildStack(): Promise<Stack> {
 	const dataDir = mkdtempSync(join(tmpdir(), "baka-registry-visibility-"))
 	const pgliteDir = join(dataDir, "pg")
+	const storageDir = join(dataDir, "artifacts")
 	const socketPort = await pickEphemeralPort()
 
 	const pglite = await PGlite.create(pgliteDir)
@@ -80,6 +84,7 @@ async function buildStack(): Promise<Stack> {
 	})
 	await socket.start()
 
+	const storage = createFilesystemStorage(storageDir)
 	const pool = createPgPool({ port: socketPort, host: "127.0.0.1" })
 	const baseUrl = `http://127.0.0.1:${socketPort + 1}`
 	const betterAuth = await createBetterAuth(pool, {
@@ -92,13 +97,15 @@ async function buildStack(): Promise<Stack> {
 	await betterAuth.ensureTables()
 	await ensureOrgPlanColumn(pglite)
 
-	const app = buildApp({ auth: betterAuth.auth, pglite, officialOrg: "baka" })
+	const app = buildApp({ auth: betterAuth.auth, pglite, officialOrg: "baka", storage })
 
 	return {
 		app,
 		betterAuth,
 		pglite,
 		socket,
+		storage,
+		storageDir,
 		baseUrl,
 		dataDir,
 		pgliteDir,

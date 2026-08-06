@@ -203,6 +203,7 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 		enqueueIngest: async (versionId) => {
 			await enqueueIngest.enqueue(versionId)
 		},
+		storage,
 	})
 
 	const bindHost = process.env.PORT_BIND ?? "127.0.0.1"
