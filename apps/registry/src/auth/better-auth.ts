@@ -56,6 +56,15 @@ interface BetterAuthConfig {
 	githubClientSecret: string
 	/** Secret for signing cookies / sessions. Defaults to a derived value. */
 	secret?: string
+	/**
+	 * Enables Better-Auth's email/password sign-up flow. Production
+	 * keeps this OFF (architecture §4.4: GitHub OAuth only); the test
+	 * fixture turns it on so users can be seeded without completing
+	 * the GitHub OAuth dance.
+	 */
+	emailAndPassword?: {
+		enabled: boolean
+	}
 }
 
 export interface BetterAuthHandle {
@@ -98,6 +107,13 @@ export async function createBetterAuth(pool: PgPool, config: BetterAuthConfig): 
 		advanced: {
 			disableOriginCheck: false,
 		},
+		// Disable Better-Auth's internal logger so request headers,
+		// API keys, OAuth tokens, and other credential material are
+		// never echoed to stdout/stderr (VAL-AUTH-014). Better-Auth
+		// surfaces errors as structured APIError responses, so
+		// silencing the logger does not change the HTTP contract.
+		logger: { disabled: true },
+		emailAndPassword: config.emailAndPassword ?? { enabled: false },
 		plugins: [
 			organization({
 				allowUserToCreateOrganization: true,
@@ -105,6 +121,16 @@ export async function createBetterAuth(pool: PgPool, config: BetterAuthConfig): 
 			}),
 			apiKey({
 				apiKeyHeaders: ["x-api-key"],
+				// Make `x-api-key` a valid credential for any route that
+				// resolves a session — the plugin's before-hook turns
+				// a valid key into a synthetic session. This is the
+				// path the validation contract exercises via
+				// /api/auth/get-session (VAL-AUTH-004). The plugin
+				// enforces expiry / disabled / unknown-key rejection
+				// itself; the Hono layer (handlers.ts) rewrites the
+				// 403 the hook throws on malformed keys into a 401
+				// so the contract's "401, not 500" surface holds.
+				enableSessionForAPIKeys: true,
 			}),
 		],
 	}

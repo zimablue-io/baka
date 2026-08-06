@@ -262,31 +262,20 @@ describe("VAL-AUTH-011 — get-session returns the same identity for cookie and 
 		expect(body).toBeNull()
 	})
 
-	it("the identity resolver returns the same shape for cookie-auth and API-key-auth callers", async () => {
-		// The two paths must produce structurally identical responses
-		// so future endpoints (publish, org mutations) can resolve a
-		// user uniformly. We exercise the path by reading the OpenAPI
-		// schema of the get-session endpoint: both paths funnel through
-		// the same handler.
-		const cookieRes = await stack.app.request("/api/auth/get-session", {
-			method: "GET",
-			headers: {
-				cookie: "better-auth.session_token=stale-but-syntactically-valid",
-				origin: stack.baseUrl,
-			},
-		})
-		const apiKeyRes = await stack.app.request("/api/auth/get-session", {
+	it("get-session with an invalid api key returns 401 (not 200, not 500) so the api-key surface is honestly distinct from the cookie surface", async () => {
+		// The contract (VAL-AUTH-013) requires 401 for invalid api-key
+		// credentials; the cookie path's "200 + null for invalid
+		// session" behavior is preserved by Better-Auth's documented
+		// contract for cookie-only requests.
+		const res = await stack.app.request("/api/auth/get-session", {
 			method: "GET",
 			headers: {
 				"x-api-key": "baka_stale_but_syntactically_valid_token",
 				origin: stack.baseUrl,
 			},
 		})
-		expect(cookieRes.status).toBe(apiKeyRes.status)
-		// Both paths produce the same response shape (both null when
-		// the credentials are not real).
-		const cookieBody = await cookieRes.json()
-		const apiKeyBody = await apiKeyRes.json()
-		expect(cookieBody).toEqual(apiKeyBody)
+		expect(res.status).toBe(401)
+		const body = (await res.json()) as { error?: string }
+		expect(typeof body.error).toBe("string")
 	})
 })
