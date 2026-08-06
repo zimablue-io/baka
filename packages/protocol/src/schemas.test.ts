@@ -74,6 +74,36 @@ describe("ModuleActionSchema", () => {
 		expect(parsed.filePatterns).toEqual(["specs/*.md"])
 		expect(parsed.validators).toEqual(["constitution-coherent"])
 	})
+
+	it("accepts an explicit `toolchain: 'tsc'` declaration (screening layer 3)", () => {
+		const parsed = ModuleActionSchema.parse({
+			id: "scaffold",
+			description: "scaffold a TS project",
+			params: [],
+			filePatterns: ["src/index.ts"],
+			toolchain: "tsc",
+		})
+		expect(parsed.toolchain).toBe("tsc")
+	})
+
+	it("rejects a toolchain value outside the declared closed set", () => {
+		expect(
+			ModuleActionSchema.safeParse({
+				id: "x",
+				description: "x",
+				params: [],
+				toolchain: "eslint",
+			}).success,
+		).toBe(false)
+		expect(
+			ModuleActionSchema.safeParse({
+				id: "x",
+				description: "x",
+				params: [],
+				toolchain: "tsc --noEmit",
+			}).success,
+		).toBe(false)
+	})
 })
 
 describe("ModuleManifestSchema", () => {

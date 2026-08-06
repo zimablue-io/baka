@@ -63,13 +63,14 @@ describe("startServer", () => {
 		const handle = await startServer(config)
 		try {
 			const recorded = readFileSync(join(dataDir, "schema_version"), "utf8").trim()
-			// The sandboxed-dry-run feature bumps schema_version to "6"
-			// so the 0006_dry_run_previews migration is recorded. The
+			// The screening output-validation feature bumps schema_version to "7"
+			// so the 0007_output_validation migration is recorded. The
 			// earlier migrations (data-layer v2, auth-marker v3,
-			// monetization-seams v4, publish-columns v5) still run
-			// their own migrations (idempotent) so the app tables
-			// continue to exist after the bump.
-			expect(recorded).toBe("6")
+			// monetization-seams v4, publish-columns v5, dry-run
+			// previews v6) still run their own migrations
+			// (idempotent) so the app tables continue to exist after
+			// the bump.
+			expect(recorded).toBe("7")
 		} finally {
 			await handle.close()
 		}

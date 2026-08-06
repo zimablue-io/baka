@@ -53,9 +53,17 @@ import { applyAppMigrations } from "./db/migrate"
  *        marker for the static-scan-failed path. The schema-version
  *        bump is forward-only; older binaries refuse to boot against
  *        a v6 data dir.
+ *   - 7: screening output-validation — `screening_results.output_validation`
+ *        jsonb column added so layer 3 (the module's own validators
+ *        run against dry-run output, writes-subset-filePatterns
+ *        enforcement, and the declared output toolchain, currently
+ *        `tsc --noEmit` for TS scaffolds) can record its outcome in
+ *        lock-step with the existing static-scan / dry-run rows.
+ *        Forward-only; older binaries refuse to boot against a v7
+ *        data dir.
  */
 
-export const CURRENT_SCHEMA_VERSION = "6"
+export const CURRENT_SCHEMA_VERSION = "7"
 
 const SCHEMA_FILE = "schema_version"
 

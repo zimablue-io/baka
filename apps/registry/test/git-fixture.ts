@@ -51,6 +51,7 @@ export interface GitFixture {
 			filePatterns?: string[]
 			requiresReasoning?: boolean
 			validators?: string[]
+			toolchain?: "tsc"
 			/** When `true` (default), the fixture writes a loadable
 			 *  `action.ts` file. When `false`, the action's
 			 *  `action.ts` exists but has no WorkflowStep export —
@@ -102,6 +103,7 @@ function manifestSource(opts: {
 		filePatterns?: string[]
 		requiresReasoning?: boolean
 		validators?: string[]
+		toolchain?: "tsc"
 	}>
 	moduleValidators?: string[]
 }): string {
@@ -116,10 +118,10 @@ function manifestSource(opts: {
 		},
 	]
 	const renderedActions = actions
-		.map(
-			(a) =>
-				`    { id: ${JSON.stringify(a.id)}, description: ${JSON.stringify(a.description ?? "")}, params: [], requiresReasoning: ${a.requiresReasoning ? "true" : "false"}, filePatterns: ${JSON.stringify(a.filePatterns ?? [])}, validators: ${JSON.stringify(a.validators ?? [])} }`,
-		)
+		.map((a) => {
+			const toolchainField = a.toolchain ? `, toolchain: ${JSON.stringify(a.toolchain)}` : ""
+			return `    { id: ${JSON.stringify(a.id)}, description: ${JSON.stringify(a.description ?? "")}, params: [], requiresReasoning: ${a.requiresReasoning ? "true" : "false"}, filePatterns: ${JSON.stringify(a.filePatterns ?? [])}, validators: ${JSON.stringify(a.validators ?? [])}${toolchainField} }`
+		})
 		.join(",\n")
 	const renderedDeps = dependencies.map((d) => JSON.stringify(d)).join(", ")
 	const renderedModuleValidators = (opts.moduleValidators ?? []).map((v) => JSON.stringify(v)).join(", ")
@@ -278,25 +280,38 @@ function manifestToJsonShape(opts: {
 		filePatterns?: string[]
 		requiresReasoning?: boolean
 		validators?: string[]
+		toolchain?: "tsc"
 	}>
 	moduleValidators?: string[]
 }): Record<string, unknown> {
+	const renderedActions = (opts.actions ?? []).map((a) => ({
+		id: a.id,
+		description: a.description ?? "",
+		params: [],
+		requiresReasoning: a.requiresReasoning ?? false,
+		filePatterns: a.filePatterns ?? [],
+		validators: a.validators ?? [],
+		...(a.toolchain ? { toolchain: a.toolchain } : {}),
+	}))
 	return {
 		name: opts.name,
 		version: opts.version,
 		description: opts.description ?? `module ${opts.name}`,
 		dependencies: opts.dependencies ?? [],
 		conflictsWith: [],
-		actions: opts.actions ?? [
-			{
-				id: "noop",
-				description: "no-op action",
-				params: [],
-				requiresReasoning: false,
-				filePatterns: [],
-				validators: [],
-			},
-		],
+		actions:
+			renderedActions.length > 0
+				? renderedActions
+				: [
+						{
+							id: "noop",
+							description: "no-op action",
+							params: [],
+							requiresReasoning: false,
+							filePatterns: [],
+							validators: [],
+						},
+					],
 		moduleValidators: opts.moduleValidators ?? [],
 	}
 }

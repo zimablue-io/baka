@@ -22,6 +22,14 @@ export const ModuleActionSchema = z.object({
 	compensatesWith: z.string().optional(),
 	filePatterns: z.array(z.string()).default([]),
 	validators: z.array(z.string()).default([]),
+	/**
+	 * Optional toolchain the registry should run against the
+	 * dry-run output for this action. Today only `tsc` is
+	 * declarable (architecture §4.6 layer 3); the closed set is
+	 * a deliberate cap so the registry can stay honest about
+	 * what tools it runs and how their failures are surfaced.
+	 */
+	toolchain: z.enum(["tsc"]).optional(),
 })
 
 export const ModuleManifestSchema = z.object({

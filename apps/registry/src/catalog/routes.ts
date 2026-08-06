@@ -369,6 +369,7 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			        s.verdict        AS screening_verdict,
 			        s.static_scan    AS screening_static_scan,
 			        s.dry_run        AS screening_dry_run,
+			        s.output_validation AS screening_output_validation,
 			        s.created_at     AS screening_created_at
 			   FROM modules m
 			   JOIN module_versions v ON v.module_id = m.id
@@ -416,6 +417,7 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 						verdict: detail.screening_verdict,
 						staticScan: detail.screening_static_scan,
 						dryRun: detail.screening_dry_run,
+						outputValidation: detail.screening_output_validation,
 						createdAt: detail.screening_created_at?.toISOString() ?? null,
 					}
 
@@ -866,6 +868,7 @@ interface VersionDetailRow {
 	screening_verdict: string | null
 	screening_static_scan: unknown
 	screening_dry_run: unknown
+	screening_output_validation: unknown
 	screening_created_at: Date | null
 }
 

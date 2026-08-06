@@ -105,6 +105,7 @@ const screeningResults = pgTable(
 		verdict: varchar("verdict", { length: 32 }).notNull(),
 		staticScan: jsonb("static_scan"),
 		dryRun: jsonb("dry_run"),
+		outputValidation: jsonb("output_validation"),
 		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	},
 	(t) => ({

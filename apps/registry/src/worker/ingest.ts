@@ -1,6 +1,7 @@
 import type { PGlite } from "@electric-sql/pglite"
 import type { ModuleManifest } from "@repo/protocol"
 import { type DryRunResult, runDryRun } from "../screening/dry-run"
+import { runOutputValidation } from "../screening/output-validation"
 import { writeScreeningResult } from "../screening/screening-result"
 import { runStaticScan, type StaticScanFinding } from "../screening/static-scan"
 import { cleanupClone, shallowCloneAtTag } from "./clone"
@@ -294,9 +295,9 @@ async function runIngestJobInner(payload: IngestVersionPayload, deps: IngestDeps
 		//
 		// On pass: write a screening_results row with verdict
 		// 'unverified' (the overall verdict only becomes 'screened'
-		// once the dry-run + validator layers complete in a later
-		// milestone). This lets the catalog surface "static scan
-		// passed" without prematurely claiming screened status.
+		// once the dry-run + output-validation layers complete).
+		// This lets the catalog surface "static scan passed" without
+		// prematurely claiming screened status.
 		if (moduleRow.visibility === "public") {
 			const staticResult = await runStaticScan(moduleDir, manifest)
 			if (!staticResult.passed) {
@@ -425,8 +426,18 @@ async function runScreeningFailureStep(
  * `node --permission` subprocess and aggregates the per-action
  * outcomes into a verdict transition on `screening_results`:
  *
- *   - ok: true                              → verdict `screened`,
- *                                            row continues to pack.
+ *   - ok: true                              → verdict `screened` IF
+ *                                            layer 3 also passes;
+ *                                            otherwise layer 3 runs
+ *                                            and decides the verdict.
+ *                                            If layer 3 is skipped
+ *                                            (no module validators,
+ *                                            no per-action writes
+ *                                            outside patterns, no
+ *                                            declared toolchain),
+ *                                            the dry-run alone
+ *                                            upgrades the verdict to
+ *                                            `screened`.
  *   - ok: false, reason: 'timeout'         → verdict `unverified`,
  *                                            `dry_run.timedOutAt`
  *                                            recorded, row continues
@@ -434,7 +445,11 @@ async function runScreeningFailureStep(
  *                                            `IngestFailure` thrown
  *                                            — the contract says
  *                                            timeout does NOT fail
- *                                            the version.
+ *                                            the version. Layer 3 is
+ *                                            NOT invoked (the
+ *                                            per-action preview files
+ *                                            are not durable after a
+ *                                            timeout).
  *   - ok: false, reason: 'failure'         → verdict `failed`,
  *                                            `IngestFailure` thrown
  *                                            so the wrapper marks
@@ -465,17 +480,21 @@ async function runDryRunStep(
 		pglite: deps.pglite,
 		timeoutMs: deps.screenDryRunTimeoutMs,
 	})
-	await applyDryRunVerdict(deps.pglite, versionId, manifest, staticResult, result)
+	await applyDryRunVerdict(deps, versionId, moduleDir, manifest, staticResult, result)
 }
 
 /**
  * UPSERTs the screening_results row with the dry-run verdict and
  * either returns (screened / unverified) or throws IngestFailure
- * (failed).
+ * (failed). On a clean dry-run (ok: true), layer 3 runs next; if
+ * layer 3 also passes, the verdict becomes `screened`. If layer 3
+ * fails, the verdict becomes `failed` and the worker wrapper marks
+ * the row failed with the layer-3 failure's honest message.
  */
 async function applyDryRunVerdict(
-	pglite: PGlite,
+	deps: IngestDeps,
 	versionId: string,
+	moduleDir: string,
 	manifest: ModuleManifest,
 	staticResult: Awaited<ReturnType<typeof runStaticScan>>,
 	result: DryRunResult,
@@ -498,45 +517,111 @@ async function applyDryRunVerdict(
 		completedPayload.timedOutAt = result.timedOutAt
 	}
 
-	if (result.ok) {
-		await writeScreeningResult(pglite, versionId, {
-			verdict: "screened",
+	if (!result.ok) {
+		if (result.reason === "timeout") {
+			// Timeout → verdict `unverified`, NO IngestFailure.
+			// The worker wrapper leaves the row to continue to
+			// pack (`ready`); the verdict text honestly states
+			// the dry-run could not complete in time. Layer 3 is
+			// NOT invoked (the per-action preview files are not
+			// durable after a timeout — the subprocess was
+			// SIGKILLed before its write list was reported).
+			await writeScreeningResult(deps.pglite, versionId, {
+				verdict: "unverified",
+				staticScan: staticResult,
+				dryRun: completedPayload,
+			})
+			return
+		}
+
+		// Failure → verdict `failed`, throw so the wrapper marks
+		// the row failed with the diagnostic. The dry_run field
+		// carries the per-action error for the read surface to
+		// surface.
+		await writeScreeningResult(deps.pglite, versionId, {
+			verdict: "failed",
 			staticScan: staticResult,
 			dryRun: completedPayload,
 		})
-		return
+
+		const failedActions = result.perAction.filter((p) => p.status === "failed")
+		const firstFailure = failedActions[0]
+		const errorSummary = firstFailure
+			? `dry-run action '${firstFailure.actionId}' failed: ${firstFailure.error}`
+			: "dry-run failed for at least one action"
+
+		const moduleName = manifest.name ?? "module"
+		throw new IngestFailure("screening", `${errorSummary} (module '${moduleName}')`)
 	}
 
-	if (result.reason === "timeout") {
-		// Timeout → verdict `unverified`, NO IngestFailure. The
-		// worker wrapper leaves the row to continue to pack
-		// (`ready`); the verdict text honestly states the
-		// dry-run could not complete in time.
-		await writeScreeningResult(pglite, versionId, {
-			verdict: "unverified",
-			staticScan: staticResult,
-			dryRun: completedPayload,
-		})
-		return
-	}
+	// ok: true — dry-run passed. Run layer 3 (output validation)
+	// against the rendered per-action output. Layer 3's verdict
+	// decides the overall `screened` / `failed` transition.
+	await runOutputValidationStep(deps, versionId, moduleDir, manifest, staticResult, completedPayload)
+}
 
-	// Failure → verdict `failed`, throw so the wrapper marks the
-	// row failed with the diagnostic. The dry_run field carries
-	// the per-action error for the read surface to surface.
-	await writeScreeningResult(pglite, versionId, {
-		verdict: "failed",
-		staticScan: staticResult,
-		dryRun: completedPayload,
+/**
+ * Screening layer 3 (architecture §4.6, VAL-SCAN-006 / 007 /
+ * 017). Runs the module's own validators against the dry-run
+ * output, enforces that actual writes ⊆ declared filePatterns,
+ * and runs the declared output toolchain (currently `tsc
+ * --noEmit` for TS scaffolds). The dry-run step left the
+ * per-action preview files in the storage adapter; layer 3
+ * materializes them into a fresh validation dir and runs the
+ * three sub-layers against it.
+ *
+ * Verdict transitions:
+ *   - layer 3 ok → verdict `screened` (overall).
+ *   - layer 3 fails → verdict `failed`, throws IngestFailure so
+ *     the worker wrapper records the row's honest diagnostic.
+ *
+ * The `output_validation` jsonb column carries the discriminated
+ * payload so the read surface can render the verdict text
+ * (which sub-layer failed + the surfaced failure message).
+ */
+async function runOutputValidationStep(
+	deps: IngestDeps,
+	versionId: string,
+	moduleDir: string,
+	manifest: ModuleManifest,
+	staticResult: Awaited<ReturnType<typeof runStaticScan>>,
+	dryRunPayload: {
+		policy: string
+		perAction: DryRunResult["perAction"]
+		timeoutMs: number
+		timedOutAt?: string
+	},
+): Promise<void> {
+	const outputValidation = await runOutputValidation({
+		moduleDir,
+		manifest,
+		perAction: dryRunPayload.perAction,
+		storage: deps.storage,
 	})
 
-	const failedActions = result.perAction.filter((p) => p.status === "failed")
-	const firstFailure = failedActions[0]
-	const errorSummary = firstFailure
-		? `dry-run action '${firstFailure.actionId}' failed: ${firstFailure.error}`
-		: "dry-run failed for at least one action"
+	if (outputValidation.ok) {
+		await writeScreeningResult(deps.pglite, versionId, {
+			verdict: "screened",
+			staticScan: staticResult,
+			dryRun: dryRunPayload,
+			outputValidation,
+		})
+		return
+	}
+
+	// Failure → write the screening_results row with verdict
+	// `failed` + the discriminated output_validation payload,
+	// then throw so the wrapper marks the row failed with the
+	// honest message.
+	await writeScreeningResult(deps.pglite, versionId, {
+		verdict: "failed",
+		staticScan: staticResult,
+		dryRun: dryRunPayload,
+		outputValidation,
+	})
 
 	const moduleName = manifest.name ?? "module"
-	throw new IngestFailure("screening", `${errorSummary} (module '${moduleName}')`)
+	throw new IngestFailure("screening", `${outputValidation.failure.message} (module '${moduleName}')`)
 }
 
 function resolveModuleDir(cloneDir: string, modulePath: string | null): string {

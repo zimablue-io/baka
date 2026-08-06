@@ -1,5 +1,6 @@
 import type { PGlite } from "@electric-sql/pglite"
 import type { PerActionState } from "./dry-run"
+import type { OutputValidationPayload } from "./output-validation"
 import type { StaticScanResult } from "./static-scan"
 
 /**
@@ -23,6 +24,14 @@ import type { StaticScanResult } from "./static-scan"
  *     skipped" marker instead of pretending the layer never ran),
  *     or the discriminated per-action payload after the dry-run
  *     completes (pass / unverified / failed).
+ *
+ *   - `output_validation` is the discriminated layer-3 payload
+ *     (module's own validators + writes-subset-filePatterns
+ *     check + declared output toolchain). NULL when the static
+ *     scan or dry-run failed (the layer never ran); populated
+ *     with the discriminated payload after layer 3 completes.
+ *     The `step` discriminator names which sub-layer failed so
+ *     the catalog can render an honest verdict text.
  *
  * The row is UPSERTED on `version_id` — a re-run of the worker
  * over the same row (operator-driven re-publish at a new tag,
@@ -51,12 +60,14 @@ interface ScreeningRow {
 	verdict: "screened" | "unverified" | "failed"
 	staticScan: StaticScanResult | Record<string, unknown>
 	dryRun: DryRunPayload | null
+	outputValidation?: OutputValidationPayload | null
 }
 
 /**
  * Upserts a `screening_results` row for the given version. The
- * row's `static_scan` and `dry_run` fields are JSON-encoded so the
- * catalog can read the named findings / skip marker verbatim.
+ * row's `static_scan`, `dry_run`, and `output_validation` fields
+ * are JSON-encoded so the catalog can read the named findings /
+ * skip markers verbatim.
  *
  * Idempotent on `version_id`: re-running the static scan for the
  * same row (operator-driven re-publish) overwrites the previous
@@ -66,18 +77,22 @@ interface ScreeningRow {
  */
 export async function writeScreeningResult(pglite: PGlite, versionId: string, payload: ScreeningRow): Promise<void> {
 	await pglite.query(
-		`INSERT INTO screening_results (version_id, verdict, static_scan, dry_run)
-		   VALUES ($1, $2, $3::jsonb, $4::jsonb)
+		`INSERT INTO screening_results (version_id, verdict, static_scan, dry_run, output_validation)
+		   VALUES ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb)
 		 ON CONFLICT (version_id) DO UPDATE
 		   SET verdict = EXCLUDED.verdict,
 		       static_scan = EXCLUDED.static_scan,
 		       dry_run = EXCLUDED.dry_run,
+		       output_validation = EXCLUDED.output_validation,
 		       created_at = NOW()`,
 		[
 			versionId,
 			payload.verdict,
 			JSON.stringify(payload.staticScan),
 			payload.dryRun === null ? null : JSON.stringify(payload.dryRun),
+			payload.outputValidation === undefined || payload.outputValidation === null
+				? null
+				: JSON.stringify(payload.outputValidation),
 		],
 	)
 }
