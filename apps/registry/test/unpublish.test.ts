@@ -329,76 +329,29 @@ describe("DELETE /v1/modules/:scope/:name — unpublish (architecture §8 decisi
 	})
 
 	// -------------------------------------------------------------------------
-	// Decision 19 — Re-publish after tombstone creates a fresh module
+	// Decision 19 — Re-publish after tombstone creates a fresh module.
+	//
+	// The original test at this location mirrored the publish route's
+	// SQL (DELETE then INSERT) instead of driving POST /v1/publish —
+	// a scrutiny-round-1 finding: the test could pass even if the
+	// production DELETE in upsertModuleRow were removed, because the
+	// test was asserting its own copy of the SQL.
+	//
+	// The black-box version (driving the real publish endpoint with
+	// a local bare git fixture + the polling worker) lives in
+	// `test/tombstone-visibility-honesty.test.ts` under the
+	// "Decision 19 — re-publish after tombstone creates a fresh
+	// module (black-box via POST /v1/publish)" describe block. It
+	// is the test that pins the production contract this file
+	// previously mocked.
+	//
+	// The post-tombstone precondition (the tombstone row stays in
+	// the DB with removed_at IS NOT NULL until the publish route
+	// hard-deletes it) is exercised by the routine tests below.
 	// -------------------------------------------------------------------------
 
-	describe("Decision 19 — re-publish after tombstone creates a fresh module", () => {
-		it("the publish route's upsert path hard-deletes a tombstoned row before inserting fresh (decision 19)", async () => {
-			// Seed a module with TWO ready versions, then tombstone it
-			// via the public DELETE endpoint.
-			const seed = await seedPublishedModule({ scope: "acme", name: "widget" })
-			await fx.pglite.query(
-				`INSERT INTO module_versions (module_id, version, commit_sha, content_hash, manifest, status)
-				   VALUES ($1, 'v2.0.0', $2, $3, '{}'::jsonb, 'ready')`,
-				[seed.moduleId, "1".repeat(40), "b".repeat(64)],
-			)
-
-			const tombstone = await deleteModuleAs(fx.keys.owner, "acme", "widget")
-			expect(tombstone.status).toBeGreaterThanOrEqual(200)
-			expect(tombstone.status).toBeLessThan(300)
-
-			// Pre-condition: the tombstone row + its two versions still
-			// exist (the catalog keeps them so the removed-marker body
-			// is honest). The re-publish must replace this state, not
-			// resurrect it.
-			const beforeTombstones = await fx.pglite.query<{ count: string }>(
-				`SELECT COUNT(*)::text AS count FROM modules WHERE scope = 'acme' AND name = 'widget' AND removed_at IS NOT NULL`,
-			)
-			expect(beforeTombstones.rows[0]?.count).toBe("1")
-
-			// Mirror the publish route's upsertModuleRow path:
-			//   1. DELETE the tombstone row (cascade removes
-			//      module_versions, artifacts, screening_results).
-			//   2. INSERT the fresh modules row.
-			//   3. INSERT the v3.0.0 version row.
-			// This is the same SQL the publish route runs (decision 19).
-			await fx.pglite.query(`DELETE FROM modules WHERE scope = 'acme' AND name = 'widget' AND removed_at IS NOT NULL`)
-			await fx.pglite.query(
-				`INSERT INTO modules (scope, name, visibility, tier, description)
-				   VALUES ('acme', 'widget', 'org', 'community-unverified', '')
-				 ON CONFLICT (scope, name) DO NOTHING`,
-			)
-			const newModule = await fx.pglite.query<{ id: string }>(
-				`SELECT id FROM modules WHERE scope = 'acme' AND name = 'widget' AND removed_at IS NULL`,
-			)
-			const newModuleId = newModule.rows[0]?.id
-			expect(newModuleId).toBeDefined()
-			await fx.pglite.query(
-				`INSERT INTO module_versions (module_id, version, commit_sha, content_hash, manifest, status)
-				   VALUES ($1, 'v3.0.0', $2, $3, '{}'::jsonb, 'ready')`,
-				[newModuleId, "2".repeat(40), "c".repeat(64)],
-			)
-
-			// The fresh module has ONLY v3.0.0 — the old v1.0.0 / v2.0.0
-			// versions are gone (cascade ran when the tombstone row was
-			// removed; the new module's version history is clean).
-			const versions = await fx.pglite.query<{ version: string }>(
-				`SELECT version FROM module_versions WHERE module_id = $1`,
-				[newModuleId],
-			)
-			expect(versions.rows.map((v) => v.version).sort()).toEqual(["v3.0.0"])
-
-			// The user-visible surface: the catalog versions endpoint
-			// surfaces only the new version, not the old two.
-			const versionsList = await fx.app.request("/v1/modules/acme/widget/versions", {
-				headers: { "x-api-key": fx.keys.owner },
-			})
-			expect(versionsList.status).toBe(200)
-			const listedVersions = ((await versionsList.json()) as { versions: Array<{ version: string }> }).versions
-			expect(listedVersions.map((v) => v.version).sort()).toEqual(["v3.0.0"])
-		})
-
-		it("after unpublish, the row stays in tombstone state (not deleted) until the publish route hard-deletes it", async () => {
+	describe("Decision 19 — tombstone row stays in DB until the publish route replaces it", () => {
+		it("after unpublish, the row stays in tombstone state (not deleted) until a re-publish replaces it", async () => {
 			// Seed + tombstone via the public DELETE endpoint.
 			await seedPublishedModule({ scope: "acme", name: "widget" })
 			const tombstone = await deleteModuleAs(fx.keys.owner, "acme", "widget")
@@ -412,12 +365,6 @@ describe("DELETE /v1/modules/:scope/:name — unpublish (architecture §8 decisi
 				`SELECT COUNT(*)::text AS count FROM modules WHERE scope = 'acme' AND name = 'widget' AND removed_at IS NOT NULL`,
 			)
 			expect(tombstoneRow.rows[0]?.count).toBe("1")
-
-			// The publish route (when called with a real, cloneable
-			// repo+tag) hard-deletes this row before inserting fresh;
-			// the contract: the tombstone row gets replaced, not
-			// resurrected. We assert the precondition here so the
-			// cascade behavior is observable in the test above.
 		})
 	})
 })

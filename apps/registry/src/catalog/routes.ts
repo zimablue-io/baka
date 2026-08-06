@@ -228,13 +228,12 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			// Existence is not leaked for org-private modules (VAL-AUTH-003).
 			return c.json({ error: `module '${scope}/${name}' not found` }, 404, NO_STORE_HEADERS)
 		}
-		// Tombstone: a removed module is not the same as a missing one
-		// (VAL-PUB-030). The contract demands the removed-marker body
-		// so callers can distinguish "never existed or you cannot see
-		// it" from "existed but was unpublished".
-		if (mod.removed_at !== null) {
-			return removedModuleResponse(mod.scope, mod.name, mod.removed_at, 404)
-		}
+		// Visibility check runs BEFORE the tombstone branch so an
+		// outsider (unauthenticated or non-member) never learns
+		// that a tombstoned org-visibility module existed. The
+		// membership gate returns the same uniform 404 as a missing
+		// module; only proven members see the removed-marker body
+		// further down (VAL-AUTH-019).
 		if (mod.visibility === "org") {
 			// Org-visibility requires the caller to prove org membership
 			// (VAL-AUTH-003: uniform filtering across the read surface).
@@ -246,6 +245,16 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			if (!memberCheck.ok) {
 				return c.json({ error: `module '${scope}/${name}' not found` }, 404, NO_STORE_HEADERS)
 			}
+		}
+		// Tombstone: a removed module is not the same from a missing one
+		// (VAL-PUB-030). The contract demands the removed-marker body
+		// so callers can distinguish "never existed or you cannot see
+		// it" from "existed but was unpublished". Only the read
+		// surfaces that already passed the visibility gate above
+		// reach this branch — outsiders are filtered out before the
+		// existence check above.
+		if (mod.removed_at !== null) {
+			return removedModuleResponse(mod.scope, mod.name, mod.removed_at, 404)
 		}
 
 		const versions = await pglite.query<VersionSummaryRow>(
@@ -290,20 +299,22 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		if (!mod) {
 			return c.json({ error: `module '${scope}/${name}' not found` }, 404, NO_STORE_HEADERS)
 		}
-		// Tombstone (VAL-PUB-030): the versions list is hidden too — the
-		// contract keeps the existence-but-removed state distinct from
-		// "never existed". An org member can still confirm the org
-		// membership was honored by sending a different module's
-		// request and observing it succeeds; the tombstone body here
-		// proves the org was found and the module was just unpublished.
-		if (mod.removed_at !== null) {
-			return removedModuleResponse(mod.scope, mod.name, mod.removed_at, 404)
-		}
+		// Visibility check runs BEFORE the tombstone branch — see
+		// the detail endpoint above. Outsiders never see the
+		// removed-marker body for an org-visibility tombstone
+		// (VAL-AUTH-019).
 		if (mod.visibility === "org") {
 			const memberCheck = await checkOrgMembership(pglite, auth, c.req.raw, mod.scope)
 			if (!memberCheck.ok) {
 				return c.json({ error: `module '${scope}/${name}' not found` }, 404, NO_STORE_HEADERS)
 			}
+		}
+		// Tombstone (VAL-PUB-030): the versions list is hidden too —
+		// the contract keeps the existence-but-removed state
+		// distinct from "never existed". Only callers who cleared
+		// the visibility gate above reach this branch.
+		if (mod.removed_at !== null) {
+			return removedModuleResponse(mod.scope, mod.name, mod.removed_at, 404)
 		}
 
 		const versions = await pglite.query<VersionRow>(
@@ -368,17 +379,23 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		if (!detail) {
 			return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
 		}
-		// Tombstone (VAL-PUB-030): the version detail hides too. Returning
-		// the full detail (manifest, artifacts, screening) would re-surface
-		// pre-removal data on a module the publisher has withdrawn.
-		if (detail.removed_at !== null) {
-			return removedModuleResponse(detail.scope, detail.name, detail.removed_at, 404)
-		}
+		// Visibility check runs BEFORE the tombstone branch — see
+		// the detail endpoint above. Outsiders never see the
+		// removed-marker body for an org-visibility tombstone
+		// (VAL-AUTH-019).
 		if (detail.visibility === "org") {
 			const memberCheck = await checkOrgMembership(pglite, auth, c.req.raw, detail.scope)
 			if (!memberCheck.ok) {
 				return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
 			}
+		}
+		// Tombstone (VAL-PUB-030): the version detail hides too.
+		// Returning the full detail (manifest, artifacts, screening)
+		// would re-surface pre-removal data on a module the publisher
+		// has withdrawn. Only callers who cleared the visibility gate
+		// above reach this branch.
+		if (detail.removed_at !== null) {
+			return removedModuleResponse(detail.scope, detail.name, detail.removed_at, 404)
 		}
 
 		const artifacts = await pglite.query<ArtifactRow>(
@@ -490,12 +507,28 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		if (!detail) {
 			return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
 		}
+		// Visibility check runs BEFORE the tombstone branch — see
+		// the detail endpoint above. Outsiders never see the 410
+		// Gone response for an org-visibility tombstone
+		// (VAL-AUTH-019); they get the same uniform 404 as a
+		// missing module.
+		if (detail.visibility === "org") {
+			// Org-visibility requires the caller to prove org membership
+			// (VAL-AUTH-003: uniform filtering across the read surface).
+			// An outsider — authenticated but not a member — sees the
+			// same 404 as a missing module. Existence is not leaked.
+			const memberCheck = await checkOrgMembership(pglite, auth, c.req.raw, scope)
+			if (!memberCheck.ok) {
+				return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
+			}
+		}
 		// Tombstone (VAL-PUB-030): the download returns 410 Gone so an
 		// install pipeline can branch on the status code without
 		// parsing the body. The artifact blob is NOT purged in v1 (the
 		// storage entry remains so a re-publish after unpublish does
 		// not accidentally re-use a same-content-hash blob from the
-		// old tree).
+		// old tree). Only callers who cleared the visibility gate
+		// above reach this branch.
 		if (detail.removed_at !== null) {
 			const body: { error: string; removed: true; scope: string; name: string; removedAt: string } = {
 				error: `module '${scope}/${name}' was removed at ${detail.removed_at.toISOString()}; downloads are unavailable`,
@@ -508,16 +541,6 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 				status: 410,
 				headers: { "content-type": "application/json", "cache-control": "no-store" },
 			})
-		}
-		if (detail.visibility === "org") {
-			// Org-visibility requires the caller to prove org membership
-			// (VAL-AUTH-003: uniform filtering across the read surface).
-			// An outsider — authenticated but not a member — sees the
-			// same 404 as a missing module. Existence is not leaked.
-			const memberCheck = await checkOrgMembership(pglite, auth, c.req.raw, scope)
-			if (!memberCheck.ok) {
-				return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
-			}
 		}
 		// The tarball is only present after the worker promotes the
 		// version to `ready`. A pending / ingesting / failed row has
@@ -601,14 +624,40 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			return c.json({ error: "authentication required" }, 401, NO_STORE_HEADERS)
 		}
 
-		// Look up the module row WITHOUT the removed_at filter so we
-		// can distinguish "exists, not removed" (process the DELETE),
-		// "exists, already removed" (return 404), and "does not exist"
-		// (return 404). Existence is not leaked for callers outside
-		// the owning org (the row is found, but the response shape
-		// matches the read surface's not-found envelope).
-		const moduleRow = await pglite.query<{ id: string; removed_at: Date | null; visibility: string }>(
-			`SELECT id, removed_at, visibility
+		// Role enforcement runs BEFORE the module lookup so the
+		// three states (exists / missing / already-removed) are
+		// indistinguishable to a non-owner/admin (VAL-AUTH-019 /
+		// VAL-AUTH-018). A 403 from a non-owner returns the same
+		// shape regardless of whether the module is missing, ready,
+		// or tombstoned — the existence/state leak is closed.
+		const memberRow = await pglite.query<{ role: string }>(
+			`SELECT role
+			   FROM "member"
+			  WHERE "userId" = $1
+			    AND "organizationId" = (SELECT id FROM "organization" WHERE slug = $2)`,
+			[identity.userId, scope],
+		)
+		const role = memberRow.rows[0]?.role
+		if (role !== "owner" && role !== "admin") {
+			return c.json(
+				{
+					error: `unpublish requires owner or admin role on org '${scope}'`,
+				},
+				403,
+				NO_STORE_HEADERS,
+			)
+		}
+
+		// Once the role gate has passed, look up the module row
+		// WITHOUT the removed_at filter so we can distinguish
+		// "exists, not removed" (process the DELETE), "exists,
+		// already removed" (return 404), and "does not exist"
+		// (return 404). The 404 envelopes for missing / already-
+		// removed differ so the owner can tell the two apart, but
+		// neither leaks the timestamp to a caller who has not
+		// proven owner/admin membership.
+		const moduleRow = await pglite.query<{ id: string; removed_at: Date | null }>(
+			`SELECT id, removed_at
 			   FROM modules
 			  WHERE scope = $1 AND name = $2`,
 			[scope, name],
@@ -627,30 +676,6 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			return c.json(
 				{ error: `module '${scope}/${name}' was already removed at ${mod.removed_at.toISOString()}` },
 				404,
-				NO_STORE_HEADERS,
-			)
-		}
-
-		// Role enforcement (VAL-AUTH-018): the caller must be
-		// owner or admin of the target org scope. Outsiders / members
-		// get 403; non-members also see 403 (the response shape
-		// matches the read surface's not-found envelope so existence
-		// is not leaked — an outsider cannot tell apart a module
-		// they cannot see from a module they cannot unpublish).
-		const memberRow = await pglite.query<{ role: string }>(
-			`SELECT role
-			   FROM "member"
-			  WHERE "userId" = $1
-			    AND "organizationId" = (SELECT id FROM "organization" WHERE slug = $2)`,
-			[identity.userId, scope],
-		)
-		const role = memberRow.rows[0]?.role
-		if (role !== "owner" && role !== "admin") {
-			return c.json(
-				{
-					error: `unpublish requires owner or admin role on org '${scope}'`,
-				},
-				403,
 				NO_STORE_HEADERS,
 			)
 		}
