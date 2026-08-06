@@ -9,6 +9,7 @@ import type { RegistryConfig } from "./config"
 import { createDatabase, type DatabaseHandle } from "./db/client"
 import { buildApp } from "./index"
 import { ensureSchemaVersion } from "./schema-version"
+import { applyVerifiedModules } from "./screening/tier-assignment"
 import { createFilesystemStorage, type StorageAdapter } from "./storage"
 import { createInMemoryEnqueuer, type IngestEnqueuer } from "./worker/enqueue"
 import { startWorker, type WorkerHandle } from "./worker/runner"
@@ -159,6 +160,23 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 	// no-op. Bare-name resolution and the publish route map to the
 	// official scope the seed uses here.
 	await seedBuiltInCatalog(database.pglite, config.officialOrg)
+
+	// Apply the verified-modules env (architecture §8 decision 20,
+	// VAL-SCAN-010). A JSON array of `scope/name` strings; the
+	// seeder pins each entry's module to the `verified` tier.
+	// Runs AFTER the built-in catalog so the operator can override
+	// a built-in's tier (e.g. a registry operator who wants
+	// `baka-base` to show as `verified` rather than `official`).
+	// The seeder is idempotent; failures (malformed JSON, invalid
+	// entry shape) are logged but never refuse to boot — a typo
+	// in the env must not wedge the registry.
+	const verifiedResult = await applyVerifiedModules(database.pglite, config.verifiedModules)
+	if (verifiedResult.applied > 0) {
+		process.stdout.write(`baka-registry: pinned ${verifiedResult.applied} module(s) to the verified tier\n`)
+	}
+	for (const failure of verifiedResult.failures) {
+		process.stdout.write(`baka-registry: WARNING REGISTRY_VERIFIED_MODULES entry invalid: ${failure.error}\n`)
+	}
 
 	// Surface the official-org bootstrap outcome so the operator log
 	// records what the boot did. Failures are logged, not fatal —

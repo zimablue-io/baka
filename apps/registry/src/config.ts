@@ -84,6 +84,17 @@ const ConfigSchema = z.object({
 	 * `500` for VAL-SCAN-013 unit-level timeout tests).
 	 */
 	screenDryRunTimeoutMs: z.coerce.number().int().positive().optional(),
+	/**
+	 * JSON array of `scope/name` strings whose modules the registry
+	 * pins to the `verified` tier (architecture §8 decision 20,
+	 * VAL-SCAN-010). Applied at boot; the seeder is idempotent on
+	 * the tier column and never touches `official` rows. The env is
+	 * JSON-encoded so the operator can pin many entries in one go
+	 * without env-var-length limits; an unparseable value fails
+	 * fast at boot (the operator log surfaces the failure and the
+	 * server still starts with the empty verified set).
+	 */
+	verifiedModules: z.string().optional(),
 })
 
 export type RegistryConfig = z.infer<typeof ConfigSchema> & {
@@ -119,6 +130,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd: string = p
 		officialPublishers: env.REGISTRY_OFFICIAL_PUBLISHERS,
 		ingestStaleMs: env.REGISTRY_INGEST_STALE_MS,
 		screenDryRunTimeoutMs: env.SCREEN_DRYRUN_TIMEOUT_MS,
+		verifiedModules: env.REGISTRY_VERIFIED_MODULES,
 	})
 	if (!parsed.success) {
 		const issues = parsed.error.issues.map((i) => `  - ${i.path.join(".") || "(root)"}: ${i.message}`).join("\n")

@@ -4,6 +4,7 @@ import { type DryRunResult, runDryRun } from "../screening/dry-run"
 import { runOutputValidation } from "../screening/output-validation"
 import { writeScreeningResult } from "../screening/screening-result"
 import { runStaticScan, type StaticScanFinding } from "../screening/static-scan"
+import { updateModuleTierForVerdict } from "../screening/tier-assignment"
 import { cleanupClone, shallowCloneAtTag } from "./clone"
 import { checkLoadability, IngestFailure, loadManifest } from "./manifest"
 import { packTarball } from "./tarball"
@@ -156,7 +157,21 @@ export async function runIngestJob(payload: IngestVersionPayload, deps: IngestDe
 		// the row failed with diagnostics. We rethrow after marking
 		// so the runner's per-cycle catch still observes the failure
 		// for logging, but the row is durable in its terminal state.
+		//
+		// VAL-SCAN-018: a screening crash reports honestly, never
+		// as a pass. An exception that escapes the screening block
+		// (e.g. a detector bug, an unexpected runtime error in
+		// `runStaticScan` itself) routes through this catch — the
+		// version is marked `failed` AND the module's tier falls
+		// back to `community-unverified`. The tier update runs
+		// BEFORE the markFailed write so a follow-up crash during
+		// the markFailed path still leaves the catalog badge
+		// honest. The `module_id` lookup can fail if the row was
+		// deleted mid-flight; we tolerate that gracefully (the
+		// catalog cannot surface a tier on a missing module
+		// anyway).
 		const message = err instanceof Error ? err.message : String(err)
+		await markScreeningCrashTierTransition(deps.pglite, payload.versionId)
 		try {
 			await markFailed(deps.pglite, payload.versionId, message)
 		} catch (markErr) {
@@ -266,17 +281,9 @@ async function runIngestJobInner(payload: IngestVersionPayload, deps: IngestDeps
 			)
 		}
 
-		// Step 4 — loadability gate: every action, every module
-		// validator, and every action validator must resolve through
-		// the real engine loader (scrutiny-round-1 fix #3). Previously
-		// the gate iterated actions only, so a module with a missing
-		// validator file reached `ready` and failed later at user-side
-		// `baka validate` — the dishonesty this gate exists to prevent.
-		await checkLoadability(moduleDir, manifest)
-
-		// Step 4b — static capability scan (architecture §4.6 layer 1,
-		// VAL-SCAN-002 / 015 / 016). Public-visibility modules enter
-		// the screening pipeline; org-visibility modules skip it
+		// Step 4 — static capability scan (architecture §4.6 layer 1,
+		// VAL-SCAN-002 / 015 / 016 / 018). Public-visibility modules
+		// enter the screening pipeline; org-visibility modules skip it
 		// entirely (decision 30, "private by default"). The scan
 		// never executes the module's own code — it parses every
 		// `.ts` file with the TypeScript Compiler API and walks
@@ -284,14 +291,26 @@ async function runIngestJobInner(payload: IngestVersionPayload, deps: IngestDeps
 		// for network / child_process / eval / dynamic-import /
 		// writes-outside-patterns / handlebars-helper violations.
 		//
+		// Why the static scan runs BEFORE the loadability gate: the
+		// TypeScript Compiler API is permissive — a syntax error
+		// produces a partial AST + a `parse` diagnostic, never a
+		// thrown exception. The loadability gate uses jiti, which
+		// is STRICT — a syntax error throws `ParseError` mid-import.
+		// Running the static scan first means a broken `.ts` file
+		// surfaces as a `parse` finding (recorded honestly on the
+		// screening_results row, VAL-SCAN-018) instead of crashing
+		// the loadability gate with no screening record. The
+		// loadability gate still runs after a clean static scan to
+		// catch unloadable actions / validators.
+		//
 		// On failure: write a screening_results row with verdict
 		// 'failed' + the static_scan payload + an explicit dry_run
 		// skip marker, then throw IngestFailure so the wrapper
 		// routes the version to `failed` with the honest diagnostic.
-		// The dry-run layer (next milestone) is NEVER invoked for a
-		// version that did not pass the static scan — the dry_run
-		// field carries the skip reason so the read surface can
-		// explain why no preview artifacts exist.
+		// The dry-run layer is NEVER invoked for a version that did
+		// not pass the static scan — the dry_run field carries the
+		// skip reason so the read surface can explain why no
+		// preview artifacts exist.
 		//
 		// On pass: write a screening_results row with verdict
 		// 'unverified' (the overall verdict only becomes 'screened'
@@ -301,20 +320,28 @@ async function runIngestJobInner(payload: IngestVersionPayload, deps: IngestDeps
 		if (moduleRow.visibility === "public") {
 			const staticResult = await runStaticScan(moduleDir, manifest)
 			if (!staticResult.passed) {
-				await runScreeningFailureStep(deps.pglite, payload.versionId, staticResult)
+				await runScreeningFailureStep(deps.pglite, payload.versionId, staticResult, moduleRow.id)
 				return
 			}
-			await runDryRunStep(deps, payload.versionId, moduleDir, manifest, staticResult)
+			await runDryRunStep(deps, payload.versionId, moduleDir, manifest, staticResult, moduleRow.id)
 		}
 
-		// Step 5 — content hash + tarball pack.
+		// Step 5 — loadability gate: every action, every module
+		// validator, and every action validator must resolve through
+		// the real engine loader (scrutiny-round-1 fix #3). Previously
+		// the gate iterated actions only, so a module with a missing
+		// validator file reached `ready` and failed later at user-side
+		// `baka validate` — the dishonesty this gate exists to prevent.
+		await checkLoadability(moduleDir, manifest)
+
+		// Step 6 — content hash + tarball pack.
 		const pack = await packTarball(moduleDir)
 
-		// Step 6 — store the tarball via the storage adapter
+		// Step 7 — store the tarball via the storage adapter
 		// (content-addressed dedup is the adapter's responsibility).
 		const stored = await deps.storage.put(pack.bytes)
 
-		// Step 7 — record the artifact row (idempotent via UPSERT on
+		// Step 8 — record the artifact row (idempotent via UPSERT on
 		// (version_id, kind, path)) and finalize the version row.
 		await recordArtifact(deps.pglite, {
 			versionId: payload.versionId,
@@ -325,7 +352,7 @@ async function runIngestJobInner(payload: IngestVersionPayload, deps: IngestDeps
 		})
 		await markReady(deps.pglite, payload.versionId, stored.sha256)
 	} finally {
-		// Step 8 — always clean up the clone directory.
+		// Step 9 — always clean up the clone directory.
 		await cleanupClone(clone.dir)
 	}
 }
@@ -371,6 +398,41 @@ async function markFailed(pglite: PGlite, versionId: string, error: string): Pro
 }
 
 /**
+ * Tier transition for a screening crash (VAL-SCAN-018). A
+ * detector bug or an unexpected runtime error inside the
+ * screening block (runStaticScan, runDryRun, runOutputValidation)
+ * propagates out as an exception — the wrapper catches it and
+ * marks the version `failed`, but the catalog badge must also
+ * reflect the honest "screening could not complete" state. This
+ * helper resolves the version's module id and applies the
+ * tier transition; if the module row is missing (e.g. deleted
+ * mid-flight) the UPDATE is a no-op and the function returns
+ * silently.
+ *
+ * Why a separate helper: the tier UPDATE is intentionally NOT
+ * inside the same try/catch as markFailed — a tier failure
+ * must not block the version's terminal-state write, but the
+ * catalog's honesty depends on the tier update completing
+ * whenever the module row exists.
+ */
+async function markScreeningCrashTierTransition(pglite: PGlite, versionId: string): Promise<void> {
+	const versionRow = await pglite.query<{ module_id: string }>(`SELECT module_id FROM module_versions WHERE id = $1`, [
+		versionId,
+	])
+	const moduleId = versionRow.rows[0]?.module_id
+	if (!moduleId) return
+	try {
+		await updateModuleTierForVerdict(pglite, moduleId, "failed")
+	} catch (err) {
+		// Tier update failure must not block the version's
+		// terminal-state write. Log for operator forensics; the
+		// next worker sweep will retry on the same module row.
+		const message = err instanceof Error ? err.message : String(err)
+		process.stderr.write(`[ingest] tier transition failed for ${versionId}: ${message}\n`)
+	}
+}
+
+/**
  * Records the tarball artifact for the version. UPSERT semantics:
  * a re-run of the ingest job (which cannot happen because the claim
  * UPDATE pins the row to `ingesting`, but worth defending against
@@ -396,11 +458,20 @@ function stripV(value: string): string {
  * `IngestFailure` so the worker wrapper marks the version failed
  * with the diagnostic. No dry-run is invoked when the static scan
  * failed — the dry_run field carries the skip reason.
+ *
+ * Tier transition (VAL-SCAN-008 / 011 / 018, VAL-CROSS-013): a
+ * failed static scan marks the module's tier `community-unverified`
+ * so the catalog surfaces the honest verdict. The transition is
+ * applied BEFORE the throw so the read surface's tier field is
+ * correct even if the wrapper's markFailed write is interrupted
+ * (the tier is a separate UPDATE; the version-row update is the
+ * wrapper's job).
  */
 async function runScreeningFailureStep(
 	pglite: PGlite,
 	versionId: string,
 	result: Awaited<ReturnType<typeof runStaticScan>>,
+	moduleId: string,
 ): Promise<never> {
 	await writeScreeningResult(pglite, versionId, {
 		verdict: "failed",
@@ -411,6 +482,7 @@ async function runScreeningFailureStep(
 			at: new Date().toISOString(),
 		},
 	})
+	await updateModuleTierForVerdict(pglite, moduleId, "failed")
 	const findingsText = result.findings
 		.slice(0, 5)
 		.map((f: StaticScanFinding) => `${f.capability}@${f.file}:${f.line}`)
@@ -471,6 +543,7 @@ async function runDryRunStep(
 	moduleDir: string,
 	manifest: ModuleManifest,
 	staticResult: Awaited<ReturnType<typeof runStaticScan>>,
+	moduleId: string,
 ): Promise<void> {
 	const result = await runDryRun({
 		moduleDir,
@@ -480,7 +553,7 @@ async function runDryRunStep(
 		pglite: deps.pglite,
 		timeoutMs: deps.screenDryRunTimeoutMs,
 	})
-	await applyDryRunVerdict(deps, versionId, moduleDir, manifest, staticResult, result)
+	await applyDryRunVerdict(deps, versionId, moduleDir, manifest, staticResult, result, moduleId)
 }
 
 /**
@@ -490,6 +563,13 @@ async function runDryRunStep(
  * layer 3 also passes, the verdict becomes `screened`. If layer 3
  * fails, the verdict becomes `failed` and the worker wrapper marks
  * the row failed with the layer-3 failure's honest message.
+ *
+ * Tier transition (VAL-SCAN-008 / 011 / 018): every verdict
+ * transition applies the matching tier update
+ * (`community-screened` on a clean dry-run, `community-unverified`
+ * on timeout or failure). The helper only updates the row when
+ * the current tier is in the community pair — `official` /
+ * `verified` rows are left alone by design.
  */
 async function applyDryRunVerdict(
 	deps: IngestDeps,
@@ -498,6 +578,7 @@ async function applyDryRunVerdict(
 	manifest: ModuleManifest,
 	staticResult: Awaited<ReturnType<typeof runStaticScan>>,
 	result: DryRunResult,
+	moduleId: string,
 ): Promise<void> {
 	// Build the discriminated `dry_run` payload. Both branches
 	// carry the same fields; the failure branch's `timedOutAt` is
@@ -526,23 +607,30 @@ async function applyDryRunVerdict(
 			// NOT invoked (the per-action preview files are not
 			// durable after a timeout — the subprocess was
 			// SIGKILLed before its write list was reported).
+			// Tier transition: `unverified` for community
+			// modules so the catalog badge reflects the honest
+			// "dry-run did not complete" state (VAL-SCAN-011).
 			await writeScreeningResult(deps.pglite, versionId, {
 				verdict: "unverified",
 				staticScan: staticResult,
 				dryRun: completedPayload,
 			})
+			await updateModuleTierForVerdict(deps.pglite, moduleId, "unverified")
 			return
 		}
 
 		// Failure → verdict `failed`, throw so the wrapper marks
 		// the row failed with the diagnostic. The dry_run field
 		// carries the per-action error for the read surface to
-		// surface.
+		// surface. Tier transition: `community-unverified` so
+		// the catalog surfaces the honest verdict (VAL-SCAN-008,
+		// VAL-CROSS-013).
 		await writeScreeningResult(deps.pglite, versionId, {
 			verdict: "failed",
 			staticScan: staticResult,
 			dryRun: completedPayload,
 		})
+		await updateModuleTierForVerdict(deps.pglite, moduleId, "failed")
 
 		const failedActions = result.perAction.filter((p) => p.status === "failed")
 		const firstFailure = failedActions[0]
@@ -557,7 +645,7 @@ async function applyDryRunVerdict(
 	// ok: true — dry-run passed. Run layer 3 (output validation)
 	// against the rendered per-action output. Layer 3's verdict
 	// decides the overall `screened` / `failed` transition.
-	await runOutputValidationStep(deps, versionId, moduleDir, manifest, staticResult, completedPayload)
+	await runOutputValidationStep(deps, versionId, moduleDir, manifest, staticResult, completedPayload, moduleId)
 }
 
 /**
@@ -570,10 +658,15 @@ async function applyDryRunVerdict(
  * materializes them into a fresh validation dir and runs the
  * three sub-layers against it.
  *
- * Verdict transitions:
- *   - layer 3 ok → verdict `screened` (overall).
+ * Verdict transitions (VAL-SCAN-008 / 011):
+ *   - layer 3 ok → verdict `screened` (overall) + tier
+ *     `community-screened` for community modules. The tier
+ *     transition is the read-side contract that surfaces the
+ *     "module passed all three layers" badge to the catalog.
  *   - layer 3 fails → verdict `failed`, throws IngestFailure so
- *     the worker wrapper records the row's honest diagnostic.
+ *     the worker wrapper records the row's honest diagnostic;
+ *     tier `community-unverified` for community modules so the
+ *     catalog surfaces the honest verdict.
  *
  * The `output_validation` jsonb column carries the discriminated
  * payload so the read surface can render the verdict text
@@ -591,6 +684,7 @@ async function runOutputValidationStep(
 		timeoutMs: number
 		timedOutAt?: string
 	},
+	moduleId: string,
 ): Promise<void> {
 	const outputValidation = await runOutputValidation({
 		moduleDir,
@@ -606,19 +700,24 @@ async function runOutputValidationStep(
 			dryRun: dryRunPayload,
 			outputValidation,
 		})
+		await updateModuleTierForVerdict(deps.pglite, moduleId, "screened")
 		return
 	}
 
 	// Failure → write the screening_results row with verdict
 	// `failed` + the discriminated output_validation payload,
 	// then throw so the wrapper marks the row failed with the
-	// honest message.
+	// honest message. Tier transition: `community-unverified`
+	// for community modules (VAL-SCAN-011 — failed screening
+	// marks the version honestly and the catalog never hides
+	// the failure).
 	await writeScreeningResult(deps.pglite, versionId, {
 		verdict: "failed",
 		staticScan: staticResult,
 		dryRun: dryRunPayload,
 		outputValidation,
 	})
+	await updateModuleTierForVerdict(deps.pglite, moduleId, "failed")
 
 	const moduleName = manifest.name ?? "module"
 	throw new IngestFailure("screening", `${outputValidation.failure.message} (module '${moduleName}')`)

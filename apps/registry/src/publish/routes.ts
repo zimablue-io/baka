@@ -451,11 +451,27 @@ export function createPublishRoutes(deps: PublishRoutesDeps): Hono {
 				}
 			}
 
+			// Tier is server-attached (VAL-SCAN-009 — never
+			// self-declarable). The initial tier the row carries
+			// depends on the org:
+			//
+			//   - official org → `official` (decision 26: bare-name
+			//     and official-scope publishing always lands on the
+			//     official tier; the org's authority is the pin).
+			//   - any other org → `community-unverified`. The worker
+			//     promotes the row to `community-screened` on a
+			//     full screening pass and pins `community-unverified`
+			//     on every other path (failure, timeout, dry-run
+			//     skip). The verified tier is applied separately by
+			//     the boot-time verified-modules seeder and cannot
+			//     be produced through any publish parameter.
+			const initialTier = org.slug === officialOrg ? "official" : "community-unverified"
+
 			const moduleRow = await upsertModuleRow(pglite, {
 				scope: org.slug,
 				name: moduleName,
 				visibility: body.visibility,
-				tier: "community-unverified",
+				tier: initialTier,
 				description: "",
 				createdBy: identity.userId,
 			})
@@ -602,11 +618,18 @@ async function readBody(request: Request): Promise<BodyResult> {
 
 /**
  * Upserts a `modules` row for the given scope/name combination.
- * The first publish creates the row at `tier: "community-unverified"`
- * (the worker's screening verdict will update the tier on success);
- * subsequent publishes of additional versions of the same module
+ * The first publish creates the row at the org-derived tier
+ * (VAL-SCAN-008 / VAL-SCAN-009 / decision 26):
+ *   - official org → `official` (decision 26: the official
+ *     scope is the authority pin for the `official` tier).
+ *   - any other org → `community-unverified` (the worker
+ *     promotes to `community-screened` on a full screening
+ *     pass; pins `community-unverified` on failure, timeout,
+ *     or dry-run skip).
+ * Subsequent publishes of additional versions of the same module
  * leave the row alone (visibility + tier are mutable only via
- * unpublish / re-publish flows).
+ * the worker's screening-verdict transition and the boot-time
+ * verified-modules seeder — neither is a publish parameter).
  *
  * The unique key `(scope, name)` is the conflict target. The
  * `description` column is initialized empty and updated by the
