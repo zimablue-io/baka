@@ -32,7 +32,7 @@
       // Validator-built seed harness: spawned directly via `tsx` by
       // user-testing flows (drives the registry through curl against a
       // real HTTP port). Not imported by the registry source itself.
-      "ignore": ["test/seed-server.ts"]
+      "ignore": ["test/seed-server.ts", "test/seed-publishing-server.ts"]
     },
 
     "modules/baka-base": {
