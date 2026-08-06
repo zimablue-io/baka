@@ -6,7 +6,6 @@
 		{ "path": "packages/ast-tooling" },
 		{ "path": "workflows/feature-planning" },
 		{ "path": "workflows/module-management" },
-		{ "path": "apps/cli" },
-		{ "path": "apps/api" }
+		{ "path": "apps/cli" }
 	]
 }

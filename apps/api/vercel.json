@@ -1,9 +1,0 @@
-{
-	"$schema": "https://openapi.vercel.sh/vercel.json",
-	"buildCommand": "",
-	"functions": {
-		"src/index.ts": {
-			"runtime": "edge"
-		}
-	}
-}

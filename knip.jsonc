@@ -12,7 +12,6 @@
     },
 
     "apps/cli": {
-      // Tests import the real @baka/api Hono app for black-box coverage.
       "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"],
       // Inlined honest-mod fixtures are written to disk as runtime source
       // and loaded by the CLI's jiti loader; the workspace devDep is the
@@ -21,10 +20,6 @@
     },
 
     "apps/mcp": {
-      "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"]
-    },
-
-    "apps/api": {
       "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"]
     },
 

@@ -104,7 +104,7 @@ When the marketplace serves a module, it attaches a `tier` field based on **wher
 | Tier | How a module gets it |
 |---|---|
 | `built-in` | The catalog is `BUILT_IN_CATALOG` in `packages/protocol/src/built-in-catalog.ts` in the baka repo. |
-| `verified` | The catalog URL is in `apps/api/src/data/verified.json` in the baka repo. |
+| `verified` | The catalog URL is in the registry's `REGISTRY_VERIFIED_MODULES` env var (or seeded directly in the DB). |
 | `community` | The user subscribed to the catalog via `baka marketplace add <url>`. |
 
 The landing app defaults to `built-in` + `verified` and surfaces `community` only in a separate "Your catalogs" section. This is the explicit fix for the "noisy marketplace" problem — the noise is opt-in.
@@ -112,14 +112,9 @@ The landing app defaults to `built-in` + `verified` and surfaces `community` onl
 ## Getting a catalog verified
 
 1. Publish your catalog at a stable HTTPS URL.
-2. Open a PR against the baka repo that adds an entry to `apps/api/src/data/verified.json`:
+2. Open a PR against the baka repo that adds your `scope/name` to the registry's `REGISTRY_VERIFIED_MODULES` env var (or seeds the corresponding row directly in the DB):
    ```json
-   {
-     "url": "https://acme.com/baka-catalog.json",
-     "name": "Acme's catalog",
-     "description": "...",
-     "addedAt": "2026-06-15"
-   }
+   ["acme/auth", "acme/billing"]
    ```
 3. CI fetches your URL, validates the response, and rejects the PR if the catalog is malformed or unreachable.
 4. Once merged, your catalog appears in the landing app's "Verified" section.

@@ -46,7 +46,7 @@ The postinstall hook builds the `baka` CLI. After install you can invoke it with
 
 - `apps/cli` — the `baka` binary
 - `apps/mcp` — the `baka-mcp` MCP server
-- `apps/api` — the public API
+- `apps/registry` — the self-hostable OSS module registry (the public hub)
 - `apps/landing` — the marketing site
 - `packages/protocol` — single source of truth for types and schemas
 - `packages/agent-engine` — the only package that knows what an `LLMProvider` is
