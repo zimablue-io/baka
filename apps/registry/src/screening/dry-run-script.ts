@@ -14,6 +14,18 @@
  *     --jiti-root <path>     directory jiti uses for resolving
  *                            workspace imports (the registry install
  *                            root, or the workspace root in dev/test)
+ *     --canary-config <json> OPTIONAL — test-only channel
+ *                            (architecture §8 decision 39): the
+ *                            JSON object is decoded and written
+ *                            verbatim to <sandboxDir>/_canary.json
+ *                            BEFORE chdir so the action can read
+ *                            it via readFileSync. The parent only
+ *                            forwards this argv when its own
+ *                            process env has
+ *                            BAKA_DRYRUN_TEST_CANARY_CONFIG set.
+ *                            Production deployments never set that
+ *                            env var, so the file is never
+ *                            materialized and the argv is absent.
  *
  *   stdout: a single JSON object per invocation:
  *     { "success": true,  "files": [{ "path": "...", "size": N }, ...] }
@@ -32,8 +44,15 @@
  *         walk exploded. The error message is on stdout.
  *
  * Sandbox enforcement (parent-side, not the script):
- *   - --allow-fs-read=<module-dir>,<jiti-root>
+ *   - --allow-fs-read=<module-dir>,<sandbox-dir>,<jiti-root>
  *   - --allow-fs-write=<sandbox-dir>
+ *   - env is SCRUBBED to {PATH, HOME, TMPDIR, NODE_OPTIONS:''}
+ *     (architecture §8 decision 39, see `scrubbedSpawnEnv` in
+ *     `dry-run.ts`). The script and the loaded action therefore
+ *     CANNOT read parent secrets (AUTH_SECRET,
+ *     GITHUB_CLIENT_SECRET, DATABASE_URL, ...) via `process.env`.
+ *     A regression test in `dry-run.test.ts` proves the negative
+ *     property.
  *   - (child_process and inspector are NOT allowed — Node 24 default)
  *   - The script's read scope is restricted; any attempt to read
  *     outside the allow list (canary file, registry secrets, etc.)
@@ -81,6 +100,36 @@ async function main() {
   if (!actionId || !moduleDir || !sandboxDir) {
     emit({ success: false, error: 'dry-run subprocess: missing --action-id, --module-dir, or --sandbox-dir' })
     process.exit(1)
+  }
+
+  // Optional test-only canary channel (architecture section 8
+  // decision 39). The parent passes the config as
+  // --canary-config <json> only when its own process has
+  // BAKA_DRYRUN_TEST_CANARY_CONFIG set. The decoded JSON is
+  // written verbatim to <sandboxDir>/_canary.json BEFORE chdir so
+  // the action body can read it via readFileSync of that name.
+  // Writing the file inside the sandbox keeps it on the read+write
+  // allow lists without expanding the subprocess permitted read
+  // scope. Bad JSON is reported as a hard failure (script exits
+  // 1) so the parent per-action row carries an honest error
+  // rather than silently dropping the channel.
+  const canaryConfigArg = argValue('--canary-config')
+  if (canaryConfigArg !== null) {
+    let parsed
+    try {
+      parsed = JSON.parse(canaryConfigArg)
+    } catch (err) {
+      const msg = err && err.message ? err.message : String(err)
+      emit({ success: false, error: 'canary config is not valid JSON: ' + msg })
+      process.exit(1)
+    }
+    try {
+      fs.writeFileSync(path.join(sandboxDir, '_canary.json'), JSON.stringify(parsed), 'utf8')
+    } catch (err) {
+      const msg = err && err.message ? err.message : String(err)
+      emit({ success: false, error: 'canary config write failed: ' + msg })
+      process.exit(1)
+    }
   }
 
   // Anchor the cwd in the sandbox so any relative path the action
@@ -214,6 +263,18 @@ function walk(dir, rel, out) {
   }
   for (const entry of entries) {
     if (entry.name === 'node_modules' || entry.name === 'out' || entry.name.startsWith('.')) continue
+    // The parent may have materialized a test-only canary
+    // config as <sandboxDir>/_canary.json BEFORE chdir (see
+    // the --canary-config argv handling near the top of
+    // main()). The action's body can read it via readFileSync
+    // but it must NOT show up in the action's "produced
+    // files" walk — the file is plumbing, not output.
+    // Excluding it here keeps layer 2's per-action preview
+    // surface honest ("files the action wrote") and avoids
+    // a spurious layer-3 writes-subset-failure when the
+    // action's declared filePatterns do not name the
+    // canary file.
+    if (entry.name === '_canary.json') continue
     const full = path.join(dir, entry.name)
     const r = rel === '.' ? entry.name : path.posix.join(rel, entry.name)
     if (entry.isDirectory()) {

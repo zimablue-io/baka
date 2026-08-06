@@ -86,10 +86,17 @@ describe("sandboxed dry-run (VAL-SCAN-003 / 013 / 014)", () => {
 	let stack: TestStack
 
 	beforeEach(async () => {
+		// Clear any canary-channel state from a previous test so
+		// a missed `afterEach` (or a test that intentionally
+		// doesn't set it) cannot smuggle a stale config into a
+		// fresh dry-run. Architecture §8 decision 39 - the env
+		// is reserved for test plumbing, never used in production.
+		delete process.env.BAKA_DRYRUN_TEST_CANARY_CONFIG
 		stack = await setupStack()
 	})
 
 	afterEach(async () => {
+		delete process.env.BAKA_DRYRUN_TEST_CANARY_CONFIG
 		await teardownStack(stack)
 	})
 
@@ -99,25 +106,33 @@ describe("sandboxed dry-run (VAL-SCAN-003 / 013 / 014)", () => {
 			const canaryPath = join(canaryDir, "canary.txt")
 			const canaryContent = `BAKA_CANARY_SECRET_${Math.random().toString(36).slice(2)}`
 			writeFileSync(canaryPath, canaryContent, "utf8")
-			// Canary paths flow into the action via env vars (the
-			// dry-run subprocess inherits process.env). The action's
-			// body never references the canary paths as string
-			// literals — the static capability scan would otherwise
-			// flag `writeFileSync("<literal>", ...)` as
+			// Canary paths flow into the action via the canary
+			// channel (BAKA_DRYRUN_TEST_CANARY_CONFIG env var in
+			// the parent → `--canary-config` argv →
+			// <sandboxDir>/_canary.json writeFileSync in the
+			// subprocess). Architecture §8 decision 39 scrubs the
+			// spawn env, so previous "pass through process.env"
+			// plumbing no longer reaches the action body. The
+			// action body never references the canary paths as
+			// string literals — the static capability scan would
+			// otherwise flag `writeFileSync("<literal>", ...)` as
 			// `writes-outside-patterns` and the dry-run would never
 			// run. Computing the paths at runtime lets the static
 			// scan defer to the sandbox layer that actually
 			// exercises the escape.
 			const canaryParent = join(canaryDir, "..")
-			process.env.BAKA_CANARY_PATH = canaryPath
-			process.env.BAKA_CANARY_PARENT = canaryDir
+			process.env.BAKA_DRYRUN_TEST_CANARY_CONFIG = JSON.stringify({
+				canaryPath,
+				canaryParent: canaryDir,
+			})
 
 			// The action attempts BOTH a read of the canary file AND
 			// a write to the sandbox-parent dir. Both paths are
-			// computed at runtime (process.env + join) so the
-			// static scan sees only non-literal expressions; the
-			// sandbox then blocks them as ERR_ACCESS_DENIED and the
-			// verdict text quotes the message verbatim.
+			// computed at runtime (readFileSync of _canary.json +
+			// join) so the static scan sees only non-literal
+			// expressions; the sandbox then blocks them as
+			// ERR_ACCESS_DENIED and the verdict text quotes the
+			// message verbatim.
 			//
 			// The blocked-write case must NOT propagate a second
 			// throw inside the catch block (the marker write would
@@ -130,8 +145,9 @@ describe("sandboxed dry-run (VAL-SCAN-003 / 013 / 014)", () => {
 			const actionBody = `
 import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-const canaryPath = process.env.BAKA_CANARY_PATH
-const canaryParent = process.env.BAKA_CANARY_PARENT
+const canaryConfig = JSON.parse(readFileSync('_canary.json', 'utf8'))
+const canaryPath = canaryConfig.canaryPath
+const canaryParent = canaryConfig.canaryParent
 export default {
   name: "escape",
   role: 1,
@@ -216,25 +232,33 @@ export default {
 		})
 
 		it("write escape to the sandbox parent and to a relative path are both blocked", async () => {
-			// Absolute-path targets are passed in via env vars so the
-			// action body never references them as string literals —
-			// the static capability scan would otherwise flag
+			// Absolute-path targets are passed in via the canary
+			// channel (BAKA_DRYRUN_TEST_CANARY_CONFIG env var in
+			// the parent → `--canary-config` argv →
+			// <sandboxDir>/_canary.json) so the action body never
+			// references them as string literals — the static
+			// capability scan would otherwise flag
 			// `writeFileSync("<literal>", ...)` as
 			// `writes-outside-patterns` and the dry-run would never
 			// run. The relative-path escape (`../escape.txt`) is
 			// already a `join(...)` call expression so the static
 			// scan skips it; only the absolute path needed
-			// runtime-computation.
-			process.env.BAKA_ABS_PATH = "/tmp/this-is-outside-sandbox.txt"
+			// runtime-computation. Architecture §8 decision 39
+			// scrubs the spawn env, so process-env passthrough no
+			// longer reaches the action.
+			process.env.BAKA_DRYRUN_TEST_CANARY_CONFIG = JSON.stringify({
+				absPath: "/tmp/this-is-outside-sandbox.txt",
+			})
 
 			// The action attempts a relative-path escape AND an
 			// absolute-path escape; both are blocked by
 			// `--permission`, and the verdict text quotes the
 			// ERR_ACCESS_DENIED message verbatim.
 			const actionBody = `
-import { writeFileSync } from "node:fs"
+import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-const absPath = process.env.BAKA_ABS_PATH
+const canaryConfig = JSON.parse(readFileSync('_canary.json', 'utf8'))
+const absPath = canaryConfig.absPath
 export default {
   name: "write-escape",
   role: 1,
@@ -752,6 +776,127 @@ export default {
 			screening: { verdict: string } | null
 		}
 		expect(body2.screening?.verdict).toBe("screened")
+	})
+})
+
+/**
+ * Env scrub (architecture §8 decision 39, scrutiny round 1 issue
+ * #2). `node --permission` gates fs / child_process / worker
+ * threads / inspector but NOT `process.env`. A registry subprocess
+ * spawned with `env: { ...process.env }` can read every parent
+ * secret — `AUTH_SECRET`, `GITHUB_CLIENT_CLIENT_SECRET`,
+ * `DATABASE_URL`, `REGISTRY_OFFICIAL_PUBLISHERS` — and write the
+ * bytes into the sandbox, where they become preview artifacts
+ * served unauthenticated for public modules (decision 23,
+ * VAL-SCAN-019). The sandbox must receive a SCRUBBED spawn env;
+ * the regression below sets a sentinel env var in the parent
+ * process, runs a public dry-run whose action writes the env
+ * value into a sandbox file, and asserts the served preview does
+ * NOT contain the sentinel.
+ *
+ * The sentinel env var is set BEFORE the fixture is built so the
+ * registry process (which the fixture boots in-process) inherits
+ * it at the same level as any other parent secret. Per the dry-run
+ * library doc, the intended scrub allowlist is `PATH, HOME,
+ * TMPDIR, NODE_OPTIONS:''` — strictly less than the registry
+ * process's full env. The test does not enumerate the allowlist:
+ * it proves the negative property "parent-only secrets never reach
+ * sandboxed code", which is the security-relevant guarantee.
+ */
+describe("env scrub (architecture §8 decision 39)", () => {
+	let stack: TestStack
+	const CANARY_ENV_KEY = "BAKA_DRYRUN_TEST_PARENT_SECRET"
+	let canaryValue: string
+
+	beforeEach(async () => {
+		// Random per-test value so two concurrent test runs cannot
+		// cross-contaminate. The full env key name is
+		// reserved-by-the-tests (no production code path reads it).
+		canaryValue = `canary-${Math.random().toString(36).slice(2)}-${Date.now()}`
+		process.env[CANARY_ENV_KEY] = canaryValue
+		stack = await setupStack()
+	})
+
+	afterEach(async () => {
+		delete process.env[CANARY_ENV_KEY]
+		await teardownStack(stack)
+	})
+
+	it("a sandboxed action cannot read a parent-only env var — preview artifact does not contain the canary", async () => {
+		// The action writes `process.env.BAKA_DRYRUN_TEST_PARENT_SECRET`
+		// into a sandbox file. If the env is NOT scrubbed, the
+		// file content carries the canary value into the
+		// unauthenticated `/previews/:actionId` surface — the
+		// exact attack model decision 39 forbids. With scrubbing,
+		// the action's `process.env` is the minimal allowlist, so
+		// the canary is undefined and the file ends up empty /
+		// without the sentinel.
+		const actionBody = `
+import { writeFileSync } from "node:fs"
+export default {
+  name: "writer",
+  role: 1,
+  async execute() {
+    const canary = process.env.${CANARY_ENV_KEY} ?? ""
+    writeFileSync("preview.txt", "secret=" + canary)
+    return { success: true, output: undefined, compensationData: undefined }
+  },
+  async compensate() {},
+}
+`
+
+		await stack.git.commitManifest({
+			name: "@acme/env-scrub",
+			version: "1.0.0",
+			tag: "v1.0.0",
+			modulePath: "env-scrub",
+			actions: [
+				{
+					id: "writer",
+					description: "writer",
+					filePatterns: ["preview.txt"],
+					body: actionBody,
+				},
+			],
+		})
+
+		const res = await stack.fx.app.request("/v1/publish", {
+			method: "POST",
+			headers: { "content-type": "application/json", "x-api-key": stack.fx.keys.owner },
+			body: JSON.stringify({
+				repo: stack.git.bareUrl,
+				tag: "v1.0.0",
+				org: "acme",
+				visibility: "public",
+				modulePath: "env-scrub",
+			}),
+		})
+		expect(res.status).toBe(202)
+		const { versionId } = (await res.json()) as { versionId: string }
+		const terminal = await stack.fx.waitForTerminal(versionId)
+		expect(terminal.status).toBe("ready")
+
+		// Public module preview is served UNAUTHENTICATED (decision
+		// 23); the absent `x-api-key` header is intentional — the
+		// test simulates the landing site / a third-party fetch.
+		const detailRes = await stack.fx.app.request("/v1/modules/acme/env-scrub/v1.0.0/previews/writer")
+		expect(detailRes.status).toBe(200)
+		const body = (await detailRes.json()) as {
+			actionId: string
+			state: string
+			files?: Array<{ path: string; content: string }>
+		}
+		expect(body.actionId).toBe("writer")
+		expect(body.state).toBe("rendered")
+		const previewFile = body.files?.find((f) => f.path === "preview.txt")
+		expect(previewFile).toBeDefined()
+		// The canary value MUST NOT appear in the preview file
+		// contents — neither directly nor in the `"secret=..."`
+		// prefix the action wrote. An empty string after `=`
+		// proves the env was scrubbed (process.env returned
+		// undefined → the `?? ""` fallback fired).
+		expect(previewFile?.content ?? "").not.toContain(canaryValue)
+		expect(previewFile?.content ?? "").toBe("secret=")
 	})
 })
 

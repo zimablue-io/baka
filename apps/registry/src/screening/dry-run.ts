@@ -60,6 +60,40 @@ const OWN_TREE_ONLY_POLICY =
 
 const DEFAULT_DRY_RUN_TIMEOUT_MS = 60_000
 
+/**
+ * Returns the minimal allowlist passed to every dry-run subprocess
+ * via `spawn(env)`. The shape is the architectural decision 39
+ * contract: PATH / HOME / TMPDIR / `NODE_OPTIONS:''`. Empty /
+ * missing parent values are tolerated (the running subprocess just
+ * inherits an empty string for the missing entries; Node tolerates
+ * all four being empty for module loading purposes).
+ *
+ * Anything else from the parent is intentionally DROPPED. In
+ * particular:
+ *   - `AUTH_SECRET` — better-auth session/cookie secret.
+ *   - `GITHUB_CLIENT_SECRET` — OAuth client secret.
+ *   - `DATABASE_URL` / `BAKA_*` connection strings.
+ *   - `REGISTRY_OFFICIAL_PUBLISHERS` — comma-separated api keys
+ *     and GitHub user IDs that grant owner role on the official
+ *     scope (architecture §8 decision 29).
+ *   - Every operator env var the registry reads (rate-limit
+ *     knobs, plan-seeding JSON, etc.).
+ *
+ * Verified empirically on this repo's Node 24.18.0:
+ *   `node --permission --allow-fs-read=... -e "1+1"` boots with
+ *   no env beyond the four allowlisted keys; tests below prove
+ *   that an action's `process.env` does not surface a parent-only
+ *   sentinel to a sandboxed module.
+ */
+function scrubbedSpawnEnv(): NodeJS.ProcessEnv {
+	return {
+		PATH: process.env.PATH ?? "",
+		HOME: process.env.HOME ?? "",
+		TMPDIR: process.env.TMPDIR ?? "",
+		NODE_OPTIONS: "",
+	}
+}
+
 interface PreviewFile {
 	path: string
 	contentHash: string
@@ -366,6 +400,26 @@ function runOneAction(opts: {
 			opts.jitiRootReal,
 		)
 
+		// Test-only canary channel (architecture §8 decision 39).
+		//
+		// `node --permission` does NOT gate `process.env`, so the
+		// sandbox must receive a SCRUBBED spawn env (see below).
+		// Tests that need to thread a sandbox-action-visible value
+		// (canary file path, etc.) into the subprocess set
+		// `BAKA_DRYRUN_TEST_CANARY_CONFIG` in the PARENT process.
+		// The parent (this file, running inside the registry
+		// process for in-process tests) reads it and forwards it
+		// to the subprocess as a `--canary-config <json>` argv.
+		// The subprocess writes the JSON to
+		// `<sandbox>/_canary.json`; the action body reads it via
+		// `readFileSync` instead of `process.env`. Production
+		// deployments never set this env var, so production
+		// spawns grow by one trivially-empty argv.
+		const canaryConfigJson = process.env.BAKA_DRYRUN_TEST_CANARY_CONFIG
+		if (typeof canaryConfigJson === "string" && canaryConfigJson.length > 0) {
+			args.push("--canary-config", canaryConfigJson)
+		}
+
 		let stdoutBuf = ""
 		let stderrBuf = ""
 		let settled = false
@@ -374,7 +428,33 @@ function runOneAction(opts: {
 		let child: ChildProcess
 		try {
 			child = spawn(process.execPath, args, {
-				env: { ...process.env, NODE_OPTIONS: "" },
+				// Env scrub (architecture §8 decision 39).
+				//
+				// `node --permission` gates fs / child_process /
+				// worker threads / inspector but NOT
+				// `process.env`. A subprocess spawned with
+				// `env: { ...process.env }` can read every
+				// parent secret — AUTH_SECRET,
+				// GITHUB_CLIENT_SECRET, DATABASE_URL,
+				// REGISTRY_OFFICIAL_PUBLISHERS API keys —
+				// and write the bytes into the sandbox, where
+				// they become preview artifacts served
+				// unauthenticated for public modules (decision
+				// 23, VAL-SCAN-019). The scrub below is the
+				// minimal allowlist documented in
+				// `library/sandboxed-dry-run.md`: PATH (so
+				// Node can resolve shared-library `dlopen`
+				// paths), HOME (so `node:os.homedir()` and the
+				// like resolve to a real dir), TMPDIR (so
+				// `os.tmpdir()` and any code that fall back to
+				// the OS default temp dir works), and
+				// NODE_OPTIONS forced to '' (the parent may
+				// have set it for `--inspect` or `--require`;
+				// the sandbox would otherwise forward that
+				// into every screened action). Verified
+				// empirically: `node --permission -e ...`
+				// boots with no env beyond those four.
+				env: scrubbedSpawnEnv(),
 				stdio: ["ignore", "pipe", "pipe"],
 			})
 		} catch (err) {

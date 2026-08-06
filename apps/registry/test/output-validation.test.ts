@@ -60,10 +60,16 @@ describe("screening output-validation (VAL-SCAN-006 / 007 / 017)", () => {
 	let stack: TestStack
 
 	beforeEach(async () => {
+		// Clear the test-only canary channel so a stale config
+		// from a prior test cannot smuggle into this run.
+		// Architecture §8 decision 39 — the env is reserved
+		// for test plumbing, never used in production.
+		delete process.env.BAKA_DRYRUN_TEST_CANARY_CONFIG
 		stack = await setupStack()
 	})
 
 	afterEach(async () => {
+		delete process.env.BAKA_DRYRUN_TEST_CANARY_CONFIG
 		await teardownStack(stack)
 	})
 
@@ -368,14 +374,21 @@ export async function rejectsPlaceholder(state, _actionData) {
 	describe("writes-subset-filePatterns (VAL-SCAN-007)", () => {
 		it("a computed-path write outside declared filePatterns fails the layer (layer 1 cannot see this)", async () => {
 			// The action's write path is COMPOSED at runtime
-			// via process.env (a runtime string), so layer 1's
-			// static scanner cannot detect it as a literal
-			// write-outside-patterns. The action declares
+			// via the test canary channel (BAKA_DRYRUN_TEST_CANARY_CONFIG
+			// in the parent → `--canary-config` argv →
+			// <sandboxDir>/_canary.json in the subprocess), so
+			// layer 1's static scanner cannot detect it as a
+			// literal write-outside-patterns. Architecture §8
+			// decision 39 scrubs the spawn env, so previous
+			// `process.env` passthrough no longer reaches the
+			// action. The action declares
 			// `filePatterns: ["src/index.ts"]` but writes to
 			// `escape.txt` at the sandbox root. Layer 3 must
 			// catch this by comparing the actual rendered
 			// preview file's path against the declared patterns.
-			process.env.BAKA_OUT_PATTERN = "escape.txt"
+			process.env.BAKA_DRYRUN_TEST_CANARY_CONFIG = JSON.stringify({
+				outPattern: "escape.txt",
+			})
 			await stack.git.commitManifest({
 				name: "@acme/ofp",
 				version: "1.0.0",
@@ -387,13 +400,15 @@ export async function rejectsPlaceholder(state, _actionData) {
 						description: "writer",
 						filePatterns: ["src/index.ts"],
 						body: `
-import { writeFileSync } from "node:fs"
+import { readFileSync, writeFileSync } from "node:fs"
+const canaryConfig = JSON.parse(readFileSync('_canary.json', 'utf8'))
+const outPattern = canaryConfig.outPattern
 export default {
   name: "writer",
   role: 1,
   async execute() {
     writeFileSync("src/index.ts", "ok")
-    writeFileSync(process.env.BAKA_OUT_PATTERN, "leaked")
+    writeFileSync(outPattern, "leaked")
     return { success: true, output: undefined, compensationData: undefined }
   },
   async compensate() {},

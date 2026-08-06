@@ -81,6 +81,141 @@ describe("static capability scan (VAL-SCAN-002 / 015 / 016)", () => {
 			expect(findCapability(result, "network")).toBeDefined()
 		})
 
+		/**
+		 * Pinned regressions for scrutiny round 1 issue #1
+		 * (`stripNodePrefix` bug): `node:`-prefixed imports used to
+		 * pass the static scan because the denylist matcher only
+		 * stripped a bare-leading-colon (`":http"`), never the
+		 * `node:http` form (`indexOf(":") === 0` returns false for
+		 * `node:http` since the colon is at index 4). The static
+		 * layer is the ONLY network gate (Node 24's `--permission`
+		 * cannot block network), so any module evading it bypasses
+		 * every screening layer. Each form below must remain
+		 * flagged across the import / export-from / import-type
+		 * call sites the AST walker hits.
+		 */
+		it("flags `import ... from 'node:http'` (and 'node:https' / 'node:net' / 'node:dns') as network", async () => {
+			const moduleDir = await setupModule({
+				"action.ts": `import http from "node:http";\nexport default { execute: () => http.get("https://evil.example") }`,
+			})
+			const result = await runScan(moduleDir, manifestWithAction("scaffold", []))
+			expect(result.passed).toBe(false)
+			const finding = findCapability(result, "network")
+			expect(finding).toBeDefined()
+			expect(finding?.snippet).toContain("node:http")
+		})
+
+		it("flags `import ... from 'node:https'` as network", async () => {
+			const moduleDir = await setupModule({
+				"action.ts": `import https from "node:https";\nexport default { execute: () => https.get("https://evil.example") }`,
+			})
+			const result = await runScan(moduleDir, manifestWithAction("scaffold", []))
+			expect(result.passed).toBe(false)
+			const finding = findCapability(result, "network")
+			expect(finding).toBeDefined()
+			expect(finding?.snippet).toContain("node:https")
+		})
+
+		it("flags `import ... from 'node:net'` as network", async () => {
+			const moduleDir = await setupModule({
+				"action.ts": `import net from "node:net";\nexport default { execute: () => net.createServer() }`,
+			})
+			const result = await runScan(moduleDir, manifestWithAction("scaffold", []))
+			expect(result.passed).toBe(false)
+			const finding = findCapability(result, "network")
+			expect(finding).toBeDefined()
+			expect(finding?.snippet).toContain("node:net")
+		})
+
+		it("flags `import ... from 'node:dns'` as network", async () => {
+			const moduleDir = await setupModule({
+				"action.ts": `import dns from "node:dns";\nexport default { execute: () => dns.lookup("evil.example") }`,
+			})
+			const result = await runScan(moduleDir, manifestWithAction("scaffold", []))
+			expect(result.passed).toBe(false)
+			const finding = findCapability(result, "network")
+			expect(finding).toBeDefined()
+			expect(finding?.snippet).toContain("node:dns")
+		})
+
+		it("flags `import ... from 'node:child_process'` as child_process", async () => {
+			const moduleDir = await setupModule({
+				"action.ts": `import cp from "node:child_process";\nexport default { execute: () => cp.exec("rm -rf /") }`,
+			})
+			const result = await runScan(moduleDir, manifestWithAction("scaffold", []))
+			expect(result.passed).toBe(false)
+			const finding = findCapability(result, "child_process")
+			expect(finding).toBeDefined()
+			expect(finding?.snippet).toContain("node:child_process")
+		})
+
+		it("flags `export ... from 'node:child_process'` as child_process (export-from form)", async () => {
+			const moduleDir = await setupModule({
+				"action.ts": `export { exec } from "node:child_process";\nexport default { execute: () => exec("ls"), compensate: () => {} }`,
+			})
+			const result = await runScan(moduleDir, manifestWithAction("scaffold", []))
+			expect(result.passed).toBe(false)
+			const finding = findCapability(result, "child_process")
+			expect(finding).toBeDefined()
+			expect(finding?.snippet).toContain("node:child_process")
+		})
+
+		it("flags `export ... from 'node:http'` as network (export-from form)", async () => {
+			const moduleDir = await setupModule({
+				"action.ts": `export { get as httpGet } from "node:http";\nexport default { execute: () => httpGet("https://evil.example"), compensate: () => {} }`,
+			})
+			const result = await runScan(moduleDir, manifestWithAction("scaffold", []))
+			expect(result.passed).toBe(false)
+			const finding = findCapability(result, "network")
+			expect(finding).toBeDefined()
+			expect(finding?.snippet).toContain("node:http")
+		})
+
+		it("flags `type X = import('node:child_process')` as child_process (import-type form)", async () => {
+			const moduleDir = await setupModule({
+				"action.ts": `import type * as CP from "node:child_process";\nexport default { execute: (_args: unknown, _state: unknown, ctx: { llmProvider: CP.ChildProcess | null }) => { void ctx; return { success: true } }, compensate: () => {} }`,
+			})
+			const result = await runScan(moduleDir, manifestWithAction("scaffold", []))
+			expect(result.passed).toBe(false)
+			const finding = findCapability(result, "child_process")
+			expect(finding).toBeDefined()
+			expect(finding?.snippet).toContain("node:child_process")
+		})
+
+		it("flags `type X = import('node:net')` as network (import-type form)", async () => {
+			const moduleDir = await setupModule({
+				"action.ts": `import type * as Net from "node:net";\nexport default { execute: (_args: unknown, _state: unknown, ctx: { llmProvider: Net.Socket | null }) => { void ctx; return { success: true } }, compensate: () => {} }`,
+			})
+			const result = await runScan(moduleDir, manifestWithAction("scaffold", []))
+			expect(result.passed).toBe(false)
+			const finding = findCapability(result, "network")
+			expect(finding).toBeDefined()
+			expect(finding?.snippet).toContain("node:net")
+		})
+
+		it("allows `node:fs` / `node:path` etc. (positive control for non-denied node: builtins)", async () => {
+			const moduleDir = await setupModule({
+				"action.ts": [
+					`import fs from "node:fs";`,
+					`import path from "node:path";`,
+					`import crypto from "node:crypto";`,
+					`import os from "node:os";`,
+					`import { writeFileSync } from "node:fs";`,
+					`export default {`,
+					`  execute: () => {`,
+					`    writeFileSync("src/index.ts", crypto.createHash("sha256").update("x").digest("hex"));`,
+					`    void path;`,
+					`    void os;`,
+					`    void fs;`,
+					`  },`,
+					`  compensate: () => {},`,
+					`}`,
+				].join("\n"),
+			})
+			const result = await runScan(moduleDir, manifestWithAction("scaffold", ["src/index.ts"]))
+			expect(result.passed).toBe(true)
+		})
+
 		it("flags `child_process` module references", async () => {
 			const moduleDir = await setupModule({
 				"action.ts": `import cp from "child_process";\nexport default { execute: () => cp.exec("rm -rf /") }`,

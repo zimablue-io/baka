@@ -709,9 +709,32 @@ function isImportCall(node: ts.Node, sourceFile: ts.SourceFile): node is ts.Call
 	return expr.kind === ts.SyntaxKind.ImportKeyword
 }
 
+/**
+ * Strips a Node.js builtin prefix so the bare module name can be
+ * matched against the network / child_process denylists.
+ *
+ * Handles two forms:
+ *
+ *   - `"node:fs"` — the standard `node:` scheme, `node` is the
+ *     scheme identifier and `fs` is the bare spec. Slashed
+ *     variants (`"node:fs/promises"`) keep the slash.
+ *   - `":fs"` — a syntactically valid but meaningless leading-
+ *     colon spec; included so a future authoring slip never
+ *     slips a builtin past the denylist silently.
+ *
+ * Anything else (a non-builtin spec like `"fs"` or `"evil-pkg"`)
+ * returns unchanged so the denylist comparer sees the original
+ * specifier. REGRESSION (scrutiny round 1 issue #1): the previous
+ * implementation checked `indexOf(":") === 0`, which never matches
+ * `"node:fs"` (the colon is at index 4). That let `node:http` /
+ * `node:https` / `node:net` / `node:dns` / `node:child_process`
+ * evade the static network gate — the ONLY network gate, since
+ * Node 24's `--permission` cannot block network.
+ */
 function stripNodePrefix(specifier: string): string {
+	if (specifier.startsWith("node:")) return specifier.slice("node:".length)
 	const idx = specifier.indexOf(":")
-	if (idx === 0) return specifier.slice(1) // "node:fs" → "fs"
+	if (idx === 0) return specifier.slice(1) // ":fs" → "fs" (defensive)
 	return specifier
 }
 
