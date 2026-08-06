@@ -484,8 +484,19 @@ function detectImportTypeNode(
 	findings: StaticScanFinding[],
 ): void {
 	const literal = node.argument
-	if (!ts.isStringLiteral(literal)) return
-	const specifier = literal.text
+	// TS 5.9.2 wraps ImportTypeNode.argument in a LiteralTypeNode
+	// (a type-level wrapper), not the bare StringLiteral — the old
+	// `ts.isStringLiteral(literal)` guard therefore returned early
+	// and every `type X = import('node:net')` (and even bare
+	// `import('http')` import-types) slipped through the static
+	// network gate. Unwrap one layer to the underlying string.
+	let specifier: string | null = null
+	if (ts.isLiteralTypeNode(literal) && ts.isStringLiteral(literal.literal)) {
+		specifier = literal.literal.text
+	} else if (ts.isStringLiteral(literal)) {
+		specifier = literal.text
+	}
+	if (specifier === null) return
 	const bareSpec = stripNodePrefix(specifier)
 	if (NETWORK_MODULES.has(bareSpec) || bareSpec === CHILD_PROCESS_MODULE) {
 		const pos = node.getStart(sourceFile)

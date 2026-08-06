@@ -171,7 +171,7 @@ describe("static capability scan (VAL-SCAN-002 / 015 / 016)", () => {
 			expect(finding?.snippet).toContain("node:http")
 		})
 
-		it("flags `type X = import('node:child_process')` as child_process (import-type form)", async () => {
+		it("flags `import type * as CP from 'node:child_process'` as child_process (import-type-declaration form)", async () => {
 			const moduleDir = await setupModule({
 				"action.ts": `import type * as CP from "node:child_process";\nexport default { execute: (_args: unknown, _state: unknown, ctx: { llmProvider: CP.ChildProcess | null }) => { void ctx; return { success: true } }, compensate: () => {} }`,
 			})
@@ -182,7 +182,7 @@ describe("static capability scan (VAL-SCAN-002 / 015 / 016)", () => {
 			expect(finding?.snippet).toContain("node:child_process")
 		})
 
-		it("flags `type X = import('node:net')` as network (import-type form)", async () => {
+		it("flags `import type * as Net from 'node:net'` as network (import-type-declaration form)", async () => {
 			const moduleDir = await setupModule({
 				"action.ts": `import type * as Net from "node:net";\nexport default { execute: (_args: unknown, _state: unknown, ctx: { llmProvider: Net.Socket | null }) => { void ctx; return { success: true } }, compensate: () => {} }`,
 			})
@@ -191,6 +191,46 @@ describe("static capability scan (VAL-SCAN-002 / 015 / 016)", () => {
 			const finding = findCapability(result, "network")
 			expect(finding).toBeDefined()
 			expect(finding?.snippet).toContain("node:net")
+		})
+
+		it("flags `type X = import('node:net')` as network (import-type form, true ImportTypeNode)", async () => {
+			const moduleDir = await setupModule({
+				"action.ts": [
+					`type Socket = import("node:net").Socket;`,
+					`export default {`,
+					`  execute: (_args: unknown, _state: unknown, ctx: { socket: Socket | null }) => {`,
+					`    void ctx;`,
+					`    return { success: true };`,
+					`  },`,
+					`  compensate: () => {},`,
+					`}`,
+				].join("\n"),
+			})
+			const result = await runScan(moduleDir, manifestWithAction("scaffold", []))
+			expect(result.passed).toBe(false)
+			const finding = findCapability(result, "network")
+			expect(finding).toBeDefined()
+			expect(finding?.snippet).toContain("node:net")
+		})
+
+		it("flags `type X = import('node:child_process')` as child_process (import-type form, true ImportTypeNode)", async () => {
+			const moduleDir = await setupModule({
+				"action.ts": [
+					`type ChildProcess = import("node:child_process").ChildProcess;`,
+					`export default {`,
+					`  execute: (_args: unknown, _state: unknown, ctx: { cp: ChildProcess | null }) => {`,
+					`    void ctx;`,
+					`    return { success: true };`,
+					`  },`,
+					`  compensate: () => {},`,
+					`}`,
+				].join("\n"),
+			})
+			const result = await runScan(moduleDir, manifestWithAction("scaffold", []))
+			expect(result.passed).toBe(false)
+			const finding = findCapability(result, "child_process")
+			expect(finding).toBeDefined()
+			expect(finding?.snippet).toContain("node:child_process")
 		})
 
 		it("allows `node:fs` / `node:path` etc. (positive control for non-denied node: builtins)", async () => {
