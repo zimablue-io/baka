@@ -1,12 +1,14 @@
 import { existsSync, mkdirSync } from "node:fs"
 import { serve } from "@hono/node-server"
+import { type BetterAuthHandle, createBetterAuth } from "./auth/better-auth"
+import { createPgPool } from "./auth/kysely-db"
 import type { RegistryConfig } from "./config"
 import { createDatabase, type DatabaseHandle } from "./db/client"
-import app from "./index"
+import { buildApp } from "./index"
 import { ensureSchemaVersion } from "./schema-version"
 
 /**
- * Server bootstrap (architecture §4.1, §4.2).
+ * Server bootstrap (architecture §4.1, §4.2, §4.4).
  *
  * Responsibilities:
  *   1. Ensure the data dir, storage dir, and pglite dir exist.
@@ -15,19 +17,26 @@ import { ensureSchemaVersion } from "./schema-version"
  *      gate file. Refuses to boot if the recorded version is newer.
  *   3. Open the database (in-process PGlite + Drizzle client).
  *   4. Start the pglite-socket TCP server on the configured port so
- *      graphile-worker (milestone 3) and out-of-process clients can reach
- *      the same data. `maxConnections=10` per the verified dependency fact.
- *   5. Bind the Hono app to `config.port` on the configured hostname.
+ *      graphile-worker (milestone 3) and Better-Auth's Kysely adapter
+ *      (this milestone) can reach the same data. `maxConnections=10`
+ *      per the verified dependency fact.
+ *   5. Build the Better-Auth instance against a `pg.Pool` wired to the
+ *      pglite-socket, then run Better-Auth's introspection-driven
+ *      migrations so the auth tables (user, session, account,
+ *      verification, organization, member, invitation, apikey) exist.
+ *   6. Build the Hono app with auth + pglite wired in, and bind it to
+ *      `config.port` on the configured hostname.
  *
- * Returns the live `DatabaseHandle` plus an `http.Server` handle so the
- * caller can shut everything down cleanly. The process entry point
- * (`bin.ts`) wires that to SIGINT/SIGTERM.
+ * Returns the live `DatabaseHandle`, the `BetterAuthHandle`, and an
+ * `http.Server` handle so the caller can shut everything down cleanly.
+ * The process entry point (`bin.ts`) wires that to SIGINT/SIGTERM.
  */
 
 interface ServerHandle {
 	port: number
 	url: () => string
 	database: DatabaseHandle
+	betterAuth: BetterAuthHandle
 	close: () => Promise<void>
 }
 
@@ -62,11 +71,6 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 		process.exit(1)
 	}
 
-	// Open the database (applies any migrations that did not run during the
-	// gate — applyAppMigrations is idempotent, so this is safe) and start
-	// the pglite-socket so graphile-worker can connect. The HTTP server
-	// only binds after both succeed, so a socket failure keeps the HTTP
-	// port free too.
 	const database = await createDatabase({
 		dataDir: config.pgliteDir,
 		socketPort: config.pgliteSocketPort,
@@ -74,16 +78,26 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 		startSocket: true,
 	})
 
-	// Bind to localhost (loopback only). The architecture exposes port 4300
-	// on 0.0.0.0 only when BASE_URL implies a public host; for v1 the
-	// registry is single-tenant/self-host and loopback is the correct
-	// default. The `bindHost` opt-out (set via PORT_BIND env) exists for
-	// container deployments.
+	// Build the Better-Auth instance against a pg.Pool wired to the live
+	// pglite-socket, then ensure its tables exist. ensureTables is
+	// idempotent introspection (Better-Auth's getMigrations only issues
+	// CREATE for tables that do not already exist).
+	const pool = createPgPool({
+		port: config.pgliteSocketPort,
+		host: process.env.PGLITE_SOCKET_HOST ?? "127.0.0.1",
+	})
+	const betterAuth = await createBetterAuth(pool, {
+		baseUrl: config.baseUrl,
+		githubClientId: config.githubClientId,
+		githubClientSecret: config.githubClientSecret,
+		secret: config.authSecret,
+	})
+	await betterAuth.ensureTables()
+
+	const app = buildApp({ auth: betterAuth.auth, pglite: database.pglite })
+
 	const bindHost = process.env.PORT_BIND ?? "127.0.0.1"
 
-	// Start the server and resolve with the actual bound port. When
-	// `port === 0` the OS picks one and the listen callback reports it
-	// back; otherwise the configured value is echoed.
 	const { actualPort, server } = await new Promise<{
 		actualPort: number
 		server: ReturnType<typeof serve>
@@ -112,11 +126,18 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 		port: actualPort,
 		url,
 		database,
+		betterAuth,
 		close: () =>
 			new Promise<void>((resolveClose, reject) => {
 				server.close(async (err) => {
 					if (err) {
 						reject(err)
+						return
+					}
+					try {
+						await betterAuth.close()
+					} catch (closeErr) {
+						reject(closeErr as Error)
 						return
 					}
 					try {

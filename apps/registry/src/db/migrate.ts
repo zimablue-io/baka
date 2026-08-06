@@ -32,6 +32,10 @@ const MIGRATIONS: readonly Migration[] = [
 		version: "0002_app_schema",
 		sql: readFileSync(join(dirname(fileURLToPath(import.meta.url)), "migrations", "0002_app_schema.sql"), "utf8"),
 	},
+	{
+		version: "0003_auth_marker",
+		sql: readFileSync(join(dirname(fileURLToPath(import.meta.url)), "migrations", "0003_auth_marker.sql"), "utf8"),
+	},
 ]
 
 /**

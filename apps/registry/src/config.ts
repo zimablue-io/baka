@@ -2,7 +2,7 @@ import { resolve } from "node:path"
 import { z } from "zod"
 
 /**
- * Env-driven registry config (architecture §4.1).
+ * Env-driven registry config (architecture §4.1, §4.4).
  *
  * Every option has a documented default so the registry boots with zero
  * env vars set. The values are validated with zod at boot so a typo or
@@ -21,8 +21,14 @@ const ConfigSchema = z.object({
 	storageDir: z.string().default("artifacts"),
 	/** Subdirectory for PGlite's data files. */
 	pgliteDir: z.string().default("pg"),
-	/** PGlite socket port (used by the data layer feature; reserved here). */
+	/** Pglite socket port (used by the data layer feature; reserved here). */
 	pgliteSocketPort: z.coerce.number().int().positive().default(5444),
+	/** GitHub OAuth client id (architecture §4.4). */
+	githubClientId: z.string().default("test-github-client-id"),
+	/** GitHub OAuth client secret (architecture §4.4). */
+	githubClientSecret: z.string().default("test-github-client-secret"),
+	/** Secret for signing cookies/sessions. Defaults to a derived value. */
+	authSecret: z.string().optional(),
 })
 
 export type RegistryConfig = z.infer<typeof ConfigSchema>
@@ -40,6 +46,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd: string = p
 		storageDir: env.STORAGE_DIR,
 		pgliteDir: env.PGLITE_DIR,
 		pgliteSocketPort: env.PGLITE_SOCKET_PORT,
+		githubClientId: env.GITHUB_CLIENT_ID,
+		githubClientSecret: env.GITHUB_CLIENT_SECRET,
+		authSecret: env.AUTH_SECRET,
 	})
 	if (!parsed.success) {
 		const issues = parsed.error.issues.map((i) => `  - ${i.path.join(".") || "(root)"}: ${i.message}`).join("\n")

@@ -63,11 +63,11 @@ describe("startServer", () => {
 		const handle = await startServer(config)
 		try {
 			const recorded = readFileSync(join(dataDir, "schema_version"), "utf8").trim()
-			// The data-layer feature bumps schema_version to "2" so the app
-			// schema (modules, module_versions, artifacts, screening_results,
-			// plan_limits) is migrated at boot. The scaffold's v1 has no
-			// app tables yet.
-			expect(recorded).toBe("2")
+			// The auth feature bumps schema_version to "3" so the
+			// 0003_auth_marker migration is recorded. The data-layer v2
+			// still runs its own migrations (idempotent) so the app
+			// tables continue to exist after the bump.
+			expect(recorded).toBe("3")
 		} finally {
 			await handle.close()
 		}

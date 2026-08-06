@@ -24,9 +24,16 @@ import { applyAppMigrations } from "./db/migrate"
  *   - 2: data layer — modules, module_versions, artifacts, screening_results,
  *        plan_limits (architecture §4.3) + the internal app_migrations
  *        tracking table.
+ *   - 3: auth layer — Better-Auth manages its own tables (user, session,
+ *        account, verification, organization, member, invitation, apikey)
+ *        through its Kysely migration path. They coexist with the app
+ *        schema. The marker migration `0003_auth_marker.sql` records the
+ *        version; the actual auth-table DDL is applied at boot by
+ *        `auth/ensure-auth-tables.ts` (idempotent introspection via
+ *        Better-Auth's `getMigrations`).
  */
 
-export const CURRENT_SCHEMA_VERSION = "2"
+export const CURRENT_SCHEMA_VERSION = "3"
 
 const SCHEMA_FILE = "schema_version"
 

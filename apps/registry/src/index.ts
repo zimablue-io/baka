@@ -1,18 +1,62 @@
+import type { PGlite } from "@electric-sql/pglite"
+import type { betterAuth } from "better-auth"
 import { Hono } from "hono"
+import { createAuthMount } from "./auth/handlers"
+import { createAuthRoutes } from "./auth/stub-routes"
 
 /**
- * The registry HTTP app (architecture §4.1).
+ * The registry HTTP app (architecture §4.1, §4.4).
  *
- * This is the Hono application that serves the registry API. It is exported
- * separately from the listener bootstrap so tests can drive it directly
- * with `app.request(...)` without binding a real port.
+ * `buildApp(deps)` constructs the full Hono application with auth and
+ * the database wired in. `server.ts` calls this at startup; tests call
+ * it per-case with a fresh PGlite + Better-Auth pair.
  *
- * Routes wired in this milestone:
+ * The default export is a minimal `Hono` instance with only the
+ * `/healthz` route — it exists so pre-auth tests (and the binary's
+ * pre-boot health probe) do not need a live database or auth instance.
+ *
+ * Routes wired by `buildApp`:
  *   - GET /healthz    (decision 10: liveness probe; always 200 + ok JSON)
+ *   - /api/auth/*     (Better-Auth handler: GitHub OAuth, session
+ *                      cookies, get-session, organization + api-key
+ *                      plugin endpoints).
+ *   - /v1/modules/:scope/:name
+ *                      (visibility-aware read).
+ *   - /v1/orgs, /v1/publish, /v1/orgs/:slug/invite
+ *                      (auth-gated writes; 401 without auth).
  *
- * Additional routes (publish, catalog, screening, etc.) land in
- * subsequent registry-core milestones.
+ * Additional routes (publish metadata, catalog search, screening,
+ * previews, etc.) land in subsequent registry-core milestones and
+ * reuse the identity resolver and visibility helpers from `auth/`.
  */
+
+export interface AppDeps {
+	auth: ReturnType<typeof betterAuth>
+	pglite: PGlite
+}
+
+/**
+ * Builds the Hono app. The auth and database dependencies are injected
+ * so tests can swap a fresh PGlite + Better-Auth per case without going
+ * through the listener bootstrap.
+ */
+export function buildApp(deps: AppDeps): Hono {
+	const app = new Hono()
+
+	app.get("/healthz", (c) => c.json({ status: "ok" }))
+
+	// Better-Auth's single Fetch-API handler covers every /api/auth/*
+	// route (sign-in, callback, get-session, sign-out, organization
+	// CRUD, api-key CRUD, etc.).
+	const authApp = createAuthMount({ auth: deps.auth })
+	app.route("/", authApp)
+
+	// Auth-aware endpoints: visibility reads + auth-gated writes.
+	const authRoutes = createAuthRoutes({ auth: deps.auth, pglite: deps.pglite })
+	app.route("/", authRoutes)
+
+	return app
+}
 
 const app = new Hono()
 
