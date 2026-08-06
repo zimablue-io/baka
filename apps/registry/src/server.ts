@@ -12,7 +12,7 @@ import { ensureSchemaVersion } from "./schema-version"
 import { createFilesystemStorage, type StorageAdapter } from "./storage"
 import { createInMemoryEnqueuer, type IngestEnqueuer } from "./worker/enqueue"
 import { startWorker, type WorkerHandle } from "./worker/runner"
-import { sweepStaleIngestingRows } from "./worker/sweep"
+import { bootSweepIngestingRows } from "./worker/sweep"
 
 /**
  * Server bootstrap (architecture §4.1, §4.2, §4.4, §4.5).
@@ -179,13 +179,18 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 		}
 	}
 
-	// Boot-time stale-ingesting sweep (VAL-PUB-028). A SIGKILL of a
-	// previous worker mid-job leaves a row pinned at `status='ingesting'`
-	// with no live job holding it; resetting to `pending` lets the new
-	// worker pick it up on its next poll.
-	const sweep = await sweepStaleIngestingRows(database.pglite)
-	if (sweep.rowsReset > 0) {
-		process.stdout.write(`baka-registry: recovered ${sweep.rowsReset} stale ingesting row(s) from a previous run\n`)
+	// Boot-time unconditional sweep (VAL-PUB-028). A freshly booted
+	// process owns no in-flight jobs (no claim, no live process), so
+	// every `ingesting` row at boot is definitionally orphaned. The
+	// boot sweep resets ALL of them in a single statement so a
+	// SIGKILL of a previous worker mid-job converges within the
+	// worker's own poll cycle (well under the 120s contract
+	// ceiling). The threshold-gated per-cycle sweep is the
+	// worker's job — see `runner.ts` — and respects the configured
+	// `sweepThresholdMs` (default 120s, env override below).
+	const bootSweep = await bootSweepIngestingRows(database.pglite)
+	if (bootSweep.rowsReset > 0) {
+		process.stdout.write(`baka-registry: recovered ${bootSweep.rowsReset} ingesting row(s) from a previous run\n`)
 	}
 
 	const storage = createFilesystemStorage(config.storageDir)
@@ -207,6 +212,16 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 		worker = await startWorker({
 			pglite: database.pglite,
 			storage,
+			// Per-cycle sweep threshold (VAL-PUB-028). The worker
+			// reads `REGISTRY_INGEST_STALE_MS` directly when this is
+			// omitted; passing it through here makes the operator
+			// override a first-class input to the worker rather
+			// than an implicit env read. The default inside the
+			// runner (and inside `sweepStaleIngestingRows` itself)
+			// is 120_000 — the contract ceiling — so a healthy
+			// registry converges within the ceiling without any
+			// env configuration.
+			sweepThresholdMs: config.ingestStaleMs,
 		})
 		// The polling worker discovers rows directly from
 		// `module_versions`; the publish endpoint still records the

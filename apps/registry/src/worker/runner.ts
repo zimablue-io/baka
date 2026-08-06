@@ -71,11 +71,23 @@ export async function startWorker(opts: {
 	pglite: PGlite
 	storage: StorageAdapter
 	pollIntervalMs?: number
-	/** Override the boot-time sweep threshold (ms). */
+	/**
+	 * Override the per-cycle sweep threshold (ms, VAL-PUB-028).
+	 * The runner also reads `REGISTRY_INGEST_STALE_MS` directly
+	 * when this is omitted — the env knob is the operator-facing
+	 * surface; the explicit argument is the test surface. The
+	 * default is `120_000` (the contract ceiling).
+	 */
 	sweepThresholdMs?: number
 }): Promise<WorkerHandle> {
 	const pollIntervalMs = opts.pollIntervalMs ?? 1_000
-	const sweepThresholdMs = opts.sweepThresholdMs ?? 5 * 60 * 1_000
+	// Per-cycle sweep threshold (VAL-PUB-028). The explicit
+	// argument wins; otherwise the env knob is consulted (with a
+	// safe fallback in `sweepStaleIngestingRows` itself). The
+	// default `120_000` is the contract ceiling — a healthy
+	// registry converges a kill mid-ingest within the 120s poll
+	// ceiling with no env configuration.
+	const sweepThresholdMs = opts.sweepThresholdMs ?? 120_000
 
 	let stopped = false
 	let jobsProcessed = 0

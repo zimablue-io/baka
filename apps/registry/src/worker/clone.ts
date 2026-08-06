@@ -14,17 +14,27 @@ import { promisify } from "node:util"
  * loadability gate, the content hash, and the tarball pack.
  *
  * The clone is bounded by `INGEST_CLONE_TIMEOUT_MS` (default 120_000,
- * decision 6's documented ceiling) — a stalled remote fails the
- * version instead of wedging the worker. Any active child process is
- * killed via `AbortController` signal forwarding so no orphaned git
- * child processes survive a timeout (the contract's no-orphan
- * guarantee).
+ * decision 6's documented ceiling — the contract's 120s poll ceiling
+ * for VAL-PUB-023) — a stalled remote fails the version instead of
+ * wedging the worker. Any active child process is killed via
+ * `AbortController` signal forwarding so no orphaned git child
+ * processes survive a timeout (the contract's no-orphan guarantee).
  *
  * On success the caller receives the temporary directory path and
  * the commit sha; the caller is responsible for deleting the
  * directory (via `cleanupClone` or `rm({ recursive: true })`). The
  * clone helper does NOT delete on its own so the caller can read
  * files from the worktree as long as it needs.
+ *
+ * Timeout error wrapping (VAL-PUB-023): when the configured timeout
+ * fires, the wrapped error message names the timeout AND the
+ * configured duration in milliseconds — e.g. "git clone timed out
+ * after 120000ms for <repo> at tag '<tag>'". Without this wrapper
+ * the caller observes a raw `Command failed: git clone ...` line
+ * that is indistinguishable from a fast clone failure; an operator
+ * cannot route the failure to "raise the budget" without parsing
+ * the message. The wrapper is the load-bearing surface for the
+ * "timeout named in error" contract criterion.
  */
 
 const execFile = promisify(execFileCb)
@@ -40,7 +50,8 @@ interface CloneResult {
 
 /**
  * Clones `repo` shallow at `tag`. Throws on timeout (after killing
- * the child) with a message naming the repo and the tag.
+ * the child) with a message naming the repo, the tag, AND the
+ * configured timeout in milliseconds.
  */
 export async function shallowCloneAtTag(repo: string, tag: string, timeoutMs?: number): Promise<CloneResult> {
 	const envTimeout = process.env.INGEST_CLONE_TIMEOUT_MS
@@ -67,7 +78,16 @@ export async function shallowCloneAtTag(repo: string, tag: string, timeoutMs?: n
 		return { dir, commitSha }
 	} catch (err) {
 		await rm(dir, { recursive: true, force: true }).catch(() => {})
-		const reason = abort.signal.aborted ? "timeout" : err instanceof Error ? err.message : String(err)
+		if (abort.signal.aborted) {
+			// Timeout path (VAL-PUB-023). The wrapper names the
+			// timeout and the configured duration so the caller can
+			// distinguish a slow clone from a fast failure without
+			// parsing free text. Any active child process was killed
+			// by the AbortController signal; the no-orphan guarantee
+			// is preserved.
+			throw new Error(`git clone timed out after ${effectiveTimeout}ms for ${repo} at tag '${tag}'`)
+		}
+		const reason = err instanceof Error ? err.message : String(err)
 		throw new Error(`git clone failed for ${repo} at tag '${tag}': ${reason}`)
 	} finally {
 		clearTimeout(timeoutHandle)

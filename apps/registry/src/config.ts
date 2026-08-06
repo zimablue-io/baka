@@ -62,6 +62,18 @@ const ConfigSchema = z.object({
 	 * Empty / unset means nobody can publish to the official scope.
 	 */
 	officialPublishers: z.string().optional(),
+	/**
+	 * Stale-ingesting sweep threshold in milliseconds (VAL-PUB-028).
+	 * Per-cycle, the worker resets `module_versions` rows stuck at
+	 * `status='ingesting'` whose `updated_at` is older than this
+	 * value back to `pending`. The default (`120_000`, the contract
+	 * ceiling) converges a kill mid-ingest within the 120s poll
+	 * ceiling; operators who need a tighter bound set this lower.
+	 * The BOOT sweep is unconditional and ignores this value — a
+	 * freshly booted process owns no in-flight jobs, so every
+	 * `ingesting` row at boot is recovered regardless of age.
+	 */
+	ingestStaleMs: z.coerce.number().int().positive().optional(),
 })
 
 export type RegistryConfig = z.infer<typeof ConfigSchema> & {
@@ -95,6 +107,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd: string = p
 		seedPlans: env.REGISTRY_SEED_PLANS,
 		officialOrg: env.REGISTRY_OFFICIAL_ORG,
 		officialPublishers: env.REGISTRY_OFFICIAL_PUBLISHERS,
+		ingestStaleMs: env.REGISTRY_INGEST_STALE_MS,
 	})
 	if (!parsed.success) {
 		const issues = parsed.error.issues.map((i) => `  - ${i.path.join(".") || "(root)"}: ${i.message}`).join("\n")
