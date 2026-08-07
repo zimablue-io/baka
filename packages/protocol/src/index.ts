@@ -20,7 +20,6 @@ export type {
 	VerifiedCatalogEntry,
 	VerifiedResponse,
 } from "./catalog"
-
 export {
 	AggregateRequestSchema,
 	AggregateResponseSchema,
@@ -42,6 +41,12 @@ export {
 	ENGINE_STATUS,
 	MODULE_CATEGORY,
 } from "./constants"
+export type { RegistryConfigMap, RegistryCredential } from "./registry-config"
+export {
+	normalizeRegistryUrl,
+	RegistryConfigMapSchema,
+	RegistryCredentialSchema,
+} from "./registry-config"
 
 export {
 	ModuleActionParamSchema,

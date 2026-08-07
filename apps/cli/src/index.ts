@@ -17,6 +17,7 @@ import {
 } from "./commands/marketplace"
 import { runModuleEdit, runModuleListActions, runModuleTest, runModuleValidate } from "./commands/module"
 import { runApplyCommand, runListPlans, runPlanCommand, runValidateCommand } from "./commands/plan"
+import { runRegistryList, runRegistryLogin, runRegistryLogout, runRegistryWhoami } from "./commands/registry"
 import { runRole, runRolePath, runRoleShow } from "./commands/role"
 import { runRoles } from "./commands/roles"
 import { runSearchCommand } from "./commands/search"
@@ -391,6 +392,62 @@ program
 	.action(async (query, opts) => {
 		try {
 			await runSearchCommand(query, { json: opts.json })
+		} catch (err) {
+			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+		}
+	})
+
+// `baka registry *` -------------------------------------------------------
+//
+// Login / logout / whoami for a baka module registry. Credentials are
+// stored per-registry in `${BAKA_HOME:-$HOME/.baka}/config.json` under
+// the `registries` section (architecture §8 decisions 4 and 33).
+
+const registryCmd = program.command("registry").description("Authenticate against a baka module registry")
+
+registryCmd
+	.command("login")
+	.description("Log in to a registry (opens a browser flow by default; pass --token to paste a key)")
+	.option("-t, --token <key>", "use a pre-issued API key instead of opening the browser flow")
+	.option("-r, --registry <url>", "registry base URL (default: BAKA_REGISTRY_URL or http://localhost:4300)")
+	.action(async (opts) => {
+		try {
+			await runRegistryLogin({ token: opts.token, registry: opts.registry })
+		} catch (err) {
+			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+		}
+	})
+
+registryCmd
+	.command("logout")
+	.description("Remove the stored credential for a registry")
+	.option("-r, --registry <url>", "registry base URL (default: BAKA_REGISTRY_URL or http://localhost:4300)")
+	.action((opts) => {
+		try {
+			runRegistryLogout({ registry: opts.registry })
+		} catch (err) {
+			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+		}
+	})
+
+registryCmd
+	.command("whoami")
+	.description("Print the authenticated identity for a registry")
+	.option("-r, --registry <url>", "registry base URL (default: BAKA_REGISTRY_URL or http://localhost:4300)")
+	.action(async (opts) => {
+		try {
+			await runRegistryWhoami({ registry: opts.registry })
+		} catch (err) {
+			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+		}
+	})
+
+registryCmd
+	.command("list")
+	.description("List every registry with a stored credential (apiKey masked)")
+	.action(() => {
+		try {
+			runRegistryList()
 		} catch (err) {
 			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
 		}
