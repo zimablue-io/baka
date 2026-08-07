@@ -14,6 +14,22 @@
  * so kill-resume assertions (VAL-PUB-028 / VAL-CROSS-027) can restart
  * against the same DATA_DIR. Nothing is auto-deleted.
  *
+ * The harness ALSO publishes a community-screened fixture through the
+ * REAL `POST /v1/publish` path (see `seedCommunityScreenedFixture`),
+ * so a vanilla boot produces:
+ *
+ *   - the existing built-in catalog (baka-base / sdd / ts-style
+ *     under the official `baka` scope, decision 31: built-in modules
+ *     bypass screening and serve screening=null)
+ *   - one public community module on a non-bundled scope that
+ *     passed through the real publish → ingest → screening pipeline
+ *     with both preview states (rendered + needs-llm-with-sentinel)
+ *     AND a real downloadable tarball
+ *
+ * The fixture is idempotent: a restart boot skips re-publishing
+ * because the version row already exists. Validators and local
+ * dev hit a fully-loaded registry from the moment the server is up.
+ *
  * Usage:
  *   HTTP_PORT=4310 DATA_DIR=/tmp/baka-pubval-main \
  *     npx tsx apps/registry/test/seed-publishing-server.ts
@@ -47,10 +63,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import net from "node:net"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { PGlite } from "@electric-sql/pglite"
 import { PGLiteSocketServer } from "@electric-sql/pglite-socket"
 import { serve } from "@hono/node-server"
-import { createBetterAuth } from "../src/auth/better-auth"
+import type { Hono } from "hono"
+import { type BetterAuthHandle, createBetterAuth } from "../src/auth/better-auth"
 import { createPgPool } from "../src/auth/kysely-db"
 import { ensureOfficialOrg } from "../src/auth/official-org"
 import { applySeedPlans, ensureOrgPlanColumn } from "../src/auth/plan-limits"
@@ -58,41 +76,10 @@ import { seedBuiltInCatalog } from "../src/catalog/seed"
 import { applyAppMigrations } from "../src/db/migrate"
 import { buildApp } from "../src/index"
 import { applyVerifiedModules } from "../src/screening/tier-assignment"
-import { createFilesystemStorage } from "../src/storage"
+import { createFilesystemStorage, type StorageAdapter } from "../src/storage"
 import { createInMemoryEnqueuer } from "../src/worker/enqueue"
-import { startWorker } from "../src/worker/runner"
-
-function requireEnv(name: string): string {
-	const value = process.env[name]
-	if (!value) throw new Error(`seed-publishing-server: ${name} is required`)
-	return value
-}
-
-const HTTP_PORT = Number(process.env.HTTP_PORT ?? 4310)
-const DATA_DIR = requireEnv("DATA_DIR")
-const CREDS_FILE = process.env.SEED_CREDS_FILE ?? `/tmp/baka-pubval-creds-${HTTP_PORT}.json`
-const SEED = process.env.SEED !== "0"
-const SEED_ORG = process.env.SEED_ORG ?? "acme"
-const SEED_ORG_NAME = process.env.SEED_ORG_NAME ?? "Acme"
-const SEED_WITH_ADMIN_MEMBER = process.env.SEED_WITH_ADMIN_MEMBER !== "0"
-const OFFICIAL_ORG = "baka"
-
-async function pickEphemeralPort(): Promise<number> {
-	return new Promise<number>((resolve, reject) => {
-		const probe = net.createServer()
-		probe.on("error", reject)
-		probe.listen(0, "127.0.0.1", () => {
-			const addr = probe.address()
-			if (typeof addr !== "object" || addr === null) {
-				probe.close()
-				reject(new Error("could not pick ephemeral port"))
-				return
-			}
-			const port = addr.port
-			probe.close(() => resolve(port))
-		})
-	})
-}
+import { startWorker, type WorkerHandle } from "../src/worker/runner"
+import { createGitFixture, type GitFixture } from "./git-fixture"
 
 interface SeededUser {
 	userId: string
@@ -101,24 +88,85 @@ interface SeededUser {
 	apiKeyId: string
 }
 
-function extractSessionCookie(setCookie: string): string {
-	const parts = setCookie.split(/,(?=\s*[^\s]+=)/)
-	const pairs: string[] = []
-	for (const raw of parts) {
-		const seg = raw.trim()
-		const eq = seg.indexOf("=")
-		if (eq <= 0) continue
-		const name = seg.slice(0, eq).trim()
-		if (name === "better-auth.session_token" || name === "__Secure-better-auth.session_token") {
-			pairs.push(seg.split(";")[0])
-		}
-	}
-	return pairs.join("; ")
+/**
+ * The state `bootSeedPublishingServer` returns. Carries every handle
+ * the seed step (and downstream callers) need:
+ *   - `app` / `pglite` / `storage` for any subsequent API call
+ *   - `ownerKey` + `orgSlug` so the seed step can authenticate
+ *     against the just-created org
+ *   - `worker` so a polling worker can be torn down on shutdown
+ *   - `shutdown` to release the in-process resources cleanly
+ *
+ * The `git` field is supplied by the caller (the seed step needs
+ * a tmp bare repo). The harness owns the rest of the resource
+ * graph; `bootSeedPublishingServer` does not create the git
+ * fixture so the caller controls its lifecycle.
+ */
+interface SeedPublishingHarness {
+	app: Hono
+	pglite: PGlite
+	socket: PGLiteSocketServer
+	betterAuth: BetterAuthHandle
+	storage: StorageAdapter
+	storageDir: string
+	baseUrl: string
+	dataDir: string
+	pgliteDir: string
+	socketPort: number
+	officialOrg: string
+	ownerKey: string
+	orgSlug: string
+	credsFile: string
+	worker: WorkerHandle | null
+	screenDryRunTimeoutMs: number | undefined
+	shutdown: () => Promise<void>
 }
 
-async function main(): Promise<void> {
-	const pgliteDir = join(DATA_DIR, "pg")
-	const storageDir = join(DATA_DIR, "artifacts")
+/**
+ * The outcome of `seedCommunityScreenedFixture`. The `skipped` flag
+ * distinguishes "no-op because the version was already on disk"
+ * (a restart boot) from "publish + wait succeeded in this call"
+ * (a fresh boot).
+ */
+export interface CommunityFixtureResult {
+	scope: string
+	name: string
+	version: string
+	versionId: string
+	status: "ready" | "failed"
+	tier: string | null
+	skipped: boolean
+}
+
+/**
+ * Boots the seed-publishing-server's stack without starting the
+ * HTTP listener. The boot is the production wiring minus the
+ * `serve()` call: PGlite + app migrations + pglite-socket +
+ * Better-Auth (email/password enabled) + plan column +
+ * REGISTRY_SEED_PLANS passthrough + official-org bootstrap +
+ * built-in catalog seed + filesystem storage + polling worker +
+ * creds file.
+ *
+ * Tests / scripts that want the HTTP listener should call
+ * `bootSeedPublishingServer` then `serve({ fetch: harness.app.fetch, ... })`
+ * themselves; this split lets `seed-community-fixture.test.ts`
+ * exercise the seed step through `app.request` without binding a port.
+ */
+async function bootSeedPublishingServer(opts: {
+	dataDir: string
+	httpPort: number
+	officialOrg?: string
+	credsFile?: string
+	seed?: boolean
+	seedOrg?: string
+	seedOrgName?: string
+	seedWithAdminMember?: boolean
+	screenDryRunTimeoutMs?: number
+	workerDisabled?: boolean
+}): Promise<SeedPublishingHarness> {
+	const dataDir = opts.dataDir
+	const pgliteDir = join(dataDir, "pg")
+	const storageDir = join(dataDir, "artifacts")
 	mkdirSync(pgliteDir, { recursive: true })
 	mkdirSync(storageDir, { recursive: true })
 
@@ -134,7 +182,7 @@ async function main(): Promise<void> {
 	await socket.start()
 
 	const pool = createPgPool({ port: socketPort, host: "127.0.0.1" })
-	const baseUrl = `http://127.0.0.1:${HTTP_PORT}`
+	const baseUrl = `http://127.0.0.1:${opts.httpPort}`
 	const betterAuth = await createBetterAuth(pool, {
 		baseUrl,
 		githubClientId: "test-github-client-id",
@@ -156,7 +204,8 @@ async function main(): Promise<void> {
 	await betterAuth.ensureTables()
 	await ensureOrgPlanColumn(pglite)
 	await applySeedPlans(pglite, process.env.REGISTRY_SEED_PLANS)
-	await seedBuiltInCatalog(pglite, OFFICIAL_ORG)
+	const officialOrg = opts.officialOrg ?? "baka"
+	await seedBuiltInCatalog(pglite, officialOrg)
 	// Mirrors src/server.ts: the verified-tier seeder runs at every
 	// boot, after the built-in catalog seed, and never refuses to
 	// boot on a malformed entry.
@@ -170,18 +219,16 @@ async function main(): Promise<void> {
 
 	const storage = createFilesystemStorage(storageDir)
 	const enqueueIngest = createInMemoryEnqueuer()
-	const screenDryRunTimeoutMs = process.env.SCREEN_DRYRUN_TIMEOUT_MS
-		? Number(process.env.SCREEN_DRYRUN_TIMEOUT_MS)
-		: undefined
-	let worker: Awaited<ReturnType<typeof startWorker>> | null = null
-	if (process.env.WORKER_DISABLED !== "1") {
+	const screenDryRunTimeoutMs = opts.screenDryRunTimeoutMs
+	let worker: WorkerHandle | null = null
+	if (opts.workerDisabled !== true) {
 		worker = await startWorker({ pglite, storage, screenDryRunTimeoutMs })
 	}
 
 	const app = buildApp({
 		auth: betterAuth.auth,
 		pglite,
-		officialOrg: OFFICIAL_ORG,
+		officialOrg,
 		enqueueIngest: async (versionId) => {
 			await enqueueIngest.enqueue(versionId)
 		},
@@ -217,7 +264,13 @@ async function main(): Promise<void> {
 		return (await res.json()) as { id: string; key: string }
 	}
 
-	if (SEED) {
+	const seedEnabled = opts.seed !== false
+	const seedOrg = opts.seedOrg ?? "acme"
+	const seedOrgName = opts.seedOrgName ?? "Acme"
+	const seedWithAdminMember = opts.seedWithAdminMember !== false
+	const credsFile = opts.credsFile ?? `/tmp/baka-pubval-creds-${opts.httpPort}.json`
+
+	if (seedEnabled) {
 		type Role = "owner" | "admin" | "member" | "outsider"
 		const emails: Record<Role, string> = {
 			owner: "owner@example.com",
@@ -235,20 +288,20 @@ async function main(): Promise<void> {
 		const createRes = await request("/v1/orgs", {
 			method: "POST",
 			headers: { "x-api-key": seeded.owner.apiKey },
-			body: { name: SEED_ORG_NAME, slug: SEED_ORG },
+			body: { name: seedOrgName, slug: seedOrg },
 		})
 		if (createRes.status !== 200) throw new Error(`org create: ${createRes.status} ${await createRes.text()}`)
 
-		if (SEED_WITH_ADMIN_MEMBER) {
+		if (seedWithAdminMember) {
 			for (const role of ["admin", "member"] as const) {
-				const inviteRes = await request(`/v1/orgs/${SEED_ORG}/invite`, {
+				const inviteRes = await request(`/v1/orgs/${seedOrg}/invite`, {
 					method: "POST",
 					headers: { "x-api-key": seeded.owner.apiKey },
 					body: { email: emails[role], role },
 				})
 				if (inviteRes.status !== 200) throw new Error(`invite ${role}: ${inviteRes.status} ${await inviteRes.text()}`)
 				const inviteBody = (await inviteRes.json()) as { id: string }
-				const acceptRes = await request(`/v1/orgs/${SEED_ORG}/accept-invitation`, {
+				const acceptRes = await request(`/v1/orgs/${seedOrg}/accept-invitation`, {
 					method: "POST",
 					headers: { "x-api-key": seeded[role].apiKey },
 					body: { invitationId: inviteBody.id },
@@ -260,14 +313,14 @@ async function main(): Promise<void> {
 		}
 
 		writeFileSync(
-			CREDS_FILE,
+			credsFile,
 			JSON.stringify(
 				{
-					httpPort: HTTP_PORT,
+					httpPort: opts.httpPort,
 					baseUrl,
-					dataDir: DATA_DIR,
+					dataDir,
 					storageDir,
-					org: { slug: SEED_ORG, name: SEED_ORG_NAME },
+					org: { slug: seedOrg, name: seedOrgName },
 					keys: {
 						owner: seeded.owner.apiKey,
 						admin: seeded.admin.apiKey,
@@ -306,40 +359,412 @@ async function main(): Promise<void> {
 	// same ensureOfficialOrg entry point so VAL-PUB-010 can publish to
 	// the official scope. Idempotent across restarts.
 	let ownerKey: string | undefined
-	if (SEED) {
-		ownerKey = (JSON.parse(readFileSync(CREDS_FILE, "utf8")) as { keys: { owner: string } }).keys.owner
-	} else if (existsSync(CREDS_FILE)) {
-		ownerKey = (JSON.parse(readFileSync(CREDS_FILE, "utf8")) as { keys: { owner: string } }).keys.owner
+	if (seedEnabled) {
+		ownerKey = (JSON.parse(readFileSync(credsFile, "utf8")) as { keys: { owner: string } }).keys.owner
+	} else if (existsSync(credsFile)) {
+		ownerKey = (JSON.parse(readFileSync(credsFile, "utf8")) as { keys: { owner: string } }).keys.owner
 	}
 	const officialResult = await ensureOfficialOrg(pglite, {
-		officialOrg: OFFICIAL_ORG,
+		officialOrg,
 		officialPublishers: ownerKey,
 	})
 
-	serve({ fetch: app.fetch, port: HTTP_PORT, hostname: "127.0.0.1" }, (info) => {
+	const shutdown = async (): Promise<void> => {
+		if (worker) await worker.stop().catch(() => {})
+		await betterAuth.close().catch(() => {})
+		await socket.stop().catch(() => {})
+		await pglite.close().catch(() => {})
+	}
+
+	return {
+		app,
+		pglite,
+		socket,
+		betterAuth,
+		storage,
+		storageDir,
+		baseUrl,
+		dataDir,
+		pgliteDir,
+		socketPort,
+		officialOrg,
+		ownerKey: ownerKey ?? "",
+		orgSlug: seedOrg,
+		credsFile,
+		worker,
+		screenDryRunTimeoutMs,
+		shutdown,
+		_officialResult: officialResult,
+	} as SeedPublishingHarness & { _officialResult?: { created: boolean; publishersGranted: number } }
+}
+
+async function pickEphemeralPort(): Promise<number> {
+	return new Promise<number>((resolve, reject) => {
+		const probe = net.createServer()
+		probe.on("error", reject)
+		probe.listen(0, "127.0.0.1", () => {
+			const addr = probe.address()
+			if (typeof addr !== "object" || addr === null) {
+				probe.close()
+				reject(new Error("could not pick ephemeral port"))
+				return
+			}
+			const port = addr.port
+			probe.close(() => resolve(port))
+		})
+	})
+}
+
+function extractSessionCookie(setCookie: string): string {
+	const parts = setCookie.split(/,(?=\s*[^\s]+=)/)
+	const pairs: string[] = []
+	for (const raw of parts) {
+		const seg = raw.trim()
+		const eq = seg.indexOf("=")
+		if (eq <= 0) continue
+		const name = seg.slice(0, eq).trim()
+		if (name === "better-auth.session_token" || name === "__Secure-better-auth.session_token") {
+			pairs.push(seg.split(";")[0])
+		}
+	}
+	return pairs.join("; ")
+}
+
+/**
+ * The fixture module the seed publishes through the real pipeline.
+ *
+ * The module exercises BOTH preview states:
+ *   - `greet` (non-reasoning) → sandboxed dry-run writes
+ *     `greeting.txt` and the registry records a `rendered` preview.
+ *   - `plan-feature` (`requiresReasoning: true`) → the registry's
+ *     sentinel render path picks up the `{{!-- no-llm --}}` Handlebars
+ *     template and surfaces the rendered bytes alongside the
+ *     `needs-llm` state.
+ *
+ * The action bodies are deliberately minimal so the static capability
+ * scan (layer 1) passes without surprises: `greet` imports
+ * `node:fs` (allowlisted) and writes a single file inside its declared
+ * `filePatterns`; `plan-feature` exports an empty default so no
+ * runtime code reaches the scanner. The template uses no Handlebars
+ * helpers (allowlist: `if`, `each`, `with`, `unless`, `else`), so the
+ * scanner's Handlebars branch is also clean.
+ *
+ * Published at `v1.0.0` against the `acme` scope (the org the harness
+ * creates by default). Visibility: `public` so the screening pipeline
+ * runs end-to-end and the catalog surfaces the `community-screened`
+ * tier badge on every read surface.
+ */
+const FIXTURE_MODULE_NAME = "screened-fixture"
+const FIXTURE_MODULE_TAG = "v1.0.0"
+const FIXTURE_MODULE_VERSION = "1.0.0"
+
+const FIXTURE_NON_REASONING_ACTION_SOURCE = `import { writeFileSync } from "node:fs"
+export default {
+  name: "greet",
+  role: 1,
+  async execute() {
+    writeFileSync("greeting.txt", "Hello from the baka community fixture!\\n")
+    return { success: true, output: undefined, compensationData: undefined }
+  },
+  async compensate() {
+    // no-op
+  },
+}
+`
+
+const FIXTURE_REASONING_ACTION_SOURCE = `export default {
+  name: "plan-feature",
+  role: 1,
+  async execute() {
+    return { success: true, output: undefined, compensationData: undefined }
+  },
+  async compensate() {
+    // no-op
+  },
+}
+`
+
+const FIXTURE_SENTINEL_TEMPLATE = `{{!-- no-llm --}}# Welcome
+
+This is a static welcome template from the baka community fixture.
+It is shipped with the \`{{!-- no-llm --}}\` sentinel so the registry
+renders it without invoking an LLM at apply time.
+
+Reasoning actions still require an LLM at apply time; this preview
+shows the deterministic template render the LLM would otherwise
+fill in.
+`
+
+/**
+ * Publishes the community-screened fixture through the REAL
+ * `POST /v1/publish` path (not the built-in catalog seed) and
+ * waits for the polling worker to bring the version to a terminal
+ * state.
+ *
+ * Idempotent across restarts: when the fixture's `(scope, name,
+ * version)` row already exists on disk, the function returns the
+ * existing record with `skipped: true`. A fresh DATA_DIR falls
+ * through to the publish path. The check runs before any clone /
+ * tarball work so a restart boot (SEED=0, validator round 2)
+ * does not re-publish a row that is already on disk.
+ *
+ * The function also reads the version's terminal tier from the DB
+ * so the caller can assert `community-screened` without an extra
+ * catalog-list round trip.
+ *
+ * Errors:
+ *   - Throws if the publish endpoint returns a non-2xx response
+ *     (the fixture's manifest / filePatterns are pinned, so a
+ *     rejection is a real bug — not a transient race).
+ *   - Returns `{ status: "failed" }` (does NOT throw) if the
+ *     worker terminates the row `failed` after the publish
+ *     succeeds; the caller decides whether to retry or surface
+ *     the verdict. The contract is "boot produces a load-bearing
+ *     fixture or surfaces the failure honestly", not "boot must
+ *     succeed at any cost".
+ */
+export async function seedCommunityScreenedFixture(opts: {
+	app: Hono
+	pglite: PGlite
+	ownerKey: string
+	orgSlug: string
+	git: GitFixture
+	timeoutMs?: number
+}): Promise<CommunityFixtureResult> {
+	const { app, pglite, ownerKey, orgSlug, git } = opts
+	const timeoutMs = opts.timeoutMs ?? 60_000
+
+	// Idempotency probe: if the fixture's version row already
+	// exists on disk, return its terminal state. The check runs
+	// BEFORE the git fixture is materialized so a restart boot
+	// doesn't even allocate a tmp dir.
+	const existing = await pglite.query<{
+		id: string
+		status: string
+		tier: string
+		commit_sha: string
+		content_hash: string
+	}>(
+		`SELECT mv.id, mv.status, m.tier, mv.commit_sha, mv.content_hash
+		   FROM module_versions mv
+		   JOIN modules m ON m.id = mv.module_id
+		  WHERE m.scope = $1
+		    AND m.name = $2
+		    AND mv.version = $3
+		    AND m.removed_at IS NULL`,
+		[orgSlug, FIXTURE_MODULE_NAME, FIXTURE_MODULE_TAG],
+	)
+	const prior = existing.rows[0]
+	if (prior) {
+		// The row may be pending / ingesting on a kill-resume
+		// boot; the contract is "ready / failed only" on the
+		// returned shape (the caller can poll again). Anything
+		// non-terminal surfaces as `failed` so the boot log line
+		// honestly reflects "the row is not yet served".
+		const terminalStatus: "ready" | "failed" = prior.status === "ready" ? "ready" : "failed"
+		return {
+			scope: orgSlug,
+			name: FIXTURE_MODULE_NAME,
+			version: FIXTURE_MODULE_TAG,
+			versionId: prior.id,
+			status: terminalStatus,
+			tier: prior.tier,
+			skipped: true,
+		}
+	}
+
+	// Materialize the fixture's bare git repo (the working tree
+	// + commit + tag the publish endpoint will clone at).
+	await git.commitManifest({
+		name: `@${orgSlug}/${FIXTURE_MODULE_NAME}`,
+		version: FIXTURE_MODULE_VERSION,
+		tag: FIXTURE_MODULE_TAG,
+		modulePath: "",
+		description: "Community-screened fixture for landing-detail preview states (client-integration).",
+		actions: [
+			{
+				id: "greet",
+				description: "Write a greeting file (non-reasoning, rendered preview).",
+				filePatterns: ["greeting.txt"],
+				requiresReasoning: false,
+				body: FIXTURE_NON_REASONING_ACTION_SOURCE,
+			},
+			{
+				id: "plan-feature",
+				description: "Plan a new feature (requires LLM, sentinel-rendered preview).",
+				filePatterns: [],
+				requiresReasoning: true,
+				body: FIXTURE_REASONING_ACTION_SOURCE,
+			},
+		],
+		extras: [{ path: "plan-feature/templates/welcome.hbs", content: FIXTURE_SENTINEL_TEMPLATE }],
+	})
+
+	// Real publish through the public endpoint. The harness's app
+	// is wired with the same publish→ingest→screening path the CLI
+	// and MCP exercise, so a vanilla boot is indistinguishable
+	// from a CLI-driven `baka publish` against this fixture.
+	const res = await app.request("/v1/publish", {
+		method: "POST",
+		headers: { "x-api-key": ownerKey },
+		body: JSON.stringify({
+			repo: git.bareUrl,
+			tag: FIXTURE_MODULE_TAG,
+			org: orgSlug,
+			visibility: "public",
+		}),
+	})
+	if (res.status !== 202) {
+		throw new Error(`seedCommunityScreenedFixture: publish returned ${res.status}: ${await res.text()}`)
+	}
+	const body = (await res.json()) as { versionId: string }
+
+	// Wait for the polling worker to bring the version to a
+	// terminal state. The DB is polled at 200ms cadence with the
+	// ceiling honored from the caller.
+	const deadline = Date.now() + timeoutMs
+	while (Date.now() < deadline) {
+		const row = await pglite.query<{ status: string; tier: string }>(
+			`SELECT mv.status, m.tier
+			   FROM module_versions mv
+			   JOIN modules m ON m.id = mv.module_id
+			  WHERE mv.id = $1`,
+			[body.versionId],
+		)
+		const r = row.rows[0]
+		if (r && (r.status === "ready" || r.status === "failed")) {
+			return {
+				scope: orgSlug,
+				name: FIXTURE_MODULE_NAME,
+				version: FIXTURE_MODULE_TAG,
+				versionId: body.versionId,
+				status: r.status,
+				tier: r.tier,
+				skipped: false,
+			}
+		}
+		await new Promise<void>((resolve) => setTimeout(resolve, 200))
+	}
+
+	// Timed out waiting for the worker — surface as a failed row
+	// (the DB stays in `pending` / `ingesting` and the caller can
+	// observe it via the catalog).
+	return {
+		scope: orgSlug,
+		name: FIXTURE_MODULE_NAME,
+		version: FIXTURE_MODULE_TAG,
+		versionId: body.versionId,
+		status: "failed",
+		tier: null,
+		skipped: false,
+	}
+}
+
+/**
+ * The script entry point. Boot the full stack, run the
+ * community-screened fixture seed, then bind the HTTP listener and
+ * wait for SIGINT / SIGTERM. Imported files (tests) reach for
+ * `bootSeedPublishingServer` and `seedCommunityScreenedFixture`
+ * directly; the bottom-of-file `import.meta.url` guard ensures
+ * this block runs only when the file is the entry point.
+ */
+async function main(): Promise<void> {
+	const httpPort = Number(process.env.HTTP_PORT ?? 4310)
+	const dataDir = requireEnv("DATA_DIR")
+	const credsFile = process.env.SEED_CREDS_FILE ?? `/tmp/baka-pubval-creds-${httpPort}.json`
+	const seedEnabled = process.env.SEED !== "0"
+	const seedOrg = process.env.SEED_ORG ?? "acme"
+	const seedOrgName = process.env.SEED_ORG_NAME ?? "Acme"
+	const seedWithAdminMember = process.env.SEED_WITH_ADMIN_MEMBER !== "0"
+	const officialOrg = "baka"
+	const screenDryRunTimeoutMs = process.env.SCREEN_DRYRUN_TIMEOUT_MS
+		? Number(process.env.SCREEN_DRYRUN_TIMEOUT_MS)
+		: undefined
+	const workerDisabled = process.env.WORKER_DISABLED === "1"
+
+	const harness = await bootSeedPublishingServer({
+		dataDir,
+		httpPort,
+		officialOrg,
+		credsFile,
+		seed: seedEnabled,
+		seedOrg,
+		seedOrgName,
+		seedWithAdminMember,
+		screenDryRunTimeoutMs,
+		workerDisabled,
+	})
+
+	// Publish the community-screened fixture on every fresh boot
+	// where the worker is enabled. When the worker is disabled
+	// (kill-resume flows), the row would stay pending forever, so
+	// the seed step is skipped — the existing version row is still
+	// served verbatim.
+	if (!workerDisabled && seedEnabled) {
+		const gitFixture = await createGitFixture()
+		try {
+			const result = await seedCommunityScreenedFixture({
+				app: harness.app,
+				pglite: harness.pglite,
+				ownerKey: harness.ownerKey,
+				orgSlug: harness.orgSlug,
+				git: gitFixture,
+			})
+			process.stdout.write(
+				`seed-publishing-server: community fixture ${result.scope}/${result.name}@${result.version} ` +
+					`status=${result.status} tier=${result.tier ?? "?"} skipped=${result.skipped}\n`,
+			)
+			if (result.status === "failed") {
+				process.stderr.write(
+					`seed-publishing-server: WARNING community fixture reached status=failed; ` +
+						`the catalog still has the built-in seed but the community preview states are not available. ` +
+						`Inspect ${harness.credsFile.replace(/\.json$/, "")}.log or the operator stderr for the verdict text.\n`,
+				)
+			}
+		} finally {
+			await gitFixture.cleanup()
+		}
+	}
+
+	const officialResult = (
+		harness as SeedPublishingHarness & { _officialResult?: { created: boolean; publishersGranted: number } }
+	)._officialResult
+
+	serve({ fetch: harness.app.fetch, port: httpPort, hostname: "127.0.0.1" }, (info) => {
 		process.stdout.write(
 			`seed-publishing-server: listening on http://127.0.0.1:${info.port} ` +
-				`(data=${DATA_DIR}, worker=${worker ? "enabled" : "disabled"}, seed=${SEED}, ` +
+				`(data=${dataDir}, worker=${harness.worker ? "enabled" : "disabled"}, seed=${seedEnabled}, ` +
 				`dryRunTimeoutMs=${screenDryRunTimeoutMs ?? "default"}, ` +
-				`officialOrg=${OFFICIAL_ORG} created=${officialResult.created} granted=${officialResult.publishersGranted}, ` +
-				`creds=${CREDS_FILE})\n`,
+				`officialOrg=${officialOrg} created=${officialResult?.created} granted=${officialResult?.publishersGranted}, ` +
+				`creds=${credsFile})\n`,
 		)
 	})
 
 	const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
 		process.stdout.write(`seed-publishing-server: received ${signal}, shutting down\n`)
-		if (worker) await worker.stop().catch(() => {})
-		await betterAuth.close().catch(() => {})
-		await socket.stop().catch(() => {})
-		await pglite.close().catch(() => {})
+		await harness.shutdown()
 		process.exit(0)
 	}
 	process.on("SIGINT", shutdown)
 	process.on("SIGTERM", shutdown)
 }
 
-main().catch((err: unknown) => {
-	const message = err instanceof Error ? err.message : String(err)
-	process.stderr.write(`seed-publishing-server: failed to start — ${message}\n`)
-	process.exit(1)
-})
+function requireEnv(name: string): string {
+	const value = process.env[name]
+	if (!value) throw new Error(`seed-publishing-server: ${name} is required`)
+	return value
+}
+
+// Run `main()` only when this file is the entry point. Imports
+// from tests (vitest) reach for `bootSeedPublishingServer` and
+// `seedCommunityScreenedFixture` without triggering the listener
+// bootstrap, so the harness can be exercised against a fresh
+// PGlite tmp dir per case.
+const entryUrl = process.argv[1] ? fileURLToPath(new URL(`file://${process.argv[1]}`)) : ""
+if (entryUrl.endsWith("seed-publishing-server.ts") || entryUrl.endsWith("seed-publishing-server.js")) {
+	main().catch((err: unknown) => {
+		const message = err instanceof Error ? err.message : String(err)
+		process.stderr.write(`seed-publishing-server: failed to start — ${message}\n`)
+		process.exit(1)
+	})
+}

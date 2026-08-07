@@ -31,8 +31,11 @@
       "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"],
       // Validator-built seed harness: spawned directly via `tsx` by
       // user-testing flows (drives the registry through curl against a
-      // real HTTP port). Not imported by the registry source itself.
-      "ignore": ["test/seed-server.ts", "test/seed-publishing-server.ts"]
+      // real HTTP port). It also exports `bootSeedPublishingServer`
+      // + `seedCommunityScreenedFixture` which the in-tree test
+      // `seed-community-fixture.test.ts` imports, so it does not
+      // need an ignore entry — knip discovers both callsites.
+      "ignore": ["test/seed-server.ts"]
     },
 
     "modules/baka-base": {
