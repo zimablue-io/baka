@@ -1,11 +1,14 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { ModuleRegistry } from "./registry.js"
 
 const cleanup: string[] = []
+const prevHome = process.env.HOME
+
 afterEach(() => {
+	process.env.HOME = prevHome
 	for (const d of cleanup.splice(0)) {
 		try {
 			rmSync(d, { recursive: true, force: true })
@@ -13,6 +16,14 @@ afterEach(() => {
 			/* best effort */
 		}
 	}
+})
+
+beforeEach(() => {
+	// Hermetic user scope: point HOME at a fresh empty dir so the real
+	// ~/.baka never leaks into discovery.
+	const dir = mkdtempSync(join(tmpdir(), "baka-registry-home-"))
+	cleanup.push(dir)
+	process.env.HOME = dir
 })
 
 function makeProject(): string {
