@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { setCachedCatalog, useCachedCatalog } from "@/lib/catalog-cache"
 import { cn } from "@/lib/cn"
 import { getCatalog, REGISTRY_BASE_URL, RegistryError } from "@/lib/registry"
+import { TierBadge } from "./TierBadge"
 
 /**
  * Module catalog section — renders the live registry catalog.
@@ -295,33 +296,6 @@ function CatalogRow({ module, query }: { module: RegistryCatalogEntry; query: st
 				</a>
 			</td>
 		</tr>
-	)
-}
-
-function TierBadge({ tier }: { tier: RegistryCatalogEntry["tier"] }) {
-	const styles: Record<RegistryCatalogEntry["tier"], string> = {
-		official: "border-amber-300/40 bg-amber-300/10 text-amber-200",
-		verified: "border-sky-300/40 bg-sky-300/10 text-sky-200",
-		"community-screened": "border-emerald-300/40 bg-emerald-300/10 text-emerald-200",
-		"community-unverified": "border-neutral-700 bg-neutral-900 text-neutral-300",
-	}
-	const labels: Record<RegistryCatalogEntry["tier"], string> = {
-		official: "official",
-		verified: "verified",
-		"community-screened": "community · screened",
-		"community-unverified": "community · unverified",
-	}
-	return (
-		<span
-			data-testid="tier-badge"
-			data-tier={tier}
-			className={cn(
-				"inline-flex items-center rounded-md border px-2 py-0.5 font-mono text-xs uppercase tracking-wider",
-				styles[tier],
-			)}
-		>
-			{labels[tier]}
-		</span>
 	)
 }
 

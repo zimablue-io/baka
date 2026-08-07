@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { getCatalog, getModuleDetail, getVersionDetail, RegistryError } from "./registry"
+import {
+	getActionPreview,
+	getCatalog,
+	getModuleDetail,
+	getPreviewList,
+	getVersionDetail,
+	RegistryError,
+} from "./registry"
 
 interface FetchCall {
 	url: string
@@ -226,5 +233,114 @@ describe("getVersionDetail", () => {
 		const result = await getVersionDetail("baka", "baka-base", "0.1.0", "http://localhost:4300")
 		expect(result.version).toBe("0.1.0")
 		expect(calls[0]?.url).toBe("http://localhost:4300/v1/modules/baka/baka-base/0.1.0")
+	})
+})
+
+describe("getPreviewList", () => {
+	it("encodes scope, name, and version into the previews path", async () => {
+		const { calls } = installFetchStub([
+			new Response(JSON.stringify({ previews: [] }), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			}),
+		])
+		await getPreviewList("baka", "baka-base", "0.1.0", "http://localhost:4300")
+		expect(calls[0]?.url).toBe("http://localhost:4300/v1/modules/baka/baka-base/0.1.0/previews")
+	})
+
+	it("returns the parsed preview entries (rendered + needs-llm)", async () => {
+		installFetchStub([
+			new Response(
+				JSON.stringify({
+					previews: [
+						{
+							actionId: "scaffold",
+							state: "rendered",
+							files: [{ path: "package.json", size: 42, sha256: "deadbeef" }],
+						},
+						{ actionId: "init-constitution", state: "needs-llm" },
+					],
+				}),
+				{ status: 200, headers: { "content-type": "application/json" } },
+			),
+		])
+		const result = await getPreviewList("baka", "sdd", "0.1.0", "http://localhost:4300")
+		expect(result.previews).toHaveLength(2)
+		expect(result.previews[0]?.state).toBe("rendered")
+		expect(result.previews[0]?.files?.[0]?.path).toBe("package.json")
+		expect(result.previews[1]?.state).toBe("needs-llm")
+		expect(result.previews[1]?.files).toBeUndefined()
+	})
+
+	it("raises a not-found RegistryError when the version does not exist", async () => {
+		installFetchStub([new Response("{}", { status: 404 })])
+		await expect(getPreviewList("acme", "ghost", "1.0.0", "http://localhost:4300")).rejects.toMatchObject({
+			name: "RegistryError",
+			code: "not-found",
+		})
+	})
+})
+
+describe("getActionPreview", () => {
+	it("encodes the action id into the previews/:actionId path", async () => {
+		const { calls } = installFetchStub([
+			new Response(
+				JSON.stringify({
+					actionId: "scaffold",
+					state: "rendered",
+					files: [{ path: "package.json", content: "{}", size: 2, sha256: "deadbeef" }],
+				}),
+				{ status: 200, headers: { "content-type": "application/json" } },
+			),
+		])
+		await getActionPreview("baka", "baka-base", "0.1.0", "scaffold", "http://localhost:4300")
+		expect(calls[0]?.url).toBe("http://localhost:4300/v1/modules/baka/baka-base/0.1.0/previews/scaffold")
+	})
+
+	it("parses the needs-llm state with no files carrier", async () => {
+		installFetchStub([
+			new Response(
+				JSON.stringify({
+					actionId: "init-constitution",
+					state: "needs-llm",
+					reason: "action skipped because it requires LLM reasoning",
+				}),
+				{ status: 200, headers: { "content-type": "application/json" } },
+			),
+		])
+		const result = await getActionPreview("baka", "sdd", "0.1.0", "init-constitution", "http://localhost:4300")
+		expect(result.state).toBe("needs-llm")
+		expect(result.reason).toContain("LLM reasoning")
+		expect(result.files).toBeUndefined()
+	})
+
+	it("parses the needs-llm state with sentinel-rendered files when present", async () => {
+		installFetchStub([
+			new Response(
+				JSON.stringify({
+					actionId: "init-constitution",
+					state: "needs-llm",
+					reason: "action skipped because it requires LLM reasoning",
+					files: [{ path: "specs/mission.md", content: "# Mission\n", size: 11, sha256: "feedface" }],
+				}),
+				{ status: 200, headers: { "content-type": "application/json" } },
+			),
+		])
+		const result = await getActionPreview("baka", "sdd", "0.1.0", "init-constitution", "http://localhost:4300")
+		expect(result.state).toBe("needs-llm")
+		expect(result.files).toHaveLength(1)
+		expect(result.files?.[0]?.path).toBe("specs/mission.md")
+	})
+
+	it("raises a not-found RegistryError when the action has no preview record", async () => {
+		installFetchStub([
+			new Response(JSON.stringify({ error: "no preview record for action 'missing'" }), { status: 404 }),
+		])
+		await expect(
+			getActionPreview("baka", "baka-base", "0.1.0", "missing", "http://localhost:4300"),
+		).rejects.toMatchObject({
+			name: "RegistryError",
+			code: "not-found",
+		})
 	})
 })

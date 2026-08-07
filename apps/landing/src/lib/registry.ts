@@ -1,4 +1,10 @@
-import { RegistryCatalogResponseSchema, RegistryModuleDetailSchema, RegistryVersionDetailSchema } from "@repo/protocol"
+import {
+	RegistryActionPreviewSchema,
+	RegistryCatalogResponseSchema,
+	RegistryModuleDetailSchema,
+	RegistryPreviewListResponseSchema,
+	RegistryVersionDetailSchema,
+} from "@repo/protocol"
 import type { z } from "zod"
 
 /**
@@ -146,5 +152,46 @@ export async function getVersionDetail(
 	return fetchJson(
 		`${baseUrl}/v1/modules/${encodeURIComponent(scope)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}`,
 		RegistryVersionDetailSchema,
+	)
+}
+
+/**
+ * Fetches `GET /v1/modules/:scope/:name/:version/previews` and
+ * returns the per-action preview summary list (action id, state,
+ * file metadata). The landing app uses this to decide which
+ * actions have rendered previews vs needs-llm records vs no
+ * record at all (VAL-WEB-013: explicit empty state for missing
+ * previews).
+ */
+export async function getPreviewList(
+	scope: string,
+	name: string,
+	version: string,
+	baseUrl: string = REGISTRY_BASE_URL,
+): Promise<z.infer<typeof RegistryPreviewListResponseSchema>> {
+	return fetchJson(
+		`${baseUrl}/v1/modules/${encodeURIComponent(scope)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}/previews`,
+		RegistryPreviewListResponseSchema,
+	)
+}
+
+/**
+ * Fetches `GET /v1/modules/:scope/:name/:version/previews/:actionId`
+ * and returns the per-action preview payload (full file contents
+ * for rendered state; reason + optional sentinel-rendered files
+ * for needs-llm). 404 surfaces as a `not-found` RegistryError so
+ * the UI can render the explicit "no preview record" state without
+ * distinguishing it from a missing version (VAL-WEB-013).
+ */
+export async function getActionPreview(
+	scope: string,
+	name: string,
+	version: string,
+	actionId: string,
+	baseUrl: string = REGISTRY_BASE_URL,
+): Promise<z.infer<typeof RegistryActionPreviewSchema>> {
+	return fetchJson(
+		`${baseUrl}/v1/modules/${encodeURIComponent(scope)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}/previews/${encodeURIComponent(actionId)}`,
+		RegistryActionPreviewSchema,
 	)
 }
