@@ -1,4 +1,4 @@
-import { BAKA_EXIT_CODE, normalizeRegistryUrl } from "@repo/protocol"
+import { BAKA_EXIT_CODE } from "@repo/protocol"
 import {
 	maskApiKey,
 	type PublishBody,
@@ -7,6 +7,7 @@ import {
 	RegistryHttpError,
 	RegistryTransportError,
 } from "../lib/registry-client"
+import { resolveSingleRegistryUrl } from "../lib/registry-config"
 import { readRegistryCredential } from "../lib/registry-credentials"
 
 /**
@@ -72,11 +73,7 @@ interface PublishResultPayload {
 }
 
 function resolveBaseUrl(flagValue: string | undefined): string {
-	const raw = flagValue && flagValue.length > 0 ? flagValue : (process.env.BAKA_REGISTRY_URL ?? "http://localhost:4300")
-	// Normalize so trailing slashes / mixed-case schemes do not change
-	// the URL the CLI sends to the registry (matches the same path
-	// `baka registry login` uses; see library/cli-registry-auth.md).
-	return normalizeRegistryUrl(raw)
+	return resolveSingleRegistryUrl(flagValue)
 }
 
 /**

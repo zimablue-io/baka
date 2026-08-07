@@ -6,15 +6,7 @@ import { ModuleRegistry } from "@repo/ast-tooling"
 import { BAKA_EXIT_CODE } from "@repo/protocol"
 import { Command } from "commander"
 import { runInit } from "./commands/init"
-import {
-	runInstallCommand,
-	runListPackagesCommand,
-	runMarketplaceAdd,
-	runMarketplaceList,
-	runMarketplaceRemove,
-	runMarketplaceUpdate,
-	runRemoveCommand,
-} from "./commands/marketplace"
+import { runInstallCommand, runListPackagesCommand, runRemoveCommand } from "./commands/marketplace"
 import { runModuleEdit, runModuleListActions, runModuleTest, runModuleValidate } from "./commands/module"
 import { runOrgCreateCommand, runOrgInviteCommand, runOrgListCommand } from "./commands/org"
 import { runApplyCommand, runListPlans, runPlanCommand, runValidateCommand } from "./commands/plan"
@@ -319,15 +311,23 @@ program
 program
 	.command("install <source>")
 	.description(
-		"Install a module package. Accepts npm:..., git:..., local paths, or a bare module name (resolved via the marketplace API).",
+		"Install a module package. Accepts npm:..., git:..., local paths, https URLs, or a bare/@scope name (resolved via the configured registries).",
 	)
 	.option("-l, --local", "install to the project scope (default) vs. user scope")
 	.option("-u, --user", "install to the user scope (~/.baka/modules/)")
+	.option(
+		"-r, --registry <url>",
+		"registry base URL for bare-name resolution (overrides BAKA_REGISTRY_URL and .baka/settings.json)",
+	)
 	.action(async (source, opts) => {
 		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		const scope = opts.user ? "user" : "project"
 		try {
-			await runInstallCommand(source, { cwd, scope })
+			await runInstallCommand(source, {
+				cwd,
+				scope,
+				resolve: { registries: opts.registry ? [opts.registry] : undefined, cwd },
+			})
 		} catch (err) {
 			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
 		}
@@ -359,41 +359,26 @@ program
 		runListPackagesCommand(cwd)
 	})
 
-// `baka marketplace add | list | remove | update` ---------------------------
-
-const marketplaceCatalogCmd = program
-	.command("marketplace")
-	.description("Manage your subscribed community marketplace catalogs")
-
-marketplaceCatalogCmd
-	.command("add <url>")
-	.description("Subscribe to a community catalog URL")
-	.action((url) => runMarketplaceAdd(url))
-
-marketplaceCatalogCmd
-	.command("list")
-	.description("List your subscribed community catalogs")
-	.action(() => runMarketplaceList())
-
-marketplaceCatalogCmd
-	.command("remove <url>")
-	.description("Unsubscribe from a community catalog URL")
-	.action((url) => runMarketplaceRemove(url))
-
-marketplaceCatalogCmd
-	.command("update")
-	.description("Re-fetch subscribed catalogs (no-op in v1; catalogs are fetched on demand)")
-	.action(() => runMarketplaceUpdate())
-
 // `baka search <query>` -----------------------------------------------------
 
 program
 	.command("search <query>")
-	.description("Search modules across the built-in catalog + your subscribed community catalogs")
-	.option("--json", "emit machine-readable JSON to stdout (results plus per-source warnings)")
+	.description(
+		"Search modules across every configured registry (--registry > BAKA_REGISTRY_URL > .baka/settings.json registries list > default localhost:4300). Each hit carries its source `registry` attribution field.",
+	)
+	.option("-r, --registry <url>", "query a single registry (overrides BAKA_REGISTRY_URL and .baka/settings.json)")
+	.option(
+		"--json",
+		"emit machine-readable JSON to stdout (query, results, warnings; each hit carries its source `registry`)",
+	)
 	.action(async (query, opts) => {
+		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		try {
-			await runSearchCommand(query, { json: opts.json })
+			await runSearchCommand(query, {
+				json: opts.json,
+				registry: opts.registry,
+				cwd,
+			})
 		} catch (err) {
 			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
 		}

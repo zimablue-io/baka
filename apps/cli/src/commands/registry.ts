@@ -1,13 +1,8 @@
 import { randomBytes } from "node:crypto"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
-import { BAKA_EXIT_CODE, normalizeRegistryUrl } from "@repo/protocol"
-import {
-	DEFAULT_REGISTRY_URL,
-	maskApiKey,
-	RegistryHttpError,
-	RegistryTransportError,
-	whoami,
-} from "../lib/registry-client"
+import { BAKA_EXIT_CODE } from "@repo/protocol"
+import { maskApiKey, RegistryHttpError, RegistryTransportError, whoami } from "../lib/registry-client"
+import { resolveSingleRegistryUrl } from "../lib/registry-config"
 import { readRegistryCredential, readRegistryCredentials, writeRegistryCredential } from "../lib/registry-credentials"
 
 /**
@@ -32,12 +27,7 @@ function die(code: number, msg: string): never {
 }
 
 function resolveRegistryUrl(flagValue: string | undefined): string {
-	const raw = flagValue && flagValue.length > 0 ? flagValue : DEFAULT_REGISTRY_URL
-	// Normalize on the read path too: a trailing slash or a mixed-case
-	// scheme/host must not change the URL we send to the registry,
-	// otherwise `…http://host:4310/` becomes `…http://host:4310//api/…`
-	// (double slash) which some servers refuse.
-	return normalizeRegistryUrl(raw)
+	return resolveSingleRegistryUrl(flagValue)
 }
 
 interface LoginOptions {

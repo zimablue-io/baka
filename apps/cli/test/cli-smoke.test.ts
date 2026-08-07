@@ -18,8 +18,6 @@
 //   VAL-CLI-017  list-modules --json is cwd-scoped (3 modules in BAKA_REPO)
 //   VAL-CLI-018  --cwd <nonexistent> exits 1 with a clear message
 //   VAL-CLI-031  install <bad-source> with unreachable registry exits 2 naming the registry
-//   VAL-CLI-032  marketplace add <url> is idempotent
-//   VAL-CLI-033  marketplace remove <not-subscribed> exits 1
 //   VAL-CLI-034  list-packages empty case prints the user hint, exits 0
 //   VAL-CLI-035  update is a no-op on empty packages, exits 0
 //   VAL-CLI-040  exit code categories map to BAKA_EXIT_CODE values
@@ -28,6 +26,11 @@
 //   VAL-ROLE-003 baka role worker --field model --value foo — mutates the field
 //   VAL-ROLE-004 baka role nonexistent — exits 1
 //   VAL-ROLE-005 baka --help does not mention providers/config subcommands
+//
+// The legacy `baka marketplace add/list/remove/update` group is
+// removed (milestone 5 cli-search-multiregistry): the marketplace
+// catalog surface was deleted along with apps/api in milestone 2
+// and the registries list now lives at .baka/settings.json.
 //
 // Where the current implementation does NOT yet match the contract, the
 // affected assertion is marked with `it.todo(...)` plus a comment that
@@ -402,15 +405,16 @@ describe("VAL-CLI-018 baka --cwd <nonexistent>", () => {
 })
 
 // ---------------------------------------------------------------------------
-// VAL-CLI-031  install <bad-source> exits 1 with a parse error
+// VAL-CLI-031  install <bad-source> with unreachable registry exits 2
 // ---------------------------------------------------------------------------
 
 describe("VAL-CLI-031 baka install <bad-source>", () => {
 	it("exits non-zero with an honest registry-unreachable message when the name cannot be resolved", async () => {
 		const fakeHome = trackDir(makeEmptyDir("baka-install-bad-"))
-		// A bare name is looked up through the marketplace registry. With the
-		// registry unreachable, the truthful failure is the transport error —
-		// never the "unrecognized source" parse message.
+		// A bare name is looked up through the configured registries
+		// (multi-registry, first-listed-wins per decision 4). With the
+		// registry unreachable, the truthful failure is the transport
+		// error — never the "unrecognized source" parse message.
 		const deadPort = 4319
 		const { code, stdout, stderr } = await spawnCli({
 			argv: ["install", "not-a-real-source"],
@@ -419,7 +423,7 @@ describe("VAL-CLI-031 baka install <bad-source>", () => {
 				HOME: fakeHome,
 				XDG_CONFIG_HOME: fakeHome,
 				XDG_DATA_HOME: fakeHome,
-				BAKA_API_URL: `http://127.0.0.1:${deadPort}`,
+				BAKA_REGISTRY_URL: `http://127.0.0.1:${deadPort}`,
 			},
 		})
 		expect(code, `unexpected code; stderr=${stderr}`).toBe(2)
@@ -428,57 +432,6 @@ describe("VAL-CLI-031 baka install <bad-source>", () => {
 		// No Node stack frames on stderr.
 		expect(stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
 		expect(stdout).toBe("")
-	})
-})
-
-// ---------------------------------------------------------------------------
-// VAL-CLI-032  marketplace add <url> is idempotent
-// ---------------------------------------------------------------------------
-
-describe("VAL-CLI-032 baka marketplace add <url>", () => {
-	it("adds the URL once and treats the second add as a no-op", async () => {
-		const fakeHome = trackDir(makeEmptyDir("baka-marketplace-add-"))
-		const url = "https://example.com/catalog.json"
-
-		const first = await spawnCliWithFakeHome({ argv: ["marketplace", "add", url], fakeHome })
-		expect(first.code, `first add exited ${first.code}; stderr=${first.stderr}`).toBe(0)
-		expect(first.stdout).toContain(`added catalog: ${url}`)
-
-		const second = await spawnCliWithFakeHome({ argv: ["marketplace", "add", url], fakeHome })
-		expect(second.code, `second add exited ${second.code}; stderr=${second.stderr}`).toBe(0)
-		expect(second.stdout).toContain(`already subscribed: ${url}`)
-
-		// Verify the catalog list still contains exactly one entry for this URL.
-		const list = await spawnCliWithFakeHome({ argv: ["marketplace", "list"], fakeHome })
-		expect(list.code, `list exited ${list.code}; stderr=${list.stderr}`).toBe(0)
-		const occurrences = list.stdout.split("\n").filter((l) => l.trim() === url).length
-		expect(occurrences).toBe(1)
-
-		// Cleanup: remove the catalog so a rerun leaves a clean fake HOME.
-		await spawnCliWithFakeHome({ argv: ["marketplace", "remove", url], fakeHome })
-	})
-})
-
-// ---------------------------------------------------------------------------
-// VAL-CLI-033  marketplace remove <not-subscribed> exits 1
-// ---------------------------------------------------------------------------
-
-describe("VAL-CLI-033 baka marketplace remove <not-subscribed>", () => {
-	it("exits 1 with a clear not-subscribed message", async () => {
-		const fakeHome = trackDir(makeEmptyDir("baka-marketplace-remove-"))
-
-		const { code, stdout, stderr } = await spawnCliWithFakeHome({
-			argv: ["marketplace", "remove", "https://example.com/not-subscribed.json"],
-			fakeHome,
-		})
-
-		expect(code, `expected exit 1, got ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(1)
-		expect(stderr).toContain("not subscribed")
-		expect(stderr).toContain("https://example.com/not-subscribed.json")
-		// No mutation: the catalog list still reports no catalogs.
-		const list = await spawnCliWithFakeHome({ argv: ["marketplace", "list"], fakeHome })
-		expect(list.code).toBe(0)
-		expect(list.stdout).toContain("no subscribed catalogs")
 	})
 })
 

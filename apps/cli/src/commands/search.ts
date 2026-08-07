@@ -1,45 +1,59 @@
-import { readCatalogSubscriptions } from "@repo/ast-tooling"
 import { BAKA_EXIT_CODE } from "@repo/protocol"
-import { aggregate, getBuiltInCatalog, getMarketplaceApiUrl, getVerifiedList } from "../lib/marketplace-client"
+import {
+	getCatalog,
+	type RegistryCatalogEntry,
+	RegistryHttpError,
+	RegistryTransportError,
+} from "../lib/registry-client"
+import { resolveRegistryList } from "../lib/registry-config"
+
+/**
+ * `baka search <query>` (architecture §8 decisions 4 + 27; milestone 5
+ * cli-search-multiregistry).
+ *
+ * Multi-registry merge with per-source attribution and per-source
+ * failure isolation:
+ *
+ *   - One `GET /v1/modules` call per configured registry (decision 4
+ *     precedence: `--registry` > `BAKA_REGISTRY_URL` > project
+ *     settings > default localhost:4300).
+ *   - Each catalog entry becomes one search hit annotated with the
+ *     source registry's base URL in the `registry` field
+ *     (decision 27).
+ *   - One unreachable registry becomes a per-source `warning` entry;
+ *     the search continues. Only when EVERY configured source fails
+ *     does the command die with EXIT 2 and an honest error naming
+ *     each URL (decision 4 + decision 27 + VAL-DISC-013).
+ *   - Results are ordered by registry config order, then by
+ *     scope+name (decision 27: first-listed registry wins;
+ *     intra-registry ordering is stable).
+ *
+ * Query matching is case-insensitive substring against
+ * `name`, `description`. Tier, scope, and version are surfaced as
+ * separate hit fields so a consumer can filter the JSON without
+ * parsing text.
+ */
 
 function die(code: number, msg: string): never {
 	process.stderr.write(`baka: ${msg}\n`)
 	process.exit(code)
 }
 
-type ModuleLike = {
+interface SearchHit {
+	scope: string
 	name: string
-	version: string
-	description: string
+	version: string | null
 	tier: string
-	source: string
-	tags?: string[]
-	keywords?: string[]
-	category?: string
+	description: string
+	registry: string
 }
 
-function matchesQuery(m: ModuleLike, q: string): boolean {
-	const lower = q.toLowerCase()
-	if (m.name.toLowerCase().includes(lower)) return true
-	if (m.description.toLowerCase().includes(lower)) return true
-	if (m.tags?.some((t) => t.toLowerCase().includes(lower))) return true
-	if (m.keywords?.some((k) => k.toLowerCase().includes(lower))) return true
-	if (m.category?.toLowerCase().includes(lower)) return true
+function matchesQuery(entry: RegistryCatalogEntry, q: string): boolean {
+	const needle = q.toLowerCase()
+	if (entry.name.toLowerCase().includes(needle)) return true
+	if (entry.description.toLowerCase().includes(needle)) return true
+	if (entry.scope.toLowerCase().includes(needle)) return true
 	return false
-}
-
-const TIER_ORDER: Record<string, number> = {
-	"built-in": 0,
-	verified: 1,
-	community: 2,
-}
-
-interface SearchOptions {
-	fetch?: typeof fetch
-	apiUrl?: string
-	json?: boolean
-	// Injected for tests
-	subscriptions?: { catalogs: string[] }
 }
 
 interface SourceWarning {
@@ -47,109 +61,153 @@ interface SourceWarning {
 	error: string
 }
 
-function errorMessage(err: unknown): string {
-	return err instanceof Error ? err.message : String(err)
+interface SourceResult {
+	baseUrl: string
+	modules: RegistryCatalogEntry[]
 }
 
-export async function runSearchCommand(query: string, opts: SearchOptions = {}): Promise<void> {
-	if (!query) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka search <query>")
+interface SearchOptions {
+	fetch?: typeof fetch
+	/** Test/injection seam — when set, bypasses the resolver. */
+	registries?: string[]
+	/**
+	 * Single-registry flag (`--registry` from the CLI). When set the
+	 * resolver is bypassed and the search targets ONLY this URL,
+	 * producing a one-element list — same precedence rule as every
+	 * other CLI command (decision 4: flag wins).
+	 */
+	registry?: string
+	/** cwd for the `.baka/settings.json` project registries load. */
+	cwd?: string
+	/** Test/injection seam for the env read. */
+	env?: NodeJS.ProcessEnv
+	/** JSON output. */
+	json?: boolean
+}
 
-	const clientOpts = { apiUrl: opts.apiUrl, fetch: opts.fetch }
-	const base = opts.apiUrl ?? getMarketplaceApiUrl()
-	// Every catalog source is queried independently: one unreachable source
-	// degrades the result set with a named warning instead of killing the
-	// whole command. Only when EVERY source fails does the command fail.
-	const warnings: SourceWarning[] = []
+function errorMessage(err: unknown): string {
+	if (err instanceof Error) return err.message
+	return String(err)
+}
 
-	let builtIn: ModuleLike[] = []
-	let builtInFailed = false
-	try {
-		builtIn = (await getBuiltInCatalog(clientOpts)).modules
-	} catch (err) {
-		builtInFailed = true
-		warnings.push({ source: `${base}/v1/built-in`, error: errorMessage(err) })
-	}
+interface FetchedSource {
+	baseUrl: string
+	modules: RegistryCatalogEntry[] | null
+	error: SourceWarning["error"] | null
+}
 
-	let verifiedUrls: string[] = []
-	let verifiedFailed = false
-	try {
-		verifiedUrls = (await getVerifiedList(clientOpts)).catalogs.map((c) => c.url)
-	} catch (err) {
-		verifiedFailed = true
-		warnings.push({ source: `${base}/v1/verified`, error: errorMessage(err) })
-	}
-
-	const subs = opts.subscriptions ?? readCatalogSubscriptions()
-	const allUrls = [...verifiedUrls, ...subs.catalogs]
-
-	let communityModules: ModuleLike[] = []
-	let aggregateFailed = false
-	if (allUrls.length > 0) {
-		try {
-			const agg = await aggregate(allUrls, clientOpts)
-			communityModules = agg.modules
-			for (const ce of agg.catalogErrors) {
-				warnings.push({ source: ce.url, error: ce.error })
+/**
+ * Queries every configured registry's `/v1/modules` endpoint and
+ * groups the responses by source. Per-source failures are captured
+ * (not thrown) so the caller can decide whether the overall result
+ * set is empty-but-valid (no warnings → return 0) or
+ * empty-due-to-network (every source failed → exit 2).
+ */
+async function fetchAllSources(
+	registries: string[],
+	fetchImpl: typeof fetch | undefined,
+): Promise<{ results: SourceResult[]; warnings: SourceWarning[] }> {
+	const fetched: FetchedSource[] = await Promise.all(
+		registries.map(async (base) => {
+			try {
+				const modules = await getCatalog({ baseUrl: base, fetchImpl })
+				return { baseUrl: base, modules, error: null }
+			} catch (err) {
+				return {
+					baseUrl: base,
+					modules: null,
+					error:
+						err instanceof RegistryTransportError
+							? err.message
+							: err instanceof RegistryHttpError
+								? `HTTP ${err.status}: ${err.message}`
+								: errorMessage(err),
+				}
 			}
-		} catch (err) {
-			aggregateFailed = true
-			warnings.push({ source: `${base}/v1/aggregate`, error: errorMessage(err) })
+		}),
+	)
+	const results: SourceResult[] = []
+	const warnings: SourceWarning[] = []
+	for (const r of fetched) {
+		if (r.modules === null) {
+			warnings.push({ source: r.baseUrl, error: r.error ?? "unknown failure" })
+			continue
+		}
+		results.push({ baseUrl: r.baseUrl, modules: r.modules })
+	}
+	return { results, warnings }
+}
+
+function buildHits(results: SourceResult[], query: string): SearchHit[] {
+	const hits: SearchHit[] = []
+	for (const src of results) {
+		for (const entry of src.modules) {
+			if (!matchesQuery(entry, query)) continue
+			hits.push({
+				scope: entry.scope,
+				name: entry.name,
+				version: entry.latestVersion,
+				tier: entry.tier,
+				description: entry.description,
+				registry: src.baseUrl,
+			})
 		}
 	}
-
-	const everySourceFailed = builtInFailed && verifiedFailed && (allUrls.length === 0 || aggregateFailed)
-	if (everySourceFailed) {
-		const lines = warnings.map((w) => `  - ${w.source}: ${w.error}`).join("\n")
-		die(BAKA_EXIT_CODE.ENGINE_ERROR, `baka search failed: every catalog source is unreachable (${base})\n${lines}`)
-	}
-
-	const builtInMatches = builtIn.filter((m) => matchesQuery(m, query))
-	const communityMatches = communityModules.filter((m) => matchesQuery(m, query))
-
-	const all = [
-		...builtInMatches.map((m) => ({ module: m, tier: m.tier })),
-		...communityMatches.map((m) => ({ module: m, tier: m.tier })),
-	].sort((a, b) => {
-		const ta = TIER_ORDER[a.tier] ?? 99
-		const tb = TIER_ORDER[b.tier] ?? 99
-		if (ta !== tb) return ta - tb
-		return a.module.name.localeCompare(b.module.name)
+	// Stable: first-listed registry's hits first (already true by
+	// construction); within each source, alphabetical by scope+name.
+	hits.sort((a, b) => {
+		if (a.scope !== b.scope) return a.scope < b.scope ? -1 : 1
+		if (a.name !== b.name) return a.name < b.name ? -1 : 1
+		if (a.registry !== b.registry) return a.registry < b.registry ? -1 : 1
+		return 0
 	})
+	return hits
+}
 
-	if (opts.json) {
-		console.log(
-			JSON.stringify(
-				{
-					query,
-					results: all.map(({ module: m, tier }) => ({
-						name: m.name,
-						version: m.version,
-						description: m.description,
-						tier,
-						tags: m.tags ?? [],
-						source: m.source,
-					})),
-					warnings,
-				},
-				null,
-				2,
-			),
-		)
-		return
-	}
-
-	if (all.length === 0) {
+function printHuman(hits: SearchHit[], warnings: SourceWarning[], query: string): void {
+	if (hits.length === 0) {
 		console.log(`no modules matching "${query}"`)
 	} else {
-		console.log(`\n${all.length} module(s) matching "${query}":\n`)
-		for (const { module: m, tier } of all) {
-			const tagStr = m.tags && m.tags.length > 0 ? `  [${m.tags.join(", ")}]` : ""
-			console.log(`  [${tier}] ${m.name}  v${m.version}`)
-			console.log(`    ${m.description}${tagStr}`)
+		console.log(`\n${hits.length} module(s) matching "${query}":\n`)
+		for (const h of hits) {
+			const verSuffix = h.version ? `  v${h.version}` : ""
+			console.log(`  @${h.scope}/${h.name}${verSuffix}  [${h.tier}]  (source: ${h.registry})`)
+			console.log(`    ${h.description}`)
 		}
 		console.log("")
 	}
 	for (const w of warnings) {
 		console.log(`warning: source unreachable: ${w.source} (${w.error})`)
 	}
+}
+
+function printJson(hits: SearchHit[], warnings: SourceWarning[], query: string): void {
+	const payload = { query, results: hits, warnings }
+	console.log(JSON.stringify(payload, null, 2))
+}
+
+export async function runSearchCommand(query: string, opts: SearchOptions = {}): Promise<void> {
+	if (!query) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka search <query> [--registry <url>] [--json]")
+
+	const registries = opts.registries ?? resolveRegistryList(opts.registry, { cwd: opts.cwd, env: opts.env })
+	const { results, warnings } = await fetchAllSources(registries, opts.fetch)
+
+	const hits = buildHits(results, query)
+
+	// VAL-DISC-013: when EVERY configured source failed to even
+	// respond, the search dies with ENGINE_ERROR (2) and an honest
+	// error naming each URL + transport cause. We distinguish
+	// transport truth ("registry unreachable") from a clean empty
+	// result set ("no modules matched"); users must be able to
+	// branch without parsing prose.
+	if (hits.length === 0 && results.length === 0 && warnings.length > 0) {
+		const lines = warnings.map((w) => `  - ${w.source}: ${w.error}`).join("\n")
+		die(BAKA_EXIT_CODE.ENGINE_ERROR, `baka search failed: every configured registry is unreachable\n${lines}`)
+	}
+
+	if (opts.json) {
+		printJson(hits, warnings, query)
+		return
+	}
+	printHuman(hits, warnings, query)
 }

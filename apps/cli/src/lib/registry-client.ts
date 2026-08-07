@@ -16,19 +16,6 @@
  * it (see `maskApiKey`).
  */
 
-export const DEFAULT_REGISTRY_URL = "http://localhost:4300"
-
-/**
- * The default registry URL, overridable via the `--registry` flag, the
- * `BAKA_REGISTRY_URL` env var, or an explicit `apiUrl` argument. The
- * precedence matches the multi-registry install path (decision 4):
- * flag > env > default. Internal helper — the public CLI surface is
- * `resolveRegistryUrl` in `commands/registry.ts`.
- */
-function _getRegistryUrl(apiUrl?: string): string {
-	return apiUrl ?? process.env.BAKA_REGISTRY_URL ?? DEFAULT_REGISTRY_URL
-}
-
 /**
  * `401, 403` for an API key credential, `404, 500` for an upstream
  * error. Distinct from `RegistryTransportError`: a reachable registry
@@ -164,6 +151,105 @@ export async function whoami(opts: {
 export function maskApiKey(key: string): string {
 	if (key.length <= 4) return "…"
 	return `…${key.slice(-4)}`
+}
+
+// ---------------------------------------------------------------------------
+// Catalog + module detail (milestone 5, cli-search-multiregistry consumers).
+//
+// The CLI replaces the old `@baka/api` marketplace surface with the
+// apps/registry catalog endpoints. Both GETs carry the API key header
+// when present so org-visibility entries surface for members without
+// forcing a re-prompt for credentials.
+// ---------------------------------------------------------------------------
+
+/**
+ * One row of the catalog list response from `GET /v1/modules`. Mirrors
+ * the schema served by `apps/registry/src/catalog/routes.ts` — kept
+ * narrow here so the CLI does not pick up fields the registry has not
+ * actually emitted.
+ */
+export interface RegistryCatalogEntry {
+	scope: string
+	name: string
+	tier: string
+	visibility: "public" | "org"
+	description: string
+	latestVersion: string | null
+	latestStatus: string | null
+}
+
+interface CatalogListResponse {
+	modules: RegistryCatalogEntry[]
+}
+
+/**
+ * Calls `GET /v1/modules`. Returns the full visible-to-caller
+ * catalog for the registry. Throws `RegistryTransportError` for
+ * transport failures and `RegistryHttpError` for non-2xx
+ * responses; callers must catch and isolate per-source failures
+ * (decision 4 — multi-registry search degrades honestly).
+ */
+export async function getCatalog(opts: {
+	baseUrl: string
+	apiKey?: string
+	fetchImpl?: typeof fetch
+}): Promise<RegistryCatalogEntry[]> {
+	const res = await request<CatalogListResponse>("/v1/modules", {
+		baseUrl: opts.baseUrl,
+		apiKey: opts.apiKey,
+		fetchImpl: opts.fetchImpl,
+	})
+	if (!res.ok || res.body === null) {
+		throw new RegistryHttpError(opts.baseUrl, "/v1/modules", res.status, res.text)
+	}
+	return res.body.modules
+}
+
+/**
+ * Module detail record from `GET /v1/modules/:scope/:name`. The CLI
+ * uses the `latestVersion` field for the latest-pointer assertions
+ * (VAL-DISC-038) and the `tier` / `description` for `baka registry
+ * info` display (VAL-DISC-030). The 404-vs-tombstone vs org-private
+ * shape returns `null` so callers can branch on transport-404
+ * (truly missing) versus tombstone / visibility-blocked responses
+ * later if needed.
+ */
+interface RegistryModuleDetail {
+	scope: string
+	name: string
+	tier: string
+	visibility: "public" | "org"
+	description: string
+	latestVersion: string | null
+	versions: Array<{ version: string; status: string; createdAt: string }>
+}
+
+/**
+ * Calls `GET /v1/modules/:scope/:name`. Returns the parsed detail
+ * on 2xx, `null` on 404 (so callers can fall through to the next
+ * registry in precedence order without confusing a missing module
+ * for a transport failure). Any other non-2xx response throws
+ * `RegistryHttpError`; transport failures throw
+ * `RegistryTransportError`.
+ */
+export async function getModuleDetail(opts: {
+	baseUrl: string
+	scope: string
+	name: string
+	apiKey?: string
+	fetchImpl?: typeof fetch
+}): Promise<RegistryModuleDetail | null> {
+	const path = `/v1/modules/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}`
+	const res = await request<RegistryModuleDetail>(path, {
+		baseUrl: opts.baseUrl,
+		apiKey: opts.apiKey,
+		fetchImpl: opts.fetchImpl,
+	})
+	if (res.status === 404) return null
+	if (!res.ok || res.body === null) {
+		throw new RegistryHttpError(opts.baseUrl, path, res.status, res.text)
+	}
+	return res.body
 }
 
 // ---------------------------------------------------------------------------

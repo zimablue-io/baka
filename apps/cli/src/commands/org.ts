@@ -1,4 +1,4 @@
-import { BAKA_EXIT_CODE, normalizeRegistryUrl } from "@repo/protocol"
+import { BAKA_EXIT_CODE } from "@repo/protocol"
 import {
 	createOrg,
 	inviteToOrg,
@@ -7,6 +7,7 @@ import {
 	RegistryHttpError,
 	RegistryTransportError,
 } from "../lib/registry-client"
+import { resolveSingleRegistryUrl } from "../lib/registry-config"
 import { readRegistryCredential } from "../lib/registry-credentials"
 
 /**
@@ -33,8 +34,7 @@ function die(code: number, msg: string): never {
 }
 
 function resolveBaseUrl(flagValue: string | undefined): string {
-	const raw = flagValue && flagValue.length > 0 ? flagValue : (process.env.BAKA_REGISTRY_URL ?? "http://localhost:4300")
-	return normalizeRegistryUrl(raw)
+	return resolveSingleRegistryUrl(flagValue)
 }
 
 /**

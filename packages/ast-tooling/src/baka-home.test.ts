@@ -5,7 +5,6 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { userCatalogsPath } from "./marketplace-catalogs.js"
 import { userModulesDir, userSettingsPath } from "./package-manager.js"
 import { ModuleRegistry } from "./registry.js"
 import { StructuredLog } from "./structured-log.js"
@@ -47,11 +46,6 @@ describe("BAKA_HOME adoption (architecture decision 33)", () => {
 		const { bakaHome } = setHomes()
 		expect(userSettingsPath()).toBe(join(bakaHome, "settings.json"))
 		expect(userModulesDir()).toBe(join(bakaHome, "modules"))
-	})
-
-	it("userCatalogsPath resolves under BAKA_HOME", () => {
-		const { bakaHome } = setHomes()
-		expect(userCatalogsPath()).toBe(join(bakaHome, "catalogs.json"))
 	})
 
 	it("StructuredLog writes under BAKA_HOME/logs", () => {

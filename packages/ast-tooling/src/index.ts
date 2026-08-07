@@ -12,14 +12,6 @@ export type { ActionValidatorFn, LoadedAction, ModuleValidatorFn } from "./actio
 export { loadAction, loadActionValidator, loadModuleValidator } from "./action-loader.js"
 export type { ConsistencyOptions, ConsistencyResult, PerRunResult } from "./consistency.js"
 export { cleanupConsistency, runConsistencyTest } from "./consistency.js"
-export type { CatalogSubscriptions } from "./marketplace-catalogs.js"
-export {
-	addCatalogSubscription,
-	readCatalogSubscriptions,
-	removeCatalogSubscription,
-	userCatalogsPath,
-	writeCatalogSubscriptions,
-} from "./marketplace-catalogs.js"
 export type { BakaSettings, InstallOptions, PackageSourceType, ParsedSource } from "./package-manager.js"
 export {
 	installSource,
