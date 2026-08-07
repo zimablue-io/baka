@@ -6,7 +6,8 @@ import { ModuleRegistry } from "@repo/ast-tooling"
 import { BAKA_EXIT_CODE } from "@repo/protocol"
 import { Command } from "commander"
 import { runInit } from "./commands/init"
-import { runInstallCommand, runListPackagesCommand, runRemoveCommand } from "./commands/marketplace"
+import { InstallCommandError, runInstallCommand, runUninstallCommand } from "./commands/install"
+import { runListPackagesCommand, runRemoveCommand } from "./commands/marketplace"
 import { runModuleEdit, runModuleListActions, runModuleTest, runModuleValidate } from "./commands/module"
 import { runOrgCreateCommand, runOrgInviteCommand, runOrgListCommand } from "./commands/org"
 import { runApplyCommand, runListPlans, runPlanCommand, runValidateCommand } from "./commands/plan"
@@ -306,38 +307,83 @@ program
 		}
 	})
 
-// `baka install <source>` ----------------------------------------------------
+// `baka install <spec>` ------------------------------------------------------
+//
+// Architecture §5.1 cli-install: resolves `@scope/name[@version]`
+// through the configured registries, downloads + verifies the
+// tarball (VAL-DISC-041), extracts into `.baka/modules/`, and
+// registers the source. Also accepts the legacy `npm:...`,
+// `git:...`, local path, and https URL shapes (unchanged from the
+// pre-registry installer). `--user` flips the scope to the user
+// marketplace (`${BAKA_HOME:-$HOME/.baka}/modules`, architecture §8
+// decisions 32 + 33).
 
 program
-	.command("install <source>")
+	.command("install <spec>")
 	.description(
-		"Install a module package. Accepts npm:..., git:..., local paths, https URLs, or a bare/@scope name (resolved via the configured registries).",
+		"Install a module package. Accepts npm:..., git:..., local paths, https URLs, or registry specs (@<scope>/<name>[@<version>] or <name>[@<version>]).",
 	)
 	.option("-l, --local", "install to the project scope (default) vs. user scope")
-	.option("-u, --user", "install to the user scope (~/.baka/modules/)")
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: help text shows shell variable expansion syntax
+	.option("-u, --user", "install to the user scope (${BAKA_HOME:-$HOME/.baka}/modules/)")
 	.option(
 		"-r, --registry <url>",
-		"registry base URL for bare-name resolution (overrides BAKA_REGISTRY_URL and .baka/settings.json)",
+		"registry base URL for scoped/bare-name resolution (overrides BAKA_REGISTRY_URL and .baka/settings.json)",
 	)
-	.action(async (source, opts) => {
+	.option(
+		"--json",
+		"emit machine-readable JSON to stdout (status, scope, name, version, previousVersion, registry, modulePath)",
+	)
+	.action(async (spec, opts) => {
 		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		const scope = opts.user ? "user" : "project"
 		try {
-			await runInstallCommand(source, {
+			await runInstallCommand(spec, {
 				cwd,
 				scope,
-				resolve: { registries: opts.registry ? [opts.registry] : undefined, cwd },
+				json: opts.json,
+				registry: opts.registry,
 			})
 		} catch (err) {
+			if (err instanceof InstallCommandError) {
+				process.exit(err.code)
+			}
+			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+		}
+	})
+
+// `baka uninstall <spec>` ---------------------------------------------------
+
+program
+	.command("uninstall <spec>")
+	.description("Uninstall a registry-sourced module (removes the registration and the materialized module dir)")
+	.option("-u, --user", "uninstall from the user scope")
+	.option("--json", "emit machine-readable JSON to stdout (status, scope, name, modulePath, settingsPath)")
+	.action(async (spec, opts) => {
+		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
+		const scope = opts.user ? "user" : "project"
+		try {
+			await runUninstallCommand(spec, { cwd, scope, json: opts.json })
+		} catch (err) {
+			if (err instanceof InstallCommandError) {
+				process.exit(err.code)
+			}
 			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
 		}
 	})
 
 // `baka remove <source>` -----------------------------------------------------
+//
+// Legacy non-registry remove path. Registry-sourced modules go
+// through `baka uninstall` (which carries the same-name collision
+// logic + the user-vs-project scope decision). `baka remove`
+// strips the raw source string from settings verbatim — it does
+// not parse scoped names, so it cannot tell two scoped installs
+// apart.
 
 program
 	.command("remove <source>")
-	.description("Remove a module package from settings (and from disk if materialized)")
+	.description("Remove a non-registry source string from settings (and from disk if materialized)")
 	.option("-u, --user", "remove from the user scope")
 	.action((source, opts) => {
 		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()

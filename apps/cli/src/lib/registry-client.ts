@@ -214,44 +214,6 @@ export async function getCatalog(opts: {
  * (truly missing) versus tombstone / visibility-blocked responses
  * later if needed.
  */
-interface RegistryModuleDetail {
-	scope: string
-	name: string
-	tier: string
-	visibility: "public" | "org"
-	description: string
-	latestVersion: string | null
-	versions: Array<{ version: string; status: string; createdAt: string }>
-}
-
-/**
- * Calls `GET /v1/modules/:scope/:name`. Returns the parsed detail
- * on 2xx, `null` on 404 (so callers can fall through to the next
- * registry in precedence order without confusing a missing module
- * for a transport failure). Any other non-2xx response throws
- * `RegistryHttpError`; transport failures throw
- * `RegistryTransportError`.
- */
-export async function getModuleDetail(opts: {
-	baseUrl: string
-	scope: string
-	name: string
-	apiKey?: string
-	fetchImpl?: typeof fetch
-}): Promise<RegistryModuleDetail | null> {
-	const path = `/v1/modules/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}`
-	const res = await request<RegistryModuleDetail>(path, {
-		baseUrl: opts.baseUrl,
-		apiKey: opts.apiKey,
-		fetchImpl: opts.fetchImpl,
-	})
-	if (res.status === 404) return null
-	if (!res.ok || res.body === null) {
-		throw new RegistryHttpError(opts.baseUrl, path, res.status, res.text)
-	}
-	return res.body
-}
-
 // ---------------------------------------------------------------------------
 // Publish / version detail / org surfaces (milestone 5, cli-publish-org +
 // cli-search-multiregistry consumers).
@@ -454,4 +416,216 @@ export async function inviteToOrg(opts: {
 		throw new RegistryHttpError(opts.baseUrl, path, res.status, res.text)
 	}
 	return res.body
+}
+
+// ---------------------------------------------------------------------------
+// Install flow (architecture §5.1, milestone 5 cli-install).
+//
+// The CLI's install pipeline resolves a `@scope/name[@version]` spec
+// through the configured registries, then for the winning registry
+// fetches (a) the version-detail JSON (which carries the manifest)
+// and (b) the tarball artifact. Both endpoints are gated by the
+// standard visibility rules: an org-visibility module returns 404 to
+// non-members uniformly (VAL-AUTH-003 / VAL-PUB-017) so the CLI's
+// error message names both possibilities ("not found or private")
+// rather than leaking existence.
+//
+// The download carries `x-content-sha256` in its headers
+// (architecture §4.5, VAL-PUB-007). The CLI compares that header
+// against the sha256 of the actual bytes it received (VAL-DISC-041)
+// — a mismatch is an explicit install refusal, never a silent
+// partial install.
+// ---------------------------------------------------------------------------
+
+/**
+ * Mirrors the version-detail JSON the registry serves at
+ * `GET /v1/modules/:scope/:name/:version`. The CLI narrows this
+ * surface to the fields the install flow needs (manifest, content
+ * hash, status). The full version-detail response carries more
+ * (screening verdict, artifacts, etc.) — those fields are reserved
+ * for `baka registry info` and the MCP registry-detail tools.
+ */
+interface VersionDetailForInstall {
+	scope: string
+	name: string
+	version: string
+	status: "pending" | "ingesting" | "ready" | "failed"
+	contentHash: string
+	commitSha: string
+	visibility: "public" | "org"
+	tier: string
+	manifest: {
+		name: string
+		version: string
+		description?: string
+		dependencies?: string[]
+		conflictsWith?: string[]
+		actions?: Array<{
+			id: string
+			description?: string
+			params?: unknown[]
+			requiresReasoning?: boolean
+			filePatterns?: string[]
+			validators?: string[]
+		}>
+		moduleValidators?: string[]
+		[key: string]: unknown
+	}
+}
+
+/**
+ * Calls `GET /v1/modules/:scope/:name/:version` for the install
+ * path. Returns the parsed detail on a 200, `null` on a 404 (so
+ * the CLI can fall through to the next registry in precedence
+ * order without confusing a missing module for a transport
+ * failure). Any other non-2xx response throws `RegistryHttpError`;
+ * transport failures throw `RegistryTransportError`.
+ */
+export async function getVersionDetailForInstall(opts: {
+	baseUrl: string
+	scope: string
+	name: string
+	version: string
+	apiKey?: string
+	fetchImpl?: typeof fetch
+}): Promise<VersionDetailForInstall | null> {
+	const path = `/v1/modules/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}`
+	const res = await request<VersionDetailForInstall>(path, {
+		baseUrl: opts.baseUrl,
+		apiKey: opts.apiKey,
+		fetchImpl: opts.fetchImpl,
+	})
+	if (res.status === 404) return null
+	if (!res.ok || res.body === null) {
+		throw new RegistryHttpError(opts.baseUrl, path, res.status, res.text)
+	}
+	return res.body
+}
+
+/**
+ * Downloads the tarball artifact for `scope/name/version`. The
+ * caller is responsible for integrity verification (compare
+ * `expectedSha256` against the sha256 of `bytes`); the registry's
+ * `x-content-sha256` header is the source of truth (VAL-DISC-041).
+ *
+ * The function distinguishes three failure modes a CLI install
+ * must surface honestly:
+ *   - 404 (uniform for missing module / missing version / org-
+ *     visibility outsider) → caller throws "not found or private".
+ *   - 410 (tombstoned module, only reachable for proven members)
+ *     → caller throws "module was removed".
+ *   - Transport failure → caller surfaces the registry URL.
+ *   - HTTP 5xx with a JSON body → the error message from the
+ *     registry (the CLI never invents context the server didn't
+ *     provide).
+ */
+export async function downloadTarball(opts: {
+	baseUrl: string
+	scope: string
+	name: string
+	version: string
+	apiKey?: string
+	fetchImpl?: typeof fetch
+}): Promise<{ bytes: Uint8Array; expectedSha256: string | null }> {
+	const f = opts.fetchImpl ?? globalThis.fetch
+	const path = `/v1/download/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}`
+	const headers: Record<string, string> = {}
+	if (opts.apiKey) headers["x-api-key"] = opts.apiKey
+	let res: Response
+	try {
+		res = await f(`${opts.baseUrl}${path}`, {
+			method: "GET",
+			headers,
+			...(opts.fetchImpl ? {} : { redirect: "manual" }),
+		})
+	} catch (err) {
+		const cause = err instanceof Error ? (err.cause instanceof Error ? err.cause.message : err.message) : String(err)
+		throw new RegistryTransportError(opts.baseUrl, path, cause)
+	}
+	if (res.status === 404) {
+		// Existence is not leaked — the registry returns 404 for
+		// missing module, missing version, AND org-visibility
+		// outsiders. The CLI surfaces this as "not found or
+		// private" so the caller cannot distinguish the two from
+		// the response alone (VAL-DISC-019, VAL-PUB-017).
+		throw new RegistryDownloadNotFound(opts.baseUrl, opts.scope, opts.name, opts.version)
+	}
+	if (res.status === 410) {
+		throw new RegistryDownloadGone(opts.baseUrl, opts.scope, opts.name, opts.version)
+	}
+	if (!res.ok) {
+		const text = await res.text().catch(() => "")
+		throw new RegistryHttpError(opts.baseUrl, path, res.status, text)
+	}
+	const expectedSha256 = res.headers.get("x-content-sha256")
+	const ab = await res.arrayBuffer()
+	return { bytes: new Uint8Array(ab), expectedSha256 }
+}
+
+/**
+ * Distinguishes a uniform 404 from the download endpoint so the CLI
+ * can render "not found or private" honestly (VAL-DISC-019). The
+ * registry collapses three states (missing module, missing version,
+ * org-visibility outsider) into the same 404 envelope so existence
+ * is not leaked — the CLI matches that contract.
+ */
+export class RegistryDownloadNotFound extends Error {
+	readonly baseUrl: string
+	readonly scope: string
+	readonly name: string
+	readonly version: string
+	constructor(baseUrl: string, scope: string, name: string, version: string) {
+		super(
+			`registry ${baseUrl} returned 404 for ${scope}/${name}@${version} (not found, missing version, or org-visibility outsider)`,
+		)
+		this.name = "RegistryDownloadNotFound"
+		this.baseUrl = baseUrl
+		this.scope = scope
+		this.name = name
+		this.version = version
+	}
+}
+
+/**
+ * The download endpoint returns 410 Gone for a tombstoned module
+ * (architecture §8 decision 1; VAL-PUB-030). Only members of the
+ * owning org reach this branch — outsiders get the uniform 404
+ * via `RegistryDownloadNotFound`.
+ */
+export class RegistryDownloadGone extends Error {
+	readonly baseUrl: string
+	readonly scope: string
+	readonly name: string
+	readonly version: string
+	constructor(baseUrl: string, scope: string, name: string, version: string) {
+		super(
+			`registry ${baseUrl} returned 410 for ${scope}/${name}@${version} (module was removed; existing local installs are unaffected)`,
+		)
+		this.name = "RegistryDownloadGone"
+		this.baseUrl = baseUrl
+		this.scope = scope
+		this.name = name
+		this.version = version
+	}
+}
+
+/**
+ * Thrown when the version-detail JSON reports a non-`ready`
+ * status (pending/ingesting/failed). The CLI refuses to install a
+ * non-ready version — pending means the worker hasn't finished
+ * producing the artifact yet (VAL-PUB-018); failed means the
+ * registry has a recorded reason the version never made it
+ * (VAL-PUB-012 / VAL-PUB-014).
+ */
+export class RegistryVersionNotReadyError extends Error {
+	readonly status: string
+	readonly error: string | null
+	constructor(scope: string, name: string, version: string, status: string, error: string | null) {
+		super(
+			`version ${scope}/${name}@${version} is not installable (status='${status}'${error ? `, registry error='${error}'` : ""})`,
+		)
+		this.name = "RegistryVersionNotReadyError"
+		this.status = status
+		this.error = error
+	}
 }

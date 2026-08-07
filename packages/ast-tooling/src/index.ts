@@ -12,8 +12,16 @@ export type { ActionValidatorFn, LoadedAction, ModuleValidatorFn } from "./actio
 export { loadAction, loadActionValidator, loadModuleValidator } from "./action-loader.js"
 export type { ConsistencyOptions, ConsistencyResult, PerRunResult } from "./consistency.js"
 export { cleanupConsistency, runConsistencyTest } from "./consistency.js"
-export type { BakaSettings, InstallOptions, PackageSourceType, ParsedSource } from "./package-manager.js"
+export type {
+	BakaSettings,
+	InstallOptions,
+	ManifestJsonShape,
+	PackageSourceType,
+	ParsedSource,
+	RegistryTarball,
+} from "./package-manager.js"
 export {
+	extractRegistryTarball,
 	installSource,
 	listInstalledPackages,
 	parseSource,
@@ -24,6 +32,7 @@ export {
 	removeSource,
 	userModulesDir,
 	userSettingsPath,
+	verifyTarballIntegrity,
 } from "./package-manager.js"
 export type { SavedPlan } from "./plan-io.js"
 export { listPlans, loadPlan, plansDir, savePlan } from "./plan-io.js"
