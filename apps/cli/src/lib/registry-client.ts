@@ -419,6 +419,231 @@ export async function inviteToOrg(opts: {
 }
 
 // ---------------------------------------------------------------------------
+// Module detail + version detail + previews (milestone 5,
+// cli-info-preview, VAL-DISC-030 / VAL-DISC-031).
+//
+// The CLI's `baka registry info` command fetches the module detail
+// AND the version detail (manifest) so the served JSON is
+// field-for-field equal to the registry's two endpoints (the
+// assertion pins byte-equal shape). The `baka registry preview`
+// command fetches the previews list AND, when `--action <id>` is
+// supplied, the per-action detail (file CONTENTS for `rendered`,
+// needs-llm reason for that state). Both flows honor the same
+// visibility rules as the install path: an org-visibility module
+// returns the uniform 404 envelope an outsider would see for a
+// missing module.
+//
+// The fetch helpers below narrow the response shapes to the
+// fields the CLI surfaces (mirroring the install surface's
+// `VersionDetailForInstall` so we don't pull in the full
+// `VersionDetailResponse` schema). Errors are the same shape as
+// every other registry-client method: `RegistryTransportError`
+// for transport failures, `RegistryHttpError` for non-2xx
+// responses with the registry's own body text.
+// ---------------------------------------------------------------------------
+
+/**
+ * Module detail record from `GET /v1/modules/:scope/:name`. Mirrors
+ * the JSON the registry serves (architecture §4.5, decision 25,
+ * decision 31): scope, name, tier, visibility, description,
+ * latestVersion (semver max of ready versions), and the full
+ * versions list (each entry: version, status, createdAt).
+ *
+ * Internal type — only the CLI's `runRegistryInfo` command
+ * consumes it. External callers should branch on the JSON shape
+ * directly; the type is a contract pin between the read endpoint
+ * and the CLI's `--json` payload (VAL-DISC-030 byte-equal pin).
+ */
+interface ModuleDetail {
+	scope: string
+	name: string
+	tier: string
+	visibility: string
+	description: string
+	latestVersion: string | null
+	versions: Array<{ version: string; status: string; createdAt: string }>
+}
+
+/**
+ * Version detail record from
+ * `GET /v1/modules/:scope/:name/:version`. `baka registry info`
+ * uses the `manifest` field to display every action with its
+ * params and descriptions, and the `screening` field to surface
+ * the verdict (or `null` for unscreened versions). The full
+ * version-detail response carries more (artifacts, commit sha,
+ * content hash); those fields are reserved for the install flow
+ * (see `getVersionDetailForInstall` above) — `info` does not need
+ * the artifact row list. Internal type for the same reason.
+ */
+interface VersionDetail {
+	scope: string
+	name: string
+	tier: string
+	version: string
+	status: string
+	commitSha: string
+	contentHash: string
+	error: string | null
+	manifest: Record<string, unknown>
+	screening: {
+		verdict: string
+		staticScan?: unknown
+		dryRun?: unknown
+		outputValidation?: unknown
+		createdAt?: string | null
+	} | null
+	createdAt: string
+}
+
+/**
+ * One entry of the previews list from
+ * `GET /v1/modules/:scope/:name/:version/previews` (decision 31).
+ * The `rendered` state carries `files`; the `needs-llm` state
+ * carries no `files` (the per-action detail endpoint surfaces
+ * the rendered sentinel bytes separately when present). The CLI
+ * prints both states honestly — fabricated code for `needs-llm`
+ * is a contract violation. Internal type.
+ */
+interface ModulePreviewEntry {
+	actionId: string
+	state: "rendered" | "needs-llm"
+	files?: Array<{ path: string; size: number; sha256: string }>
+}
+
+/**
+ * Single-action preview detail from
+ * `GET /v1/modules/:scope/:name/:version/previews/:actionId`.
+ * The `rendered` state carries `files[]` with the actual bytes
+ * (the CLI prints them byte-equal to the served response); the
+ * `needs-llm` state carries a `reason` (the documented
+ * "action skipped because it requires LLM reasoning" string)
+ * and optionally a `files[]` when a sentinel render was produced
+ * (architecture §4.6 layer 2 + library/no-llm-sentinel-preview).
+ * Internal type.
+ */
+interface ActionPreview {
+	actionId: string
+	state: "rendered" | "needs-llm"
+	reason?: string
+	files?: Array<{ path: string; content: string; size: number; sha256: string }>
+}
+
+/**
+ * Calls `GET /v1/modules/:scope/:name` for the `info` surface.
+ * Returns the parsed detail on a 200, `null` on a 404 (the
+ * caller surfaces this as "not found"). Any other non-2xx
+ * response throws `RegistryHttpError`; transport failures throw
+ * `RegistryTransportError`.
+ */
+export async function getModuleDetail(opts: {
+	baseUrl: string
+	scope: string
+	name: string
+	apiKey?: string
+	fetchImpl?: typeof fetch
+}): Promise<ModuleDetail | null> {
+	const path = `/v1/modules/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}`
+	const res = await request<ModuleDetail>(path, {
+		baseUrl: opts.baseUrl,
+		apiKey: opts.apiKey,
+		fetchImpl: opts.fetchImpl,
+	})
+	if (res.status === 404) return null
+	if (!res.ok || res.body === null) {
+		throw new RegistryHttpError(opts.baseUrl, path, res.status, res.text)
+	}
+	return res.body
+}
+
+/**
+ * Calls `GET /v1/modules/:scope/:name/:version` for the `info`
+ * surface (the manifest lives on the version-detail endpoint,
+ * not the module-detail endpoint). The CLI fetches BOTH endpoints
+ * so the served JSON is field-for-field equal to the two
+ * registry responses (VAL-DISC-030 contract pin).
+ */
+export async function getVersionDetail(opts: {
+	baseUrl: string
+	scope: string
+	name: string
+	version: string
+	apiKey?: string
+	fetchImpl?: typeof fetch
+}): Promise<VersionDetail | null> {
+	const path = `/v1/modules/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}`
+	const res = await request<VersionDetail>(path, {
+		baseUrl: opts.baseUrl,
+		apiKey: opts.apiKey,
+		fetchImpl: opts.fetchImpl,
+	})
+	if (res.status === 404) return null
+	if (!res.ok || res.body === null) {
+		throw new RegistryHttpError(opts.baseUrl, path, res.status, res.text)
+	}
+	return res.body
+}
+
+/**
+ * Calls `GET /v1/modules/:scope/:name/:version/previews` (decision
+ * 31). Returns the list of preview records (one per manifest
+ * action, with state `rendered` | `needs-llm`). An empty list
+ * means the version was never screened (e.g. built-in modules
+ * per decision 31, or org-visibility modules that skip the
+ * pipeline). The CLI surfaces the empty list as an explicit
+ * "no preview available" line per the contract.
+ */
+export async function getModulePreviews(opts: {
+	baseUrl: string
+	scope: string
+	name: string
+	version: string
+	apiKey?: string
+	fetchImpl?: typeof fetch
+}): Promise<ModulePreviewEntry[]> {
+	const path = `/v1/modules/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}/previews`
+	const res = await request<{ previews: ModulePreviewEntry[] }>(path, {
+		baseUrl: opts.baseUrl,
+		apiKey: opts.apiKey,
+		fetchImpl: opts.fetchImpl,
+	})
+	if (res.status === 404) return []
+	if (!res.ok || res.body === null) {
+		throw new RegistryHttpError(opts.baseUrl, path, res.status, res.text)
+	}
+	return res.body.previews
+}
+
+/**
+ * Calls `GET /v1/modules/:scope/:name/:version/previews/:actionId`
+ * (decision 31, VAL-SCAN-004). Returns the per-action preview
+ * detail (file CONTENTS for `rendered`, reason for `needs-llm`,
+ * null on 404 — i.e. the action has no preview record). The CLI
+ * distinguishes "no record" (404) from "needs-llm" (200 with
+ * state=needs-llm) so the user can tell the two apart.
+ */
+export async function getActionPreview(opts: {
+	baseUrl: string
+	scope: string
+	name: string
+	version: string
+	actionId: string
+	apiKey?: string
+	fetchImpl?: typeof fetch
+}): Promise<ActionPreview | null> {
+	const path = `/v1/modules/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}/previews/${encodeURIComponent(opts.actionId)}`
+	const res = await request<ActionPreview>(path, {
+		baseUrl: opts.baseUrl,
+		apiKey: opts.apiKey,
+		fetchImpl: opts.fetchImpl,
+	})
+	if (res.status === 404) return null
+	if (!res.ok || res.body === null) {
+		throw new RegistryHttpError(opts.baseUrl, path, res.status, res.text)
+	}
+	return res.body
+}
+
+// ---------------------------------------------------------------------------
 // Install flow (architecture §5.1, milestone 5 cli-install).
 //
 // The CLI's install pipeline resolves a `@scope/name[@version]` spec

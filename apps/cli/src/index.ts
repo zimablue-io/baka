@@ -12,7 +12,14 @@ import { runModuleEdit, runModuleListActions, runModuleTest, runModuleValidate }
 import { runOrgCreateCommand, runOrgInviteCommand, runOrgListCommand } from "./commands/org"
 import { runApplyCommand, runListPlans, runPlanCommand, runValidateCommand } from "./commands/plan"
 import { runPublishCommand } from "./commands/publish"
-import { runRegistryList, runRegistryLogin, runRegistryLogout, runRegistryWhoami } from "./commands/registry"
+import {
+	runRegistryInfo,
+	runRegistryList,
+	runRegistryLogin,
+	runRegistryLogout,
+	runRegistryPreview,
+	runRegistryWhoami,
+} from "./commands/registry"
 import { runRole, runRolePath, runRoleShow } from "./commands/role"
 import { runRoles } from "./commands/roles"
 import { runSearchCommand } from "./commands/search"
@@ -481,6 +488,47 @@ registryCmd
 	.action(() => {
 		try {
 			runRegistryList()
+		} catch (err) {
+			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+		}
+	})
+
+registryCmd
+	.command("info <spec>")
+	.description(
+		"Show a module's served manifest, versions, and screening verdict BEFORE install (field-for-field equal to GET /v1/modules/<scope>/<name> + .../<latestVersion>)",
+	)
+	.option("-r, --registry <url>", "registry base URL (default: BAKA_REGISTRY_URL or http://localhost:4300)")
+	.option(
+		"--json",
+		"emit machine-readable JSON to stdout (scope, name, tier, visibility, description, latestVersion, versions[], manifest, screening)",
+	)
+	.action(async (spec, opts) => {
+		try {
+			await runRegistryInfo(spec, { registry: opts.registry, json: opts.json })
+		} catch (err) {
+			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+		}
+	})
+
+registryCmd
+	.command("preview <spec>")
+	.description(
+		"Show the generated-code preview per action BEFORE install; `needs-llm` shown honestly for requiresReasoning actions; explicit 'no preview available' line when the module has no preview artifacts",
+	)
+	.option("-a, --action <id>", "show only one action's preview (byte-equal to GET .../previews/<actionId>)")
+	.option("-r, --registry <url>", "registry base URL (default: BAKA_REGISTRY_URL or http://localhost:4300)")
+	.option(
+		"--json",
+		"emit machine-readable JSON to stdout (scope, name, version, previews[]; each entry carries state + files + reason)",
+	)
+	.action(async (spec, opts) => {
+		try {
+			await runRegistryPreview(spec, {
+				registry: opts.registry,
+				action: opts.action,
+				json: opts.json,
+			})
 		} catch (err) {
 			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
 		}
