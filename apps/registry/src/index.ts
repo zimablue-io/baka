@@ -4,6 +4,7 @@ import { Hono } from "hono"
 import { createAuthMount } from "./auth/handlers"
 import { createOrgRoutes } from "./auth/org-routes"
 import { createCatalogRoutes } from "./catalog/routes"
+import { registryCors } from "./cors"
 import { createPublishRoutes } from "./publish/routes"
 import type { StorageAdapter } from "./storage"
 
@@ -37,6 +38,13 @@ import type { StorageAdapter } from "./storage"
  * land in subsequent publishing-ingest milestones and reuse the
  * identity resolver, plan-limit helper, and visibility filter from
  * `auth/` and `catalog/`.
+ *
+ * CORS: the registry exposes `Access-Control-Allow-Origin` echoing
+ * the request's `Origin` header so the landing app (and any other
+ * browser-side client) can fetch the API cross-origin. The origin
+ * middleware inside Better-Auth (architecture §4.4 / VAL-AUTH-010)
+ * is a separate gate for mutating session-cookie requests and is
+ * not affected by CORS — the two checks compose honestly.
  */
 
 export interface AppDeps {
@@ -74,6 +82,14 @@ export interface AppDeps {
  */
 export function buildApp(deps: AppDeps): Hono {
 	const app = new Hono()
+
+	// CORS FIRST: preflight OPTIONS must short-circuit before any
+	// route or auth handler runs. The middleware echoes the
+	// request's Origin (permissive for browser clients; mutating
+	// requests still go through Better-Auth's origin check) and
+	// declares the methods/headers the catalog, publish, and
+	// auth surfaces need.
+	app.use("*", registryCors())
 
 	app.get("/healthz", (c) => c.json({ status: "ok" }))
 

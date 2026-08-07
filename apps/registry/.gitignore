@@ -1,5 +1,6 @@
 node_modules
 dist
 .registry-data
+.registry-data-*
 .env
 *.tsbuildinfo
