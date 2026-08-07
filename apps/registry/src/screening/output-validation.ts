@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process"
 import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { mkdtemp } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import type { ModuleManifest, OrchestrationState, ValidationDiagnostic } from "@repo/protocol"
@@ -466,7 +467,17 @@ function runTscNoEmit(opts: { targetDir: string; timeoutMs: number }): Promise<T
 		// has typescript in its own node_modules (it ships a
 		// dev dep on `typescript` for the AST scanner), so the
 		// require path is stable across workspaces.
-		const tscEntry = require.resolve("typescript/bin/tsc")
+		//
+		// ESM context: `apps/registry` is `"type": "module"`
+		// and the dev server runs under `tsx`, where `require`
+		// is undefined. `createRequire(import.meta.url)`
+		// manufactures a CJS-shaped `require` from a known
+		// file URL — the same pattern `dry-run.ts:772` uses
+		// to resolve `jiti`. Bare `require.resolve(...)`
+		// works only when a test runner (vitest) injects a
+		// require shim, masking the production crash that
+		// user-testing round 1 surfaced (VAL-SCAN-017).
+		const tscEntry = createRequire(import.meta.url).resolve("typescript/bin/tsc")
 		const child = spawn(process.execPath, [tscEntry, "--noEmit"], {
 			cwd: opts.targetDir,
 			env: { ...process.env, NODE_OPTIONS: "" },
