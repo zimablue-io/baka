@@ -887,9 +887,15 @@ describe("VAL-CLI-029 baka validate --json", () => {
 
 describe("VAL-CLI-030 baka validate from empty cwd", () => {
 	it("reports `discovered 0 module(s)` and exits 0", async () => {
+		const fakeHome = trackDir(makeEmptyDir("baka-cli030-home-"))
 		const { code, stdout, stderr } = await spawnCli({
 			argv: ["validate"],
 			cwd: EMPTY_CWD,
+			env: {
+				HOME: fakeHome,
+				XDG_CONFIG_HOME: fakeHome,
+				XDG_DATA_HOME: fakeHome,
+			},
 		})
 
 		expect(code, `unexpected exit ${code}; stderr=${stderr}`).toBe(0)

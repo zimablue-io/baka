@@ -316,7 +316,15 @@ describe("VAL-CLI-015 baka list-modules (human)", () => {
 
 describe("VAL-CLI-016 baka list-modules --json shape", () => {
 	it("emits {modules, diagnostics}; each module has name, version, description, actions, uri", async () => {
-		const { code, stdout, stderr } = await spawnCli({ argv: ["list-modules", "--json"] })
+		const fakeHome = trackDir(makeEmptyDir("baka-cli016-home-"))
+		const { code, stdout, stderr } = await spawnCli({
+			argv: ["list-modules", "--json"],
+			env: {
+				HOME: fakeHome,
+				XDG_CONFIG_HOME: fakeHome,
+				XDG_DATA_HOME: fakeHome,
+			},
+		})
 
 		expect(code, `expected exit 0, got ${code}; stderr=${stderr}`).toBe(0)
 
@@ -349,9 +357,15 @@ describe("VAL-CLI-016 baka list-modules --json shape", () => {
 
 describe("VAL-CLI-017 baka list-modules --json is cwd-scoped", () => {
 	it("discovers 3 modules from BAKA_REPO and 0 from an empty cwd (with a no-modules diagnostic)", async () => {
+		const fakeHome = trackDir(makeEmptyDir("baka-cli017-home-"))
+		const isolatedEnv = {
+			HOME: fakeHome,
+			XDG_CONFIG_HOME: fakeHome,
+			XDG_DATA_HOME: fakeHome,
+		}
 		// (1) BAKA_REPO — 3 modules (baka-base, sdd, ts-style),
 		//     no diagnostics.
-		const repoProbe = await spawnCli({ argv: ["list-modules", "--json"] })
+		const repoProbe = await spawnCli({ argv: ["list-modules", "--json"], env: isolatedEnv })
 		expect(repoProbe.code, `stderr=${repoProbe.stderr}`).toBe(0)
 		const repoParsed = JSON.parse(repoProbe.stdout) as {
 			modules: unknown[]
@@ -361,7 +375,11 @@ describe("VAL-CLI-017 baka list-modules --json is cwd-scoped", () => {
 		expect(repoParsed.diagnostics).toEqual([])
 
 		// (2) Empty cwd — 0 modules + no-modules diagnostic.
-		const emptyProbe = await spawnCli({ argv: ["list-modules", "--json"], cwd: EMPTY_CWD })
+		const emptyProbe = await spawnCli({
+			argv: ["list-modules", "--json"],
+			cwd: EMPTY_CWD,
+			env: isolatedEnv,
+		})
 		expect(emptyProbe.code, `stderr=${emptyProbe.stderr}`).toBe(0)
 		const emptyParsed = JSON.parse(emptyProbe.stdout) as {
 			modules: unknown[]
@@ -373,7 +391,10 @@ describe("VAL-CLI-017 baka list-modules --json is cwd-scoped", () => {
 
 		// (3) Empty cwd via --cwd flag — same shape as (2); proves the flag
 		//     and the process cwd both route through the same discovery path.
-		const cwdFlagProbe = await spawnCli({ argv: ["--cwd", EMPTY_CWD, "list-modules", "--json"] })
+		const cwdFlagProbe = await spawnCli({
+			argv: ["--cwd", EMPTY_CWD, "list-modules", "--json"],
+			env: isolatedEnv,
+		})
 		expect(cwdFlagProbe.code, `stderr=${cwdFlagProbe.stderr}`).toBe(0)
 		const cwdFlagParsed = JSON.parse(cwdFlagProbe.stdout) as {
 			modules: unknown[]
@@ -441,7 +462,15 @@ describe("VAL-CLI-031 baka install <bad-source>", () => {
 
 describe("VAL-CLI-034 baka list-packages empty case", () => {
 	it("prints the empty-state hint and exits 0", async () => {
-		const { code, stdout, stderr } = await spawnCli({ argv: ["list-packages"] })
+		const fakeHome = trackDir(makeEmptyDir("baka-cli034-home-"))
+		const { code, stdout, stderr } = await spawnCli({
+			argv: ["list-packages"],
+			env: {
+				HOME: fakeHome,
+				XDG_CONFIG_HOME: fakeHome,
+				XDG_DATA_HOME: fakeHome,
+			},
+		})
 
 		expect(code, `expected exit 0, got ${code}; stderr=${stderr}`).toBe(0)
 		expect(stdout).toContain("no installed packages")
