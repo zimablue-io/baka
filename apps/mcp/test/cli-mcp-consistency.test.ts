@@ -507,7 +507,18 @@ describe("VAL-FOUND-058 per-action tool parity", () => {
 		for (const engine of ENGINE_TOOLS) {
 			expect(toolNames).toContain(engine)
 		}
-		const perActionTools = new Set(toolNames.filter((n) => !(ENGINE_TOOLS as readonly string[]).includes(n)))
+		// Milestone 5 mcp-registry-tools adds three registry
+		// discovery tools (architecture §8 decision 9: MCP has no
+		// install capability). They are NOT per-action tools, so
+		// they are excluded from the parity check — the CLI's
+		// `baka module list-actions` does not list them. The
+		// `baka_registry_*` prefix is the convention; every new
+		// registry tool must carry that prefix to land in this
+		// exclusion automatically.
+		const REGISTRY_TOOL_PREFIX = "baka_registry_"
+		const perActionTools = new Set(
+			toolNames.filter((n) => !(ENGINE_TOOLS as readonly string[]).includes(n) && !n.startsWith(REGISTRY_TOOL_PREFIX)),
+		)
 
 		// The CLI's own action listing is the reference set.
 		const expected = new Set<string>()

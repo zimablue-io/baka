@@ -41,11 +41,43 @@ export {
 	ENGINE_STATUS,
 	MODULE_CATEGORY,
 } from "./constants"
-export type { RegistryConfigMap, RegistryCredential } from "./registry-config"
+export type {
+	RegistryActionPreview,
+	RegistryArtifact,
+	RegistryCatalogEntry,
+	RegistryConfigMap,
+	RegistryCredential,
+	RegistryModuleDetail,
+	RegistryPreviewEntry,
+	RegistryPreviewListResponse,
+	RegistryPreviewState,
+	RegistryTier,
+	RegistryVersionDetail,
+	RegistryVersionStatus,
+	RegistryVersionSummary,
+	RegistryVisibility,
+} from "./registry-config"
 export {
+	DEFAULT_REGISTRY_URL,
 	normalizeRegistryUrl,
+	REGISTRY_PREVIEW_STATES,
+	REGISTRY_TIERS,
+	REGISTRY_VERSION_STATUSES,
+	REGISTRY_VISIBILITIES,
+	RegistryActionPreviewSchema,
+	RegistryArtifactSchema,
+	RegistryCatalogEntrySchema,
+	RegistryCatalogResponseSchema,
 	RegistryConfigMapSchema,
 	RegistryCredentialSchema,
+	RegistryModuleDetailSchema,
+	RegistryPreviewEntrySchema,
+	RegistryPreviewListResponseSchema,
+	RegistryScreeningSchema,
+	RegistryVersionDetailSchema,
+	RegistryVersionSummarySchema,
+	resolveRegistryUrlList,
+	resolveSingleRegistryUrl,
 } from "./registry-config"
 
 export {

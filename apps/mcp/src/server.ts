@@ -28,8 +28,12 @@ import {
 	DesignModuleArgsShape,
 	ListActionsInputSchema,
 	PlanInputSchema,
+	RegistryGetModuleInputSchema,
+	RegistryGetPreviewInputSchema,
+	RegistrySearchInputSchema,
 	ValidateInputSchema,
 } from "./schemas.js"
+import { runRegistryGetModule, runRegistryGetPreview, runRegistrySearch } from "./tools/registry.js"
 import { runAction, runApply, runListActions, runPlan, runValidate } from "./tools/workflow.js"
 
 const SERVER_NAME = "baka-mcp"
@@ -72,6 +76,7 @@ export function startServer(opts: StartServerOptions): McpServer {
 
 	registerWorkflowTools(server, ctx)
 	registerActionTools(server, ctx)
+	registerRegistryTools(server, ctx)
 	registerResources(server, ctx)
 	registerPrompts(server)
 
@@ -310,6 +315,82 @@ function formatActionDescription(
 		lines.push(`On failure, the SAGA rolls back via \`${action.compensatesWith}\`.`)
 	}
 	return lines.join(" ")
+}
+
+// ---------------------------------------------------------------------------
+// Registry discovery tools (milestone 5 mcp-registry-tools; VAL-DISC-024
+// / 025 / 026 / 027 / 028 / 029 / 044 / 045).
+//
+// Read-only discovery surface for a baka module registry. Three tools:
+//   - baka_registry_search       -> GET /v1/modules (per-source filtered)
+//   - baka_registry_get_module  -> GET /v1/modules/<scope>/<name>
+//                                   + .../<latestVersion> (combined detail)
+//   - baka_registry_get_preview -> GET .../previews + .../previews/<actionId>
+//
+// Architecture §8 decision 9: there is NO install capability over MCP.
+// Tool descriptions explicitly say so and name the CLI handoff
+// (`baka install @scope/name`); the README documents the same.
+//
+// Per-source failure isolation (architecture §8 decision 27): a
+// transport failure on one configured registry does NOT abort the
+// search — it surfaces as a per-source `warnings[]` entry. Only
+// when EVERY source is unreachable does the tool return
+// `isError: true` (VAL-DISC-028). The contract distinguishes "registry
+// down" from "no rows match" cleanly so agent clients branch on a
+// boolean, not on free text.
+// ---------------------------------------------------------------------------
+
+function registerRegistryTools(server: McpServer, ctx: ServerContext): void {
+	server.registerTool(
+		"baka_registry_search",
+		{
+			description:
+				"Search modules across every configured baka registry (BAKA_REGISTRY_URL env > .baka/settings.json registries list > default http://localhost:4300). Returns structured hits (scope, name, tier, visibility, description, version, registry) with per-source attribution and per-source failure warnings. Does NOT modify the project. To install a discovered module, run `baka install @<scope>/<name>` at the terminal (the MCP has no install capability, by design).",
+			inputSchema: RegistrySearchInputSchema.shape,
+		},
+		async (raw) => {
+			const input = RegistrySearchInputSchema.parse(raw)
+			const result = await runRegistrySearch(ctx.cwd, input)
+			if (!result.ok) {
+				return { ...jsonResult(result.payload), isError: true }
+			}
+			return jsonResult(result.payload)
+		},
+	)
+
+	server.registerTool(
+		"baka_registry_get_module",
+		{
+			description:
+				"Read a module's served manifest, versions list, tier badge, and screening verdict from the baka registry (mirrors `baka registry info @<scope>/<name>`). Does NOT modify the project. Structured result: scope, name, tier, visibility, description, latestVersion, versions[], manifest, screening. An unknown module returns isError:true naming the missing module. To install: `baka install @<scope>/<name>` at the terminal.",
+			inputSchema: RegistryGetModuleInputSchema.shape,
+		},
+		async (raw) => {
+			const input = RegistryGetModuleInputSchema.parse(raw)
+			const result = await runRegistryGetModule(ctx.cwd, input)
+			if (!result.ok) {
+				return { ...jsonResult(result.payload), isError: true }
+			}
+			return jsonResult(result.payload)
+		},
+	)
+
+	server.registerTool(
+		"baka_registry_get_preview",
+		{
+			description:
+				"Read the generated-code preview per action for a registry module version (mirrors `baka registry preview @<scope>/<name>[@<version>]`). Non-reasoning actions return rendered file CONTENTS; reasoning actions return an explicit `needs-llm` marker (NEVER fabricated code). Does NOT modify the project. An unknown module or version returns isError:true. To install and execute: `baka install @<scope>/<name>` at the terminal.",
+			inputSchema: RegistryGetPreviewInputSchema.shape,
+		},
+		async (raw) => {
+			const input = RegistryGetPreviewInputSchema.parse(raw)
+			const result = await runRegistryGetPreview(ctx.cwd, input)
+			if (!result.ok) {
+				return { ...jsonResult(result.payload), isError: true }
+			}
+			return jsonResult(result.payload)
+		},
+	)
 }
 
 // ---------------------------------------------------------------------------

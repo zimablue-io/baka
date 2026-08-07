@@ -13,7 +13,33 @@ For other MCP-aware hosts (Claude Code, Cursor, Codex, Zed, etc.) configure the 
 { "command": "baka-mcp" }
 ```
 
-Once connected, the agent sees one MCP tool per declared action plus `baka_plan`, `baka_apply`, `baka_validate`, and `baka_list_actions`. See `SKILL.md` at the repo root for the full contract.
+Once connected, the agent sees one MCP tool per declared action plus `baka_plan`, `baka_apply`, `baka_validate`, and `baka_list_actions` — and the three registry-discovery tools `baka_registry_search`, `baka_registry_get_module`, `baka_registry_get_preview`. See `SKILL.md` at the repo root for the full contract.
+
+#### Registry discovery (READ-ONLY)
+
+The MCP registry tools are a read-only window onto a configured baka module registry. They do NOT modify the project, do NOT install anything, and do NOT mutate the user config — install is the `baka` CLI's job (architecture §8 decision 9). When an agent client decides a discovered module should be installed, the host prompts the user to run the install handoff at the terminal:
+
+```bash
+# After baka_registry_search surfaces @baka/sdd
+baka install @baka/sdd
+
+# Or a pinned version:
+baka install @baka/sdd@0.1.0
+```
+
+The MCP tools resolve which registry to query through the same chain the CLI uses, in this order:
+
+1. `BAKA_REGISTRY_URL` env var (highest)
+2. `.baka/settings.json` `registries` list in the cwd
+3. `http://localhost:4300` (default — the registry dev server)
+
+When credentials are stored under `${BAKA_HOME:-$HOME/.baka}/config.json` (via `baka registry login`), the MCP tools attach the per-registry API key on every read. `public` modules are reachable without a credential; `org`-visibility modules need org membership.
+
+The three tools surface honest failures:
+
+- A single unreachable registry becomes a per-source `warnings` entry — the search continues with the remaining sources.
+- A registry returning 404 for a missing / private / tombstoned module produces an `isError: true` result with a named "not found" message. The MCP never invents a successful response for a missing module.
+- Malformed arguments (missing `query`, wrong field types) produce a structured validation error on the tool result — the MCP server stays alive.
 
 ### For humans and shell scripts
 
@@ -28,9 +54,14 @@ pnpm baka plan "<intent>" --json
 
 # Scaffold a new module
 pnpm baka scaffold "<module_name>"
+
+# Browse the registry (mirrors the MCP tools):
+pnpm baka search "<query>" --json
+pnpm baka registry info "@baka/baka-base"
+pnpm baka registry preview "@baka/sdd"@0.1.0 --json
 ```
 
-The CLI and the MCP server share the same engine: same workflows, same validators, same plan schema. `--json` flags on the CLI emit the same shape the MCP tools return.
+The CLI and the MCP server share the same engine: same workflows, same validators, same plan schema, same registry-client. `--json` flags on the CLI emit the same shape the MCP tools return.
 
 #### CLI Alias
 Add this to your `.bashrc` or `.zshrc` for quick access:

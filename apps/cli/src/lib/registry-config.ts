@@ -1,13 +1,24 @@
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
-import { BAKA_PROJECT_PATHS, normalizeRegistryUrl } from "@repo/protocol"
+import {
+	BAKA_PROJECT_PATHS,
+	resolveRegistryUrlList as resolveRegistryUrlListPure,
+	resolveSingleRegistryUrl as resolveSingleRegistryUrlPure,
+} from "@repo/protocol"
 
 /**
  * Registry URL config resolution (architecture §8 decisions 4 + 27).
  *
  * The same resolver backs every CLI surface that talks to a registry
- * (search, install, login/whoami, publish, org). Three rules govern
- * which URL(s) are consulted, in this order:
+ * (search, install, login/whoami, publish, org). This file is a
+ * thin wrapper around the protocol-level chain — it loads
+ * `.baka/settings.json` from cwd and hands the raw list to the
+ * protocol helper, so the chain semantics live in
+ * `@repo/protocol/registry-config` (the single source of truth the
+ * MCP registry tools also call into). A future fix lands in one
+ * place; a future regression surfaces identically on both surfaces.
+ *
+ * Chain (architecture §8 decision 4):
  *
  *   1. `--registry <url>` flag on the CLI invocation (wins outright)
  *   2. `BAKA_REGISTRY_URL` env var (overrides project settings)
@@ -31,8 +42,6 @@ import { BAKA_PROJECT_PATHS, normalizeRegistryUrl } from "@repo/protocol"
  * queried — VAL-DISC-039).
  */
 
-const DEFAULT_REGISTRY_URL = "http://localhost:4300"
-
 /** Per-project registries list as read from `.baka/settings.json`. */
 export type ProjectRegistries = string[]
 
@@ -53,23 +62,11 @@ interface ResolveOptions {
 /**
  * Resolves the single registry URL a single-registry command should
  * use. Precedence is flag > env > project-settings[0] > default.
- * The returned URL is always `normalizeRegistryUrl`-equivalent
- * (lowercase scheme + host, no trailing slash) so a downstream
- * `fetch` never produces a `…http://host:4310//api/…` double-slash.
+ * The chain is implemented in `@repo/protocol` so MCP and CLI agree.
  */
 export function resolveSingleRegistryUrl(flagValue: string | undefined, opts: ResolveOptions = {}): string {
-	const env = opts.env ?? process.env
 	const projectRegistries = opts.projectRegistries ?? readProjectRegistries(opts.cwd)
-	if (flagValue !== undefined && flagValue.length > 0) {
-		return normalizeRegistryUrl(flagValue)
-	}
-	if (typeof env.BAKA_REGISTRY_URL === "string" && env.BAKA_REGISTRY_URL.length > 0) {
-		return normalizeRegistryUrl(env.BAKA_REGISTRY_URL)
-	}
-	if (projectRegistries.length > 0) {
-		return normalizeRegistryUrl(projectRegistries[0] as string)
-	}
-	return DEFAULT_REGISTRY_URL
+	return resolveSingleRegistryUrlPure(flagValue, { env: opts.env, projectRegistries })
 }
 
 /**
@@ -78,28 +75,12 @@ export function resolveSingleRegistryUrl(flagValue: string | undefined, opts: Re
  * the search to that one registry); the env becomes a one-element
  * list; project settings contribute their full ordered list; the
  * default is `[http://localhost:4300]` only when nothing else is
- * configured.
- *
- * Each entry is normalized. Empty strings are dropped (a settings
- * file with `["", "http://localhost:4300"]` resolves to the one
- * non-empty entry).
+ * configured. The chain is implemented in `@repo/protocol` so MCP
+ * and CLI agree.
  */
 export function resolveRegistryList(flagValue: string | undefined, opts: ResolveOptions = {}): string[] {
-	const env = opts.env ?? process.env
 	const projectRegistries = opts.projectRegistries ?? readProjectRegistries(opts.cwd)
-	if (flagValue !== undefined && flagValue.length > 0) {
-		return [normalizeRegistryUrl(flagValue)]
-	}
-	if (typeof env.BAKA_REGISTRY_URL === "string" && env.BAKA_REGISTRY_URL.length > 0) {
-		return [normalizeRegistryUrl(env.BAKA_REGISTRY_URL)]
-	}
-	const out: string[] = []
-	for (const entry of projectRegistries) {
-		if (typeof entry !== "string" || entry.length === 0) continue
-		out.push(normalizeRegistryUrl(entry))
-	}
-	if (out.length > 0) return out
-	return [DEFAULT_REGISTRY_URL]
+	return resolveRegistryUrlListPure(flagValue, { env: opts.env, projectRegistries })
 }
 
 /**

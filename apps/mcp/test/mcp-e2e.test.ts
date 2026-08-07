@@ -406,7 +406,7 @@ describe("VAL-MCP-002 serverInfo.version", () => {
 // ---------------------------------------------------------------------------
 
 describe("VAL-MCP-003..006 tools/list", () => {
-	it("returns 11 tools: 4 engine + 7 per-action (3 baka-base + 2 sdd + 2 ts-style)", async () => {
+	it("returns 14 tools: 4 engine + 3 registry + 7 per-action (3 baka-base + 2 sdd + 2 ts-style)", async () => {
 		const state = spawnMcp({})
 		try {
 			await initialize(state)
@@ -415,13 +415,21 @@ describe("VAL-MCP-003..006 tools/list", () => {
 			expect(resp?.error).toBeUndefined()
 			const result = resp?.result as { tools: Array<{ name: string; inputSchema: Record<string, unknown> }> }
 			const names = result.tools.map((t) => t.name).sort()
-			expect(result.tools.length).toBe(11)
+			expect(result.tools.length).toBe(14)
 
 			// The four engine tools.
 			expect(names).toContain("baka_plan")
 			expect(names).toContain("baka_apply")
 			expect(names).toContain("baka_validate")
 			expect(names).toContain("baka_list_actions")
+
+			// The three registry discovery tools (milestone 5
+			// mcp-registry-tools; architecture §8 decision 9: MCP
+			// has no install capability — the install handoff is
+			// the `baka` CLI).
+			expect(names).toContain("baka_registry_search")
+			expect(names).toContain("baka_registry_get_module")
+			expect(names).toContain("baka_registry_get_preview")
 
 			// Per-action tools for the in-repo modules.
 			expect(names).toContain("baka_baka_base_scaffold")
@@ -913,14 +921,15 @@ describe("VAL-MCP-019 malformed JSON-RPC resilience", () => {
 // ---------------------------------------------------------------------------
 
 describe("VAL-MCP-020 cwd sensitivity", () => {
-	it("sees 11 tools in BAKA_REPO and 4 engine tools in an empty dir", async () => {
+	it("sees 14 tools in BAKA_REPO and 7 tools (4 engine + 3 registry) in an empty dir", async () => {
 		const stateRepo = spawnMcp({ cwd: BAKA_REPO })
 		try {
 			await initialize(stateRepo)
 			const id = sendRpc(stateRepo, "tools/list")
 			const resp = await waitForResponse(stateRepo, id, 5_000)
 			const result = resp?.result as { tools: Array<{ name: string }> }
-			expect(result.tools.length).toBe(11)
+			// 4 engine + 3 registry + 7 per-action = 14 in the repo.
+			expect(result.tools.length).toBe(14)
 			const names = result.tools.map((t) => t.name)
 			expect(names).toContain("baka_baka_base_scaffold")
 		} finally {
@@ -933,9 +942,21 @@ describe("VAL-MCP-020 cwd sensitivity", () => {
 			const id = sendRpc(stateEmpty, "tools/list")
 			const resp = await waitForResponse(stateEmpty, id, 5_000)
 			const result = resp?.result as { tools: Array<{ name: string }> }
-			// Only the 4 engine tools (no per-action tools since no modules).
+			// Only the 4 engine + 3 registry tools (no per-action
+			// tools since no modules). The registry tools are
+			// always registered — they resolve against the env /
+			// project-settings / default chain at call time, not
+			// at tools/list time.
 			const names = result.tools.map((t) => t.name).sort()
-			expect(names).toEqual(["baka_apply", "baka_list_actions", "baka_plan", "baka_validate"])
+			expect(names).toEqual([
+				"baka_apply",
+				"baka_list_actions",
+				"baka_plan",
+				"baka_registry_get_module",
+				"baka_registry_get_preview",
+				"baka_registry_search",
+				"baka_validate",
+			])
 		} finally {
 			await shutdown(stateEmpty)
 		}
