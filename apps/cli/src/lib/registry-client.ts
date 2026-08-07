@@ -165,3 +165,207 @@ export function maskApiKey(key: string): string {
 	if (key.length <= 4) return "…"
 	return `…${key.slice(-4)}`
 }
+
+// ---------------------------------------------------------------------------
+// Publish / version detail / org surfaces (milestone 5, cli-publish-org +
+// cli-search-multiregistry consumers).
+// ---------------------------------------------------------------------------
+
+export interface PublishBody {
+	repo: string
+	tag: string
+	org: string
+	modulePath?: string
+	visibility?: "org" | "public"
+}
+
+interface PublishAcceptedResponse {
+	scope: string
+	name: string
+	version: string
+	commitSha: string
+	status: "pending" | "ingesting" | "ready" | "failed"
+	visibility: "org" | "public"
+	versionId: string
+}
+
+interface VersionDetailResponse {
+	scope: string
+	name: string
+	tier: string
+	version: string
+	status: "pending" | "ingesting" | "ready" | "failed"
+	commitSha: string
+	contentHash: string
+	error: string | null
+	screening: { verdict: string } | null
+}
+
+interface OrgCreateResponse {
+	id: string
+	slug: string
+	name: string
+}
+
+interface OrgListEntry {
+	id: string
+	slug: string
+	name: string
+	role: string
+}
+
+interface OrgInviteResponse {
+	id: string
+}
+
+/**
+ * Issues `POST /v1/publish` against the registry. Throws
+ * `RegistryTransportError` for connection failures and
+ * `RegistryHttpError` for non-2xx responses; the body is preserved on
+ * the HTTP error so callers can surface the registry's typed message
+ * verbatim. The publish endpoint's contract (VAL-PUB-002 / VAL-AUTH-009 /
+ * VAL-PUB-020): 202 accepted (status=pending); 403 role/origin failures;
+ * 401 unauthenticated; 422 field-level validation failures. Callers
+ * branch on `err.status` to render role-403 vs schema-422 distinctly.
+ */
+export async function publishToRegistry(opts: {
+	baseUrl: string
+	apiKey: string
+	body: PublishBody
+	fetchImpl?: typeof fetch
+}): Promise<PublishAcceptedResponse> {
+	const res = await request<PublishAcceptedResponse>("/v1/publish", {
+		baseUrl: opts.baseUrl,
+		apiKey: opts.apiKey,
+		body: opts.body,
+		method: "POST",
+		fetchImpl: opts.fetchImpl,
+	})
+	if (!res.ok || res.body === null) {
+		throw new RegistryHttpError(opts.baseUrl, "/v1/publish", res.status, res.text)
+	}
+	return res.body
+}
+
+/**
+ * Polls `GET /v1/modules/:scope/:name/:version` until the version
+ * reaches a terminal state (`ready` / `failed`). Returns the latest
+ * detail JSON. Throws `RegistryTransportError` on connection
+ * failures and `RegistryHttpError` for non-2xx. Polling cadence is
+ * 500ms (the worker poll interval is 250ms; 500ms gives the worker
+ * one full cycle to react); default timeout 60s.
+ */
+export async function pollVersionStatus(opts: {
+	baseUrl: string
+	apiKey: string | undefined
+	scope: string
+	name: string
+	version: string
+	timeoutMs?: number
+	intervalMs?: number
+	fetchImpl?: typeof fetch
+}): Promise<VersionDetailResponse> {
+	const intervalMs = opts.intervalMs ?? 500
+	const deadline = Date.now() + (opts.timeoutMs ?? 60_000)
+	const path = `/v1/modules/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}`
+	let lastText = ""
+	while (true) {
+		const res = await request<VersionDetailResponse>(path, {
+			baseUrl: opts.baseUrl,
+			apiKey: opts.apiKey,
+			fetchImpl: opts.fetchImpl,
+		})
+		if (!res.ok) {
+			throw new RegistryHttpError(opts.baseUrl, path, res.status, res.text)
+		}
+		if (res.body !== null) {
+			if (res.body.status === "ready" || res.body.status === "failed") {
+				return res.body
+			}
+			lastText = res.text
+		}
+		if (Date.now() > deadline) {
+			throw new RegistryHttpError(
+				opts.baseUrl,
+				path,
+				408,
+				`timed out polling for terminal status; last body: ${lastText}`,
+			)
+		}
+		await new Promise((r) => setTimeout(r, intervalMs))
+	}
+}
+
+/**
+ * Creates an org via `POST /v1/orgs`. The body shape mirrors the
+ * Better-Auth organization plugin's expected input (`name`, `slug`).
+ * Returns the parsed JSON on a 200; throws `RegistryHttpError` with
+ * the registry's typed envelope on every other status (so the CLI
+ * can branch on duplicate-slug 4xx vs transport failure honestly).
+ */
+export async function createOrg(opts: {
+	baseUrl: string
+	apiKey: string
+	body: { name: string; slug: string }
+	fetchImpl?: typeof fetch
+}): Promise<OrgCreateResponse> {
+	const res = await request<OrgCreateResponse>("/v1/orgs", {
+		baseUrl: opts.baseUrl,
+		apiKey: opts.apiKey,
+		body: opts.body,
+		method: "POST",
+		fetchImpl: opts.fetchImpl,
+	})
+	if (!res.ok || res.body === null) {
+		throw new RegistryHttpError(opts.baseUrl, "/v1/orgs", res.status, res.text)
+	}
+	return res.body
+}
+
+/**
+ * Lists the caller's orgs via `GET /v1/orgs`. Each entry carries the
+ * caller's role on that org (VAL-AUTH-006). The endpoint returns an
+ * empty array for callers with no memberships.
+ */
+export async function listOrgs(opts: {
+	baseUrl: string
+	apiKey: string
+	fetchImpl?: typeof fetch
+}): Promise<OrgListEntry[]> {
+	const res = await request<OrgListEntry[] | null>("/v1/orgs", {
+		baseUrl: opts.baseUrl,
+		apiKey: opts.apiKey,
+		fetchImpl: opts.fetchImpl,
+	})
+	if (!res.ok || res.body === null) {
+		throw new RegistryHttpError(opts.baseUrl, "/v1/orgs", res.status, res.text)
+	}
+	return res.body
+}
+
+/**
+ * Sends an invitation via `POST /v1/orgs/:slug/invite`. The body
+ * shape mirrors Better-Auth's `organization/invite-member`
+ * (`{ email, role }`); `role` is `owner | admin | member` per the
+ * Better-Auth vocabulary.
+ */
+export async function inviteToOrg(opts: {
+	baseUrl: string
+	apiKey: string
+	slug: string
+	body: { email: string; role: "owner" | "admin" | "member" }
+	fetchImpl?: typeof fetch
+}): Promise<OrgInviteResponse> {
+	const path = `/v1/orgs/${encodeURIComponent(opts.slug)}/invite`
+	const res = await request<OrgInviteResponse>(path, {
+		baseUrl: opts.baseUrl,
+		apiKey: opts.apiKey,
+		body: opts.body,
+		method: "POST",
+		fetchImpl: opts.fetchImpl,
+	})
+	if (!res.ok || res.body === null) {
+		throw new RegistryHttpError(opts.baseUrl, path, res.status, res.text)
+	}
+	return res.body
+}

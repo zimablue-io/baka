@@ -16,7 +16,9 @@ import {
 	runRemoveCommand,
 } from "./commands/marketplace"
 import { runModuleEdit, runModuleListActions, runModuleTest, runModuleValidate } from "./commands/module"
+import { runOrgCreateCommand, runOrgInviteCommand, runOrgListCommand } from "./commands/org"
 import { runApplyCommand, runListPlans, runPlanCommand, runValidateCommand } from "./commands/plan"
+import { runPublishCommand } from "./commands/publish"
 import { runRegistryList, runRegistryLogin, runRegistryLogout, runRegistryWhoami } from "./commands/registry"
 import { runRole, runRolePath, runRoleShow } from "./commands/role"
 import { runRoles } from "./commands/roles"
@@ -448,6 +450,98 @@ registryCmd
 	.action(() => {
 		try {
 			runRegistryList()
+		} catch (err) {
+			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+		}
+	})
+
+// `baka publish <repo>@<tag>` ----------------------------------------------------
+//
+// Thin wrapper over POST /v1/publish + status polling. Architecture
+// §5.1, milestone 5 (cli-publish-org). The auth/role gate is the
+// registry's; the CLI refuses pre-network when no credential is
+// stored (VAL-DISC-007) and surfaces the registry's typed 4xx
+// verbatim so the caller can branch on role vs schema failures.
+
+program
+	.command("publish <spec>")
+	.description("Publish a repo@tag to a registry (polls status, prints the screening verdict)")
+	.option("--org <slug>", "target org slug (the registry namespace to publish into; required)")
+	.option("--path <dir>", "subdirectory inside the repo containing the module manifest")
+	.option("--visibility <vis>", "module visibility on the registry: 'org' (private, default) or 'public'")
+	.option("-r, --registry <url>", "registry base URL (default: BAKA_REGISTRY_URL or http://localhost:4300)")
+	.option(
+		"--json",
+		"emit machine-readable JSON to stdout (status, scope, name, version, commitSha, contentHash, screening)",
+	)
+	.action(async (spec, opts) => {
+		try {
+			await runPublishCommand(spec, {
+				org: opts.org,
+				path: opts.path,
+				visibility: opts.visibility,
+				registry: opts.registry,
+				json: opts.json,
+			})
+		} catch (err) {
+			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+		}
+	})
+
+// `baka org create | list | invite` ---------------------------------------
+//
+// Thin wrappers over /v1/orgs/*. Auth comes from the per-registry
+// credential store (same `baka registry login` flow that gates
+// `baka publish`); the CLI refuses pre-network when no credential
+// is stored so the auth/role contract (VAL-DISC-007, VAL-DISC-008,
+// VAL-DISC-014) holds.
+
+const orgCmd = program.command("org").description("Manage the orgs you belong to on the configured registry")
+
+orgCmd
+	.command("create <slug>")
+	.description("Create a new org (you become its owner)")
+	.option("-n, --name <name>", "human-readable org name (defaults to the slug)")
+	.option("-r, --registry <url>", "registry base URL (default: BAKA_REGISTRY_URL or http://localhost:4300)")
+	.option("--json", "emit machine-readable JSON to stdout (id, slug, name)")
+	.action(async (slug, opts) => {
+		try {
+			await runOrgCreateCommand(slug, {
+				name: opts.name,
+				registry: opts.registry,
+				json: opts.json,
+			})
+		} catch (err) {
+			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+		}
+	})
+
+orgCmd
+	.command("list")
+	.description("List every org you belong to (with role)")
+	.option("-r, --registry <url>", "registry base URL (default: BAKA_REGISTRY_URL or http://localhost:4300)")
+	.option("--json", "emit machine-readable JSON to stdout (array of { id, slug, name, role })")
+	.action(async (opts) => {
+		try {
+			await runOrgListCommand({ registry: opts.registry, json: opts.json })
+		} catch (err) {
+			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+		}
+	})
+
+orgCmd
+	.command("invite <slug> <email>")
+	.description("Invite a user to an org by email with a role (owner, admin, or member)")
+	.option("--role <role>", "role to grant (owner | admin | member); defaults to member")
+	.option("-r, --registry <url>", "registry base URL (default: BAKA_REGISTRY_URL or http://localhost:4300)")
+	.option("--json", "emit machine-readable JSON to stdout (invitationId, slug, email, role)")
+	.action(async (slug, email, opts) => {
+		try {
+			await runOrgInviteCommand(slug, email, {
+				role: opts.role,
+				registry: opts.registry,
+				json: opts.json,
+			})
 		} catch (err) {
 			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
 		}
