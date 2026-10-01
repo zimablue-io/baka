@@ -441,6 +441,40 @@ importers:
         specifier: ^4.1.8
         version: 4.1.8(@types/node@22.19.21)(@vitest/coverage-v8@4.1.8)(happy-dom@15.11.7)(vite@8.0.16(@types/node@22.19.21)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
 
+  packages/core:
+    dependencies:
+      handlebars:
+        specifier: ^4.7.8
+        version: 4.7.9
+      jiti:
+        specifier: ^2.6.0
+        version: 2.7.0
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
+    devDependencies:
+      '@repo/ast-tooling':
+        specifier: workspace:*
+        version: link:../ast-tooling
+      '@repo/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@repo/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      '@types/node':
+        specifier: ^22.19.15
+        version: 22.19.21
+      tsup:
+        specifier: ^8.3.5
+        version: 8.5.1(@swc/core@1.15.3)(jiti@2.7.0)(postcss@8.5.15)(tsx@4.22.4)(typescript@5.9.2)(yaml@2.9.0)
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.2
+      vitest:
+        specifier: ^4.1.8
+        version: 4.1.8(@types/node@22.19.21)(@vitest/coverage-v8@4.1.8)(happy-dom@15.11.7)(vite@8.0.16(@types/node@22.19.21)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+
   packages/protocol:
     dependencies:
       zod:

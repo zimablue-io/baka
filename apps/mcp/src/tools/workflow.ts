@@ -124,7 +124,7 @@ export async function runApply(
 	// CLI agree on which validators run. See the `moduleFilter` comment
 	// in `packages/ast-tooling/src/validator.ts` for the rationale.
 	const usedModules = Array.from(new Set(saga.completed.map((c) => c.module)))
-	const validation = await runValidators(ctx.cwd, saga.state, actionResults, undefined, usedModules)
+	const validation = await runValidators(registry, saga.state, actionResults, undefined, usedModules)
 
 	const completedSteps = saga.completed.map((c) => ({
 		id: c.id,

@@ -261,6 +261,7 @@ baka module create test-module
 ├── packages/                # Engine tools
 │   ├── protocol/            # SSOT: types, schemas, LLMProvider interface
 │   ├── agent-engine/        # The ONLY package that knows what an LLMProvider is
+│   ├── core/                # @baka/core: the published, embeddable library surface (no CLI, no ~/.baka)
 │   ├── ast-tooling/         # File/AST operations, ModuleRegistry (module discovery)
 │   ├── baka-sdk/            # The public boundary module authors import from
 │   └── typescript-config/   # Shared TS presets

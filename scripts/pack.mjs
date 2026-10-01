@@ -21,7 +21,7 @@ const REPO_ROOT = resolve(__dirname, "..")
 
 const args = process.argv.slice(2)
 if (args.length < 1) {
-	console.error("usage: scripts/pack.mjs <baka|@baka/mcp-server> [--out <dir>]")
+	console.error("usage: scripts/pack.mjs <baka|@baka/mcp-server|@baka/core> [--out <dir>]")
 	process.exit(2)
 }
 
@@ -32,10 +32,15 @@ const outDir = outIdx >= 0 ? resolve(args[outIdx + 1]) : join(REPO_ROOT, "dist-t
 const pkgMap = {
 	baka: "apps/cli",
 	"@baka/mcp-server": "apps/mcp",
+	"@baka/core": "packages/core",
+}
+if (!(pkgName in pkgMap)) {
+	console.error(`unknown package: ${pkgName} (expected one of ${Object.keys(pkgMap).join(", ")})`)
+	process.exit(2)
 }
 const pkgDir = join(REPO_ROOT, pkgMap[pkgName])
-if (!pkgDir || !existsSync(pkgDir)) {
-	console.error(`unknown package: ${pkgName} (expected baka or @baka/mcp-server)`)
+if (!existsSync(pkgDir)) {
+	console.error(`package directory missing: ${pkgDir}`)
 	process.exit(2)
 }
 

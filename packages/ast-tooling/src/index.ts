@@ -12,6 +12,8 @@ export type { ActionValidatorFn, LoadedAction, ModuleValidatorFn } from "./actio
 export { loadAction, loadActionValidator, loadModuleValidator } from "./action-loader.js"
 export type { ConsistencyOptions, ConsistencyResult, PerRunResult } from "./consistency.js"
 export { cleanupConsistency, runConsistencyTest } from "./consistency.js"
+export type { Catalog, CatalogAction, CatalogModule, ValidateResult } from "./describe-modules.js"
+export { describeModules, ModuleNotFoundError, validateProject } from "./describe-modules.js"
 export type { MaterializeOptions, MaterializeResult } from "./materialize.js"
 export { fillSlot, materializeTemplates } from "./materialize.js"
 export type {
@@ -38,13 +40,21 @@ export {
 } from "./package-manager.js"
 export type { SavedPlan } from "./plan-io.js"
 export { listPlans, loadPlan, plansDir, savePlan } from "./plan-io.js"
+export type { ModuleRegistryOptions } from "./registry.js"
 export { ModuleRegistry, validatorFilename } from "./registry.js"
-export type { RunNamedActionInput, RunNamedActionResult } from "./run-action.js"
-export { listActionSlots, previewAction, resolveAction, runNamedAction } from "./run-action.js"
+export type { RunActionInput, RunActionResult } from "./run-action.js"
+export { listActionSlots, previewAction, resolveAction, runAction } from "./run-action.js"
 export type { CompletedStep, SagaResult, SagaStep } from "./saga.js"
 export { runSaga } from "./saga.js"
-export type { SlotCacheRecord } from "./slot-cache.js"
-export { projectSlotsDir, readSlotCache, userSlotsDir, writeSlotCache } from "./slot-cache.js"
+export type { SlotCacheRecord, SlotStore } from "./slot-cache.js"
+export {
+	createDiskSlotStore,
+	createMemorySlotStore,
+	projectSlotsDir,
+	readSlotCache,
+	userSlotsDir,
+	writeSlotCache,
+} from "./slot-cache.js"
 export {
 	canonicalJson,
 	hashBytes,

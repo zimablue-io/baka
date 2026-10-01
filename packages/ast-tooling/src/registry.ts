@@ -25,12 +25,35 @@ export function validatorFilename(id: string): string {
 	return id.replace(/[A-Z]/g, (m, offset) => (offset > 0 ? "-" : "") + m.toLowerCase())
 }
 
+export interface ModuleRegistryOptions {
+	/**
+	 * Explicit module directories, highest precedence first. Each directory
+	 * contains `<module-name>/manifest.ts` entries. When given, ONLY these
+	 * directories are searched: the in-tree `modules/`, the project
+	 * marketplace, the user marketplace (`${BAKA_HOME:-$HOME/.baka}`), and the
+	 * bundled scope are all skipped, so discovery never reads process-global
+	 * state. Relative paths resolve against `root`.
+	 */
+	moduleDirs?: readonly string[]
+}
+
+type ScopeName = "tree" | "project" | "user" | "bundled" | "explicit"
+
+interface SearchScope {
+	dir: string
+	scope: ScopeName
+	jitiRoot: string
+}
+
 export class ModuleRegistry {
 	private readonly byName = new Map<string, { manifest: ModuleManifest; moduleRoot: string }>()
-	private readonly root: string
+	/** The project root: where actions write, and where `modules/` and `.baka/` are looked up. */
+	readonly root: string
+	private readonly moduleDirs: readonly string[] | undefined
 
-	constructor(root: string) {
+	constructor(root: string, options: ModuleRegistryOptions = {}) {
 		this.root = resolve(root)
+		this.moduleDirs = options.moduleDirs?.map((dir) => resolve(this.root, dir))
 	}
 
 	/**
@@ -43,14 +66,20 @@ export class ModuleRegistry {
 	}
 
 	/**
-	 * The module search scopes, in discovery iteration order: in-tree
-	 * modules, the project marketplace, the user marketplace, and the
-	 * bundled scope (the baka repo's own modules/, when reachable).
+	 * The module search scopes in precedence order (highest first): the
+	 * project marketplace, in-tree modules, the user marketplace, then the
+	 * bundled scope (the baka repo's own modules/, when reachable). The
+	 * first scope that provides a module name owns it; lower-precedence
+	 * copies are skipped. With explicit `moduleDirs` the list is exactly
+	 * those directories, in the order given.
 	 */
-	private searchScopes(): Array<{ dir: string; scope: "tree" | "project" | "user" | "bundled"; jitiRoot: string }> {
-		const scopes: Array<{ dir: string; scope: "tree" | "project" | "user" | "bundled"; jitiRoot: string }> = [
-			{ dir: join(this.root, "modules"), scope: "tree", jitiRoot: this.root },
+	private searchScopes(): SearchScope[] {
+		if (this.moduleDirs) {
+			return this.moduleDirs.map((dir) => ({ dir, scope: "explicit", jitiRoot: dirname(dir) }))
+		}
+		const scopes: SearchScope[] = [
 			{ dir: join(this.root, BAKA_PROJECT_PATHS.ROOT, "modules"), scope: "project", jitiRoot: this.root },
+			{ dir: join(this.root, "modules"), scope: "tree", jitiRoot: this.root },
 			{ dir: join(bakaHomeDir(), "modules"), scope: "user", jitiRoot: this.root },
 		]
 		const bundledDir = ModuleRegistry.findBundledModulesDir()
@@ -64,14 +93,6 @@ export class ModuleRegistry {
 	}
 
 	/**
-	 * Scope precedence for discovery dedup and single-module resolution:
-	 * project marketplace wins, then tree, then user marketplace, then
-	 * bundled. The first scope (in this order) that provides a module name
-	 * owns it; lower-precedence copies are skipped.
-	 */
-	private static readonly SCOPE_PRECEDENCE = ["project", "tree", "user", "bundled"] as const
-
-	/**
 	 * Resolve the on-disk root of a single named module across every scope,
 	 * without parsing its manifest. Precedence mirrors discover()'s dedup
 	 * rules: project marketplace wins, then tree, then user marketplace,
@@ -80,10 +101,7 @@ export class ModuleRegistry {
 	 * not gated on the cwd looking like a project.
 	 */
 	resolveModuleRoot(name: string): string | undefined {
-		const scopes = this.searchScopes()
-		for (const scopeName of ModuleRegistry.SCOPE_PRECEDENCE) {
-			const scope = scopes.find((s) => s.scope === scopeName)
-			if (!scope) continue
+		for (const scope of this.searchScopes()) {
 			const candidate = join(scope.dir, name)
 			if (existsSync(join(candidate, "manifest.ts"))) {
 				return candidate
@@ -113,13 +131,10 @@ export class ModuleRegistry {
 		// keeps the bundled scope silent in truly empty directories; without
 		// it, `baka list-modules` from `/tmp` would silently return the
 		// bundled modules, breaking the cwd-scoped discovery invariant.
-		const scopes = this.searchScopes()
 		const bundledEnabled = existsSync(join(this.root, "package.json"))
 
 		let anyFound = false
-		for (const scopeName of ModuleRegistry.SCOPE_PRECEDENCE) {
-			const scope = scopes.find((s) => s.scope === scopeName)
-			if (!scope) continue
+		for (const scope of this.searchScopes()) {
 			if (scope.scope === "bundled" && !bundledEnabled) continue
 			const { dir, jitiRoot } = scope
 			if (!existsSync(dir)) continue

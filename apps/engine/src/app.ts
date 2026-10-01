@@ -3,24 +3,21 @@ import { isAbsolute, join } from "node:path"
 import { createLLMProvider, loadLLMConfig, validateLLMConfig } from "@repo/agent-engine"
 import {
 	canonicalJson,
+	createDiskSlotStore,
+	describeModules,
 	hashBytes,
 	listActionSlots,
+	ModuleNotFoundError,
 	ModuleRegistry,
 	parseActionTemplates,
 	previewAction,
 	resolveAction,
-	runNamedAction,
-	runValidators,
+	runAction,
 	slotCacheKey,
+	validateProject,
 	writeSlotCache,
 } from "@repo/ast-tooling"
-import {
-	BAKA_DEFAULT_WORKER_MODEL,
-	BAKA_EXIT_CODE,
-	ENGINE_STATUS,
-	type LLMProvider,
-	type OrchestrationState,
-} from "@repo/protocol"
+import { BAKA_DEFAULT_WORKER_MODEL, BAKA_EXIT_CODE, type LLMProvider } from "@repo/protocol"
 import { Hono } from "hono"
 import { cors } from "hono/cors"
 import { z } from "zod"
@@ -82,17 +79,6 @@ async function resolveWorker(cwd: string): Promise<{ provider: LLMProvider | nul
 	}
 }
 
-function emptyState(cwd: string): OrchestrationState {
-	return {
-		userIntent: "",
-		targetDirectory: cwd,
-		status: ENGINE_STATUS.VALIDATING,
-		executionPlan: { steps: [], currentStepIndex: 0 },
-		logs: [],
-		artifacts: {},
-	}
-}
-
 export function createEngineApp(opts: EngineAppOptions): Hono {
 	const app = new Hono()
 	const cwd = opts.cwd
@@ -111,24 +97,7 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 		} catch (err) {
 			return c.json({ error: err instanceof Error ? err.message : String(err) }, 400)
 		}
-		const registry = new ModuleRegistry(project)
-		const { modules, diagnostics } = registry.discover(false)
-		return c.json({
-			modules: modules.map((m) => ({
-				name: m.name,
-				version: m.version,
-				description: m.description,
-				actions: m.actions.map((a) => ({
-					id: a.id,
-					description: a.description,
-					params: a.params,
-					requiresReasoning: a.requiresReasoning,
-					filePatterns: a.filePatterns,
-					compensatesWith: a.compensatesWith,
-				})),
-			})),
-			diagnostics,
-		})
+		return c.json(describeModules(new ModuleRegistry(project)))
 	})
 
 	app.get("/v1/slots", (c) => {
@@ -139,7 +108,7 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 		}
 		try {
 			const project = resolveProject(cwd, c.req.query("project"))
-			const listed = listActionSlots(project, moduleName, actionId)
+			const listed = listActionSlots(new ModuleRegistry(project), moduleName, actionId)
 			return c.json(listed)
 		} catch (err) {
 			return c.json({ error: err instanceof Error ? err.message : String(err) }, 404)
@@ -154,7 +123,7 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 		}
 		try {
 			const project = resolveProject(cwd, c.req.query("project"))
-			return c.json(previewAction(project, moduleName, actionId))
+			return c.json(previewAction(new ModuleRegistry(project), moduleName, actionId))
 		} catch (err) {
 			return c.json({ error: err instanceof Error ? err.message : String(err) }, 404)
 		}
@@ -172,8 +141,9 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 			return c.json({ error: err instanceof Error ? err.message : String(err) }, 400)
 		}
 		const { provider, model } = await resolveWorker(project)
-		const result = await runNamedAction({
-			cwd: project,
+		const result = await runAction({
+			registry: new ModuleRegistry(project),
+			store: createDiskSlotStore(project, { userFallback: true }),
 			module: parsed.data.module,
 			action: parsed.data.action,
 			params: parsed.data.params,
@@ -193,7 +163,7 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 		}
 		try {
 			const project = resolveProject(cwd, parsed.data.project)
-			const { moduleRoot, action } = resolveAction(project, parsed.data.module, parsed.data.action)
+			const { moduleRoot, action } = resolveAction(new ModuleRegistry(project), parsed.data.module, parsed.data.action)
 			const templatesDir = join(moduleRoot, action.id, "templates")
 			if (!existsSync(templatesDir)) {
 				return c.json({ error: `action "${action.id}" has no templates/` }, 400)
@@ -247,18 +217,14 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 		} catch (err) {
 			return c.json({ error: err instanceof Error ? err.message : String(err) }, 400)
 		}
-		const registry = new ModuleRegistry(project)
-		const { modules } = registry.discover(false)
-		if (body.module && !modules.some((m) => m.name === body.module)) {
-			return c.json({ error: `module "${body.module}" not found`, code: BAKA_EXIT_CODE.USER_ERROR }, 400)
+		try {
+			return c.json(await validateProject(new ModuleRegistry(project), body.module))
+		} catch (err) {
+			if (err instanceof ModuleNotFoundError) {
+				return c.json({ error: err.message, code: BAKA_EXIT_CODE.USER_ERROR }, 400)
+			}
+			throw err
 		}
-		const result = await runValidators(project, emptyState(project), undefined, body.module)
-		return c.json({
-			valid: result.kind !== "fail",
-			modulesDiscovered: modules.length,
-			validation: result,
-			moduleName: body.module,
-		})
 	})
 
 	app.all("/mcp", (c) => {

@@ -1,0 +1,42 @@
+{
+	"name": "@baka/core",
+	"version": "0.1.0",
+	"license": "MIT",
+	"description": "Embeddable Baka engine: run declared module actions deterministically, with an injected LLM provider for named slots only. No CLI, no process-global config.",
+	"private": true,
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE"
+	],
+	"scripts": {
+		"build": "tsup",
+		"check-types": "tsc --noEmit",
+		"test": "vitest run",
+		"test:watch": "vitest"
+	},
+	"dependencies": {
+		"handlebars": "^4.7.8",
+		"jiti": "^2.6.0",
+		"zod": "^3.25.76"
+	},
+	"devDependencies": {
+		"@repo/ast-tooling": "workspace:*",
+		"@repo/protocol": "workspace:*",
+		"@repo/typescript-config": "workspace:*",
+		"@types/node": "^22.19.15",
+		"tsup": "^8.3.5",
+		"typescript": "^5.9.2",
+		"vitest": "^4.1.8"
+	}
+}

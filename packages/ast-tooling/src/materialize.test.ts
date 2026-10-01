@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { BAKA_DEFAULT_WORKER_MODEL } from "@repo/protocol"
 import { afterEach, describe, expect, it } from "vitest"
 import { materializeTemplates } from "./materialize.js"
-import { writeSlotCache } from "./slot-cache.js"
+import { createDiskSlotStore, writeSlotCache } from "./slot-cache.js"
 import { canonicalJson, hashBytes, slotCacheKey } from "./slots.js"
 
 const cleanup: string[] = []
@@ -35,6 +35,7 @@ describe("materializeTemplates — cached fills are byte-identical", () => {
 			params: { title: "Hi" },
 			provider: null,
 			model: BAKA_DEFAULT_WORKER_MODEL,
+			store: createDiskSlotStore(dir),
 			manualFills: { blurb: "Pinned." },
 		})
 		expect(first.written).toEqual(["note.md"])
@@ -53,6 +54,7 @@ describe("materializeTemplates — cached fills are byte-identical", () => {
 			params: { title: "Hi" },
 			provider: null,
 			model: BAKA_DEFAULT_WORKER_MODEL,
+			store: createDiskSlotStore(dir2),
 			manualFills: { blurb: "Pinned." },
 		})
 		expect(second.tree).toEqual(first.tree)
@@ -89,6 +91,7 @@ describe("materializeTemplates — cached fills are byte-identical", () => {
 			params,
 			provider: null,
 			model: BAKA_DEFAULT_WORKER_MODEL,
+			store: createDiskSlotStore(dir),
 		})
 		expect(result.slots[0]?.cached).toBe(true)
 		expect(result.tree["note.md"]).toBe("# Hi\nPinned from disk.\n")

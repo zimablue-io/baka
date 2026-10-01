@@ -1,0 +1,11 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"paths": {
+			"@repo/ast-tooling": ["../ast-tooling/src/index.ts"],
+			"@repo/protocol": ["../protocol/src/index.ts"]
+		}
+	},
+	"include": ["src"],
+	"exclude": ["node_modules", "**/*.test.ts"]
+}

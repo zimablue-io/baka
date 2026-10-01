@@ -12,7 +12,8 @@ import {
 import { createJiti } from "jiti"
 import { loadAction } from "./action-loader.js"
 import { ModuleRegistry } from "./registry.js"
-import { runNamedAction } from "./run-action.js"
+import { runAction } from "./run-action.js"
+import { createDiskSlotStore } from "./slot-cache.js"
 
 export interface WorkerInput {
 	moduleName: string
@@ -51,8 +52,9 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, unknown, WorkerRollbac
 			throw new Error("Worker: state.targetDirectory is not set; the SAGA must set it before invoking steps")
 		}
 		const model = resolveWorkerModel(ctx?.llmProvider ?? null)
-		const run = await runNamedAction({
-			cwd: targetDirectory,
+		const run = await runAction({
+			registry: new ModuleRegistry(targetDirectory),
+			store: createDiskSlotStore(targetDirectory, { userFallback: true }),
 			module: input.moduleName,
 			action: input.actionName,
 			params: input.parameters,

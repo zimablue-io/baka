@@ -36,7 +36,7 @@ The postinstall hook builds the `baka` CLI. After install you can invoke it with
 | `pnpm lint` | Run `biome check` across the repo |
 | `pnpm check-types` | Type-check every workspace |
 | `pnpm test` | Run the full Vitest suite |
-| `pnpm pack` | Build installable tarballs for `baka` and `@baka/mcp-server` into `dist-tarballs/` |
+| `pnpm pack` | Build installable tarballs for `baka`, `@baka/mcp-server`, and `@baka/core` into `dist-tarballs/` |
 | `pnpm format` | Run Biome's auto-formatter (`biome format --write .`) |
 | `pnpm knip` | Run the strict unused file, export, and dependency gate |
 | `pnpm baka plan "<intent>"` | Plan a feature using the engine |
@@ -51,6 +51,7 @@ The postinstall hook builds the `baka` CLI. After install you can invoke it with
 - `packages/protocol` — single source of truth for types and schemas
 - `packages/agent-engine` — the only package that knows what an `LLMProvider` is
 - `packages/ast-tooling` — file/AST operations
+- `packages/core` — `@baka/core`, the published embeddable library (runAction, validate, describeModules)
 - `packages/baka-sdk` — public SDK for module authors
 - `packages/typescript-config` — shared TypeScript configs
 - `workflows/` — engine orchestration for this project

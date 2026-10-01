@@ -8,7 +8,7 @@ import {
 	loadModuleValidator,
 	ModuleRegistry,
 	parseActionTemplates,
-	runNamedAction,
+	runAction,
 	validatorFilename,
 } from "@repo/ast-tooling"
 import { BAKA_DEFAULT_WORKER_MODEL, BAKA_EXIT_CODE, type ModuleManifest, ModuleManifestSchema } from "@repo/protocol"
@@ -309,8 +309,8 @@ export async function runModuleTest(
 
 	let exitCode: number = BAKA_EXIT_CODE.SUCCESS
 	try {
-		const result = await runNamedAction({
-			cwd: tempDir,
+		const result = await runAction({
+			registry: new ModuleRegistry(tempDir),
 			module: name,
 			action: actionId,
 			params: parsedInput,

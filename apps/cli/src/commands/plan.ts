@@ -211,7 +211,7 @@ export async function runApplyCommand(planFile: string, cwd: string, opts: { jso
 		actionResults.set(`${c.module}:${c.action}`, { compensationData: c.compensationData })
 	}
 	const usedModules = Array.from(new Set(saga.completed.map((c) => c.module)))
-	const validation = await runValidators(cwd, saga.state, actionResults, undefined, usedModules)
+	const validation = await runValidators(registry, saga.state, actionResults, undefined, usedModules)
 
 	const completedSteps = saga.completed.map((c) => ({
 		id: c.id,

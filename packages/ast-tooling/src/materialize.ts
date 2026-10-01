@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { join } from "node:path"
 import type { LLMProvider, LLMRequest, SlotDecl } from "@repo/protocol"
 import type { z } from "zod"
-import { readSlotCache, writeSlotCache } from "./slot-cache.js"
+import type { SlotStore } from "./slot-cache.js"
 import {
 	canonicalJson,
 	hashBytes,
@@ -23,6 +23,8 @@ export interface MaterializeOptions {
 	cacheParams?: Record<string, unknown>
 	provider: LLMProvider | null
 	model: string
+	/** Slot cache. Reads happen before a model call; fills are written back. */
+	store: SlotStore
 	refill?: boolean
 	manualFills?: Record<string, unknown>
 }
@@ -110,7 +112,7 @@ export async function materializeTemplates(opts: MaterializeOptions): Promise<Ma
 			model: "manual",
 		})
 		if (!opts.refill) {
-			const hit = readSlotCache(opts.cwd, key) ?? readSlotCache(opts.cwd, manualKey)
+			const hit = opts.store.read(key) ?? opts.store.read(manualKey)
 			if (hit) {
 				fills[slot.id] = hit.value
 				slotReport.push({ id: slot.id, kind: slot.kind, file: slot.file, cached: true, source: "cache" })
@@ -124,7 +126,7 @@ export async function materializeTemplates(opts: MaterializeOptions): Promise<Ma
 		}
 		const value = await fillSlot(slot, opts.params, opts.provider, opts.model)
 		fills[slot.id] = value
-		writeSlotCache(opts.cwd, {
+		opts.store.write({
 			key,
 			slotId: slot.id,
 			kind: slot.kind,

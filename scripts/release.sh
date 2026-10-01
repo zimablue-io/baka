@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # scripts/release.sh
 #
-# Bump the project version, build the dist artifacts, and pack both
-# installable tarballs. The script does NOT publish. Publishing is a
-# separate manual step documented in docs/PUBLISHING.md.
+# Bump the project version, build the dist artifacts, and pack the three
+# installable tarballs (baka, @baka/mcp-server, @baka/core). The script
+# does NOT publish. Publishing is a separate manual step documented in
+# docs/PUBLISHING.md.
 #
 # Validation contract pins:
-#   VAL-PKG-020  bumps root + apps/cli + apps/mcp package.json consistently
+#   VAL-PKG-020  bumps root + apps/cli + apps/mcp + packages/core package.json consistently
 #   VAL-PKG-021  refuses to run on a dirty tree
 #   VAL-PKG-022  --dry-run prints the plan without mutating
 #   VAL-PKG-023  no functional publish references; only this comment mentions publish
@@ -22,8 +23,9 @@ print_help() {
 	cat <<EOF
 usage: scripts/release.sh [--dry-run] <version>
 
-Bump the version in root package.json, apps/cli/package.json, and
-apps/mcp/package.json to <version> (semver, e.g. 1.2.3 or 1.2.3-rc.1).
+Bump the version in root package.json, apps/cli/package.json,
+apps/mcp/package.json, and packages/core/package.json to <version>
+(semver, e.g. 1.2.3 or 1.2.3-rc.1).
 Then run \`pnpm run pack\` to write installable tarballs to dist-tarballs/.
 Then print the global-install command.
 
@@ -94,6 +96,7 @@ PKG_FILES=(
 	package.json
 	apps/cli/package.json
 	apps/mcp/package.json
+	packages/core/package.json
 )
 
 CURRENT_ROOT_VERSION="$(jq -r .version package.json)"
@@ -115,11 +118,12 @@ if [ "$DRY_RUN" = true ]; then
 	printf "\n=== would run ===\n"
 	printf "  pnpm --filter baka build\n"
 	printf "  pnpm --filter @baka/mcp-server build\n"
+	printf "  pnpm --filter @baka/core build\n"
 	printf "  pnpm run pack\n"
 
 	printf "\n=== install command (after the real run) ===\n"
-	printf "  pnpm install -g %s/baka-%s.tgz %s/@baka-mcp-server-%s.tgz\n" \
-		"$REPO_ROOT" "$VERSION" "$REPO_ROOT" "$VERSION"
+	printf "  pnpm install -g %s/baka-%s.tgz %s/baka-mcp-server-%s.tgz\n" \
+		"$REPO_ROOT/dist-tarballs" "$VERSION" "$REPO_ROOT/dist-tarballs" "$VERSION"
 
 	printf "\nthis was a dry run; no files were changed and no tarballs were built.\n"
 	printf "next: scripts/release.sh %s to apply the bump and build the tarballs.\n" "$VERSION"
@@ -144,15 +148,18 @@ done
 printf "\n=== building dist artifacts ===\n"
 pnpm --filter baka build
 pnpm --filter @baka/mcp-server build
+pnpm --filter @baka/core build
 
-# Pack both workspaces via the canonical scripts/pack.mjs wrapper.
+# Pack the three workspaces via the canonical scripts/pack.mjs wrapper.
 printf "\n=== packing tarballs ===\n"
 pnpm run pack
 
 # Print the install command and a pointer to the publish step.
 printf "\n=== install command ===\n"
-printf "  pnpm install -g %s/baka-%s.tgz %s/@baka-mcp-server-%s.tgz\n" \
-	"$REPO_ROOT" "$VERSION" "$REPO_ROOT" "$VERSION"
+printf "  pnpm install -g %s/baka-%s.tgz %s/baka-mcp-server-%s.tgz\n" \
+	"$REPO_ROOT/dist-tarballs" "$VERSION" "$REPO_ROOT/dist-tarballs" "$VERSION"
 
+printf "\nlibrary tarball for embedders: %s/baka-core-%s.tgz (npm install it into the host project)\n" \
+	"$REPO_ROOT/dist-tarballs" "$VERSION"
 printf "\ntarballs written to %s/dist-tarballs/.\n" "$REPO_ROOT"
 printf "next step: review the tarballs, then follow docs/PUBLISHING.md.\n"

@@ -53,7 +53,7 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Pack (baka + @baka/mcp-server)
+      - name: Pack (baka + @baka/mcp-server + @baka/core)
         run: pnpm pack
 
       # Strict unused file, export, dependency, and unresolved-import gate.
@@ -80,8 +80,11 @@ jobs:
           echo "=== structural check on packed tarballs ==="
           test -f dist-tarballs/baka-0.1.0.tgz
           test -f dist-tarballs/baka-mcp-server-0.1.0.tgz
+          test -f dist-tarballs/baka-core-0.1.0.tgz
           tar -tzf dist-tarballs/baka-0.1.0.tgz | grep -q '^package/dist/index.js$'
           tar -tzf dist-tarballs/baka-mcp-server-0.1.0.tgz | grep -q '^package/dist/index.js$'
+          tar -tzf dist-tarballs/baka-core-0.1.0.tgz | grep -q '^package/dist/index.js$'
+          tar -tzf dist-tarballs/baka-core-0.1.0.tgz | grep -q '^package/dist/index.d.ts$'
 
           echo "=== probe the binaries (link --global) ==="
           pnpm link --global >/dev/null

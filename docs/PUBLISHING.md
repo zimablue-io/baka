@@ -15,16 +15,17 @@ Before publishing anything, walk this list. If any step fails, stop and fix the 
 
 1. **Clean working tree.** `git status --porcelain` is empty. `scripts/release.sh` already refuses to run on a dirty tree, so reaching the publish step implies this passed.
 2. **Manifest sanity.** `pnpm install --frozen-lockfile` completes without `--frozen-lockfile` errors. The lockfile is in sync with `package.json` for every workspace.
-3. **Version match.** The version in root `package.json`, `apps/cli/package.json`, and `apps/mcp/package.json` all read `<version>`. The release script enforces this — if any one drifted, the bump step would have failed. Spot-check with:
+3. **Version match.** The version in root `package.json`, `apps/cli/package.json`, `apps/mcp/package.json`, and `packages/core/package.json` all read `<version>`. The release script enforces this — if any one drifted, the bump step would have failed. Spot-check with:
    ```bash
-   jq -r .version package.json apps/cli/package.json apps/mcp/package.json
+   jq -r .version package.json apps/cli/package.json apps/mcp/package.json packages/core/package.json
    ```
-   The output must be three lines, all identical.
+   The output must be four lines, all identical.
 4. **CI green.** `gh pr checks --watch` (or the Actions tab) shows lint, type-check, test, build, pack, and the smoke step all green on the release commit. The PR template and `CONTRIBUTING.md` agree that failing CI blocks merge; do not publish over a red build.
-5. **Tarball review.** `dist-tarballs/` contains `baka-<version>.tgz` and `@baka-mcp-server-<version>.tgz`. Inspect both:
+5. **Tarball review.** `dist-tarballs/` contains `baka-<version>.tgz`, `baka-mcp-server-<version>.tgz`, and `baka-core-<version>.tgz` (the embeddable library; it also lists `package/dist/index.d.ts`). Inspect all three:
    ```bash
    tar -tzf dist-tarballs/baka-<version>.tgz | head -40
-   tar -tzf dist-tarballs/@baka-mcp-server-<version>.tgz | head -40
+   tar -tzf dist-tarballs/baka-mcp-server-<version>.tgz | head -40
+   tar -tzf dist-tarballs/baka-core-<version>.tgz | head -40
    ```
    Each lists `package/`, `package/package.json`, `package/dist/index.js`, `package/README.md`, `package/LICENSE`. None of them lists `package/.env*`, `package/.git`, `package/node_modules`, `package/coverage`, `package/test`, or `package/src`. If anything leaks, fix `package.json` `files` field or `.npmignore` and rebuild the tarball.
 6. **Local install smoke.** Install both tarballs into a fresh `mktemp -d` and run the documented smoke sequence:
@@ -32,7 +33,7 @@ Before publishing anything, walk this list. If any step fails, stop and fix the 
    SCRATCH=$(mktemp -d)
    cd "$SCRATCH"
    pnpm install -g /abs/path/to/baka-<version>.tgz
-   pnpm install -g /abs/path/to/@baka-mcp-server-<version>.tgz
+   pnpm install -g /abs/path/to/baka-mcp-server-<version>.tgz
    which baka; which baka-mcp
    baka --version
    baka list-modules --json | jq '.modules | length'   # expect 3
@@ -59,7 +60,7 @@ If you publish from CI, configure the `NPM_TOKEN` secret in the GitHub repositor
 Always dry-run the publish command before the real publish. `pnpm publish --dry-run` builds the tarball again, prints the manifest it would upload, and stops before the network round-trip. It catches tag and dependency surprises without leaving a published version behind.
 
 ```bash
-pnpm publish --filter baka --filter @baka/mcp-server --no-git-checks --dry-run
+pnpm publish --filter baka --filter @baka/mcp-server --filter @baka/core --no-git-checks --dry-run
 ```
 
 Read the manifest dump carefully. Confirm:
@@ -76,14 +77,14 @@ A dry-run that shows the wrong manifest is a release-blocking bug. Do not push t
 When the dry-run output is exactly what the registry should receive, run the real publish. There is no `--dry-run` flag, no `--tag`, no `--access public` override; the workspace is configured for public access and the default tag is `latest`.
 
 ```bash
-pnpm publish --filter baka --filter @baka/mcp-server --no-git-checks
+pnpm publish --filter baka --filter @baka/mcp-server --filter @baka/core --no-git-checks
 ```
 
 `--no-git-checks` is intentional: `pnpm publish` would otherwise refuse if your working tree is not on the published git tag. We tag after publishing (see below), not before, so the working tree is one commit ahead of the tag. This is the same pattern npm uses for first-time publishes.
 
-The two workspace filters run in dependency order. The CLI (`baka`) and the MCP server (`@baka/mcp-server`) are independent — neither depends on the other — so the order does not matter, but `pnpm publish` still enforces a deterministic sequence.
+The workspace filters run in dependency order. The CLI (`baka`), the MCP server (`@baka/mcp-server`), and the library (`@baka/core`) are independent — none depends on another — so the order does not matter, but `pnpm publish` still enforces a deterministic sequence.
 
-Watch the output for any non-zero exit code or unexpected warning. A successful publish prints `+ baka@<version>` and `+ @baka/mcp-server@<version>` and exits 0.
+Watch the output for any non-zero exit code or unexpected warning. A successful publish prints `+ baka@<version>`, `+ @baka/mcp-server@<version>`, and `+ @baka/core@<version>` and exits 0.
 
 ## Post-publish verification
 
@@ -99,6 +100,7 @@ Watch the output for any non-zero exit code or unexpected warning. A successful 
    cd "$SCRATCH"
    npm install -g baka@<version>
    npm install -g @baka/mcp-server@<version>
+   npm install @baka/core@<version>   # library; import { runAction } from "@baka/core"
    which baka; which baka-mcp
    baka --version
    ```

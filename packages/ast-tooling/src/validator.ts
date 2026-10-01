@@ -5,7 +5,7 @@ import {
 	type ValidationResult,
 } from "@repo/protocol"
 import { loadActionValidator, loadModuleValidator } from "./action-loader.js"
-import { ModuleRegistry } from "./registry.js"
+import type { ModuleRegistry } from "./registry.js"
 
 /**
  * Run all module-level and action-level validators (and the registry's
@@ -36,13 +36,13 @@ import { ModuleRegistry } from "./registry.js"
  * both are provided.
  */
 export async function runValidators(
-	targetDirectory: string,
+	registry: ModuleRegistry,
 	state: OrchestrationState,
 	actionResults?: Map<string, { compensationData: unknown }>,
 	moduleName?: string,
 	moduleFilter?: string[],
 ): Promise<ValidationResult> {
-	const registry = new ModuleRegistry(targetDirectory)
+	const targetDirectory = registry.root
 	const { diagnostics: structural } = registry.discover(false)
 	state.status = ENGINE_STATUS.VALIDATING
 	const allDiscovered = registry.all()
