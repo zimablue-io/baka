@@ -10,6 +10,7 @@ import {
 	type ValidationResult,
 } from "@repo/protocol"
 import type { ModuleRegistry } from "./registry.js"
+import { moduleContentHash } from "./tree-hash.js"
 import { runValidators } from "./validator.js"
 
 export interface CatalogAction {
@@ -26,6 +27,8 @@ export interface CatalogAction {
 export interface CatalogModule {
 	name: string
 	version: string
+	/** The module's content hash (the `contentHash` a lockfile pins); see docs/MODULES.md. */
+	contentHash: string
 	description: string
 	actions: CatalogAction[]
 }
@@ -43,13 +46,18 @@ export interface Catalog {
  */
 export function describeModules(registry: ModuleRegistry): Catalog {
 	const { modules, diagnostics } = registry.discover(false)
-	return { modules: modules.map(describeModule), resultSchema: actionResultJsonSchema(), diagnostics }
+	return {
+		modules: modules.map((m) => describeModule(m, registry.moduleRootFor(m.name))),
+		resultSchema: actionResultJsonSchema(),
+		diagnostics,
+	}
 }
 
-function describeModule(m: ModuleManifest): CatalogModule {
+function describeModule(m: ModuleManifest, moduleRoot: string | undefined): CatalogModule {
 	return {
 		name: m.name,
 		version: m.version,
+		contentHash: moduleRoot ? moduleContentHash(moduleRoot) : "",
 		description: m.description,
 		actions: m.actions.map((a) => ({
 			id: a.id,

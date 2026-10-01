@@ -66,6 +66,10 @@ In `replay`, a missing slot fails the run with `slot-record-missing` and no mode
 
 `describeModules(registry)` returns every module's actions with their param declarations, a JSON Schema (draft-07) per action in `paramsSchema`, and the receipt's schema in `resultSchema`; all of it is plain JSON. `runAction` validates params against the same declarations (defaults applied, numeric and boolean text coerced, undeclared keys rejected with `invalid-params`). See [docs/MODULES.md](../../docs/MODULES.md#param-types-and-the-catalogs-json-schema).
 
+## Pinning
+
+Each receipt's `pins` is `[{ id, version, contentHash }]` for the module the run used. `createLock(registry)` builds a `baka.lock.json` document; pass it back as `runAction({ lock })` and a module that is unlisted, or whose version or files changed, fails the run (`lock-unlisted` / `lock-mismatch`) before any model call or write. The hash definition and the file format are in [docs/MODULES.md](../../docs/MODULES.md#pinning-modules-and-bakalockjson).
+
 ## What this package does not do
 
 - It never reads `${BAKA_HOME:-$HOME/.baka}` (config, user marketplace, user slot cache). Modules come only from the directories you pass to `createRegistry`. The user-level slot cache is only consulted if you build a store with `createDiskSlotStore(root, { userFallback: true })`.

@@ -271,6 +271,20 @@ export const ActionCompensationSchema = z.object({
 	actionData: z.unknown(),
 })
 
+/** A module as a run used it: its manifest name and version, and a hash of its files. */
+export const ModulePinSchema = z.object({
+	id: z.string(),
+	version: z.string(),
+	/** sha256 (lowercase hex) over the module's canonical file list; see docs/MODULES.md. */
+	contentHash: z.string(),
+})
+
+/** `baka.lock.json`: the pins a project insists on, keyed by module id. */
+export const BakaLockSchema = z.object({
+	lockfileVersion: z.literal(1),
+	modules: z.record(z.object({ version: z.string(), contentHash: z.string() })),
+})
+
 export const ActionResultSchema = z.object({
 	ok: z.boolean(),
 	module: z.string(),
@@ -280,6 +294,8 @@ export const ActionResultSchema = z.object({
 	changeset: z.array(ChangesetEntrySchema),
 	/** sha256 over the canonical (path, contentHash) list of the changeset; see docs/MODULES.md. */
 	outputTreeHash: z.string(),
+	/** The module this run used, as resolved. Empty when the module could not be resolved. */
+	pins: z.array(ModulePinSchema),
 	slots: z.array(SlotRecordSchema),
 	compensation: ActionCompensationSchema,
 	/** What the action's `execute` returned (side-effect actions); null for template-only actions. */

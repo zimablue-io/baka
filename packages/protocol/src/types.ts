@@ -3,11 +3,13 @@ import type { ACTION_ERROR_CODES } from "./constants"
 import type {
 	ActionCompensationSchema,
 	ActionResultSchema,
+	BakaLockSchema,
 	ChangeOpSchema,
 	ChangesetEntrySchema,
 	ModuleActionParam,
 	ModuleActionSchema,
 	ModuleManifestSchema,
+	ModulePinSchema,
 	OrchestrationStateSchema,
 	ParamTypeNode,
 	ResolvedPlanSchema,
@@ -31,6 +33,8 @@ export type ActionErrorCode = (typeof ACTION_ERROR_CODES)[number]
 export type ChangeOp = z.infer<typeof ChangeOpSchema>
 export type ChangesetEntry = z.infer<typeof ChangesetEntrySchema>
 export type SlotRecord = z.infer<typeof SlotRecordSchema>
+export type ModulePin = z.infer<typeof ModulePinSchema>
+export type BakaLock = z.infer<typeof BakaLockSchema>
 export type SlotMode = z.infer<typeof SlotModeSchema>
 export type SlotsInput = z.infer<typeof SlotsInputSchema>
 export type ActionCompensation = z.infer<typeof ActionCompensationSchema>

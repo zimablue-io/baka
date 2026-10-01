@@ -36,24 +36,25 @@ export function outputTreeHash(entries: ReadonlyArray<Pick<ChangesetEntry, "path
 	return sha256Hex(`${TREE_HASH_DOMAIN}\n${lines.join("")}`)
 }
 
-/** Directory names never walked: VCS data, installed dependencies, and Baka's own state. */
-const SKIPPED_DIRS = new Set([".git", "node_modules"])
-const BAKA_STATE_DIR = ".baka"
+/** Which entries a walk ignores. `rel` is the entry's parent directory, relative to the walk root ("" at the root). */
+interface WalkFilter {
+	skipDir(name: string, rel: string): boolean
+	skipFile(name: string): boolean
+}
 
 /**
- * path -> content hash for every file under `root`, so a side-effect action
- * can be diffed. Symlinks are hashed by their target text. `.git/`,
- * `node_modules/`, and the root-level `.baka/` are skipped.
+ * path -> content hash for every file under `root`, walking depth-first.
+ * Symlinks are hashed by their target text, never followed.
  */
-export function snapshotTree(root: string): Map<string, string> {
+function hashFiles(root: string, filter: WalkFilter): Map<string, string> {
 	const out = new Map<string, string>()
 	const walk = (dir: string, rel: string): void => {
 		for (const entry of readdirSync(dir, { withFileTypes: true })) {
 			const relPath = rel ? `${rel}/${entry.name}` : entry.name
 			const abs = join(dir, entry.name)
 			if (entry.isDirectory()) {
-				if (SKIPPED_DIRS.has(entry.name) || (rel === "" && entry.name === BAKA_STATE_DIR)) continue
-				walk(abs, relPath)
+				if (!filter.skipDir(entry.name, rel)) walk(abs, relPath)
+			} else if (filter.skipFile(entry.name)) {
 			} else if (entry.isSymbolicLink()) {
 				out.set(relPath, sha256Hex(`symlink:${readlinkSync(abs)}`))
 			} else if (entry.isFile() && lstatSync(abs).isFile()) {
@@ -63,6 +64,40 @@ export function snapshotTree(root: string): Map<string, string> {
 	}
 	walk(root, "")
 	return out
+}
+
+/**
+ * path -> content hash for every file under a project, so a side-effect
+ * action can be diffed. `.git/`, `node_modules/`, and the root-level `.baka/`
+ * are skipped.
+ */
+export function snapshotTree(root: string): Map<string, string> {
+	return hashFiles(root, {
+		skipDir: (name, rel) => name === ".git" || name === "node_modules" || (rel === "" && name === ".baka"),
+		skipFile: () => false,
+	})
+}
+
+const MODULE_HASH_DOMAIN = "baka.module.v1"
+
+/**
+ * The content hash of a module: sha256 over
+ *
+ *   baka.module.v1\n
+ *   <path>\0<sha256 of the file's bytes>\n    (one line per file, ascending by UTF-8 bytes of <path>)
+ *
+ * for every file under the module directory, with paths relative to it and
+ * POSIX-separated. Symlinks count as their target text. Skipped, because they
+ * are install or tool residue and not the module: `node_modules/`, `.git/`,
+ * and `out/` directories, `.DS_Store`, and `.design-state.json`.
+ */
+export function moduleContentHash(moduleRoot: string): string {
+	const files = hashFiles(moduleRoot, {
+		skipDir: (name) => name === "node_modules" || name === ".git" || name === "out",
+		skipFile: (name) => name === ".DS_Store" || name === ".design-state.json",
+	})
+	const lines = [...files].sort(([a], [b]) => compareUtf8(a, b)).map(([path, hash]) => `${path}\0${hash}\n`)
+	return sha256Hex(`${MODULE_HASH_DOMAIN}\n${lines.join("")}`)
 }
 
 /** create / update / delete entries between two snapshots, in canonical path order. */

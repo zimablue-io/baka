@@ -19,16 +19,20 @@ export type {
 export {
 	compensateAction,
 	createDiskSlotStore,
+	createLock,
 	createMemorySlotStore,
 	describeModules,
 	ModuleNotFoundError,
+	readLockfile,
 	runAction,
 	validateProject as validate,
+	writeLockfile,
 } from "@repo/ast-tooling"
 export type {
 	ActionCompensation,
 	ActionErrorCode,
 	ActionResult,
+	BakaLock,
 	ChangeOp,
 	ChangesetEntry,
 	LLMMessage,
@@ -36,11 +40,12 @@ export type {
 	LLMRequest,
 	LLMResponse,
 	ModuleManifest,
+	ModulePin,
 	SlotMode,
 	SlotRecord,
 	SlotsInput,
 	ValidationDiagnostic,
 } from "@repo/protocol"
-export { ACTION_ERROR_CODES } from "@repo/protocol"
+export { ACTION_ERROR_CODES, BAKA_LOCKFILE_NAME } from "@repo/protocol"
 export type { CreateRegistryOptions } from "./registry.js"
 export { createRegistry } from "./registry.js"

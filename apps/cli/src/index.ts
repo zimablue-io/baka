@@ -25,6 +25,7 @@ import {
 	runFillCommand,
 	runInspectCommand,
 	runListModulesCommand,
+	runLockCommand,
 	runRunCommand,
 	runServeCommand,
 	runSlotsCommand,
@@ -257,6 +258,22 @@ program
 				params: opts.params,
 				extra: process.argv,
 			})
+		} catch (err) {
+			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+		}
+	})
+
+program
+	.command("lock")
+	.description(
+		"Pin modules to their current version and content hash in baka.lock.json; `baka run` then verifies against it",
+	)
+	.argument("[modules...]", "module names to pin (default: every discovered module)")
+	.option("--json", "emit machine-readable JSON to stdout")
+	.action((modules: string[], opts) => {
+		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
+		try {
+			runLockCommand({ cwd, json: opts.json, modules })
 		} catch (err) {
 			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
 		}

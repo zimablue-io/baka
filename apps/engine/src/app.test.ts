@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { createLock, ModuleRegistry, writeLockfile } from "@repo/ast-tooling"
 import { afterEach, describe, expect, it } from "vitest"
 import { createEngineApp } from "./app.js"
 
@@ -230,5 +231,40 @@ describe("engine Hono SSOT", () => {
 		const body = (await missing.json()) as { ok: boolean; diagnostics: Array<{ rule: string }> }
 		expect(body.ok).toBe(false)
 		expect(body.diagnostics.map((d) => d.rule)).toEqual(["slot-record-missing"])
+	})
+
+	it("holds a project with a baka.lock.json to it: a changed module is a typed 400", async () => {
+		const cwd = fixtureProject()
+		writeLockfile(cwd, createLock(new ModuleRegistry(cwd)))
+		const app = createEngineApp({ cwd })
+		const post = () =>
+			app.request("/v1/run", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ module: "hello", action: "greet", params: { name: "Ada" }, dryRun: true }),
+			})
+		// dry run needs a fill; pin one so the only possible failure is the lock
+		await app.request("/v1/fill", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				module: "hello",
+				action: "greet",
+				slot: "blurb",
+				value: "A greeting.",
+				params: { name: "Ada" },
+			}),
+		})
+		const ok = await post()
+		expect(ok.status).toBe(200)
+		const pins = ((await ok.json()) as { pins: Array<{ id: string }> }).pins
+		expect(pins.map((p) => p.id)).toEqual(["hello"])
+
+		writeFileSync(join(cwd, "modules", "hello", "greet", "templates", "hello.md.hbs"), "# tampered\n")
+		const blocked = await post()
+		expect(blocked.status).toBe(400)
+		const body = (await blocked.json()) as { ok: boolean; diagnostics: Array<{ rule: string }> }
+		expect(body.ok).toBe(false)
+		expect(body.diagnostics.map((d) => d.rule)).toEqual(["lock-mismatch"])
 	})
 })

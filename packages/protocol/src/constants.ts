@@ -59,6 +59,8 @@ export const ACTION_ERROR_CODES = [
 	"action-not-found",
 	"action-empty",
 	"invalid-params",
+	"lock-mismatch",
+	"lock-unlisted",
 	"slot-no-provider",
 	"slot-provider-error",
 	"slot-record-missing",
@@ -69,3 +71,6 @@ export const ACTION_ERROR_CODES = [
 	"action-failed",
 	"unexpected",
 ] as const
+
+// Where a project records the module versions it is pinned to; see docs/MODULES.md.
+export const BAKA_LOCKFILE_NAME = "baka.lock.json"

@@ -28,6 +28,9 @@ baka run <module>/<action> --json
 baka slots <module>/<action> --json
 baka fill  <module>/<action> --slot <id> --value "..." --json
 
+# Pin module versions (then `baka run` refuses a module that changed)
+baka lock
+
 # Validate
 baka validate --json
 baka validate --module <name> --json

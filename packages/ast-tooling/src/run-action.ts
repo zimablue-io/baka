@@ -4,11 +4,13 @@ import {
 	type ActionCompensation,
 	type ActionResult,
 	BAKA_DEFAULT_WORKER_MODEL,
+	type BakaLock,
 	type ChangesetEntry,
 	ENGINE_STATUS,
 	type LLMProvider,
 	type ModuleManifest,
 	ModuleManifestSchema,
+	type ModulePin,
 	normalizeParams,
 	type OrchestrationState,
 	type SlotsInput,
@@ -18,6 +20,7 @@ import {
 import { createJiti } from "jiti"
 import { loadAction } from "./action-loader.js"
 import { ActionError } from "./errors.js"
+import { pinModule, verifyPin } from "./lock.js"
 import { applyPlan, planTemplates, revertFiles, type TemplatePlan } from "./materialize.js"
 import type { ModuleRegistry } from "./registry.js"
 import { createDiskSlotStore, type SlotStore } from "./slot-cache.js"
@@ -113,6 +116,12 @@ export interface RunActionInput {
 	 * fails with `dry-run-unsupported`.
 	 */
 	dryRun?: boolean
+	/**
+	 * Verify the module against this lock before doing anything else: a
+	 * module the lock does not list, or one whose version or files differ,
+	 * fails the run with `lock-unlisted` / `lock-mismatch`.
+	 */
+	lock?: BakaLock
 	/** Run the module's validators after a real run (default true). Dry runs never validate. */
 	validate?: boolean
 	/** Attach each written file's UTF-8 text to its changeset entry. Off by default: receipts stay small. */
@@ -145,6 +154,7 @@ export async function runAction(input: RunActionInput): Promise<ActionResult> {
 	let compensation = emptyCompensation()
 	let changeset: ChangesetEntry[] = []
 	let output: unknown = null
+	let pins: ModulePin[] = []
 	// True once files were written and until the action (if any) succeeded.
 	let uncommitted = false
 	const diagnostics: ValidationDiagnostic[] = []
@@ -156,6 +166,7 @@ export async function runAction(input: RunActionInput): Promise<ActionResult> {
 		diagnostics,
 		changeset,
 		outputTreeHash: outputTreeHash(changeset),
+		pins,
 		slots: plan.slots,
 		compensation,
 		output,
@@ -167,6 +178,9 @@ export async function runAction(input: RunActionInput): Promise<ActionResult> {
 		const templatesDir = join(moduleRoot, action.id, "templates")
 		const hasTemplates = existsSync(templatesDir)
 		const hasAction = existsSync(join(moduleRoot, action.id, "action.ts"))
+		const pin = pinModule(moduleRoot, manifest)
+		pins = [pin]
+		if (input.lock) verifyPin(input.lock, pin)
 		const normalized = normalizeParams(action.params, input.params)
 		if (!normalized.ok) {
 			throw new ActionError("invalid-params", `params for ${moduleName}/${actionId}: ${normalized.message}`)

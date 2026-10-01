@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs"
 import { engineRequest } from "@baka/engine"
-import { BAKA_EXIT_CODE } from "@repo/protocol"
+import { createLock, ModuleRegistry, writeLockfile } from "@repo/ast-tooling"
+import { BAKA_EXIT_CODE, BAKA_LOCKFILE_NAME } from "@repo/protocol"
 
 function die(code: number, msg: string): never {
 	process.stderr.write(`baka: ${msg}\n`)
@@ -273,6 +274,28 @@ export async function runListModulesCommand(opts: { cwd: string; json?: boolean 
 		}
 	}
 	console.log("")
+}
+
+/**
+ * `baka lock [modules...]`: pin every discovered module (or just the named
+ * ones) to its current version and content hash in `<cwd>/baka.lock.json`.
+ * From then on `baka run` refuses a module that no longer matches.
+ */
+export function runLockCommand(opts: { cwd: string; json?: boolean; modules?: string[] }): void {
+	const registry = new ModuleRegistry(opts.cwd)
+	const { modules } = registry.discover(false)
+	for (const name of opts.modules ?? []) {
+		if (!modules.some((m) => m.name === name)) die(BAKA_EXIT_CODE.USER_ERROR, `module "${name}" not found`)
+	}
+	const lock = createLock(registry, opts.modules?.length ? opts.modules : undefined)
+	const path = writeLockfile(opts.cwd, lock)
+	if (opts.json) {
+		printJson({ path, lock })
+		return
+	}
+	const names = Object.keys(lock.modules)
+	console.log(`locked ${names.length} module(s) in ${BAKA_LOCKFILE_NAME}`)
+	for (const name of names) console.log(`  ${name}@${lock.modules[name]?.version}`)
 }
 
 export async function runServeCommand(opts: { cwd: string; port: number }): Promise<void> {

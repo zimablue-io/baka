@@ -11,6 +11,7 @@ import {
 	ModuleRegistry,
 	parseActionTemplates,
 	previewAction,
+	readLockfile,
 	resolveAction,
 	runAction,
 	slotCacheKey,
@@ -143,9 +144,17 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 		} catch (err) {
 			return c.json({ error: err instanceof Error ? err.message : String(err) }, 400)
 		}
+		let lock: ReturnType<typeof readLockfile>
+		try {
+			// A project that has a baka.lock.json is held to it on every run.
+			lock = readLockfile(project)
+		} catch (err) {
+			return c.json({ error: err instanceof Error ? err.message : String(err) }, 400)
+		}
 		const { provider, model } = await resolveWorker(project)
 		const result = await runAction({
 			registry: new ModuleRegistry(project),
+			lock: lock ?? undefined,
 			store: createDiskSlotStore(project, { userFallback: true }),
 			module: parsed.data.module,
 			action: parsed.data.action,

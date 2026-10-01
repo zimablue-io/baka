@@ -428,3 +428,39 @@ params: [
 ```
 
 Both schemas are generated from the Zod schemas the engine itself validates with, never written by hand. `paramsSchema` is a closed object (`additionalProperties: false`) whose `required` lists the required params and whose properties carry each description, enum, element type, nested fields, and default. `resultSchema` describes the receipt in "Running an action: the receipt".
+
+## Pinning modules and `baka.lock.json`
+
+Every receipt carries `pins`: the module the run used, as resolved from disk.
+
+```jsonc
+"pins": [{ "id": "hello", "version": "0.1.0", "contentHash": "<sha256 hex>" }]
+```
+
+`id` and `version` come from the manifest. `contentHash` is the sha256 (lowercase hex) of this UTF-8 text:
+
+```
+baka.module.v1\n
+<path>\0<sha256 of the file's bytes>\n       one line per file
+```
+
+over every file under the module directory, with paths relative to the module root and POSIX-separated, sorted ascending by the UTF-8 bytes of `<path>`. Symlinks count as their target text and are not followed. These are skipped because they are install or tool residue, not the module: `node_modules/`, `.git/`, and `out/` directories, `.DS_Store`, and `.design-state.json`. So the hash is the same wherever a module lives, and changes if and only if a file the module ships changes. The catalog (`baka list-modules --json`, `describeModules()`) lists each module's `contentHash`.
+
+### The lockfile
+
+`baka.lock.json` sits at the project root and records the pins a project insists on:
+
+```json
+{
+	"lockfileVersion": 1,
+	"modules": {
+		"hello": { "version": "0.1.0", "contentHash": "<sha256 hex>" }
+	}
+}
+```
+
+- `baka lock [module...]` writes it from the modules currently on disk (every discovered module, or just the ones named). Commit the file.
+- When `<project>/baka.lock.json` exists, `baka run`, the `baka_run` MCP tool, and `POST /v1/run` verify the module they are about to use against it **before** any slot fill or write. A module the lock does not list fails with `lock-unlisted`; a different version or different files fail with `lock-mismatch`. Nothing is written and no model is called.
+- `runAction({ lock })` in `@baka/core` does the same with a lock you pass in (`readLockfile(root)` loads and validates one; `createLock(registry)` builds one). The library never goes looking for a lockfile on its own.
+
+A project with no `baka.lock.json` runs unlocked; the receipt's `pins` still say exactly what ran.

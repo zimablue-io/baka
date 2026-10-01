@@ -8,6 +8,7 @@ import {
 	runFillCommand,
 	runInspectCommand,
 	runListModulesCommand,
+	runLockCommand,
 	runRunCommand,
 	runSlotsCommand,
 } from "./run.js"
@@ -158,6 +159,30 @@ describe("run / slots / fill / list-modules via engineRequest", () => {
 			expect(replayed.ok).toBe(true)
 			expect(replayed.outputTreeHash).toBe(receipt.outputTreeHash)
 			expect(readFileSync(join(replayCwd, "hello.md"), "utf-8")).toBe("# Ada\nA greeting.\n")
+		} finally {
+			console.log = orig
+		}
+	})
+
+	it("`baka lock` pins the discovered modules in baka.lock.json", () => {
+		const cwd = fixtureProject()
+		const logs: string[] = []
+		const orig = console.log
+		console.log = (msg?: unknown) => {
+			logs.push(typeof msg === "string" ? msg : JSON.stringify(msg))
+		}
+		try {
+			runLockCommand({ cwd, json: true })
+			const printed = JSON.parse(logs.at(-1) ?? "{}") as { path: string }
+			expect(printed.path).toBe(join(cwd, "baka.lock.json"))
+			const lock = JSON.parse(readFileSync(printed.path, "utf-8")) as {
+				lockfileVersion: number
+				modules: Record<string, { version: string; contentHash: string }>
+			}
+			expect(lock.lockfileVersion).toBe(1)
+			expect(Object.keys(lock.modules)).toEqual(["hello"])
+			expect(lock.modules.hello?.version).toBe("0.0.0")
+			expect(lock.modules.hello?.contentHash).toMatch(/^[0-9a-f]{64}$/)
 		} finally {
 			console.log = orig
 		}
