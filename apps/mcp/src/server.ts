@@ -312,7 +312,8 @@ const RunInputSchema = z.object({
 	module: z.string().min(1).describe("Module name"),
 	action: z.string().min(1).describe("Action id"),
 	params: z.record(z.unknown()).optional().describe("Action params"),
-	refill: z.boolean().optional().describe("Ignore the slot cache and write a new fill"),
+	dryRun: z.boolean().optional().describe("Compute the changeset and output tree hash without writing anything"),
+	includeContent: z.boolean().optional().describe("Attach each written file's text to its changeset entry"),
 })
 
 const SlotsInputSchema = z.object({
@@ -333,7 +334,7 @@ function registerEngineTools(server: McpServer, ctx: ServerContext): void {
 		"baka_run",
 		{
 			description:
-				"Materialize a named module/action. Templates are the output tree; the LLM fills named slots only. Prefer `baka run <module>/<action> --json` in a shell. Same JSON as the CLI.",
+				"Materialize a named module/action. Templates are the output tree; the LLM fills named slots only. Returns the receipt: ok, diagnostics, changeset (path, op, contentHash), outputTreeHash, slots, compensation. Prefer `baka run <module>/<action> --json` in a shell. Same JSON as the CLI.",
 			inputSchema: RunInputSchema.shape,
 		},
 		async (raw) => {
@@ -344,7 +345,8 @@ function registerEngineTools(server: McpServer, ctx: ServerContext): void {
 					module: input.module,
 					action: input.action,
 					params: input.params ?? {},
-					refill: input.refill,
+					dryRun: input.dryRun,
+					includeContent: input.includeContent,
 				},
 			})
 			const body = json as { ok?: boolean }

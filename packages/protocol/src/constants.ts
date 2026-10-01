@@ -49,3 +49,22 @@ export const BAKA_DEFAULT_WORKER_MODEL = "gemma4:e4b" as const
 
 // The directory name used under the user's home directory for config and data.
 export const BAKA_USER_DIR = "baka" as const
+
+// Typed failure codes of `runAction`. A failed run carries one error
+// diagnostic whose `rule` is one of these, so callers branch on a stable
+// string instead of parsing a message.
+export const ACTION_ERROR_CODES = [
+	"module-not-found",
+	"action-not-found",
+	"action-empty",
+	"invalid-params",
+	"slot-no-provider",
+	"slot-provider-error",
+	"slot-record-missing",
+	"slot-record-stale",
+	"slot-fill-invalid",
+	"template-invalid",
+	"dry-run-unsupported",
+	"action-failed",
+	"unexpected",
+] as const

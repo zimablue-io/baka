@@ -36,7 +36,8 @@ export function parseParamFlags(raw: string[] | undefined, paramsJson?: string):
 		const key = tok.slice(2)
 		if (
 			key === "json" ||
-			key === "refill" ||
+			key === "dry-run" ||
+			key === "include-content" ||
 			key === "params" ||
 			key === "slot" ||
 			key === "file" ||
@@ -68,25 +69,54 @@ function printJson(value: unknown): void {
 
 export async function runRunCommand(
 	target: string,
-	opts: { cwd: string; json?: boolean; refill?: boolean; params?: string; extra?: string[] },
+	opts: {
+		cwd: string
+		json?: boolean
+		dryRun?: boolean
+		includeContent?: boolean
+		params?: string
+		extra?: string[]
+	},
 ): Promise<void> {
 	const { module, action } = parseModuleAction(target)
 	const params = parseParamFlags(opts.extra, opts.params)
 	const { status, json } = await engineRequest(opts.cwd, "/v1/run", {
 		method: "POST",
-		body: { module, action, params, refill: opts.refill },
+		body: { module, action, params, dryRun: opts.dryRun, includeContent: opts.includeContent },
 	})
-	const body = json as { ok?: boolean; error?: string; written?: string[]; slots?: unknown[] }
+	const body = json as RunBody
 	if (opts.json) {
 		printJson(json)
-	} else if (body.ok) {
-		console.log(`run ${module}/${action}: wrote ${(body.written ?? []).join(", ") || "(nothing new)"}`)
 	} else {
-		process.stderr.write(`baka: ${body.error ?? "run failed"}\n`)
+		printRunSummary(`${module}/${action}`, body)
 	}
 	if (status >= 400 || body.ok === false) {
 		process.exit(BAKA_EXIT_CODE.ENGINE_ERROR)
 	}
+}
+
+interface RunBody {
+	ok?: boolean
+	error?: string
+	dryRun?: boolean
+	outputTreeHash?: string
+	changeset?: Array<{ path: string; op: string; reason?: string }>
+	diagnostics?: Array<{ severity: string; rule: string; message: string }>
+}
+
+function printRunSummary(target: string, body: RunBody): void {
+	if (body.error) {
+		process.stderr.write(`baka: ${body.error}\n`)
+		return
+	}
+	for (const d of body.diagnostics ?? []) {
+		process.stderr.write(`baka: ${d.severity} [${d.rule}] ${d.message}\n`)
+	}
+	if (!body.ok) return
+	const lines = (body.changeset ?? []).map((e) => `  ${e.op.padEnd(9)} ${e.path}${e.reason ? ` (${e.reason})` : ""}`)
+	console.log(`${body.dryRun ? "dry run " : "run "}${target}: ${lines.length === 0 ? "(no files)" : ""}`)
+	for (const line of lines) console.log(line)
+	console.log(`  tree      ${body.outputTreeHash}`)
 }
 
 export async function runSlotsCommand(target: string, opts: { cwd: string; json?: boolean }): Promise<void> {

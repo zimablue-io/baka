@@ -107,13 +107,15 @@ export function LabApp() {
 			}
 			const body = await runNamed(project, selected.module, selected.action, params)
 			if (!body.ok) {
-				throw new Error(body.error ?? "run failed")
+				throw new Error(body.error ?? body.diagnostics?.[0]?.message ?? "run failed")
 			}
-			const written = body.written?.length ? body.written.join("\n") : "(no files written)"
-			const files = Object.entries(body.tree ?? {})
-				.map(([path, content]) => `--- ${path} ---\n${content}`)
+			const changes = body.changeset ?? []
+			const summary = changes.length ? changes.map((e) => `${e.op}\t${e.path}`).join("\n") : "(no files)"
+			const files = changes
+				.filter((e) => e.content !== undefined)
+				.map((e) => `--- ${e.path} ---\n${e.content}`)
 				.join("\n\n")
-			setResult(`${written}\n\n${files}`)
+			setResult(`${summary}\n\n${files}`)
 			setBodyTab("result")
 			toast.add({ type: "success", title: "Wrote files into the project" })
 		} catch (err) {

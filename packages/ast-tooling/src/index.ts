@@ -14,8 +14,9 @@ export type { ConsistencyOptions, ConsistencyResult, PerRunResult } from "./cons
 export { cleanupConsistency, runConsistencyTest } from "./consistency.js"
 export type { Catalog, CatalogAction, CatalogModule, ValidateResult } from "./describe-modules.js"
 export { describeModules, ModuleNotFoundError, validateProject } from "./describe-modules.js"
-export type { MaterializeOptions, MaterializeResult } from "./materialize.js"
-export { fillSlot, materializeTemplates } from "./materialize.js"
+export { ActionError } from "./errors.js"
+export type { PlannedFile, PlanTemplatesOptions, TemplatePlan } from "./materialize.js"
+export { applyPlan, fillSlot, planTemplates, revertFiles } from "./materialize.js"
 export type {
 	BakaSettings,
 	InstallOptions,
@@ -42,8 +43,8 @@ export type { SavedPlan } from "./plan-io.js"
 export { listPlans, loadPlan, plansDir, savePlan } from "./plan-io.js"
 export type { ModuleRegistryOptions } from "./registry.js"
 export { ModuleRegistry, validatorFilename } from "./registry.js"
-export type { RunActionInput, RunActionResult } from "./run-action.js"
-export { listActionSlots, previewAction, resolveAction, runAction } from "./run-action.js"
+export type { CompensateActionInput, RunActionInput } from "./run-action.js"
+export { compensateAction, listActionSlots, previewAction, resolveAction, runAction } from "./run-action.js"
 export type { CompletedStep, SagaResult, SagaStep } from "./saga.js"
 export { runSaga } from "./saga.js"
 export type { SlotCacheRecord, SlotStore } from "./slot-cache.js"
@@ -63,9 +64,11 @@ export {
 	renderTemplate,
 	SlotTemplateError,
 	slotCacheKey,
+	slotRecordKey,
 } from "./slots.js"
 export type { LogEntry, LogLevel } from "./structured-log.js"
 export { StructuredLog } from "./structured-log.js"
+export { compareUtf8, diffSnapshots, outputTreeHash, sha256Hex, snapshotTree } from "./tree-hash.js"
 export { runValidators } from "./validator.js"
 export type { WorkerInput, WorkerRollbackData } from "./worker.js"
 export { executeWorkerStep } from "./worker.js"

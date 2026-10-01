@@ -316,18 +316,12 @@ export async function runModuleTest(
 			params: parsedInput,
 			provider: null,
 			model: BAKA_DEFAULT_WORKER_MODEL,
+			includeContent: true,
 			validate: false,
 		})
-		console.log(
-			"RESULT:",
-			JSON.stringify(
-				result.ok ? { output: result.output, tree: result.tree, written: result.written } : result,
-				null,
-				2,
-			),
-		)
+		console.log("RESULT:", JSON.stringify(result, null, 2))
 		if (!result.ok) {
-			console.error("FAILED:", result.error ?? "(no error message)")
+			console.error("FAILED:", result.diagnostics.find((d) => d.severity === "error")?.message ?? "(no error message)")
 			exitCode = BAKA_EXIT_CODE.ENGINE_ERROR
 		}
 	} catch (err) {

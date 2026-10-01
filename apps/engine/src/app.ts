@@ -40,7 +40,9 @@ const RunBodySchema = z.object({
 	module: z.string().min(1),
 	action: z.string().min(1),
 	params: z.record(z.unknown()).default({}),
-	refill: z.boolean().optional(),
+	dryRun: z.boolean().optional(),
+	validate: z.boolean().optional(),
+	includeContent: z.boolean().optional(),
 	project: z.string().optional(),
 })
 
@@ -149,8 +151,9 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 			params: parsed.data.params,
 			provider,
 			model,
-			refill: parsed.data.refill,
-			validate: false,
+			dryRun: parsed.data.dryRun,
+			includeContent: parsed.data.includeContent,
+			validate: parsed.data.validate ?? false,
 		})
 		const status = result.ok ? 200 : 400
 		return c.json(result, status)

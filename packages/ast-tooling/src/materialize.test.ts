@@ -1,10 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { BAKA_DEFAULT_WORKER_MODEL } from "@repo/protocol"
 import { afterEach, describe, expect, it } from "vitest"
-import { materializeTemplates } from "./materialize.js"
-import { createDiskSlotStore, writeSlotCache } from "./slot-cache.js"
+import { applyPlan, planTemplates } from "./materialize.js"
+import { createDiskSlotStore, createMemorySlotStore, writeSlotCache } from "./slot-cache.js"
 import { canonicalJson, hashBytes, slotCacheKey } from "./slots.js"
 
 const cleanup: string[] = []
@@ -18,83 +18,122 @@ afterEach(() => {
 	}
 })
 
-describe("materializeTemplates — cached fills are byte-identical", () => {
-	it("writes the same tree from a pinned fill without calling an LLM", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "baka-materialize-"))
-		cleanup.push(dir)
-		const templates = join(dir, "templates")
-		mkdirSync(templates, { recursive: true })
-		writeFileSync(
-			join(templates, "note.md.hbs"),
-			'# {{title}}\n{{#slot "blurb" kind="prose" max=40}}one line{{/slot}}\n',
-		)
+const NOTE = '# {{title}}\n{{#slot "blurb" kind="prose" max=40}}one line{{/slot}}\n'
 
-		const first = await materializeTemplates({
-			cwd: dir,
-			templatesDir: templates,
-			params: { title: "Hi" },
-			provider: null,
-			model: BAKA_DEFAULT_WORKER_MODEL,
-			store: createDiskSlotStore(dir),
-			manualFills: { blurb: "Pinned." },
-		})
-		expect(first.written).toEqual(["note.md"])
-		expect(readFileSync(join(dir, "note.md"), "utf-8")).toBe("# Hi\nPinned.\n")
+function project(): { dir: string; templates: string } {
+	const dir = mkdtempSync(join(tmpdir(), "baka-materialize-"))
+	cleanup.push(dir)
+	const templates = join(dir, "templates")
+	mkdirSync(templates, { recursive: true })
+	writeFileSync(join(templates, "note.md.hbs"), NOTE)
+	return { dir, templates }
+}
 
-		const dir2 = mkdtempSync(join(tmpdir(), "baka-materialize-2-"))
-		cleanup.push(dir2)
-		mkdirSync(join(dir2, "templates"), { recursive: true })
-		writeFileSync(
-			join(dir2, "templates", "note.md.hbs"),
-			'# {{title}}\n{{#slot "blurb" kind="prose" max=40}}one line{{/slot}}\n',
-		)
-		const second = await materializeTemplates({
-			cwd: dir2,
-			templatesDir: join(dir2, "templates"),
-			params: { title: "Hi" },
-			provider: null,
-			model: BAKA_DEFAULT_WORKER_MODEL,
-			store: createDiskSlotStore(dir2),
-			manualFills: { blurb: "Pinned." },
-		})
-		expect(second.tree).toEqual(first.tree)
+function pin(dir: string, params: Record<string, unknown>, value: string): void {
+	const templateHash = hashBytes(NOTE)
+	const paramsHash = hashBytes(canonicalJson(params))
+	writeSlotCache(dir, {
+		key: slotCacheKey({ templateHash, slotId: "blurb", paramsHash, model: BAKA_DEFAULT_WORKER_MODEL }),
+		slotId: "blurb",
+		kind: "prose",
+		value,
+		model: BAKA_DEFAULT_WORKER_MODEL,
+		templateHash,
+		paramsHash,
 	})
+}
 
-	it("reads a recorded .baka/slots cache and writes the same tree with provider=null", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "baka-materialize-cache-"))
-		cleanup.push(dir)
-		const templates = join(dir, "templates")
-		mkdirSync(templates, { recursive: true })
-		const source = `# {{title}}\n{{#slot "blurb" kind="prose" max=40}}one line{{/slot}}\n`
-		writeFileSync(join(templates, "note.md.hbs"), source)
+describe("planTemplates", () => {
+	it("reads a recorded .baka/slots cache and plans the same bytes with provider=null", async () => {
+		const { dir, templates } = project()
 		const params = { title: "Hi" }
-		const templateHash = hashBytes(source)
-		const paramsHash = hashBytes(canonicalJson(params))
-		const key = slotCacheKey({
-			templateHash,
-			slotId: "blurb",
-			paramsHash,
-			model: BAKA_DEFAULT_WORKER_MODEL,
-		})
-		writeSlotCache(dir, {
-			key,
-			slotId: "blurb",
-			kind: "prose",
-			value: "Pinned from disk.",
-			model: BAKA_DEFAULT_WORKER_MODEL,
-			templateHash,
-			paramsHash,
-		})
-		const result = await materializeTemplates({
-			cwd: dir,
+		pin(dir, params, "Pinned from disk.")
+		const plan = await planTemplates({
+			root: dir,
 			templatesDir: templates,
 			params,
 			provider: null,
 			model: BAKA_DEFAULT_WORKER_MODEL,
 			store: createDiskSlotStore(dir),
+			persist: true,
 		})
-		expect(result.slots[0]?.cached).toBe(true)
-		expect(result.tree["note.md"]).toBe("# Hi\nPinned from disk.\n")
-		expect(readFileSync(join(dir, "note.md"), "utf-8")).toBe("# Hi\nPinned from disk.\n")
+		expect(plan.slots).toHaveLength(1)
+		expect(plan.slots[0]).toMatchObject({ id: "blurb", source: "cache", value: "Pinned from disk." })
+		expect(plan.files).toHaveLength(1)
+		expect(plan.files[0]).toMatchObject({ path: "note.md", op: "create", content: "# Hi\nPinned from disk.\n" })
+		// Planning alone never writes the project files.
+		expect(existsSync(join(dir, "note.md"))).toBe(false)
+	})
+
+	it("plans identical hashes in two separate projects that share the same recorded fill", async () => {
+		const params = { title: "Hi" }
+		const hashes: Array<string | null> = []
+		for (let i = 0; i < 2; i++) {
+			const { dir, templates } = project()
+			pin(dir, params, "Pinned.")
+			const plan = await planTemplates({
+				root: dir,
+				templatesDir: templates,
+				params,
+				provider: null,
+				model: BAKA_DEFAULT_WORKER_MODEL,
+				store: createDiskSlotStore(dir),
+				persist: true,
+			})
+			hashes.push(plan.files[0]?.contentHash ?? null)
+		}
+		expect(hashes[0]).toBe(hashes[1])
+		expect(hashes[0]).toBe(hashBytes("# Hi\nPinned.\n"))
+	})
+
+	it("does not write fresh fills to the store when persist is false", async () => {
+		const { dir, templates } = project()
+		const store = createMemorySlotStore()
+		const provider = {
+			name: "fake",
+			validateConfig: () => {},
+			chat: async <T>() => ({
+				content: { value: "Fresh." } as T,
+				usage: { promptTokens: 0, completionTokens: 0 },
+				raw: null,
+			}),
+		}
+		const plan = await planTemplates({
+			root: dir,
+			templatesDir: templates,
+			params: { title: "Hi" },
+			provider,
+			model: "fake-model",
+			store,
+			persist: false,
+		})
+		expect(plan.slots[0]).toMatchObject({ source: "llm", model: "fake-model", value: "Fresh." })
+		expect(existsSync(join(dir, ".baka"))).toBe(false)
+		const key = slotCacheKey({
+			templateHash: hashBytes(NOTE),
+			slotId: "blurb",
+			paramsHash: hashBytes(canonicalJson({ title: "Hi" })),
+			model: "fake-model",
+		})
+		expect(store.read(key)).toBeNull()
+	})
+})
+
+describe("applyPlan", () => {
+	it("writes the planned creates and reports what it created", async () => {
+		const { dir, templates } = project()
+		pin(dir, { title: "Hi" }, "Pinned.")
+		const plan = await planTemplates({
+			root: dir,
+			templatesDir: templates,
+			params: { title: "Hi" },
+			provider: null,
+			model: BAKA_DEFAULT_WORKER_MODEL,
+			store: createDiskSlotStore(dir),
+			persist: true,
+		})
+		const done = applyPlan(dir, plan)
+		expect(done).toEqual({ created: ["note.md"], overwritten: [] })
+		expect(existsSync(join(dir, "note.md"))).toBe(true)
 	})
 })

@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { ENGINE_STATUS } from "./constants"
+import { ACTION_ERROR_CODES, ENGINE_STATUS } from "./constants"
 import { AgentRole } from "./types"
 
 // ---------------------------------------------------------------------------
@@ -92,4 +92,81 @@ export const OrchestrationStateSchema = z.object({
 	}),
 	logs: z.array(z.string()),
 	artifacts: z.record(z.any()).default({}),
+})
+
+// ---------------------------------------------------------------------------
+// Action result (the receipt `runAction` returns; also the CLI/MCP/HTTP `--json` shape)
+// ---------------------------------------------------------------------------
+
+export const ActionErrorCodeSchema = z.enum(ACTION_ERROR_CODES)
+
+export const ValidationDiagnosticSchema = z.object({
+	severity: z.enum(["error", "warning"]),
+	rule: z.string(),
+	message: z.string(),
+	file: z.string().optional(),
+	hint: z.string().optional(),
+})
+
+/**
+ * What happened to one path.
+ * - `create`: the file did not exist and was written.
+ * - `update`: the file existed with other content and was rewritten.
+ * - `delete`: the file existed before and is gone after (side-effect actions only).
+ * - `unchanged`: the file already held exactly the bytes the action would write.
+ * - `skip`: the file exists with other content and the action left it alone.
+ */
+export const ChangeOpSchema = z.enum(["create", "update", "delete", "unchanged", "skip"])
+
+export const ChangeReasonSchema = z.enum(["identical", "already-exists"])
+
+export const ChangesetEntrySchema = z.object({
+	/** Project-relative POSIX path. */
+	path: z.string(),
+	op: ChangeOpSchema,
+	/** sha256 (lowercase hex) of the file's bytes after the action; null for `delete`. */
+	contentHash: z.string().nullable(),
+	/** Why nothing was written: `identical` for `unchanged`, `already-exists` for `skip`. */
+	reason: ChangeReasonSchema.optional(),
+	/** The file's UTF-8 text after the action. Only present when the caller asked for content, and never for `delete` or `skip`. */
+	content: z.string().optional(),
+})
+
+export const SlotRecordSchema = z.object({
+	id: z.string(),
+	/**
+	 * Model-independent identity of the fill: sha256 over the template bytes,
+	 * the slot id, and the canonical params. A replay only accepts a record
+	 * whose key matches the slot it is about to fill.
+	 */
+	key: z.string(),
+	/** The model that produced the value (`manual` for a pinned fill). */
+	model: z.string(),
+	value: SlotFillSchema.shape.value,
+	source: z.enum(["llm", "cache", "replay"]),
+})
+
+export const ActionCompensationSchema = z.object({
+	/** Paths this run created; compensation deletes them. */
+	created: z.array(z.string()),
+	/** Files this run overwrote, with their previous bytes; compensation restores them. */
+	overwritten: z.array(z.object({ path: z.string(), contentBase64: z.string() })),
+	/** What the action's own `execute` returned as compensation data; handed back to its `compensate`. */
+	actionData: z.unknown(),
+})
+
+export const ActionResultSchema = z.object({
+	ok: z.boolean(),
+	module: z.string(),
+	action: z.string(),
+	/** Error diagnostics (a failed run carries one whose `rule` is an ActionErrorCode) plus validator output. */
+	diagnostics: z.array(ValidationDiagnosticSchema),
+	changeset: z.array(ChangesetEntrySchema),
+	/** sha256 over the canonical (path, contentHash) list of the changeset; see docs/MODULES.md. */
+	outputTreeHash: z.string(),
+	slots: z.array(SlotRecordSchema),
+	compensation: ActionCompensationSchema,
+	/** What the action's `execute` returned (side-effect actions); null for template-only actions. */
+	output: z.unknown(),
+	dryRun: z.boolean(),
 })

@@ -46,9 +46,10 @@ export interface EnginePreview {
 interface RunResult {
 	ok?: boolean
 	error?: string
-	tree?: Record<string, string>
-	slots?: Array<{ id: string; kind: string; cached: boolean; source: string }>
-	written?: string[]
+	diagnostics?: Array<{ severity: string; rule: string; message: string }>
+	changeset?: Array<{ path: string; op: string; contentHash: string | null; reason?: string; content?: string }>
+	outputTreeHash?: string
+	slots?: Array<{ id: string; model: string; source: string }>
 }
 
 function projectQuery(project: string): string {
@@ -146,6 +147,7 @@ export async function runNamed(
 			module: moduleName,
 			action,
 			params,
+			includeContent: true,
 		}),
 	})
 }

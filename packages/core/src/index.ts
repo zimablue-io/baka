@@ -9,14 +9,15 @@ export type {
 	Catalog,
 	CatalogAction,
 	CatalogModule,
+	CompensateActionInput,
 	ModuleRegistry,
 	RunActionInput,
-	RunActionResult,
 	SlotCacheRecord,
 	SlotStore,
 	ValidateResult,
 } from "@repo/ast-tooling"
 export {
+	compensateAction,
 	createDiskSlotStore,
 	createMemorySlotStore,
 	describeModules,
@@ -25,12 +26,19 @@ export {
 	validateProject as validate,
 } from "@repo/ast-tooling"
 export type {
+	ActionCompensation,
+	ActionErrorCode,
+	ActionResult,
+	ChangeOp,
+	ChangesetEntry,
 	LLMMessage,
 	LLMProvider,
 	LLMRequest,
 	LLMResponse,
 	ModuleManifest,
+	SlotRecord,
 	ValidationDiagnostic,
 } from "@repo/protocol"
+export { ACTION_ERROR_CODES } from "@repo/protocol"
 export type { CreateRegistryOptions } from "./registry.js"
 export { createRegistry } from "./registry.js"

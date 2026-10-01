@@ -234,8 +234,9 @@ program
 	.description("Materialize a named module/action (templates + named slots). Product path; prefer this over plan.")
 	.argument("<target>", "module/action (e.g. hello/greet)")
 	.option("--params <json>", "JSON object of action params")
-	.option("--refill", "ignore the slot cache and write a new fill")
-	.option("--json", "emit machine-readable JSON to stdout")
+	.option("--dry-run", "compute the changeset and output tree hash without writing anything")
+	.option("--include-content", "attach each written file's text to its changeset entry")
+	.option("--json", "emit machine-readable JSON to stdout (the ActionResult receipt)")
 	.allowUnknownOption()
 	.allowExcessArguments(true)
 	.action(async (target, opts) => {
@@ -244,7 +245,8 @@ program
 			await runRunCommand(target, {
 				cwd,
 				json: opts.json,
-				refill: opts.refill,
+				dryRun: opts.dryRun,
+				includeContent: opts.includeContent,
 				params: opts.params,
 				extra: process.argv,
 			})

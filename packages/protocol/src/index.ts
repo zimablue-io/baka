@@ -35,6 +35,7 @@ export {
 	VerifiedResponseSchema,
 } from "./catalog"
 export {
+	ACTION_ERROR_CODES,
 	BAKA_DEFAULT_WORKER_MODEL,
 	BAKA_EXIT_CODE,
 	BAKA_PROJECT_PATHS,
@@ -82,6 +83,12 @@ export {
 } from "./registry-config"
 
 export {
+	ActionCompensationSchema,
+	ActionErrorCodeSchema,
+	ActionResultSchema,
+	ChangeOpSchema,
+	ChangeReasonSchema,
+	ChangesetEntrySchema,
 	ModuleActionParamSchema,
 	ModuleActionSchema,
 	ModuleManifestSchema,
@@ -91,8 +98,15 @@ export {
 	SlotDeclSchema,
 	SlotFillSchema,
 	SlotKindSchema,
+	SlotRecordSchema,
+	ValidationDiagnosticSchema,
 } from "./schemas"
 export type {
+	ActionCompensation,
+	ActionErrorCode,
+	ActionResult,
+	ChangeOp,
+	ChangesetEntry,
 	LLMMessage,
 	LLMMessageRole,
 	LLMProvider,
@@ -106,6 +120,7 @@ export type {
 	ResolvedLLMConfig,
 	ResolvedPlan,
 	SlotDecl,
+	SlotRecord,
 	StepContext,
 	StepResponse,
 	ValidationDiagnostic,

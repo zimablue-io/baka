@@ -1,11 +1,17 @@
 import type { z } from "zod"
+import type { ACTION_ERROR_CODES } from "./constants"
 import type {
+	ActionCompensationSchema,
+	ActionResultSchema,
+	ChangeOpSchema,
+	ChangesetEntrySchema,
 	ModuleActionParamSchema,
 	ModuleActionSchema,
 	ModuleManifestSchema,
 	OrchestrationStateSchema,
 	ResolvedPlanSchema,
 	SlotDeclSchema,
+	SlotRecordSchema,
 } from "./schemas"
 
 // ---------------------------------------------------------------------------
@@ -18,6 +24,12 @@ export type ModuleManifest = z.infer<typeof ModuleManifestSchema>
 export type OrchestrationState = z.infer<typeof OrchestrationStateSchema>
 export type ResolvedPlan = z.infer<typeof ResolvedPlanSchema>
 export type SlotDecl = z.infer<typeof SlotDeclSchema>
+export type ActionErrorCode = (typeof ACTION_ERROR_CODES)[number]
+export type ChangeOp = z.infer<typeof ChangeOpSchema>
+export type ChangesetEntry = z.infer<typeof ChangesetEntrySchema>
+export type SlotRecord = z.infer<typeof SlotRecordSchema>
+export type ActionCompensation = z.infer<typeof ActionCompensationSchema>
+export type ActionResult = z.infer<typeof ActionResultSchema>
 
 // ---------------------------------------------------------------------------
 // Agent role + workflow step contract

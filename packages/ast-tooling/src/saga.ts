@@ -40,7 +40,7 @@ export interface SagaResult {
  * back both the action and the Worker's scratch/output directories.
  */
 interface WorkerCompensationEnvelope {
-	actionCompensationData?: unknown
+	compensation?: { actionData?: unknown }
 }
 
 /**
@@ -50,8 +50,8 @@ interface WorkerCompensationEnvelope {
  * envelope shape.
  */
 function unwrapWorkerCompensation(raw: unknown): unknown {
-	if (raw && typeof raw === "object" && "actionCompensationData" in raw) {
-		return (raw as WorkerCompensationEnvelope).actionCompensationData
+	if (raw && typeof raw === "object" && "compensation" in raw) {
+		return (raw as WorkerCompensationEnvelope).compensation?.actionData
 	}
 	return raw
 }

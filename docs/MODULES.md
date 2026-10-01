@@ -295,3 +295,58 @@ modules/*/.design-state.json
 A module's contract is "if the LLM plans action X with these params, the action will produce these files with these contents". If the action's body has a non-deterministic bug (e.g. depends on a non-seeded RNG, or has an off-by-one that the LLM's plan sometimes hides), the plan can succeed but the run can drift across invocations. The 5x consistency test catches that drift at module creation time, so you see the problem while you still have context. If the test fails, the CLI sends you back to DEVELOP with the divergence trace as the LLM's user-message; the LLM uses the trace to refine the action's params or validators.
 
 The arxiv literature on LLM agent reproducibility (Measuring Determinism in LLM Code Generation; How Consistent Are LLM Agents) explicitly calls out repeated-run variance and recommends N≥5 to be statistically meaningful. We use exact hash equality because the orchestrator already runs at temperature 0.0.
+
+## Running an action: the receipt
+
+`baka run <module>/<action> --json`, the `baka_run` MCP tool, `POST /v1/run`, and `runAction` from `@baka/core` all return the same JSON, an `ActionResult`:
+
+```jsonc
+{
+  "ok": true,
+  "module": "hello",
+  "action": "greet",
+  "diagnostics": [],            // error diagnostics, then validator output
+  "changeset": [                // one entry per path the action addressed, sorted by path
+    { "path": "hello.md", "op": "create", "contentHash": "<sha256 hex>" }
+  ],
+  "outputTreeHash": "<sha256 hex>",
+  "slots": [ /* the slot fills, see "Slot records and replay" */ ],
+  "compensation": { "created": ["hello.md"], "overwritten": [], "actionData": { "written": ["hello.md"] } },
+  "output": null,               // what a side-effect action.ts returned, else null
+  "dryRun": false
+}
+```
+
+`ok` is false when any diagnostic has `severity: "error"`. A run that fails while executing (a template error, a missing slot, an `action.ts` that reports failure) leaves nothing behind: files it created are removed, files it overwrote are restored, the changeset is empty, and the one error diagnostic carries a stable code in `rule` (`module-not-found`, `action-not-found`, `action-empty`, `invalid-params`, `slot-no-provider`, `slot-provider-error`, `slot-record-missing`, `slot-record-stale`, `slot-fill-invalid`, `template-invalid`, `dry-run-unsupported`, `action-failed`, `unexpected`). A run whose validators fail is different: the files stay, `ok` is false, and `compensation` still describes everything written so the caller can undo it with `compensateAction`.
+
+### Changeset
+
+Each entry is `{ path, op, contentHash, reason? }`. `path` is project-relative, POSIX-separated, with no leading `./`. `contentHash` is the sha256 (lowercase hex) of the file's bytes after the run, or `null` for a delete.
+
+| `op` | Meaning |
+|---|---|
+| `create` | The file did not exist; it was written. |
+| `update` | The file existed with other content and was rewritten. |
+| `delete` | The file existed before and is gone after (side-effect actions only). |
+| `unchanged` | The file already held exactly the bytes the action would write (`reason: "identical"`). |
+| `skip` | The file exists with other content and was left alone (`reason: "already-exists"`). |
+
+For template files the entries come straight from the plan, so they are exact. An action with an `action.ts` can do anything, so its effects are found by hashing the project tree before and after it runs (skipping `.git/`, `node_modules/`, and the root `.baka/`) and diffing; the result is merged into the template entries. `includeContent` (`--include-content`, `includeContent: true`) adds each written file's UTF-8 text as `content` on `create`, `update`, and `unchanged` entries.
+
+### outputTreeHash
+
+`outputTreeHash` identifies the tree an action produced. It is the sha256 (lowercase hex) of this UTF-8 text:
+
+```
+baka.tree.v1\n
+<path>\0<contentHash>\n          one line per changeset entry
+```
+
+- Lines are sorted ascending by the UTF-8 bytes of `<path>` (not by JS string order).
+- `<contentHash>` is the entry's `contentHash`, or the literal `deleted` when it is null.
+- The `op` and `reason` are not part of the hash. A first run that `create`s two files and a rerun that finds both `unchanged` therefore hash the same, while a rerun that finds one of them `skip`ped with different content hashes differently: the hash covers the bytes on disk, which is the tree you actually have.
+- An empty changeset hashes the text `baka.tree.v1\n`.
+
+### Dry run
+
+`dryRun: true` (`baka run --dry-run`) plans and returns the same receipt without writing anything: no project files and no slot-cache entries. The tree it reports is the tree a real run would leave, given the same slot fills. A dry run is only available for template-only actions; an action with an `action.ts` has side effects (spawn, git, package.json edits) that cannot be virtualised, so it fails with `dry-run-unsupported` rather than pretending. Validators inspect the real tree, so a dry run does not run them. Because a dry run does not persist fills, hand its `slots` to the real run (see "Slot records and replay") when the real run must produce the tree the dry run predicted.

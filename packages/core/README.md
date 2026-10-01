@@ -22,6 +22,27 @@ const result = await runAction({
 })
 ```
 
+## The receipt
+
+`runAction` resolves to an `ActionResult` (it never throws for a failed run):
+
+```ts
+interface ActionResult {
+	ok: boolean // false when any diagnostic is an error
+	module: string
+	action: string
+	diagnostics: ValidationDiagnostic[] // a failed run carries one error whose `rule` is an ActionErrorCode
+	changeset: ChangesetEntry[] // { path, op: "create" | "update" | "delete" | "unchanged" | "skip", contentHash, reason? }
+	outputTreeHash: string // sha256 over the canonical (path, contentHash) list
+	slots: SlotRecord[]
+	compensation: ActionCompensation // feed to compensateAction() to undo the run
+	output: unknown // what a side-effect action.ts returned, else null
+	dryRun: boolean
+}
+```
+
+`dryRun: true` computes the same receipt without writing a byte. The exact definition of `outputTreeHash`, the changeset ops, and the failure semantics are in [docs/MODULES.md](../../docs/MODULES.md#running-an-action-the-receipt).
+
 ## What this package does not do
 
 - It never reads `${BAKA_HOME:-$HOME/.baka}` (config, user marketplace, user slot cache). Modules come only from the directories you pass to `createRegistry`. The user-level slot cache is only consulted if you build a store with `createDiskSlotStore(root, { userFallback: true })`.

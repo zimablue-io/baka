@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join, posix } from "node:path"
 import type { SlotDecl } from "@repo/protocol"
 import { SlotKindSchema } from "@repo/protocol"
@@ -21,7 +21,7 @@ export class SlotTemplateError extends Error {
 	}
 }
 
-export function hashBytes(input: string): string {
+export function hashBytes(input: string | Uint8Array): string {
 	return createHash("sha256").update(input).digest("hex")
 }
 
@@ -214,11 +214,11 @@ export function slotCacheKey(input: {
 	return hashBytes(`${input.templateHash}\0${input.slotId}\0${input.paramsHash}\0${input.model}`)
 }
 
-function ensureDir(path: string): void {
-	mkdirSync(path, { recursive: true })
-}
-
-export function writeTextFile(path: string, content: string): void {
-	ensureDir(join(path, ".."))
-	writeFileSync(path, content, "utf-8")
+/**
+ * Model-independent identity of one slot fill (see SlotRecord.key): the same
+ * template bytes, slot id, and params always yield the same key, whichever
+ * model produced the value.
+ */
+export function slotRecordKey(input: { templateHash: string; slotId: string; paramsHash: string }): string {
+	return hashBytes(`${input.templateHash}\0${input.slotId}\0${input.paramsHash}`)
 }

@@ -99,7 +99,7 @@ describe("engine Hono SSOT", () => {
 			body: JSON.stringify({ module: "hello", action: "greet", params: { name: "Ada" } }),
 		})
 		expect(run1.status).toBe(200)
-		const body1 = (await run1.json()) as { ok: boolean; tree: Record<string, string> }
+		const body1 = (await run1.json()) as { ok: boolean; changeset: unknown[]; outputTreeHash: string }
 		expect(body1.ok).toBe(true)
 		expect(readFileSync(join(cwd, "hello.md"), "utf-8")).toBe("# Ada\nA greeting.\n")
 
@@ -121,8 +121,9 @@ describe("engine Hono SSOT", () => {
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ module: "hello", action: "greet", params: { name: "Ada" } }),
 		})
-		const body2 = (await run2.json()) as { tree: Record<string, string> }
-		expect(body2.tree).toEqual(body1.tree)
+		const body2 = (await run2.json()) as { changeset: unknown[]; outputTreeHash: string }
+		expect(body2.changeset).toEqual(body1.changeset)
+		expect(body2.outputTreeHash).toBe(body1.outputTreeHash)
 	})
 
 	it("GET /v1/preview returns the template documents for any action", async () => {
