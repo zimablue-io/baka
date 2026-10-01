@@ -27,6 +27,7 @@ import { removeCreatedDirectories, resolveContained } from "./contain.js"
 import { ActionError } from "./errors.js"
 import { pinModule, verifyPin } from "./lock.js"
 import { applyPlan, planTemplates, type Rollback, revertFiles, type TemplatePlan } from "./materialize.js"
+import { loadModuleData } from "./module-data.js"
 import type { ModuleRegistry } from "./registry.js"
 import { createDiskSlotStore, type SlotStore } from "./slot-cache.js"
 import { parseActionTemplates } from "./slots.js"
@@ -95,7 +96,12 @@ export function previewAction(registry: ModuleRegistry, moduleName: string, acti
 		params: action.params,
 		requiresReasoning: action.requiresReasoning,
 		filePatterns: action.filePatterns,
-		files: parsed.files.map((f) => ({ rel: f.rel, source: f.source })),
+		files: parsed.files.map((f) => ({
+			rel: f.rel,
+			source: f.source,
+			...(f.directive.when ? { when: f.directive.when } : {}),
+			...(f.directive.mode ? { mode: f.directive.mode } : {}),
+		})),
 		slots: parsed.slots,
 	}
 }
@@ -149,6 +155,7 @@ function buildActionContext(args: {
 	onExisting: OnExisting
 	dryRun: boolean
 	files: ProjectFiles
+	data: Readonly<Record<string, unknown>>
 }): ActionContext {
 	return {
 		llmProvider: args.provider,
@@ -157,6 +164,7 @@ function buildActionContext(args: {
 		onExisting: args.onExisting,
 		dryRun: args.dryRun,
 		files: args.files.api,
+		data: args.data,
 	}
 }
 
@@ -231,11 +239,14 @@ export async function runAction(input: RunActionInput): Promise<ActionResult> {
 			)
 		}
 
+		const data = loadModuleData(moduleRoot)
+
 		if (hasTemplates) {
 			plan = await planTemplates({
 				root,
 				templatesDir,
 				params,
+				data,
 				provider,
 				model,
 				store: input.store ?? createDiskSlotStore(root),
@@ -245,11 +256,12 @@ export async function runAction(input: RunActionInput): Promise<ActionResult> {
 				onExisting: input.onExisting ?? "skip",
 			})
 		}
-		changeset = plan.files.map(({ path, op, contentHash, reason }) => ({
+		changeset = plan.files.map(({ path, op, contentHash, reason, mode }) => ({
 			path,
 			op,
 			contentHash,
 			...(reason ? { reason } : {}),
+			...(mode ? { mode } : {}),
 		}))
 		const makeContext = (files: ProjectFiles): ActionContext =>
 			buildActionContext({
@@ -260,6 +272,7 @@ export async function runAction(input: RunActionInput): Promise<ActionResult> {
 				onExisting: input.onExisting ?? "skip",
 				dryRun,
 				files,
+				data,
 			})
 
 		if (dryRun) {
@@ -269,7 +282,11 @@ export async function runAction(input: RunActionInput): Promise<ActionResult> {
 					root,
 					onExisting: input.onExisting ?? "skip",
 					dryRun: true,
-					seed: new Map(plan.files.filter((f) => f.op !== "skip").map((f) => [f.path, Buffer.from(f.content)])),
+					seed: new Map(
+						plan.files
+							.filter((f) => f.op !== "skip")
+							.map((f) => [f.path, { bytes: Buffer.from(f.content), ...(f.mode ? { mode: f.mode } : {}) }]),
+					),
 				})
 				const loaded = loadAction<Record<string, unknown>, unknown, unknown>(root, moduleRoot, manifest, action.id)
 				const run = await executeAction(loaded.step, params, root, makeContext(projectFiles))
@@ -489,6 +506,7 @@ function mergeActionChanges(planned: ChangesetEntry[], changes: ChangesetEntry[]
 			byPath.set(change.path, change)
 		} else if (change.op === "create" || change.op === "update") {
 			entry.contentHash = change.contentHash
+			if (change.mode) entry.mode = change.mode
 			if (entry.op === "unchanged" || entry.op === "skip") {
 				entry.op = "update"
 				delete entry.reason
@@ -530,6 +548,7 @@ export async function compensateAction(input: CompensateActionInput): Promise<vo
 			onExisting: "skip",
 			dryRun: false,
 			files,
+			data: loadModuleData(moduleRoot),
 		}),
 	)
 }

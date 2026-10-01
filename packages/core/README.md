@@ -78,6 +78,10 @@ An `action.ts` exports an `ActionStep` (`execute(params, state, ctx)` and `compe
 
 `onExisting: "skip" | "overwrite" | "fail"` (default `skip`) decides what happens to template targets that already exist. The changeset reports each as `unchanged` (identical bytes), `skip` (other bytes, left alone), or `update` (rewritten), so a caller can tell "same tree" from "nothing happened": a rerun over its own output is all `unchanged` with the same `outputTreeHash`. See [docs/MODULES.md](../../docs/MODULES.md#rerunning-an-action).
 
+## Templates and module data
+
+A template is a small, fail-closed Handlebars subset with a few additions for generating real projects: a first-line `{{!-- @baka when="..." mode="0755" --}}` directive makes a file conditional on the params and sets its executable bit (`mode` is part of the receipt and the tree hash), `\{{` writes a literal `{{`, `{{json x}}` and `{{jsonEscape x}}` JSON-escape a value, and a module's `data/*.json` files are exposed read-only as `data.<name>` to templates and to `action.ts` (`ctx.data`). See [docs/MODULES.md](../../docs/MODULES.md#template-language).
+
 ## Containment
 
 Nothing is ever written, read for a write decision, or deleted outside `root`. A template path rendered from params (`{{dir}}/{{name}}/...` with `name = ../../x`), an absolute path, a `..` segment, a path through `.git` or the root's `.baka/`, and a path through a symlink that leaves the root all fail the run with `path-escape` before the first write. Rollback (`compensateAction`) validates the paths of the compensation it is given and removes the directories the run created (`compensation.createdDirs`). Constrain string params in the manifest with `format` (`slug`, `path-segment`, `relative-path`, `identifier`, `package-name`), `pattern`, `minLength`, `maxLength`; they are enforced as `invalid-params` and exported in the JSON Schema. See [docs/MODULES.md](../../docs/MODULES.md#path-containment).

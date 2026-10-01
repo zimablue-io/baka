@@ -18,21 +18,24 @@ export function compareUtf8(a: string, b: string): number {
 
 /**
  * The output tree hash. Input is every changeset entry's (path, contentHash)
- * pair, with `deleted` standing in for a null hash. The canonical text is
+ * pair, with `deleted` standing in for a null hash, plus its `mode` when the
+ * entry declares one. The canonical text is
  *
  *   baka.tree.v1\n
- *   <path>\0<contentHash>\n      (one line per entry, ascending by UTF-8 bytes of <path>)
+ *   <path>\0<contentHash>[\0<mode>]\n   (one line per entry, ascending by UTF-8 bytes of <path>)
  *
- * and the hash is the sha256 of that text, lowercase hex. Paths are
+ * and the hash is the sha256 of that text, lowercase hex. An entry without a
+ * mode (every file whose permission bits nobody declared) has exactly the
+ * line it always had. Paths are
  * project-relative, POSIX-separated, and carry no leading `./`. The op and
  * reason of an entry are deliberately NOT hashed: two runs that leave the
  * same bytes at the same paths hash identically whether the first created
  * the files and the second found them already there.
  */
-export function outputTreeHash(entries: ReadonlyArray<Pick<ChangesetEntry, "path" | "contentHash">>): string {
+export function outputTreeHash(entries: ReadonlyArray<Pick<ChangesetEntry, "path" | "contentHash" | "mode">>): string {
 	const lines = [...entries]
 		.sort((a, b) => compareUtf8(a.path, b.path))
-		.map((e) => `${e.path}\0${e.contentHash ?? "deleted"}\n`)
+		.map((e) => `${e.path}\0${e.contentHash ?? "deleted"}${e.mode ? `\0${e.mode}` : ""}\n`)
 	return sha256Hex(`${TREE_HASH_DOMAIN}\n${lines.join("")}`)
 }
 

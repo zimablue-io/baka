@@ -27,6 +27,8 @@ modules/<my-module>/
     validators/<id>.ts # one kebab-case file per rule declared in manifest
   add-script/
     action.ts
+  data/
+    <name>.json        # read-only data, exposed as `data.<name>` (see "Module data")
   _shared/
     helpers/<name>.ts  # ordinary TS modules, imported via relative paths
     validators/<id>.ts # module-level validators (whole-module checks)
@@ -364,7 +366,7 @@ The arxiv literature on LLM agent reproducibility (Measuring Determinism in LLM 
 
 ### Changeset
 
-Each entry is `{ path, op, contentHash, reason? }`. `path` is project-relative, POSIX-separated, with no leading `./`. `contentHash` is the sha256 (lowercase hex) of the file's bytes after the run, or `null` for a delete.
+Each entry is `{ path, op, contentHash, reason?, mode? }` (`mode` only when a template or `ctx.files.write` declared permission bits). `path` is project-relative, POSIX-separated, with no leading `./`. `contentHash` is the sha256 (lowercase hex) of the file's bytes after the run, or `null` for a delete.
 
 | `op` | Meaning |
 |---|---|
@@ -392,6 +394,7 @@ The hash is the sha256 (lowercase hex) of this UTF-8 text:
 ```
 baka.tree.v1\n
 <path>\0<contentHash>\n          one line per changeset entry
+<path>\0<contentHash>\0<mode>\n   ... for an entry that declares a mode (see "Conditional files and file modes")
 ```
 
 - Lines are sorted ascending by the UTF-8 bytes of `<path>` (not by JS string order).
@@ -402,6 +405,58 @@ baka.tree.v1\n
 ### Dry run
 
 `dryRun: true` (`baka run --dry-run`) plans and returns the same receipt without writing anything: no project files and no slot-cache entries. The tree it reports is the tree a real run would leave, given the same slot fills. Template-only actions are always dry-runnable. An action with an `action.ts` is dry-runnable if its manifest sets `supportsDryRun` and it writes through `ctx.files` (see "The `action.ts` contract"); any other action fails with `dry-run-unsupported` rather than pretending. Validators inspect the real tree, so a dry run does not run them. Because a dry run does not persist fills, hand its `slots` to the real run (see "Slot records and replay") when the real run must produce the tree the dry run predicted.
+
+## Template language
+
+Every `.hbs` file under `<action>/templates/` is one output file: its path under `templates/`, minus `.hbs`, is the output path (itself a template: `{{dir}}/{{name}}/README.md.hbs`). The language is a deliberately small Handlebars subset, checked on the parsed template and failing closed: anything outside it fails the run with `template-invalid`, naming the construct.
+
+| Allowed | Notes |
+|---|---|
+| `{{param}}`, `{{data.versions.pnpm}}`, `{{this}}`, `{{@index}}` | A plain path. No literals, no sub-expressions. A missing value renders as empty. |
+| `{{#if x}}...{{else}}...{{/if}}`, `{{#each xs}}...{{/each}}` | One path argument, no options, no block params. `{{else if y}}` chains. |
+| `{{json x}}`, `{{jsonEscape x}}` | The only helpers; exactly one path argument. See "JSON escaping". |
+| `{{#slot "id" kind="..." max=N}}hint{{/slot}}` | A named hole the model fills; see "Slot records and replay". |
+| `{{!-- comment --}}`, `~` whitespace control | |
+
+Everything else is rejected: triple-stash `{{{x}}}` and `{{&x}}`, partials, decorators, raw blocks, sub-expressions, `with`, `unless`, `lookup`, `log`, any other helper, any other block. (`{{log}}` and `{{lookup}}` are plain parameter names here, not helpers.) The check applies to output paths as well as file bodies.
+
+Params are never evaluated as templates: a param value or a slot fill containing `{{` is written out literally.
+
+### Conditional files and file modes
+
+A template may start with a directive on its **first line**, a comment that never reaches the output:
+
+```hbs
+{{!-- @baka when="vitest" mode="0755" --}}
+#!/bin/sh
+```
+
+- `when` makes the file conditional. The file is written only if the expression holds for the params; otherwise it is not part of the run (not planned, not in the changeset, and its slots are never filled, so no model is asked). Expressions: `name` (truthy), `!name`, `name=value`, `name!=value`, with dotted paths (`owner.login`, `data.features.strict`) and an optional single-quoted value (`kind='lib'`). Truthiness is Handlebars' `if`: `false`, `0`, `""`, `null`, `undefined`, and `[]` are false. Equality compares the value's string form (`vitest=true` works on a boolean). `name=value` is false when `name` is missing, `name!=value` true.
+- `mode` is the file's permission bits: three or four octal digits (`"0755"`; setuid, setgid, and sticky bits are refused). The engine applies them with `chmod` after writing, so the umask does not matter. The mode is part of the file's identity: the changeset entry carries `mode` (`"0755"`), and when an entry has one its line in `outputTreeHash` becomes `<path>\0<contentHash>\0<mode>\n` (entries without a mode hash exactly as before). A rerun finds the file `unchanged` only if bytes and bits both match; with identical bytes but other bits `skip` leaves it (reporting the actual bits, `reason: "already-exists"`) and `overwrite` fixes it (`update`; the previous bits go into `compensation.overwritten[].mode` so a rollback restores them). `ctx.files.write(path, content, { mode: "0755" })` has the same semantics.
+
+Keys other than `when` and `mode`, a repeated key, a malformed expression, and a directive that is not on the first line are all `template-invalid`.
+
+### Literal braces
+
+`\{{` writes a literal `{{`, so generated code can contain braces: `style=\{{ color: '{{name}}' }}` renders `style={{ color: 'red' }}`. Only the opener needs the escape; the `}}` that follows is plain text. (`\\{{name}}` is not an escape: it is a backslash followed by an interpolation.) Templates may not contain the private-use characters U+E000 and U+E001, which the engine uses internally.
+
+### JSON escaping
+
+`{{json x}}` writes `x` as a JSON literal (a string with its quotes, a number, a boolean, an array or object; a missing value is `null`), and `{{jsonEscape x}}` writes the body of a JSON string without the quotes, for embedding in a string you wrote yourself:
+
+```hbs
+{
+  "name": {{json name}},
+  "description": "Package for {{jsonEscape name}}",
+  "keywords": {{json keywords}}
+}
+```
+
+Nothing else HTML- or JSON-escapes a value; interpolation is raw text.
+
+### Module data
+
+Files `data/<name>.json` directly under the module root are parsed and exposed read-only as `data.<name>`: `data/versions.json` is `{{data.versions.pnpm}}` in a template (and in `when` and output paths) and `ctx.data.versions.pnpm` in an `action.ts`. The object is deeply frozen. One copy of shared pins therefore lives in the module, not duplicated into `_shared/` with a drift test. Other files and subdirectories of `data/` are ignored; a file that is not valid JSON, or whose name does not match `[A-Za-z0-9][A-Za-z0-9_-]*`, makes the module invalid (`module-invalid`). The files are part of the module's content hash, so the pin in `baka.lock.json` covers them. `data` is a reserved param name. Data is not shown to the slot model (slot fills depend on the params only).
 
 ## Path containment
 

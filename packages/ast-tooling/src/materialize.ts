@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { dirname, posix } from "node:path"
 import type {
 	ActionCompensation,
@@ -16,6 +16,7 @@ import { ActionError } from "./errors.js"
 import type { SlotStore } from "./slot-cache.js"
 import {
 	canonicalJson,
+	evaluateWhen,
 	hashBytes,
 	interpolatePath,
 	parseActionTemplates,
@@ -103,11 +104,23 @@ function replayRecord(slot: SlotDecl, key: string, records: readonly SlotRecord[
 	return { ...record, source: "replay" }
 }
 
+/** A template's output path, with subset errors reported as `template-invalid`. */
+function outputPath(file: { rel: string }, context: Record<string, unknown>): string {
+	try {
+		return interpolatePath(file.rel.replace(/\.hbs$/, ""), context)
+	} catch (err) {
+		if (err instanceof SlotTemplateError) throw new ActionError("template-invalid", err.message)
+		throw err
+	}
+}
+
 export interface PlanTemplatesOptions {
 	/** Project root: where the files would be written and where existing files are compared. */
 	root: string
 	templatesDir: string
 	params: Record<string, unknown>
+	/** The module's `data/*.json` files; templates read them as `data.<name>`. */
+	data: Readonly<Record<string, unknown>>
 	provider: LLMProvider | null
 	model: string
 	/** Slot cache: read before a model call, written after one (unless `persist` is false). */
@@ -127,6 +140,8 @@ export interface PlannedFile extends ChangesetEntry {
 	content: string
 	/** The bytes found on disk before the run, when the path already existed. */
 	previous?: Buffer
+	/** The permission bits found on disk before an `update`, so a rollback can restore them. */
+	previousMode?: string
 }
 
 export interface TemplatePlan {
@@ -140,12 +155,23 @@ export interface TemplatePlan {
  * so the same plan serves a real run and a dry run.
  */
 export async function planTemplates(opts: PlanTemplatesOptions): Promise<TemplatePlan> {
-	const { files, slots } = parseActionTemplates(opts.templatesDir)
+	let parsed: ReturnType<typeof parseActionTemplates>
+	try {
+		parsed = parseActionTemplates(opts.templatesDir)
+	} catch (err) {
+		if (err instanceof SlotTemplateError) throw new ActionError("template-invalid", err.message)
+		throw err
+	}
+	// What a template can see: the params and the module's data files.
+	const context: Record<string, unknown> = { ...opts.params, data: opts.data }
+	// A template whose `when` does not hold is not part of this run: it writes nothing and its slots are never filled.
+	const files = parsed.files.filter((f) => f.directive.when === undefined || evaluateWhen(f.directive.when, context))
+	const slots = parsed.slots.filter((slot) => files.some((f) => f.rel === slot.file))
 	// Everything decidable from the params and the disk alone is checked up front, so a bad
 	// target fails the run before any slot is filled or any model is asked.
 	const targets = new Map<string, string>() // output path -> template it came from
 	for (const file of files) {
-		const path = interpolatePath(file.rel.replace(/\.hbs$/, ""), opts.params)
+		const path = outputPath(file, context)
 		const other = targets.get(path)
 		if (other !== undefined) {
 			throw new ActionError("template-invalid", `templates ${other} and ${file.rel} render to the same path "${path}"`)
@@ -222,31 +248,36 @@ export async function planTemplates(opts: PlanTemplatesOptions): Promise<Templat
 
 	const planned = new Map<string, PlannedFile>()
 	for (const file of files) {
-		const path = interpolatePath(file.rel.replace(/\.hbs$/, ""), opts.params)
+		const path = outputPath(file, context)
 		let content: string
 		try {
-			content = renderTemplate(file.source, opts.params, fills)
+			content = renderTemplate(file.body, context, fills)
 		} catch (err) {
 			if (err instanceof SlotTemplateError) throw new ActionError("template-invalid", err.message)
 			throw err
 		}
 		const contentHash = hashBytes(content)
+		const mode = file.directive.mode
+		const withMode = mode ? { mode } : {}
 		const abs = resolveContained(opts.root, path)
 		if (!existsSync(abs)) {
-			planned.set(path, { path, op: "create", contentHash, content })
+			planned.set(path, { path, op: "create", contentHash, ...withMode, content })
 			continue
 		}
 		const previous = readFileSync(abs)
-		if (hashBytes(previous) === contentHash) {
-			planned.set(path, { path, op: "unchanged", contentHash, reason: "identical", content, previous })
+		const previousMode = formatMode(statSync(abs).mode)
+		const sameBytes = hashBytes(previous) === contentHash
+		if (sameBytes && (!mode || previousMode === mode)) {
+			planned.set(path, { path, op: "unchanged", contentHash, reason: "identical", ...withMode, content, previous })
 		} else if (opts.onExisting === "overwrite") {
-			planned.set(path, { path, op: "update", contentHash, content, previous })
+			planned.set(path, { path, op: "update", contentHash, ...withMode, content, previous, previousMode })
 		} else {
 			planned.set(path, {
 				path,
 				op: "skip",
 				contentHash: hashBytes(previous),
 				reason: "already-exists",
+				...(mode ? { mode: previousMode } : {}),
 				content,
 				previous,
 			})
@@ -256,6 +287,11 @@ export async function planTemplates(opts: PlanTemplatesOptions): Promise<Templat
 		files: [...planned.values()].sort((a, b) => compareUtf8(a.path, b.path)),
 		slots: records,
 	}
+}
+
+/** Permission bits as four octal digits. */
+export function formatMode(mode: number): string {
+	return (mode & 0o777).toString(8).padStart(4, "0")
 }
 
 export type Rollback = Pick<ActionCompensation, "created" | "createdDirs" | "overwritten">
@@ -275,15 +311,17 @@ export function revertFiles(root: string, compensation: Rollback): void {
 	const restore = compensation.overwritten.map((entry) => ({
 		abs: resolveContained(root, entry.path),
 		bytes: Buffer.from(entry.contentBase64, "base64"),
+		mode: entry.mode,
 	}))
 	const dirs = compensation.createdDirs.map((rel) => {
 		resolveContained(root, rel)
 		return rel
 	})
 	for (const abs of created) rmSync(abs, { force: true })
-	for (const { abs, bytes } of restore) {
+	for (const { abs, bytes, mode } of restore) {
 		mkdirSync(dirname(abs), { recursive: true })
 		writeFileSync(abs, bytes)
+		if (mode) chmodSync(abs, Number.parseInt(mode, 8))
 	}
 	removeCreatedDirectories(root, dirs)
 }
@@ -297,9 +335,14 @@ export function applyPlan(root: string, plan: TemplatePlan): Rollback {
 			const abs = resolveContained(root, file.path)
 			ensureDirectory(root, posix.dirname(file.path), done.createdDirs)
 			if (file.op === "update" && file.previous) {
-				done.overwritten.push({ path: file.path, contentBase64: file.previous.toString("base64") })
+				done.overwritten.push({
+					path: file.path,
+					contentBase64: file.previous.toString("base64"),
+					...(file.mode && file.previousMode ? { mode: file.previousMode } : {}),
+				})
 			}
 			writeFileSync(abs, file.content, "utf-8")
+			if (file.mode) chmodSync(abs, Number.parseInt(file.mode, 8))
 			if (file.op === "create") done.created.push(file.path)
 		}
 	} catch (err) {

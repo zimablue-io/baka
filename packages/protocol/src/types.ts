@@ -95,6 +95,12 @@ export interface ActionFileWrite {
 export interface ActionWriteOptions {
 	/** Overrides the run's `onExisting` for this one file. */
 	onExisting?: OnExisting
+	/**
+	 * Permission bits as three or four octal digits (`"0755"`; no setuid,
+	 * setgid, or sticky bit). Part of the file's identity: identical bytes
+	 * with other bits are not `unchanged`, they are handled by `onExisting`.
+	 */
+	mode?: string
 }
 
 /**
@@ -149,6 +155,11 @@ export interface ActionContext extends StepContext {
 	 */
 	readonly dryRun: boolean
 	readonly files: ActionFiles
+	/**
+	 * The module's `data/*.json` files, read-only: `data/versions.json` is
+	 * `ctx.data.versions`. Empty when the module ships none.
+	 */
+	readonly data: Readonly<Record<string, unknown>>
 }
 
 /**

@@ -176,7 +176,21 @@ export function paramsToZod(params: readonly ModuleActionParam[]): z.ZodObject<z
 export const ModuleActionSchema = z.object({
 	id: z.string().min(1),
 	description: z.string(),
-	params: z.array(ModuleActionParamSchema),
+	params: z.array(ModuleActionParamSchema).superRefine((params, ctx) => {
+		const seen = new Set<string>()
+		params.forEach((param, index) => {
+			if (param.name === "data") {
+				ctx.addIssue({
+					code: "custom",
+					path: [index, "name"],
+					message: 'the param name "data" is reserved: templates and action.ts read the module\'s data files as `data`',
+				})
+			}
+			if (seen.has(param.name))
+				ctx.addIssue({ code: "custom", path: [index, "name"], message: `duplicate param "${param.name}"` })
+			seen.add(param.name)
+		})
+	}),
 	requiresReasoning: z.boolean().default(false),
 	compensatesWith: z.string().optional(),
 	filePatterns: z.array(z.string()).default([]),
@@ -271,6 +285,16 @@ export const ChangesetEntrySchema = z.object({
 	contentHash: z.string().nullable(),
 	/** Why nothing was written: `identical` for `unchanged`, `already-exists` for `skip`. */
 	reason: ChangeReasonSchema.optional(),
+	/**
+	 * The file's permission bits as four octal digits (`"0755"`), present only
+	 * when the template or `ctx.files.write` declared a mode: the declared one
+	 * for `create`, `update`, and `unchanged`; the file's actual bits for `skip`.
+	 * Part of the file's identity, so it is part of `outputTreeHash` when present.
+	 */
+	mode: z
+		.string()
+		.regex(/^[0-7]{4}$/)
+		.optional(),
 	/** The file's UTF-8 text after the action. Only present when the caller asked for content, and never for `delete` or `skip`. */
 	content: z.string().optional(),
 })
@@ -379,8 +403,15 @@ export const ActionCompensationSchema = z.object({
 	created: z.array(z.string()),
 	/** Directories this run created, in creation order; compensation removes them (deepest first) once empty. */
 	createdDirs: z.array(z.string()),
-	/** Files this run overwrote, with their previous bytes; compensation restores them. */
-	overwritten: z.array(z.object({ path: z.string(), contentBase64: z.string() })),
+	/** Files this run overwrote or deleted, with their previous bytes; compensation restores them. */
+	overwritten: z.array(
+		z.object({
+			path: z.string(),
+			contentBase64: z.string(),
+			/** The file's previous permission bits (`"0644"`), when the run changed them. */
+			mode: z.string().optional(),
+		}),
+	),
 	/** What the action's own `execute` returned as compensation data; handed back to its `compensate`. */
 	actionData: z.unknown(),
 })

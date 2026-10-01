@@ -51,6 +51,7 @@ describe("planTemplates", () => {
 		const plan = await planTemplates({
 			root: dir,
 			templatesDir: templates,
+			data: {},
 			params,
 			provider: null,
 			model: BAKA_DEFAULT_WORKER_MODEL,
@@ -77,6 +78,7 @@ describe("planTemplates", () => {
 			const plan = await planTemplates({
 				root: dir,
 				templatesDir: templates,
+				data: {},
 				params,
 				provider: null,
 				model: BAKA_DEFAULT_WORKER_MODEL,
@@ -107,6 +109,7 @@ describe("planTemplates", () => {
 		const plan = await planTemplates({
 			root: dir,
 			templatesDir: templates,
+			data: {},
 			params: { title: "Hi" },
 			provider,
 			model: "fake-model",
@@ -135,6 +138,7 @@ describe("applyPlan", () => {
 		const plan = await planTemplates({
 			root: dir,
 			templatesDir: templates,
+			data: {},
 			params: { title: "Hi" },
 			provider: null,
 			model: BAKA_DEFAULT_WORKER_MODEL,
