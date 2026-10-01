@@ -85,6 +85,15 @@ describe("dryRun", () => {
 		expect(dryResult.slots).toEqual(realResult.slots)
 	})
 
+	it("leaves no trace even when the modules live inside the project (no loader cache, nothing)", async () => {
+		const root = tempDir()
+		writeModule(join(root, "modules"), GREET_MODULE)
+		const registry = createRegistry({ root, moduleDirs: [join(root, "modules")] })
+		const result = await runAction({ registry, ...RUN, provider: fakeProvider("Hi."), dryRun: true })
+		expect(result.ok).toBe(true)
+		expect(readdirSync(root)).toEqual(["modules"])
+	})
+
 	it("does not persist slot fills, so a later real run still needs a model", async () => {
 		const { registry } = greetRegistry()
 		await runAction({ registry, ...RUN, provider: fakeProvider("Hi."), dryRun: true })
