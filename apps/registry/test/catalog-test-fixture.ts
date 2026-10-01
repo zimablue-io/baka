@@ -9,10 +9,10 @@ import { type BetterAuthHandle, createBetterAuth } from "../src/auth/better-auth
 import { createPgPool } from "../src/auth/kysely-db"
 import { ensureOrgPlanColumn } from "../src/auth/plan-limits"
 import { seedBuiltInCatalog, seedCatalogModules } from "../src/catalog/seed"
-import { TEST_CATALOG_MODULE } from "./test-catalog-module"
 import { applyAppMigrations } from "../src/db/migrate"
 import { buildApp } from "../src/index"
 import { createFilesystemStorage, type StorageAdapter } from "../src/storage"
+import { TEST_CATALOG_MODULE } from "./test-catalog-module"
 
 /**
  * Test fixture for the catalog read-paths feature.

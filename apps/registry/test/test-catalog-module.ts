@@ -1,4 +1,4 @@
-import { ModuleEntrySchema, type ModuleEntry } from "@repo/protocol"
+import { type ModuleEntry, ModuleEntrySchema } from "@repo/protocol"
 
 /**
  * One well-formed catalog entry for registry tests.

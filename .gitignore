@@ -58,3 +58,7 @@ dist-tarballs/
 # on the catch-all `out/` rule above (it is too broad and historically
 # incidental).
 modules/**/out/
+
+# Rust / Tauri build output
+src-tauri/target/
+src-tauri/gen/

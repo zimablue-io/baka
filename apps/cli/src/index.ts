@@ -21,7 +21,14 @@ import {
 } from "./commands/registry"
 import { runRole, runRolePath, runRoleShow } from "./commands/role"
 import { runRoles } from "./commands/roles"
-import { runFillCommand, runInspectCommand, runListModulesCommand, runRunCommand, runServeCommand, runSlotsCommand } from "./commands/run"
+import {
+	runFillCommand,
+	runInspectCommand,
+	runListModulesCommand,
+	runRunCommand,
+	runServeCommand,
+	runSlotsCommand,
+} from "./commands/run"
 import { runSearchCommand } from "./commands/search"
 
 function die(code: number, msg: string): never {
