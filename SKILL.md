@@ -24,10 +24,12 @@ Hosts already know how to run CLIs. `--json` composes. Do not prefer MCP.
 baka list-modules --json
 
 # Product path: named action. --json prints the receipt: ok, diagnostics, changeset
-# (path, op, contentHash), outputTreeHash, pins, slots, compensation.
+# (path, op, contentHash), outputTreeHash, pins, slots, compensation. A run validates by
+# default: ok is false when a validator reports an error; warnings are in diagnostics.
 baka run <module>/<action> --json
 baka run <module>/<action> --dry-run --json          # same receipt, writes nothing
 baka run <module>/<action> --on-existing overwrite   # skip (default) | overwrite | fail
+baka run <module>/<action> --no-validate             # skip validators (a run validates by default)
 baka run <module>/<action> --slot-records receipt.json   # replay a stored receipt's slot fills, no model
 baka slots <module>/<action> --json
 baka fill  <module>/<action> --slot <id> --value "..." --json

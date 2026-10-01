@@ -42,6 +42,7 @@ export function parseParamFlags(raw: string[] | undefined, paramsJson?: string):
 			key === "slot-records" ||
 			key === "on-existing" ||
 			key === "include-content" ||
+			key === "no-validate" ||
 			key === "params" ||
 			key === "slot" ||
 			key === "file" ||
@@ -88,6 +89,8 @@ export async function runRunCommand(
 		json?: boolean
 		dryRun?: boolean
 		includeContent?: boolean
+		/** `false` skips the validators (`--no-validate`); anything else validates, as `runAction` does. */
+		validate?: boolean
 		slotMode?: string
 		slotRecords?: string
 		onExisting?: string
@@ -111,6 +114,7 @@ export async function runRunCommand(
 			onExisting: opts.onExisting,
 			dryRun: opts.dryRun,
 			includeContent: opts.includeContent,
+			validate: opts.validate === false ? false : undefined,
 		},
 	})
 	const body = json as RunBody
@@ -161,7 +165,7 @@ interface RunBody {
 	dryRun?: boolean
 	outputTreeHash?: string
 	changeset?: Array<{ path: string; op: string; reason?: string }>
-	diagnostics?: Array<{ severity: string; rule: string; message: string }>
+	diagnostics?: Array<{ severity: string; rule: string; message: string; validator?: string }>
 }
 
 function printRunSummary(target: string, body: RunBody): void {
@@ -170,7 +174,7 @@ function printRunSummary(target: string, body: RunBody): void {
 		return
 	}
 	for (const d of body.diagnostics ?? []) {
-		process.stderr.write(`baka: ${d.severity} [${d.rule}] ${d.message}\n`)
+		process.stderr.write(`baka: ${d.severity} [${d.rule}] ${d.message}${d.validator ? ` (${d.validator})` : ""}\n`)
 	}
 	if (!body.ok) return
 	const lines = (body.changeset ?? []).map((e) => `  ${e.op.padEnd(9)} ${e.path}${e.reason ? ` (${e.reason})` : ""}`)

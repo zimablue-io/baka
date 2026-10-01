@@ -18,6 +18,7 @@ import type {
 	SlotModeSchema,
 	SlotRecordSchema,
 	SlotsInputSchema,
+	ValidatorRunSchema,
 } from "./schemas"
 
 // ---------------------------------------------------------------------------
@@ -41,6 +42,7 @@ export type SlotMode = z.infer<typeof SlotModeSchema>
 export type SlotsInput = z.infer<typeof SlotsInputSchema>
 export type ActionCompensation = z.infer<typeof ActionCompensationSchema>
 export type ActionResult = z.infer<typeof ActionResultSchema>
+export type ValidatorRun = z.infer<typeof ValidatorRunSchema>
 
 // ---------------------------------------------------------------------------
 // Agent role + workflow step contract
@@ -238,10 +240,16 @@ export interface ResolvedLLMConfig {
 
 export type ValidationDiagnostic = {
 	severity: "error" | "warning"
+	/** The validator's own rule id; for a failed run, an ActionErrorCode. */
 	rule: string
 	message: string
 	file?: string
 	hint?: string
+	/** `<module>:<id>` (module-level) or `<module>.<action>:<id>` (action-level) of the validator that produced it. */
+	validator?: string
+	/** The module a discovery (structural) diagnostic is about. */
+	module?: string
 }
 
-export type ValidationResult = { kind: "pass" } | { kind: "fail"; diagnostics: ValidationDiagnostic[] }
+/** `kind` is `fail` when any diagnostic is an error. Warnings are reported whichever it is. */
+export type ValidationResult = { kind: "pass" | "fail"; diagnostics: ValidationDiagnostic[] }

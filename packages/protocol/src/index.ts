@@ -113,6 +113,7 @@ export {
 	SlotRecordSchema,
 	SlotsInputSchema,
 	ValidationDiagnosticSchema,
+	ValidatorRunSchema,
 } from "./schemas"
 export type {
 	ActionCompensation,
@@ -149,6 +150,7 @@ export type {
 	StepResponse,
 	ValidationDiagnostic,
 	ValidationResult,
+	ValidatorRun,
 	WorkflowStep,
 } from "./types"
 export { AgentRole } from "./types"

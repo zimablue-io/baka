@@ -47,7 +47,7 @@ export { ModuleRegistry, validatorFilename } from "./registry.js"
 export type { CompensateActionInput, RunActionInput } from "./run-action.js"
 export { compensateAction, listActionSlots, previewAction, resolveAction, runAction } from "./run-action.js"
 export type { CompletedStep, SagaResult, SagaStep } from "./saga.js"
-export { runSaga } from "./saga.js"
+export { ranActions, runSaga } from "./saga.js"
 export type { SlotCacheRecord, SlotStore } from "./slot-cache.js"
 export {
 	createDiskSlotStore,
@@ -70,6 +70,7 @@ export {
 export type { LogEntry, LogLevel } from "./structured-log.js"
 export { StructuredLog } from "./structured-log.js"
 export { compareUtf8, diffSnapshots, moduleContentHash, outputTreeHash, sha256Hex, snapshotTree } from "./tree-hash.js"
+export type { RanAction, ValidationScope } from "./validator.js"
 export { runValidators } from "./validator.js"
 export type { WorkerInput, WorkerRollbackData } from "./worker.js"
 export { executeWorkerStep } from "./worker.js"

@@ -74,9 +74,7 @@ function toCamelCase(id: string): string {
  * Loads a module-level validator (a function that takes a state and returns
  * a list of diagnostics). Used by `baka validate`.
  */
-export type ModuleValidatorFn = (
-	state: OrchestrationState,
-) => Promise<Array<{ severity: "error" | "warning"; rule: string; message: string }>>
+export type ModuleValidatorFn = (state: OrchestrationState) => Promise<ValidationDiagnostic[]>
 
 export function loadModuleValidator(_projectRoot: string, moduleRoot: string, validatorId: string): ModuleValidatorFn {
 	const path = join(moduleRoot, "_shared", "validators", `${validatorFilename(validatorId)}.ts`)
@@ -94,11 +92,12 @@ export function loadModuleValidator(_projectRoot: string, moduleRoot: string, va
 
 /**
  * Loads an action-level validator. These live at
- * `<moduleRoot>/<actionId>/validators/<validatorId>.ts` and run after the
- * action completes, with access to the state so they can assert
- * post-execution invariants against the produced files.
+ * `<moduleRoot>/<actionId>/validators/<validatorId>.ts`. They receive the
+ * state, whose `run` field says which action run they are judging: the
+ * params, the action's output and compensation data, the changeset, and
+ * whether the action ran in this invocation (see `ValidatorRun`).
  */
-export type ActionValidatorFn = (state: OrchestrationState, actionData: unknown) => Promise<ValidationDiagnostic[]>
+export type ActionValidatorFn = (state: OrchestrationState) => Promise<ValidationDiagnostic[]>
 
 export function loadActionValidator(
 	_projectRoot: string,

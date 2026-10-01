@@ -256,7 +256,7 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 			slots: parsed.data.slots,
 			onExisting: parsed.data.onExisting,
 			includeContent: parsed.data.includeContent,
-			validate: parsed.data.validate ?? false,
+			validate: parsed.data.validate,
 		})
 		const status = result.ok ? 200 : 400
 		return c.json(result, status)

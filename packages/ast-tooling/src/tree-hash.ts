@@ -78,6 +78,22 @@ export function snapshotTree(root: string): Map<string, string> {
 	})
 }
 
+/** Every file path under a project (relative, POSIX, sorted), skipping the same trees as `snapshotTree`. */
+export function listProjectFiles(root: string): string[] {
+	const out: string[] = []
+	const walk = (dir: string, rel: string): void => {
+		for (const entry of readdirSync(dir, { withFileTypes: true })) {
+			const relPath = rel ? `${rel}/${entry.name}` : entry.name
+			if (entry.isDirectory()) {
+				if (entry.name === ".git" || entry.name === "node_modules" || (rel === "" && entry.name === ".baka")) continue
+				walk(join(dir, entry.name), relPath)
+			} else out.push(relPath)
+		}
+	}
+	walk(root, "")
+	return out.sort(compareUtf8)
+}
+
 /** Every directory under a project (relative, POSIX), skipping the same trees as `snapshotTree`. */
 export function snapshotDirectories(root: string): Set<string> {
 	const out = new Set<string>()

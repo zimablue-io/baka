@@ -1,6 +1,14 @@
 import { engineRequest } from "@baka/engine"
 import { createLLMProvider, loadLLMConfig, validateLLMConfig } from "@repo/agent-engine"
-import { listPlans, loadPlan, ModuleRegistry, runValidators, StructuredLog, savePlan } from "@repo/ast-tooling"
+import {
+	listPlans,
+	loadPlan,
+	ModuleRegistry,
+	ranActions,
+	runValidators,
+	StructuredLog,
+	savePlan,
+} from "@repo/ast-tooling"
 import { featurePlanningWorkflow } from "@repo/feature-planning-workflow"
 import type { LLMProvider, ModuleManifest, OrchestrationState, ResolvedLLMConfig, WorkflowStep } from "@repo/protocol"
 import { BAKA_EXIT_CODE } from "@repo/protocol"
@@ -206,12 +214,7 @@ export async function runApplyCommand(planFile: string, cwd: string, opts: { jso
 	// Post-apply: run validators, including action-level ones that need the
 	// compensation data each step returned (so they can assert on what was
 	// actually produced, not just the structural shape).
-	const actionResults = new Map<string, { compensationData: unknown }>()
-	for (const c of saga.completed) {
-		actionResults.set(`${c.module}:${c.action}`, { compensationData: c.compensationData })
-	}
-	const usedModules = Array.from(new Set(saga.completed.map((c) => c.module)))
-	const validation = await runValidators(registry, saga.state, actionResults, undefined, usedModules)
+	const validation = await runValidators(registry, saga.state, { mode: "actions", ran: ranActions(saga.completed) })
 
 	const completedSteps = saga.completed.map((c) => ({
 		id: c.id,
@@ -240,11 +243,14 @@ export async function runApplyCommand(planFile: string, cwd: string, opts: { jso
 	if (validation.kind === "fail") {
 		console.log("\napply: VALIDATION FAILED")
 		for (const d of validation.diagnostics) {
-			console.log(`  - [${d.severity}] ${d.rule}: ${d.message}`)
+			console.log(`  - [${d.severity}] ${d.rule}: ${d.message}${d.validator ? ` (${d.validator})` : ""}`)
 		}
 		process.exit(BAKA_EXIT_CODE.VALIDATION_ERROR)
 	}
 	console.log("\napply: success (validators passed)")
+	for (const d of validation.diagnostics) {
+		console.log(`  - [${d.severity}] ${d.rule}: ${d.message}${d.validator ? ` (${d.validator})` : ""}`)
+	}
 }
 
 /**
@@ -275,7 +281,7 @@ export async function runValidateCommand(cwd: string, opts: { json?: boolean; mo
 		moduleName?: string
 		validation?: {
 			kind: "pass" | "fail"
-			diagnostics?: Array<{ severity: string; rule: string; message: string }>
+			diagnostics?: Array<{ severity: string; rule: string; message: string; validator?: string }>
 		}
 	}
 	if (status >= 400) {
@@ -308,13 +314,9 @@ export async function runValidateCommand(cwd: string, opts: { json?: boolean; mo
 
 	console.log(`discovered ${body.modulesDiscovered ?? 0} module(s)`)
 	if (opts.module) console.log(`filtered to module: ${opts.module}`)
-	if (result.kind === "pass") {
-		console.log("\nvalidation: PASS")
-		return
-	}
-	console.log("\nvalidation: FAIL")
+	console.log(result.kind === "pass" ? "\nvalidation: PASS" : "\nvalidation: FAIL")
 	for (const d of result.diagnostics ?? []) {
-		console.log(`  - [${d.severity}] ${d.rule}: ${d.message}`)
+		console.log(`  - [${d.severity}] ${d.rule}: ${d.message}${d.validator ? ` (${d.validator})` : ""}`)
 	}
-	process.exit(BAKA_EXIT_CODE.VALIDATION_ERROR)
+	if (result.kind === "fail") process.exit(BAKA_EXIT_CODE.VALIDATION_ERROR)
 }

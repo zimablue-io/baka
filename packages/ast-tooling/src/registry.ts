@@ -165,6 +165,7 @@ export class ModuleRegistry {
 					diagnostics.push({
 						severity: "warning",
 						rule: "manifest-missing",
+						module: entry.name,
 						message: `${entry.name} (${moduleRoot}) has no manifest.ts; skipping`,
 					})
 					continue
@@ -179,6 +180,7 @@ export class ModuleRegistry {
 					diagnostics.push({
 						severity: "error",
 						rule: "manifest-load",
+						module: entry.name,
 						message: `${entry.name} (${manifestPath}): failed to load manifest.ts: ${err instanceof Error ? err.message : String(err)}`,
 					})
 					if (strict) throw err
@@ -189,6 +191,7 @@ export class ModuleRegistry {
 					diagnostics.push({
 						severity: "error",
 						rule: "manifest-export",
+						module: entry.name,
 						message: `${entry.name} (${manifestPath}): manifest.ts did not export \`Manifest\``,
 					})
 					if (strict) throw new Error(diagnostics[diagnostics.length - 1].message)
@@ -200,6 +203,7 @@ export class ModuleRegistry {
 					diagnostics.push({
 						severity: "error",
 						rule: "manifest-shape",
+						module: entry.name,
 						message: `${entry.name} (${manifestPath}): manifest does not match schema: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
 					})
 					if (strict) throw new Error(parsed.error.message)
@@ -218,6 +222,7 @@ export class ModuleRegistry {
 						diagnostics.push({
 							severity: "error",
 							rule: "action-missing",
+							module: entry.name,
 							message: `${entry.name}: action "${action.id}" is missing ${action.id}/action.ts and ${action.id}/templates/`,
 						})
 					}
@@ -227,6 +232,7 @@ export class ModuleRegistry {
 							diagnostics.push({
 								severity: "error",
 								rule: "templates-missing",
+								module: entry.name,
 								message: `${entry.name}: action "${action.id}" has requiresReasoning: true but no templates/ folder`,
 							})
 						}
@@ -237,6 +243,7 @@ export class ModuleRegistry {
 							diagnostics.push({
 								severity: "error",
 								rule: "action-validator-missing",
+								module: entry.name,
 								message: `${entry.name}: action "${action.id}" declares validator "${ruleId}" but ${action.id}/validators/${validatorFilename(ruleId)}.ts does not exist`,
 							})
 						}
@@ -366,7 +373,6 @@ export class ModuleRegistry {
 				}
 			}
 		}
-		if (diagnostics.some((d) => d.severity === "error")) return { kind: "fail", diagnostics }
-		return { kind: "pass" }
+		return { kind: diagnostics.some((d) => d.severity === "error") ? "fail" : "pass", diagnostics }
 	}
 }

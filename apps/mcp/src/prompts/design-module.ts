@@ -45,7 +45,7 @@ export function designModuleMessages(args: { name: string; resume?: boolean }): 
 					`Ground rules (enforced by the engine, not by your prompting):`,
 					`- You may only use modules and actions that appear in the current module catalog. If a new action is needed, add it to the catalog first; do not invent it.`,
 					`- Each action's \`params\` must match what its \`action.ts\` actually reads. If the LLM cannot fill a field from a real signal, do not make it a param.`,
-					`- Validators are pure TypeScript. They run after the action completes and receive the action's compensationData. Do not put LLM calls in validators.`,
+					`- Validators are pure TypeScript. They run after the action completes and receive the run context in \`state.run\` (params, output, compensationData, changeset, ran). Do not put LLM calls in validators.`,
 					`- The same intent + the same module catalog must always produce the same plan. If your design would break that invariant, redesign the action.`,
 					``,
 					`Useful commands to run as you go:`,

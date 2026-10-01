@@ -505,3 +505,51 @@ describe("engine run: path containment", () => {
 		expect(readdirSync(cwd)).toEqual(["modules"])
 	})
 })
+
+describe("engine run: validates by default, as runAction does", () => {
+	function failingValidatorProject(): string {
+		const dir = mkdtempSync(join(tmpdir(), "baka-engine-validate-"))
+		cleanup.push(dir)
+		const moduleRoot = join(dir, "modules", "chk")
+		mkdirSync(join(moduleRoot, "gen", "templates"), { recursive: true })
+		mkdirSync(join(moduleRoot, "gen", "validators"), { recursive: true })
+		writeFileSync(
+			join(moduleRoot, "manifest.ts"),
+			`export const Manifest = {
+  name: "chk", version: "0.0.0", description: "fixture", dependencies: [], conflictsWith: [],
+  actions: [{ id: "gen", description: "x", requiresReasoning: false, filePatterns: [], params: [], validators: ["alwaysFails"] }],
+  moduleValidators: [],
+}
+`,
+		)
+		writeFileSync(join(moduleRoot, "gen", "templates", "out.txt.hbs"), "out\n")
+		writeFileSync(
+			join(moduleRoot, "gen", "validators", "always-fails.ts"),
+			`export async function alwaysFails() { return [{ severity: "error", rule: "nope", message: "scaffold is wrong" }] }\n`,
+		)
+		return dir
+	}
+
+	const post = (cwd: string, body: Record<string, unknown>) =>
+		createEngineApp({ cwd }).request("/v1/run", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ module: "chk", action: "gen", params: {}, ...body }),
+		})
+
+	it("reports ok:false for a failing validator when the caller says nothing about validate", async () => {
+		const res = await post(failingValidatorProject(), {})
+		expect(res.status).toBe(400)
+		const body = (await res.json()) as { ok: boolean; diagnostics: Array<{ rule: string; validator?: string }> }
+		expect(body.ok).toBe(false)
+		expect(body.diagnostics).toEqual([
+			expect.objectContaining({ rule: "nope", validator: "chk.gen:alwaysFails", severity: "error" }),
+		])
+	})
+
+	it("skips validators only when asked to", async () => {
+		const res = await post(failingValidatorProject(), { validate: false })
+		expect(res.status).toBe(200)
+		expect(((await res.json()) as { ok: boolean }).ok).toBe(true)
+	})
+})

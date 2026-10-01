@@ -103,6 +103,6 @@ export async function validateProject(registry: ModuleRegistry, moduleName?: str
 		logs: [],
 		artifacts: {},
 	}
-	const validation = await runValidators(registry, state, undefined, moduleName)
+	const validation = await runValidators(registry, state, { mode: "project", module: moduleName })
 	return { valid: validation.kind !== "fail", modulesDiscovered: modules.length, validation, moduleName }
 }

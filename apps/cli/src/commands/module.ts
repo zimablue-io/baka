@@ -317,7 +317,6 @@ export async function runModuleTest(
 			provider: null,
 			model: BAKA_DEFAULT_WORKER_MODEL,
 			includeContent: true,
-			validate: false,
 		})
 		console.log("RESULT:", JSON.stringify(result, null, 2))
 		if (!result.ok) {

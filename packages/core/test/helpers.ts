@@ -35,6 +35,10 @@ interface FixtureAction {
 	actionTs?: string
 	/** The manifest's `supportsDryRun` for this action. */
 	supportsDryRun?: boolean
+	/** Validator ids the action declares; write each as `<action>/validators/<kebab-id>.ts` via `files`. */
+	validators?: string[]
+	/** The manifest's `marker` globs for this action. */
+	marker?: string[]
 }
 
 interface FixtureModule {
@@ -43,6 +47,8 @@ interface FixtureModule {
 	actions: FixtureAction[]
 	/** Extra files under the module root, keyed by relative path. */
 	files?: Record<string, string>
+	/** Module-level validator ids; write each as `_shared/validators/<kebab-id>.ts` via `files`. */
+	moduleValidators?: string[]
 }
 
 /** Write a module directory under `modulesDir` and return its root. */
@@ -60,10 +66,11 @@ export function writeModule(modulesDir: string, mod: FixtureModule): string {
 			params: a.params ?? [],
 			requiresReasoning: false,
 			filePatterns: [],
-			validators: [],
+			validators: a.validators ?? [],
 			supportsDryRun: a.supportsDryRun ?? false,
+			...(a.marker ? { marker: a.marker } : {}),
 		})),
-		moduleValidators: [],
+		moduleValidators: mod.moduleValidators ?? [],
 	}
 	write(join(root, "manifest.ts"), `export const Manifest = ${JSON.stringify(manifest, null, 2)}\n`)
 	for (const action of mod.actions) {

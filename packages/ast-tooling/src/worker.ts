@@ -1,5 +1,5 @@
 import {
-	type ActionCompensation,
+	type ActionResult,
 	AgentRole,
 	BAKA_DEFAULT_WORKER_MODEL,
 	type LLMProvider,
@@ -26,9 +26,9 @@ export interface WorkerInput {
 export interface WorkerRollbackData {
 	moduleName: string
 	actionName: string
-	parameters: Record<string, unknown>
 	targetDirectory: string
-	compensation: ActionCompensation
+	/** The run's receipt: its `compensation` is what an undo needs, the rest is what post-apply validators judge. */
+	receipt: ActionResult
 }
 
 /**
@@ -59,9 +59,8 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, unknown, WorkerRollbac
 		const compensationData: WorkerRollbackData = {
 			moduleName: input.moduleName,
 			actionName: input.actionName,
-			parameters: input.parameters,
 			targetDirectory,
-			compensation: run.compensation,
+			receipt: run,
 		}
 		if (!run.ok) {
 			const error = run.diagnostics.find((d) => d.severity === "error")
@@ -80,7 +79,7 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, unknown, WorkerRollbac
 			registry: new ModuleRegistry(data.targetDirectory),
 			module: data.moduleName,
 			action: data.actionName,
-			compensation: data.compensation,
+			compensation: data.receipt.compensation,
 			provider: ctx?.llmProvider ?? null,
 		})
 	},

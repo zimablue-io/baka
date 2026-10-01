@@ -145,11 +145,39 @@ export const Manifest = {
 
 ## Validators
 
-A module can declare two kinds of validators. Both are plain async functions that return `ValidationDiagnostic[]` (an empty array means pass). The manifest references the validator by its camelCase id; the file on disk is the kebab-case form (`hasGreeting` -> `has-greeting.ts`) and must export a function named with the camelCase id.
+A module can declare two kinds of validators. Both are plain async functions of the `OrchestrationState` that return `ValidationDiagnostic[]` (an empty array means pass). The manifest references the validator by its camelCase id; the file on disk is the kebab-case form (`hasGreeting` -> `has-greeting.ts`) and must export a function named with the camelCase id.
+
+### What a validator receives: `state.run`
+
+`state.targetDirectory` is the project root. `state.run` (a `ValidatorRun`) says which action run the validator is judging:
+
+| `state.run` field | Meaning |
+|---|---|
+| `module`, `action` | The action. |
+| `ran` | True when the action ran in this invocation; false when `baka validate` found its output through a `marker` (below). |
+| `params` | The params the action ran with, normalized (defaults applied). Empty when `ran` is false. |
+| `compensationData` | What the action's `execute` returned as compensation data; for a template-only action `{ written: [paths] }`. Null when `ran` is false. |
+| `output` | What the action's `execute` returned as output; null for template-only actions and when `ran` is false. |
+| `changeset` | The run's changeset (`create` / `update` / `unchanged` / `skip` / `delete` entries). Empty when `ran` is false. |
+| `detected` | When `ran` is false: the project paths the marker matched. |
+
+`state.run` is undefined for a module-level validator under `baka validate`.
+
+### Which validators run
+
+- **After a run** (`runAction`, `baka run`, the MCP `baka_run` tool, `POST /v1/run`): the module-level validators of the module, and the validators of **the action that ran**, nothing else. A sibling action's validators and other modules are not touched. Module-level validators see the same `state.run` (the action that triggered them). `baka run` validates by default exactly as `runAction` does (`--no-validate`, or `validate: false`, skips it); a dry run never validates.
+- **After `baka apply`**: for each completed step, as above (module-level validators once per module, with `state.run` of the last step of that module).
+- **`baka validate [-m <module>]`** runs no action. It runs module-level validators (`state.run` undefined), plus an action's validators only for actions whose output it can detect: an action that declares a `marker` in its manifest, a list of glob patterns relative to the project root (`*` within a segment, `**` across segments, `?`), e.g. `marker: ["packages/*/package.json"]`. If any project file matches, the action's validators run once with `state.run.ran === false` and `state.run.detected` listing the matches. An action without a marker has its validators run only after it ran.
+
+Structural problems found at discovery (a missing validator file, a broken manifest) are reported only for the modules in scope: a sibling module's `action-validator-missing` does not fail an unrelated module's run, but does fail `baka validate` over the whole project.
+
+### Diagnostics
+
+Every diagnostic a validator returns is reported in the receipt's `diagnostics`, **warnings included, whether or not validation passes**; `ok` is false only when one is an `error`. Baka does not rewrite the validator's `rule`: it is whatever the validator set (the validator's own id stands in when it set none). Baka adds `validator`, the namespaced id of the validator that produced it: `<module>:<id>` for a module-level validator, `<module>.<action>:<id>` for an action-level one. A validator that throws is reported as an error with `rule: "validator-error"` and its `validator` set.
 
 ### Module-level (`_shared/validators/<kebab-id>.ts`)
 
-Run once per validate pass. Inspect any file in the project. Use for cross-cutting rules ("no `console.log` in production code").
+Run once per validation pass. Inspect any file in the project. Use for cross-cutting rules ("no `console.log` in production code").
 
 ```ts
 // manifest.ts → moduleValidators: ["hasPackageJson"]
@@ -169,29 +197,29 @@ export async function hasPackageJson(state: OrchestrationState): Promise<Validat
 
 ### Action-level (`<action>/validators/<kebab-id>.ts`)
 
-Run only when the action ran. Receives the action's `compensationData` as its second argument, so you can check what the action produced:
+Run when the action ran (or, under `baka validate`, when its marker matches). Use `state.run` to check what the action produced:
 
 ```ts
-// manifest.ts → actions: [{ id: "say-hello", validators: ["hasGreeting"], ... }]
+// manifest.ts → actions: [{ id: "say-hello", validators: ["hasGreeting"], marker: ["hello.txt"], ... }]
 // say-hello/validators/has-greeting.ts
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import type { OrchestrationState, ValidationDiagnostic } from "baka-sdk"
 
-export async function hasGreeting(state: OrchestrationState, actionData: unknown): Promise<ValidationDiagnostic[]> {
-	const created = (actionData as { createdFiles?: string[] } | null | undefined)?.createdFiles ?? []
-	const file = created.find((f) => f.endsWith("hello.txt")) ?? join(state.targetDirectory, "hello.txt")
+export async function hasGreeting(state: OrchestrationState): Promise<ValidationDiagnostic[]> {
+	const file = join(state.targetDirectory, "hello.txt")
 	if (!existsSync(file)) {
 		return [{ severity: "error", rule: "has-greeting", message: `say-hello produced no hello.txt at ${file}` }]
 	}
-	if (!readFileSync(file, "utf-8").startsWith("hello ")) {
-		return [{ severity: "error", rule: "has-greeting", message: `${file} does not contain a greeting` }]
+	const text = readFileSync(file, "utf-8")
+	if (state.run?.ran && !text.startsWith(`hello ${String(state.run.params.name)}`)) {
+		return [{ severity: "warning", rule: "has-greeting", message: `${file} does not greet ${String(state.run.params.name)}` }]
 	}
 	return []
 }
 ```
 
-A validator that needs to judge semantic content (is this spec coherent?) can ask the validator-role LLM via `callLLMAsValidator` from `baka-sdk`; keep deterministic checks as plain TypeScript.
+Keep validators deterministic TypeScript. `callLLMAsValidator` (the validator-role model) is a runtime export of `baka-sdk`, which a module may not import (see "Public boundary"), so a module in a catalog without installs cannot call it from a validator.
 
 ## Shared helpers
 
@@ -212,7 +240,7 @@ If `requiresReasoning: true`, the LLM is shown a prompt that includes the action
 ```sh
 baka list-modules                 # walks all four scopes
 baka module validate <name>       # schema + layout check + loadability gate (every declared action and validator must import through the engine's loader)
-baka validate                     # run all module-level validators
+baka validate                     # module-level validators, plus action validators whose marker matches
 ```
 
 ## Lifecycle of a published module
@@ -319,7 +347,8 @@ The arxiv literature on LLM agent reproducibility (Measuring Determinism in LLM 
   "ok": true,
   "module": "hello",
   "action": "greet",
-  "diagnostics": [],            // error diagnostics, then validator output
+  "params": { "name": "Ada" },  // the params the run used: defaults applied, scalars coerced
+  "diagnostics": [],            // error diagnostics, then validator output (warnings included)
   "changeset": [                // one entry per path the action addressed, sorted by path
     { "path": "hello.md", "op": "create", "contentHash": "<sha256 hex>" }
   ],

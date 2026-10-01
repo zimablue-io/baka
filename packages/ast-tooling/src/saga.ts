@@ -6,6 +6,8 @@ import {
 	type StepResponse,
 	type WorkflowStep,
 } from "@repo/protocol"
+import type { RanAction } from "./validator.js"
+import type { WorkerRollbackData } from "./worker.js"
 
 export interface SagaStep<TInput = unknown, TOutput = unknown, TCompensationData = unknown> {
 	id: string
@@ -26,6 +28,25 @@ export interface CompletedStep {
 	compensationData: unknown
 	/** Rich output payload returned by the step. Surfaced to the MCP per-action tool and to the SAGA/apply surfaces so callers can act on real action results (e.g. lint's LintReport) instead of a boolean flag. */
 	output: unknown
+}
+
+/**
+ * The completed steps as validators see them (`state.run`): a Worker step's
+ * receipt supplies the normalized params, output, compensation data, and
+ * changeset; a step from any other source supplies what the saga recorded.
+ */
+export function ranActions(completed: readonly CompletedStep[]): RanAction[] {
+	return completed.map((c) => {
+		const receipt = (c.rollbackData as Partial<WorkerRollbackData> | null | undefined)?.receipt
+		return {
+			module: c.module,
+			action: c.action,
+			params: receipt?.params ?? {},
+			compensationData: c.compensationData,
+			output: c.output,
+			changeset: receipt?.changeset ?? [],
+		}
+	})
 }
 
 export interface SagaResult {

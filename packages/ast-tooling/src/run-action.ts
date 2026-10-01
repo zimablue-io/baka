@@ -135,7 +135,7 @@ export interface RunActionInput {
 	 * fails the run with `lock-unlisted` / `lock-mismatch`.
 	 */
 	lock?: BakaLock
-	/** Run the module's validators after a real run (default true). Dry runs never validate. */
+	/** Run the action's and its module's validators after a real run (default true). Dry runs never validate. */
 	validate?: boolean
 	/** Attach each written file's UTF-8 text to its changeset entry. Off by default: receipts stay small. */
 	includeContent?: boolean
@@ -172,7 +172,9 @@ function emptyCompensation(): ActionCompensation {
  * validate. A failure before or during execution leaves no trace: files the
  * run created are removed and files it overwrote are restored. A validation
  * failure does not roll back; `ok` is false and `compensation` still describes
- * everything written, so the caller decides.
+ * everything written, so the caller decides. Validation covers this action's
+ * validators and its module's module-level validators only, and every
+ * diagnostic they produce (warnings too) lands in `diagnostics`.
  */
 export async function runAction(input: RunActionInput): Promise<ActionResult> {
 	const { registry, module: moduleName, action: actionId } = input
@@ -195,6 +197,7 @@ export async function runAction(input: RunActionInput): Promise<ActionResult> {
 		ok,
 		module: moduleName,
 		action: actionId,
+		params,
 		diagnostics,
 		changeset,
 		outputTreeHash: outputTreeHash(changeset),
@@ -338,8 +341,20 @@ export async function runAction(input: RunActionInput): Promise<ActionResult> {
 		if (input.includeContent) changeset = withContent(changeset, (path) => readFileSync(join(root, path), "utf-8"))
 
 		if (input.validate !== false) {
-			const validation = await runValidators(registry, emptyState(root), undefined, moduleName, [moduleName])
-			if (validation.kind === "fail") diagnostics.push(...validation.diagnostics)
+			const validation = await runValidators(registry, emptyState(root), {
+				mode: "actions",
+				ran: [
+					{
+						module: moduleName,
+						action: actionId,
+						params,
+						compensationData: compensation.actionData,
+						output,
+						changeset,
+					},
+				],
+			})
+			diagnostics.push(...validation.diagnostics)
 		}
 		return receipt(!diagnostics.some((d) => d.severity === "error"))
 	} catch (err) {

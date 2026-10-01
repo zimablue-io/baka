@@ -32,6 +32,7 @@ export type {
 	StepResponse,
 	ValidationDiagnostic,
 	ValidationResult,
+	ValidatorRun,
 	WorkflowStep,
 } from "@repo/protocol"
 export {

@@ -40,6 +40,12 @@ describe("parseParamFlags", () => {
 		expect(parseParamFlags(argv)).toEqual({ name: "Foo" })
 	})
 
+	it("does not take --no-validate or --include-content as params", () => {
+		expect(parseParamFlags(["--name", "x", "--no-validate", "--include-content", "--on-existing", "fail"])).toEqual({
+			name: "x",
+		})
+	})
+
 	it("merges --params JSON with extra flags", () => {
 		expect(parseParamFlags(["--name", "probe"], '{"description":"hi"}')).toEqual({
 			description: "hi",

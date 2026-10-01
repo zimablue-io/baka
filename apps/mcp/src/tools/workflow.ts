@@ -1,5 +1,13 @@
 import { createLLMProvider, loadLLMConfig, validateLLMConfig } from "@repo/agent-engine"
-import { executeWorkerStep, loadPlan, ModuleRegistry, runSaga, runValidators, savePlan } from "@repo/ast-tooling"
+import {
+	executeWorkerStep,
+	loadPlan,
+	ModuleRegistry,
+	ranActions,
+	runSaga,
+	runValidators,
+	savePlan,
+} from "@repo/ast-tooling"
 import { featurePlanningWorkflow } from "@repo/feature-planning-workflow"
 import type {
 	LLMProvider,
@@ -114,17 +122,9 @@ export async function runApply(
 	}
 	const saga = await runSaga(plan, state, { llmProvider: provider }, stepsByKey)
 
-	const actionResults = new Map<string, { compensationData: unknown }>()
-	for (const c of saga.completed) {
-		actionResults.set(`${c.module}:${c.action}`, { compensationData: c.compensationData })
-	}
-	// Scope the post-apply validators to the modules whose actions
-	// actually ran in the SAGA. Mirrors the CLI apply behavior in
-	// `apps/cli/src/commands/plan.ts:runApplyCommand` so the MCP and
-	// CLI agree on which validators run. See the `moduleFilter` comment
-	// in `packages/ast-tooling/src/validator.ts` for the rationale.
-	const usedModules = Array.from(new Set(saga.completed.map((c) => c.module)))
-	const validation = await runValidators(registry, saga.state, actionResults, undefined, usedModules)
+	// Post-apply validators cover only the actions that ran in the SAGA, with
+	// the same run context the CLI apply gives them.
+	const validation = await runValidators(registry, saga.state, { mode: "actions", ran: ranActions(saga.completed) })
 
 	const completedSteps = saga.completed.map((c) => ({
 		id: c.id,

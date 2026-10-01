@@ -189,6 +189,14 @@ export const ModuleActionSchema = z.object({
 	 */
 	supportsDryRun: z.boolean().optional(),
 	/**
+	 * How `baka validate` (which runs no action) recognises that this action's
+	 * output is present: glob patterns relative to the project root (`*` within
+	 * a segment, `**` across segments, `?`). When any file matches, the
+	 * action's validators run with `state.run.ran === false`. Without a
+	 * marker the action's validators run only after the action itself ran.
+	 */
+	marker: z.array(z.string().min(1)).optional(),
+	/**
 	 * Optional toolchain the registry should run against the
 	 * dry-run output for this action. Today only `tsc` is
 	 * declarable (architecture §4.6 layer 3); the closed set is
@@ -243,37 +251,6 @@ export const ResolvedPlanSchema = z.object({
 	resolvedSteps: z.array(ResolvedPlanStepSchema),
 })
 
-// ---------------------------------------------------------------------------
-// Orchestration state
-// ---------------------------------------------------------------------------
-
-export const OrchestrationStateSchema = z.object({
-	userIntent: z.string(),
-	targetDirectory: z.string(),
-	status: z.nativeEnum(ENGINE_STATUS),
-	currentRole: z.nativeEnum(AgentRole).optional(),
-	executionPlan: z.object({
-		steps: z.array(ResolvedPlanStepSchema),
-		currentStepIndex: z.number(),
-	}),
-	logs: z.array(z.string()),
-	artifacts: z.record(z.any()).default({}),
-})
-
-// ---------------------------------------------------------------------------
-// Action result (the receipt `runAction` returns; also the CLI/MCP/HTTP `--json` shape)
-// ---------------------------------------------------------------------------
-
-export const ActionErrorCodeSchema = z.enum(ACTION_ERROR_CODES)
-
-export const ValidationDiagnosticSchema = z.object({
-	severity: z.enum(["error", "warning"]),
-	rule: z.string(),
-	message: z.string(),
-	file: z.string().optional(),
-	hint: z.string().optional(),
-})
-
 /**
  * What happened to one path.
  * - `create`: the file did not exist and was written.
@@ -296,6 +273,68 @@ export const ChangesetEntrySchema = z.object({
 	reason: ChangeReasonSchema.optional(),
 	/** The file's UTF-8 text after the action. Only present when the caller asked for content, and never for `delete` or `skip`. */
 	content: z.string().optional(),
+})
+
+/**
+ * The run a validator is judging, set on `state.run` (see docs/MODULES.md,
+ * "Validators"). `ran` says whether the action ran in this invocation:
+ * true after `runAction` (or an apply step), false when `baka validate`
+ * found the action's output through its manifest `marker` (then `params`
+ * is empty, `compensationData` and `output` are null, and `detected` lists
+ * the paths the marker matched).
+ */
+export const ValidatorRunSchema = z.object({
+	module: z.string(),
+	action: z.string(),
+	ran: z.boolean(),
+	/** The params the action ran with (normalized); empty when `ran` is false. */
+	params: z.record(z.unknown()),
+	/** What the action's `execute` returned as compensation data (template-only actions: `{ written }`); null when it did not run. */
+	compensationData: z.unknown(),
+	/** What the action's `execute` returned as output; null for template-only actions and when it did not run. */
+	output: z.unknown(),
+	/** The run's changeset; empty when the action did not run. */
+	changeset: z.array(ChangesetEntrySchema),
+	/** When `ran` is false: the project paths the action's `marker` matched. */
+	detected: z.array(z.string()).optional(),
+})
+
+// ---------------------------------------------------------------------------
+// Orchestration state
+// ---------------------------------------------------------------------------
+
+export const OrchestrationStateSchema = z.object({
+	userIntent: z.string(),
+	targetDirectory: z.string(),
+	status: z.nativeEnum(ENGINE_STATUS),
+	currentRole: z.nativeEnum(AgentRole).optional(),
+	executionPlan: z.object({
+		steps: z.array(ResolvedPlanStepSchema),
+		currentStepIndex: z.number(),
+	}),
+	logs: z.array(z.string()),
+	artifacts: z.record(z.any()).default({}),
+	/** Set for validators only: the action run they are judging. */
+	run: ValidatorRunSchema.optional(),
+})
+
+// ---------------------------------------------------------------------------
+// Action result (the receipt `runAction` returns; also the CLI/MCP/HTTP `--json` shape)
+// ---------------------------------------------------------------------------
+
+export const ActionErrorCodeSchema = z.enum(ACTION_ERROR_CODES)
+
+export const ValidationDiagnosticSchema = z.object({
+	severity: z.enum(["error", "warning"]),
+	/** The validator's own rule id; for a failed run, an ActionErrorCode. */
+	rule: z.string(),
+	message: z.string(),
+	file: z.string().optional(),
+	hint: z.string().optional(),
+	/** Which validator produced it: `<module>:<id>` (module-level) or `<module>.<action>:<id>` (action-level). Absent for engine diagnostics. */
+	validator: z.string().optional(),
+	/** The module a discovery (structural) diagnostic is about. */
+	module: z.string().optional(),
 })
 
 export const SlotRecordSchema = z.object({
@@ -364,7 +403,9 @@ export const ActionResultSchema = z.object({
 	ok: z.boolean(),
 	module: z.string(),
 	action: z.string(),
-	/** Error diagnostics (a failed run carries one whose `rule` is an ActionErrorCode) plus validator output. */
+	/** The params the run used: the declared defaults applied and scalars coerced. The input as given when they did not validate. */
+	params: z.record(z.unknown()),
+	/** Error diagnostics (a failed run carries one whose `rule` is an ActionErrorCode) plus validator output, warnings included. */
 	diagnostics: z.array(ValidationDiagnosticSchema),
 	changeset: z.array(ChangesetEntrySchema),
 	/** sha256 over the canonical (path, contentHash) list of the changeset; see docs/MODULES.md. */
