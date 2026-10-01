@@ -25,12 +25,13 @@ import { createProjectFiles, type ProjectFiles } from "./action-files.js"
 import { loadAction } from "./action-loader.js"
 import { removeCreatedDirectories, resolveContained } from "./contain.js"
 import { ActionError } from "./errors.js"
+import { runFormatter } from "./format.js"
 import { pinModule, verifyPin } from "./lock.js"
 import { applyPlan, planTemplates, type Rollback, revertFiles, type TemplatePlan } from "./materialize.js"
 import { loadModuleData } from "./module-data.js"
 import type { ModuleRegistry } from "./registry.js"
 import { createDiskSlotStore, type SlotStore } from "./slot-cache.js"
-import { parseActionTemplates } from "./slots.js"
+import { hashBytes, parseActionTemplates } from "./slots.js"
 import { compareUtf8, diffSnapshots, outputTreeHash, snapshotDirectories, snapshotTree } from "./tree-hash.js"
 import { runValidators } from "./validator.js"
 
@@ -141,6 +142,13 @@ export interface RunActionInput {
 	 * fails the run with `lock-unlisted` / `lock-mismatch`.
 	 */
 	lock?: BakaLock
+	/**
+	 * Run the formatter the action declares (`format` in its manifest) over the
+	 * files this run created or updated, before validation. The receipt then
+	 * holds the formatted bytes' hashes. Off by default: Baka never runs a
+	 * module's command unasked. Not available in a dry run (`dry-run-unsupported`).
+	 */
+	format?: boolean
 	/** Run the action's and its module's validators after a real run (default true). Dry runs never validate. */
 	validate?: boolean
 	/** Attach each written file's UTF-8 text to its changeset entry. Off by default: receipts stay small. */
@@ -231,6 +239,12 @@ export async function runAction(input: RunActionInput): Promise<ActionResult> {
 		params = normalized.params
 		if (!hasTemplates && !hasAction) {
 			throw new ActionError("action-empty", `action "${actionId}" has neither templates/ nor action.ts`)
+		}
+		if (dryRun && input.format) {
+			throw new ActionError(
+				"dry-run-unsupported",
+				"a dry run cannot format: the formatter would have to run over files that are not written",
+			)
 		}
 		if (dryRun && hasAction && !action.supportsDryRun) {
 			throw new ActionError(
@@ -353,6 +367,13 @@ export async function runAction(input: RunActionInput): Promise<ActionResult> {
 				...projectFiles.entries(),
 				...projectFiles.ownedEntries(),
 			])
+		}
+		if (input.format && action.format) {
+			const formatted = runFormatter(root, action.format, changeset)
+			// The formatter may have rewritten what the run produced: the receipt describes the bytes now on disk.
+			changeset = changeset.map((e) =>
+				formatted.includes(e.path) ? { ...e, contentHash: hashBytes(readFileSync(join(root, e.path))) } : e,
+			)
 		}
 		uncommitted = false
 		if (input.includeContent) changeset = withContent(changeset, (path) => readFileSync(join(root, path), "utf-8"))

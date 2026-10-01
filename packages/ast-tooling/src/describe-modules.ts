@@ -22,6 +22,8 @@ export interface CatalogAction {
 	requiresReasoning: boolean
 	filePatterns: string[]
 	compensatesWith?: string
+	/** The formatter the action declares, for a caller that runs it itself (or asks `runAction` to with `format: true`). */
+	format?: { command: string; args: string[] }
 }
 
 export interface CatalogModule {
@@ -67,6 +69,7 @@ function describeModule(m: ModuleManifest, moduleRoot: string | undefined): Cata
 			requiresReasoning: a.requiresReasoning,
 			filePatterns: a.filePatterns,
 			compensatesWith: a.compensatesWith,
+			...(a.format ? { format: a.format } : {}),
 		})),
 	}
 }

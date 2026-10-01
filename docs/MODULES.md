@@ -53,7 +53,9 @@ The module must be **self-contained**: `baka module test` copies the module (inc
 
 ## Public boundary: `baka-sdk`
 
-Modules import only from `baka-sdk` (not from `@repo/protocol` or the engine internals), and **only types**. `baka-sdk` is not installed next to a module and the engine does not alias it at run time, so a runtime import (`import { AgentRole } from "baka-sdk"`, a bare `import "baka-sdk"`, `require("baka-sdk")`) fails to load in any catalog without its own `node_modules`. Write `import type { ... } from "baka-sdk"` everywhere: jiti erases it, and the module type-checks against the SDK (or a copy of its `.d.ts`) without Baka being installed. `baka module validate` scans a module's TypeScript files and fails on a runtime import of `baka-sdk` (`sdk-runtime-import`, with the file and line); `import type { A } from "baka-sdk"` and `import { type A } from "baka-sdk"` are both accepted.
+Modules import only from `baka-sdk` (not from `@repo/protocol` or the engine internals), and **only types**. `baka-sdk` is not installed next to a module and the engine does not alias it at run time, so a runtime import (`import { AgentRole } from "baka-sdk"`, a bare `import "baka-sdk"`, `require("baka-sdk")`) fails to load in any catalog without its own `node_modules`. Write `import type { ... } from "baka-sdk"` everywhere: jiti erases it, and the module type-checks against the SDK (or a copy of its `.d.ts`) without Baka being installed. `baka module validate` scans a module's TypeScript files (everything under the module root except `node_modules`, test and `types` directories, `*.d.ts`, and `*.test.ts`) and fails on a runtime import of `baka-sdk`, naming the file and line; `import type { A } from "baka-sdk"` and `import { type A } from "baka-sdk"` are both accepted.
+
+The one opt-out is to own the install: a module that really needs a runtime export (for example `callLLMAsValidator` in a validator) lists `baka-sdk` under `dependencies` in its `package.json` and installs it; `module validate` then accepts runtime imports, and `baka module test` copies the module's `node_modules` along. A catalog that does this gives up running straight from a fresh clone.
 
 An `action.ts` therefore exports an `ActionStep`, which has no `role` (the one runtime value a step used to need, `AgentRole.WORKER`, is gone):
 
@@ -93,6 +95,20 @@ export const Manifest: ModuleManifest = {
 	moduleValidators: [],
 }
 ```
+
+### Action fields
+
+| Field | Meaning |
+|---|---|
+| `id`, `description`, `params` | Identity and the declared params (see "Param types"). |
+| `requiresReasoning` | The action has named slots a model fills. |
+| `compensatesWith` | The id of the inverse action. |
+| `filePatterns` | The files the action is expected to write. |
+| `validators` | Ids of action-level validators (see "Validators"). |
+| `marker` | Glob patterns that let `baka validate` recognise the action's output so its validators run (see "Validators"). |
+| `supportsDryRun` | An `action.ts` action that writes only through `ctx.files` in a dry run (see "The `action.ts` contract"). |
+| `format` | `{ command, args }`: the formatter for the files this action generates (see "Formatting generated output"). |
+| `toolchain` | `"tsc"`: the registry's screening layer type-checks the dry-run output. |
 
 ### `modules/hello-mod/say-hello/action.ts`
 
@@ -234,7 +250,7 @@ export async function hasGreeting(state: OrchestrationState): Promise<Validation
 }
 ```
 
-Keep validators deterministic TypeScript. `callLLMAsValidator` (the validator-role model) is a runtime export of `baka-sdk`, which a module may not import (see "Public boundary"), so a module in a catalog without installs cannot call it from a validator.
+Keep validators deterministic TypeScript. A validator that must judge semantic content can ask the validator-role model with `callLLMAsValidator`, a runtime export of `baka-sdk`: that needs the module to own its `baka-sdk` install (see "Public boundary").
 
 ## Shared helpers
 
@@ -418,6 +434,34 @@ baka.tree.v1\n
 ### Dry run
 
 `dryRun: true` (`baka run --dry-run`) plans and returns the same receipt without writing anything: no project files and no slot-cache entries. The tree it reports is the tree a real run would leave, given the same slot fills. Template-only actions are always dry-runnable. An action with an `action.ts` is dry-runnable if its manifest sets `supportsDryRun` and it writes through `ctx.files` (see "The `action.ts` contract"); any other action fails with `dry-run-unsupported` rather than pretending. Validators inspect the real tree, so a dry run does not run them. Because a dry run does not persist fills, hand its `slots` to the real run (see "Slot records and replay") when the real run must produce the tree the dry run predicted.
+
+## Formatting generated output
+
+Generated code that a formatter would rewrite makes `biome ci` fail on a fresh tree. Two things make output formatter-stable by construction:
+
+1. **Declare the formatter in the manifest**, per action:
+
+   ```ts
+   actions: [{
+   	id: "add-schema",
+   	// ...
+   	format: { command: "biome", args: ["format", "--write", "{files}"] },
+   }]
+   ```
+
+   `command` is an executable (resolved through `PATH`, with the project's `node_modules/.bin` first, so a formatter installed in the generated project is found); `{files}` in `args` expands to one argument per file the run **created or updated** (project-relative; unchanged and skipped files are not passed), or the files are appended if there is no `{files}`. The command runs from the project root.
+
+2. **Choose who runs it.** Baka never runs a module's command unasked. `runAction({ format: true })`, `baka run <module>/<action> --format`, the MCP `baka_run` tool's `format`, and `POST /v1/run`'s `format` run it after the templates and `action.ts` finished and before validation; the receipt then holds the hashes of the formatted bytes. The catalog (`describeModules`, `baka list-modules --json`) lists each action's `format`, so a caller that prefers to run the formatter itself (a pre-commit step, a wider `biome check --write`) can. A formatter that cannot start, times out (two minutes), or exits non-zero fails the run with `format-failed` and the run is rolled back like any other failure, with the formatter's last output lines in the message. A dry run cannot format (`dry-run-unsupported`): the files do not exist.
+
+A formatted file is not the template's bytes, so a rerun compares the template against formatted bytes. If the template is formatter-stable (formatting changes nothing) the rerun is `unchanged`; if not, the rerun reports `skip` (under the default policy) and, because the receipt hashes the bytes on disk, still has the first run's `outputTreeHash`. Use `--format` with a rerun as the test of whether a template is formatter-stable: it is exactly when every entry is `unchanged`.
+
+**Biome and `.baka`.** Baka keeps run state under the project's `.baka/` (the slot cache, saved plans, evidence). Generated projects that run Biome should exclude it, or Biome lints and formats those files. In `biome.json` (Biome 2):
+
+```json
+{ "files": { "includes": ["**", "!**/.baka"] } }
+```
+
+A module that generates a `biome.json` should ship this line (and `.baka` in `.gitignore` unless the project commits its slots).
 
 ## Template language
 

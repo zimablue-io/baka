@@ -39,6 +39,8 @@ interface FixtureAction {
 	validators?: string[]
 	/** The manifest's `marker` globs for this action. */
 	marker?: string[]
+	/** The manifest's `format` declaration for this action. */
+	format?: { command: string; args?: string[] }
 }
 
 interface FixtureModule {
@@ -69,6 +71,7 @@ export function writeModule(modulesDir: string, mod: FixtureModule): string {
 			validators: a.validators ?? [],
 			supportsDryRun: a.supportsDryRun ?? false,
 			...(a.marker ? { marker: a.marker } : {}),
+			...(a.format ? { format: a.format } : {}),
 		})),
 		moduleValidators: mod.moduleValidators ?? [],
 	}

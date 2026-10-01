@@ -72,6 +72,7 @@ const RunBodySchema = z.object({
 	onExisting: OnExistingSchema.optional(),
 	validate: z.boolean().optional(),
 	includeContent: z.boolean().optional(),
+	format: z.boolean().optional(),
 	project: z.string().optional(),
 })
 
@@ -266,6 +267,7 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 			onExisting: parsed.data.onExisting,
 			includeContent: parsed.data.includeContent,
 			validate: parsed.data.validate,
+			format: parsed.data.format,
 		})
 		const status = result.ok ? 200 : 400
 		return c.json(result, status)

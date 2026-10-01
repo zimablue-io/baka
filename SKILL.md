@@ -32,6 +32,7 @@ baka run <module>/<action> --json
 baka run <module>/<action> --dry-run --json          # same receipt, writes nothing
 baka run <module>/<action> --on-existing overwrite   # skip (default) | overwrite | fail
 baka run <module>/<action> --no-validate             # skip validators (a run validates by default)
+baka run <module>/<action> --format                  # run the formatter the action declares over the files written
 baka run <module>/<action> --slot-records receipt.json   # replay a stored receipt's slot fills, no model
 baka slots <module>/<action> --json
 baka fill  <module>/<action> --slot <id> --value "..." --json

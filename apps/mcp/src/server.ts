@@ -325,6 +325,7 @@ const RunInputSchema = z.object({
 	),
 	dryRun: z.boolean().optional().describe("Compute the changeset and output tree hash without writing anything"),
 	includeContent: z.boolean().optional().describe("Attach each written file's text to its changeset entry"),
+	format: z.boolean().optional().describe("Run the formatter the action declares over the files the run wrote"),
 })
 
 const SlotsInputSchema = z.object({
@@ -361,6 +362,7 @@ function registerEngineTools(server: McpServer, ctx: ServerContext): void {
 					onExisting: input.onExisting,
 					dryRun: input.dryRun,
 					includeContent: input.includeContent,
+					format: input.format,
 				},
 			})
 			const body = json as { ok?: boolean }

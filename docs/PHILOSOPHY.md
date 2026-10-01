@@ -41,7 +41,7 @@ If any tier is tempted to invent, the tier boundary refuses to cooperate. The Va
 - **Input:** the post-execution file tree + the module's `filePatterns` and `moduleValidators`
 - **Output:** `Pass` or `Fail(diff[])` with structured diagnostics (`{severity, rule, message, file, hint}`)
 - **Default mode:** deterministic TypeScript. Every structural check (file existence, placeholder detection, heading presence) runs without the LLM.
-- **Optional validator-role LLM:** a validator MAY call `baka-sdk.callLLMAsValidator(...)` to ask the validator-role model for a semantic review (e.g. "is this spec coherent?"). The structural checks still run first; the LLM call is for additional context. Hard-fail if the validator role is not configured; absorb transient LLM errors as warnings.
+- **Optional validator-role LLM:** a validator MAY call `baka-sdk.callLLMAsValidator(...)` (the module then owns its `baka-sdk` install; see docs/MODULES.md, "Public boundary") to ask the validator-role model for a semantic review (e.g. "is this spec coherent?"). The structural checks still run first; the LLM call is for additional context. Hard-fail if the validator role is not configured; absorb transient LLM errors as warnings.
 - **Compensation:** none (read-only role)
 
 ## The provider boundary

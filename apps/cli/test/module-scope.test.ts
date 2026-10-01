@@ -244,6 +244,18 @@ describe("module validate enforces the types-only baka-sdk rule", () => {
 		expect(JSON.parse(result.stdout).valid).toBe(true)
 	})
 
+	it("accepts a runtime import when the module owns the install (baka-sdk in package.json dependencies)", async () => {
+		const catalog = withAction(`import { callLLMAsValidator } from "baka-sdk"\nvoid callLLMAsValidator\n${STEP}`)
+		writeFileSync(
+			join(catalog, "hello", "package.json"),
+			JSON.stringify({ name: "hello", dependencies: { "baka-sdk": "*" } }),
+		)
+		const result = await cli(["--modules-dir", catalog, "module", "validate", "hello", "--json"], catalog)
+		// the static rule is satisfied; loading still needs the install the author promised
+		const errors = JSON.parse(result.stdout).errors as string[]
+		expect(errors.some((e) => e.includes("runtime import of"))).toBe(false)
+	})
+
 	it("rejects a runtime import with the file, the line and the fix", async () => {
 		const catalog = withAction(`import { AgentRole } from "baka-sdk"\n${STEP}`)
 		const result = await cli(["--modules-dir", catalog, "module", "validate", "hello", "--json"], catalog)

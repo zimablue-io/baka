@@ -211,6 +211,19 @@ export const ModuleActionSchema = z.object({
 	 */
 	marker: z.array(z.string().min(1)).optional(),
 	/**
+	 * A command that formats this action's generated files, run by Baka only
+	 * when the caller asks (`runAction({ format: true })`, `baka run --format`)
+	 * and by the caller itself otherwise. `{files}` in `args` expands to the
+	 * files the run created or updated (project-relative, one argument each);
+	 * without it they are appended. See docs/MODULES.md, "Formatting generated output".
+	 */
+	format: z
+		.object({
+			command: z.string().min(1),
+			args: z.array(z.string()).default([]),
+		})
+		.optional(),
+	/**
 	 * Optional toolchain the registry should run against the
 	 * dry-run output for this action. Today only `tsc` is
 	 * declarable (architecture §4.6 layer 3); the closed set is

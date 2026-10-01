@@ -583,3 +583,36 @@ describe("engine moduleDirs: modules come from elsewhere, output goes to the pro
 		expect(readdirSync(project).filter((n) => n !== ".baka")).toEqual(["hi.txt"])
 	})
 })
+
+describe("engine run: format", () => {
+	it("runs the formatter the action declares only when the request says format: true", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "baka-engine-format-"))
+		cleanup.push(dir)
+		const moduleRoot = join(dir, "modules", "fmt")
+		mkdirSync(join(moduleRoot, "gen", "templates"), { recursive: true })
+		const formatter = {
+			command: process.execPath,
+			args: ["-e", "for (const f of process.argv.slice(1)) require('fs').writeFileSync(f, 'formatted\\n')", "{files}"],
+		}
+		writeFileSync(
+			join(moduleRoot, "manifest.ts"),
+			`export const Manifest = { name: "fmt", version: "0.0.0", description: "x", dependencies: [], conflictsWith: [],
+  actions: [{ id: "gen", description: "x", requiresReasoning: false, filePatterns: [], validators: [], params: [], format: ${JSON.stringify(formatter)} }],
+  moduleValidators: [] }
+`,
+		)
+		writeFileSync(join(moduleRoot, "gen", "templates", "out.txt.hbs"), "raw\n")
+		const app = createEngineApp({ cwd: dir })
+		const post = (body: Record<string, unknown>) =>
+			app.request("/v1/run", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ module: "fmt", action: "gen", params: {}, ...body }),
+			})
+		expect((await post({})).status).toBe(200)
+		expect(readFileSync(join(dir, "out.txt"), "utf-8")).toBe("raw\n")
+		rmSync(join(dir, "out.txt"))
+		expect((await post({ format: true })).status).toBe(200)
+		expect(readFileSync(join(dir, "out.txt"), "utf-8")).toBe("formatted\n")
+	})
+})

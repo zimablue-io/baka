@@ -71,6 +71,7 @@ export const ACTION_ERROR_CODES = [
 	"target-exists",
 	"dry-run-unsupported",
 	"dry-run-violation",
+	"format-failed",
 	"action-failed",
 	"unexpected",
 ] as const

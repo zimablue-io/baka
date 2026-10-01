@@ -43,6 +43,7 @@ export function parseParamFlags(raw: string[] | undefined, paramsJson?: string):
 			key === "on-existing" ||
 			key === "include-content" ||
 			key === "no-validate" ||
+			key === "format" ||
 			key === "params" ||
 			key === "slot" ||
 			key === "file" ||
@@ -94,6 +95,8 @@ export async function runRunCommand(
 		includeContent?: boolean
 		/** `false` skips the validators (`--no-validate`); anything else validates, as `runAction` does. */
 		validate?: boolean
+		/** Run the formatter the action declares over the files the run wrote (`--format`). */
+		format?: boolean
 		slotMode?: string
 		slotRecords?: string
 		onExisting?: string
@@ -119,6 +122,7 @@ export async function runRunCommand(
 			dryRun: opts.dryRun,
 			includeContent: opts.includeContent,
 			validate: opts.validate === false ? false : undefined,
+			format: opts.format ? true : undefined,
 		},
 	})
 	const body = json as RunBody

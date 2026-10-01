@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { cpSync, existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
@@ -23,6 +23,18 @@ function die(code: number, msg: string): never {
 // ---------------------------------------------------------------------------
 // `baka module validate <name>`
 // ---------------------------------------------------------------------------
+
+/** True when the module's package.json lists `baka-sdk` under `dependencies` (a runtime install the author owns). */
+function declaresSdkDependency(moduleRoot: string): boolean {
+	try {
+		const pkg = JSON.parse(readFileSync(join(moduleRoot, "package.json"), "utf-8")) as {
+			dependencies?: Record<string, string>
+		}
+		return pkg.dependencies?.["baka-sdk"] !== undefined
+	} catch {
+		return false
+	}
+}
 
 export function runModuleValidate(
 	name: string,
@@ -140,11 +152,14 @@ export function runModuleValidate(
 		}
 	}
 
-	// baka-sdk is a types-only boundary: a runtime import cannot load in a catalog without its own node_modules.
-	for (const finding of findModuleSdkImports(root)) {
-		errors.push(
-			`${finding.file}:${finding.line}: runtime import of "baka-sdk" (\`${finding.statement}\`); baka-sdk is not installed next to a module, so use \`import type\` (see docs/MODULES.md, "Public boundary")`,
-		)
+	// baka-sdk is a types-only boundary unless the module opts into installing it: a runtime import cannot load in
+	// a catalog without its own node_modules, so it is allowed only when package.json lists baka-sdk in `dependencies`.
+	if (!declaresSdkDependency(root)) {
+		for (const finding of findModuleSdkImports(root)) {
+			errors.push(
+				`${finding.file}:${finding.line}: runtime import of "baka-sdk" (\`${finding.statement}\`); baka-sdk is not installed next to a module, so use \`import type\`, or list baka-sdk in the module's package.json dependencies and install it (see docs/MODULES.md, "Public boundary")`,
+			)
+		}
 	}
 
 	// README recommendation

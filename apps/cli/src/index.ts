@@ -265,6 +265,7 @@ program
 	)
 	.option("--include-content", "attach each written file's text to its changeset entry")
 	.option("--no-validate", "skip the validators (by default a run validates exactly as runAction does)")
+	.option("--format", "run the formatter the action declares over the files the run wrote, before validating")
 	.option("--json", "emit machine-readable JSON to stdout (the ActionResult receipt)")
 	.allowUnknownOption()
 	.allowExcessArguments(true)
@@ -279,6 +280,7 @@ program
 				onExisting: opts.onExisting,
 				includeContent: opts.includeContent,
 				validate: opts.validate,
+				format: opts.format,
 				params: opts.params,
 				extra: process.argv,
 			})
