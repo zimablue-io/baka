@@ -118,6 +118,19 @@ baka plan "scaffold a TypeScript project with biome + vitest"
 
 Every command accepts `--json` and emits the same shape as the corresponding MCP tool. Use `--json` from CI, scripts, and pipes; the human-readable default is for the terminal.
 
+### Serving the engine over HTTP
+
+`baka serve` exposes the same engine the CLI and `baka-mcp` use (`GET /v1/modules`, `POST /v1/run`, `/v1/fill`, `/v1/validate`, ...) as JSON over HTTP, for a host that has the project's files on disk. It is a code-writing service, so it is closed by default:
+
+```bash
+baka serve                                  # 127.0.0.1:4311, bound to this project (the cwd), no auth needed
+BAKA_ENGINE_TOKEN=$(openssl rand -hex 24) baka serve --host 0.0.0.0   # reachable from other machines: token required
+```
+
+- **Bearer token.** With `BAKA_ENGINE_TOKEN` (or `--token`, which shows up in `ps`; the env var is preferred) set, every request needs `Authorization: Bearer <token>` and gets `401` otherwise. The token must not contain whitespace. `baka serve` refuses to start on any bind address that is not loopback (`127.0.0.0/8`, `::1`, `localhost`) unless a token is set.
+- **Project paths.** A request may name a `project` (query string or body field) only when it is the directory the server was started in, or when the server was started with allowed roots: `--allow-root <dir>` (repeatable) or `BAKA_ENGINE_ALLOWED_ROOTS` (separated like `PATH`). A `project` must be an absolute path to an existing directory; symlinks are resolved before the check, so a link inside a root cannot lead out of it. Anything else is `403`, and nothing is read or written there.
+- The run, fill, and validate routes return the same JSON as `baka run|fill|validate --json` and the `baka_*` MCP tools; `/v1/run` takes `dryRun`, `slots`, `onExisting`, `includeContent`, and `validate` alongside `module`, `action`, and `params`.
+
 ### Verifying determinism
 
 The same-tree claim is enforced two ways. CI uses a recorded slot cache and asserts byte-identical output with no llama. An opt-in live e2e (`apps/cli/test/determinism-e2e.test.ts`) hashes apply output against local llama-server (`gemma4:e4b`, temperature 0, seed 42). Run the live suite with:

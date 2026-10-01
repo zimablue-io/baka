@@ -342,11 +342,30 @@ program
 
 program
 	.command("serve")
-	.description("Listen on localhost so the desktop (or curl) can call the same Hono engine")
+	.description(
+		"Serve the engine over HTTP so the desktop (or curl) can call it. Loopback only unless a bearer token is set.",
+	)
 	.option("--port <n>", "port", "4311")
+	.option("--host <addr>", "address to bind; anything but a loopback address requires a token", "127.0.0.1")
+	.option(
+		"--token <token>",
+		"require `Authorization: Bearer <token>` (prefer the BAKA_ENGINE_TOKEN env var: flags show up in ps)",
+	)
+	.option(
+		"--allow-root <dir>",
+		"let requests name a project inside <dir> (repeatable; also BAKA_ENGINE_ALLOWED_ROOTS). Without it only the cwd is served",
+		(dir: string, prior: string[]) => [...prior, dir],
+		[] as string[],
+	)
 	.action(async (opts) => {
 		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
-		await runServeCommand({ cwd, port: Number(opts.port) })
+		await runServeCommand({
+			cwd,
+			port: Number(opts.port),
+			host: opts.host,
+			token: opts.token,
+			allowRoots: opts.allowRoot,
+		})
 	})
 
 // `baka plan` -----------------------------------------------------------------

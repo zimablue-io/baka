@@ -312,11 +312,24 @@ export function runLockCommand(opts: { cwd: string; json?: boolean; modules?: st
 	for (const name of names) console.log(`  ${name}@${lock.modules[name]?.version}`)
 }
 
-export async function runServeCommand(opts: { cwd: string; port: number }): Promise<void> {
-	const { serve } = await import("@hono/node-server")
-	const { createEngineApp } = await import("@baka/engine")
-	const app = createEngineApp({ cwd: opts.cwd })
-	serve({ fetch: app.fetch, port: opts.port, hostname: "127.0.0.1" }, (info) => {
-		process.stderr.write(`baka serve: http://127.0.0.1:${info.port}\n`)
-	})
+export async function runServeCommand(opts: {
+	cwd: string
+	port: number
+	host?: string
+	token?: string
+	allowRoots?: string[]
+}): Promise<void> {
+	const { resolveServeConfig, serveEngine } = await import("@baka/engine")
+	let config: ReturnType<typeof resolveServeConfig>
+	try {
+		config = resolveServeConfig(
+			{ port: opts.port, host: opts.host, token: opts.token, allowRoots: opts.allowRoots },
+			process.env,
+			opts.cwd,
+		)
+	} catch (err) {
+		die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
+	}
+	const running = await serveEngine(opts.cwd, config)
+	process.stderr.write(`baka serve: ${running.url}${config.token ? " (bearer token required)" : ""}\n`)
 }

@@ -33,7 +33,7 @@ Every durable step pin: **`moduleId + version + action + params`**.
 
 - Primary: **cwd-bound** engine (stdio MCP and/or CLI).
 - South binds a workspace path and invokes tools against that tree.
-- Optional: Streamable HTTP on a **project worker** that already has the files — not a public multi-tenant “Baka SaaS with empty disk.”
+- Optional: HTTP (`baka serve`) on a **project worker** that already has the files — not a public multi-tenant “Baka SaaS with empty disk.” It binds loopback by default; any other bind requires a bearer token (`BAKA_ENGINE_TOKEN`), and a request may only name a `project` inside an explicit `--allow-root` list (see the README).
 - Do **not** block on MCP Apps branded UI for South. Structured JSON is enough for agents. Catalog listing UI can stay simple.
 
 ## Open work on Baka

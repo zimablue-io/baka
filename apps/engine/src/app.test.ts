@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createLock, ModuleRegistry, writeLockfile } from "@repo/ast-tooling"
@@ -147,12 +147,12 @@ describe("engine Hono SSOT", () => {
 		expect(body.slots.map((s) => s.id)).toEqual(["blurb"])
 	})
 
-	it("uses project for discovery and writes, so one serve can drive any tree", async () => {
+	it("uses an allowed project for discovery and writes, so one serve can drive other trees", async () => {
 		const project = fixtureProject()
 		const bind = mkdtempSync(join(tmpdir(), "baka-engine-bind-"))
 		cleanup.push(bind)
 		writeFileSync(join(bind, "package.json"), JSON.stringify({ name: "bind", private: true }))
-		const app = createEngineApp({ cwd: bind })
+		const app = createEngineApp({ cwd: bind, allowedRoots: [tmpdir()] })
 		const listed = await app.request(`/v1/modules?project=${encodeURIComponent(project)}`)
 		const listedBody = (await listed.json()) as { modules: Array<{ name: string }> }
 		expect(listedBody.modules.map((m) => m.name)).toContain("hello")
@@ -304,5 +304,166 @@ describe("engine Hono SSOT", () => {
 		const overwritten = (await (await run("overwrite")).json()) as { changeset: Array<{ op: string }> }
 		expect(overwritten.changeset).toMatchObject([{ op: "update" }])
 		expect(readFileSync(join(cwd, "hello.md"), "utf-8")).toBe("# Ada\nA greeting.\n")
+	})
+})
+
+describe("engine authentication", () => {
+	const TOKEN = "correct-horse-battery-staple"
+
+	it("serves everything without credentials when no token is configured", async () => {
+		const app = createEngineApp({ cwd: fixtureProject() })
+		expect((await app.request("/v1/modules")).status).toBe(200)
+	})
+
+	it("rejects a request with no credentials, with a Bearer challenge and no detail", async () => {
+		const app = createEngineApp({ cwd: fixtureProject(), token: TOKEN })
+		for (const [path, method] of [
+			["/v1/modules", "GET"],
+			["/v1/slots?module=hello&action=greet", "GET"],
+			["/v1/preview?module=hello&action=greet", "GET"],
+			["/v1/run", "POST"],
+			["/v1/fill", "POST"],
+			["/v1/validate", "POST"],
+			["/mcp", "GET"],
+		] as const) {
+			const res = await app.request(path, { method })
+			expect(res.status, `${method} ${path}`).toBe(401)
+			expect(res.headers.get("www-authenticate")).toBe("Bearer")
+			expect(JSON.stringify(await res.json())).not.toContain(TOKEN)
+		}
+	})
+
+	it("rejects a wrong token, a wrong scheme, and a token with extra text", async () => {
+		const app = createEngineApp({ cwd: fixtureProject(), token: TOKEN })
+		for (const authorization of [
+			"Bearer nope",
+			`Basic ${TOKEN}`,
+			TOKEN,
+			`Bearer ${TOKEN}x`,
+			`Bearer ${TOKEN} extra`,
+			"Bearer",
+			"",
+		]) {
+			const res = await app.request("/v1/modules", { headers: { authorization } })
+			expect(res.status, authorization).toBe(401)
+		}
+	})
+
+	it("accepts the right token on every route", async () => {
+		const cwd = fixtureProject()
+		const app = createEngineApp({ cwd, token: TOKEN })
+		const headers = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }
+		expect((await app.request("/v1/modules", { headers })).status).toBe(200)
+		expect((await app.request("/v1/slots?module=hello&action=greet", { headers })).status).toBe(200)
+		expect((await app.request("/v1/validate", { method: "POST", headers, body: "{}" })).status).toBe(200)
+		expect((await app.request("/mcp", { headers })).status).toBe(501)
+		// scheme matching is case-insensitive, as RFC 7235 requires
+		const lower = await app.request("/v1/modules", { headers: { authorization: `bearer ${TOKEN}` } })
+		expect(lower.status).toBe(200)
+	})
+
+	it("answers a CORS preflight without credentials so a browser can then send the token", async () => {
+		const app = createEngineApp({ cwd: fixtureProject(), token: TOKEN })
+		const res = await app.request("/v1/run", {
+			method: "OPTIONS",
+			headers: {
+				Origin: "http://localhost:1420",
+				"Access-Control-Request-Method": "POST",
+				"Access-Control-Request-Headers": "authorization,content-type",
+			},
+		})
+		expect(res.status).toBeLessThan(300)
+		expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:1420")
+	})
+})
+
+describe("engine project allow-list", () => {
+	function bindDir(): string {
+		const dir = mkdtempSync(join(tmpdir(), "baka-engine-bind-"))
+		cleanup.push(dir)
+		return dir
+	}
+	const modulesUrl = (project: string) => `/v1/modules?project=${encodeURIComponent(project)}`
+
+	it("refuses any other absolute project when no roots are configured", async () => {
+		const other = fixtureProject()
+		const app = createEngineApp({ cwd: bindDir() })
+		const res = await app.request(modulesUrl(other))
+		expect(res.status).toBe(403)
+		expect(((await res.json()) as { error: string }).error).toContain("--allow-root")
+	})
+
+	it("refuses on every route that takes a project, and never writes there", async () => {
+		const other = fixtureProject()
+		const app = createEngineApp({ cwd: bindDir() })
+		const post = (path: string, body: unknown) =>
+			app.request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+		const target = { module: "hello", action: "greet", project: other }
+		expect((await app.request(`/v1/slots?module=hello&action=greet&project=${encodeURIComponent(other)}`)).status).toBe(
+			403,
+		)
+		expect(
+			(await app.request(`/v1/preview?module=hello&action=greet&project=${encodeURIComponent(other)}`)).status,
+		).toBe(403)
+		expect((await post("/v1/run", { ...target, params: { name: "Ada" } })).status).toBe(403)
+		expect((await post("/v1/fill", { ...target, slot: "blurb", value: "x", params: { name: "Ada" } })).status).toBe(403)
+		expect((await post("/v1/validate", { project: other })).status).toBe(403)
+		expect(() => readFileSync(join(other, "hello.md"), "utf-8")).toThrow()
+		expect(() => readFileSync(join(other, ".baka"), "utf-8")).toThrow()
+	})
+
+	it("still allows naming the engine's own cwd explicitly", async () => {
+		const cwd = fixtureProject()
+		const app = createEngineApp({ cwd })
+		expect((await app.request(modulesUrl(cwd))).status).toBe(200)
+	})
+
+	it("rejects relative and missing paths as malformed (400), not forbidden", async () => {
+		const app = createEngineApp({ cwd: bindDir(), allowedRoots: [tmpdir()] })
+		expect((await app.request(modulesUrl("relative/dir"))).status).toBe(400)
+		expect((await app.request(modulesUrl(join(tmpdir(), "baka-does-not-exist-xyz")))).status).toBe(400)
+	})
+
+	it("allows a project inside an allowed root and the root itself", async () => {
+		const root = bindDir()
+		const inside = join(root, "nested", "project")
+		mkdirSync(inside, { recursive: true })
+		const app = createEngineApp({ cwd: bindDir(), allowedRoots: [root] })
+		expect((await app.request(modulesUrl(inside))).status).toBe(200)
+		expect((await app.request(modulesUrl(root))).status).toBe(200)
+	})
+
+	it("refuses a project outside the allowed roots, including `..` escapes and sibling-prefix names", async () => {
+		const parent = bindDir()
+		const root = join(parent, "allowed")
+		const sibling = join(parent, "allowed-evil")
+		mkdirSync(root)
+		mkdirSync(sibling)
+		const app = createEngineApp({ cwd: bindDir(), allowedRoots: [root] })
+		expect((await app.request(modulesUrl(sibling))).status).toBe(403)
+		expect((await app.request(modulesUrl(join(root, "..", "allowed-evil")))).status).toBe(403)
+		expect((await app.request(modulesUrl(parent))).status).toBe(403)
+	})
+
+	it("resolves symlinks, so a link inside a root cannot lead outside it", async () => {
+		const parent = bindDir()
+		const root = join(parent, "allowed")
+		const outside = join(parent, "outside")
+		mkdirSync(root)
+		mkdirSync(outside)
+		symlinkSync(outside, join(root, "escape"))
+		const app = createEngineApp({ cwd: bindDir(), allowedRoots: [root] })
+		expect((await app.request(modulesUrl(join(root, "escape")))).status).toBe(403)
+	})
+
+	it("answers malformed JSON with 400, not a crash", async () => {
+		const app = createEngineApp({ cwd: bindDir() })
+		const res = await app.request("/v1/run", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: "{nope",
+		})
+		expect(res.status).toBe(400)
+		expect(((await res.json()) as { error: string }).error).toContain("JSON")
 	})
 })
