@@ -136,7 +136,7 @@ export interface RunActionInput {
 }
 
 function emptyCompensation(): ActionCompensation {
-	return { created: [], overwritten: [], actionData: null }
+	return { created: [], createdDirs: [], overwritten: [], actionData: null }
 }
 
 /**
@@ -258,12 +258,21 @@ export async function runAction(input: RunActionInput): Promise<ActionResult> {
 	} catch (err) {
 		const failure =
 			err instanceof ActionError ? err : new ActionError("unexpected", err instanceof Error ? err.message : String(err))
-		if (uncommitted) {
-			revertFiles(root, compensation)
-			compensation = emptyCompensation()
-			changeset = []
-		}
 		diagnostics.push({ severity: "error", rule: failure.code, message: failure.message })
+		if (uncommitted) {
+			try {
+				revertFiles(root, compensation)
+				compensation = emptyCompensation()
+				changeset = []
+			} catch (rollbackError) {
+				// Keep the compensation in the receipt so the caller can retry the undo.
+				diagnostics.push({
+					severity: "error",
+					rule: "unexpected",
+					message: `rollback failed, files may remain: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+				})
+			}
+		}
 		return receipt(false)
 	}
 }

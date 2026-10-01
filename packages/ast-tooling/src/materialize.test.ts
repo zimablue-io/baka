@@ -145,7 +145,7 @@ describe("applyPlan", () => {
 			onExisting: "skip",
 		})
 		const done = applyPlan(dir, plan)
-		expect(done).toEqual({ created: ["note.md"], overwritten: [] })
+		expect(done).toEqual({ created: ["note.md"], createdDirs: [], overwritten: [] })
 		expect(existsSync(join(dir, "note.md"))).toBe(true)
 	})
 })

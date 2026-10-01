@@ -35,7 +35,7 @@ interface ActionResult {
 	changeset: ChangesetEntry[] // { path, op: "create" | "update" | "delete" | "unchanged" | "skip", contentHash, reason? }
 	outputTreeHash: string // sha256 over the canonical (path, contentHash) list
 	slots: SlotRecord[]
-	compensation: ActionCompensation // feed to compensateAction() to undo the run
+	compensation: ActionCompensation // { created, createdDirs, overwritten, actionData }; feed to compensateAction() to undo the run
 	output: unknown // what a side-effect action.ts returned, else null
 	dryRun: boolean
 }
@@ -69,6 +69,10 @@ In `replay`, a missing slot fails the run with `slot-record-missing` and no mode
 ## Reruns
 
 `onExisting: "skip" | "overwrite" | "fail"` (default `skip`) decides what happens to template targets that already exist. The changeset reports each as `unchanged` (identical bytes), `skip` (other bytes, left alone), or `update` (rewritten), so a caller can tell "same tree" from "nothing happened": a rerun over its own output is all `unchanged` with the same `outputTreeHash`. See [docs/MODULES.md](../../docs/MODULES.md#rerunning-an-action).
+
+## Containment
+
+Nothing is ever written, read for a write decision, or deleted outside `root`. A template path rendered from params (`{{dir}}/{{name}}/...` with `name = ../../x`), an absolute path, a `..` segment, a path through `.git` or the root's `.baka/`, and a path through a symlink that leaves the root all fail the run with `path-escape` before the first write. Rollback (`compensateAction`) validates the paths of the compensation it is given and removes the directories the run created (`compensation.createdDirs`). Constrain string params in the manifest with `format` (`slug`, `path-segment`, `relative-path`, `identifier`, `package-name`), `pattern`, `minLength`, `maxLength`; they are enforced as `invalid-params` and exported in the JSON Schema. See [docs/MODULES.md](../../docs/MODULES.md#path-containment).
 
 ## Pinning
 

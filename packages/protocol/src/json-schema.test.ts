@@ -128,3 +128,29 @@ describe("ModuleActionParamSchema, extended types", () => {
 		expect(ModuleActionParamSchema.safeParse(param).success).toBe(false)
 	})
 })
+
+describe("paramsJsonSchema string constraints", () => {
+	const schema = paramsJsonSchema([
+		{ name: "a", type: "string", required: true, description: "a", pattern: "^x", minLength: 2, maxLength: 5 },
+		{ name: "b", type: "string", required: true, description: "b", format: "slug" },
+		{ name: "c", type: "array", required: false, description: "c", items: { type: "string", format: "path-segment" } },
+	]) as { properties: Record<string, Record<string, unknown>> }
+
+	it("exports pattern, minLength, and maxLength as the standard keywords", () => {
+		expect(schema.properties.a).toMatchObject({ type: "string", pattern: "^x", minLength: 2, maxLength: 5 })
+	})
+
+	it("exports a named format as its pattern plus x-baka-format, and does so for array items", () => {
+		expect(schema.properties.b).toMatchObject({ type: "string", pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" })
+		expect(schema.properties.b?.["x-baka-format"]).toBe("slug")
+		const items = schema.properties.c?.items as Record<string, unknown>
+		expect(items["x-baka-format"]).toBe("path-segment")
+		expect(typeof items.pattern).toBe("string")
+	})
+
+	it("the exported patterns accept and reject what the engine does", () => {
+		const slug = new RegExp(schema.properties.b?.pattern as string)
+		expect(slug.test("my-app")).toBe(true)
+		expect(slug.test("../x")).toBe(false)
+	})
+})

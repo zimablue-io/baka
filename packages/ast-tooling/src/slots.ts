@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto"
 import { existsSync, readdirSync, readFileSync } from "node:fs"
-import { join, posix } from "node:path"
+import { join } from "node:path"
 import type { SlotDecl } from "@repo/protocol"
 import { SlotKindSchema } from "@repo/protocol"
 import Handlebars from "handlebars"
 import { z } from "zod"
+import { normalizeRelativePath } from "./contain.js"
 
 const SLOT_BLOCK = /\{\{#slot\s+"([^"]+)"([^}]*)\}\}([\s\S]*?)\{\{\/slot\}\}/g
 
@@ -157,10 +158,16 @@ export function renderTemplate(
 	return hb.compile(replaced, { noEscape: true, strict: false })(params)
 }
 
+/**
+ * Render a template's output path from the params and return it normalized
+ * and contained: a rendered path that is absolute, has a `..` segment, or
+ * otherwise cannot be a project-relative path fails with `path-escape`, so a
+ * param like `../../x` never reaches the file system.
+ */
 export function interpolatePath(rel: string, params: Record<string, unknown>): string {
 	const hb = Handlebars.create()
 	const rendered = hb.compile(rel, { noEscape: true, strict: false })(params)
-	return posix.normalize(rendered).replace(/^\.\//, "")
+	return normalizeRelativePath(rendered)
 }
 
 function discoverHbsFiles(dir: string): string[] {

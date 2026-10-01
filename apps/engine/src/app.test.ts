@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createLock, ModuleRegistry, writeLockfile } from "@repo/ast-tooling"
@@ -465,5 +465,43 @@ describe("engine project allow-list", () => {
 		})
 		expect(res.status).toBe(400)
 		expect(((await res.json()) as { error: string }).error).toContain("JSON")
+	})
+})
+
+describe("engine run: path containment", () => {
+	function scaffoldProject(): { base: string; cwd: string } {
+		const base = mkdtempSync(join(tmpdir(), "baka-engine-contain-"))
+		cleanup.push(base)
+		const cwd = join(base, "project")
+		const moduleRoot = join(cwd, "modules", "scaf")
+		mkdirSync(join(moduleRoot, "scaffold", "templates", "{{name}}"), { recursive: true })
+		writeFileSync(
+			join(moduleRoot, "manifest.ts"),
+			`export const Manifest = {
+  name: "scaf", version: "0.0.0", description: "fixture", dependencies: [], conflictsWith: [],
+  actions: [{ id: "scaffold", description: "x", requiresReasoning: false, filePatterns: [], validators: [],
+    params: [{ name: "name", type: "string", required: true, description: "n" }] }],
+  moduleValidators: [],
+}
+`,
+		)
+		writeFileSync(join(moduleRoot, "scaffold", "templates", "{{name}}", "README.md.hbs"), "# {{name}}\n")
+		return { base, cwd }
+	}
+
+	it("refuses --name ../../x over HTTP and writes nothing above the project", async () => {
+		const { base, cwd } = scaffoldProject()
+		const app = createEngineApp({ cwd })
+		const res = await app.request("/v1/run", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ module: "scaf", action: "scaffold", params: { name: "../../x" } }),
+		})
+		expect(res.status).toBe(400)
+		const body = (await res.json()) as { ok: boolean; diagnostics: Array<{ rule: string }> }
+		expect(body.ok).toBe(false)
+		expect(body.diagnostics.map((d) => d.rule)).toEqual(["path-escape"])
+		expect(readdirSync(base)).toEqual(["project"])
+		expect(readdirSync(cwd)).toEqual(["modules"])
 	})
 })

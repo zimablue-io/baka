@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { normalizeParams } from "./params"
-import type { ModuleActionParam } from "./schemas"
+import type { ModuleActionParam, ParamFormat } from "./schemas"
 
 const SPECS: ModuleActionParam[] = [
 	{ name: "name", type: "string", required: true, description: "who" },
@@ -47,5 +47,67 @@ describe("normalizeParams", () => {
 	it("names the nested path of a bad nested value", () => {
 		const result = normalizeParams(SPECS, { name: "Ada", owner: { age: "old" } })
 		expect(result.ok === false && result.message).toContain("owner.age")
+	})
+})
+
+describe("string constraints", () => {
+	const spec = (extra: Partial<ModuleActionParam>): ModuleActionParam[] => [
+		{ name: "value", type: "string", required: true, description: "v", ...extra },
+	]
+	const accepts = (extra: Partial<ModuleActionParam>, value: string) =>
+		normalizeParams(spec(extra), { value }).ok === true
+
+	it("pattern is unanchored unless the author anchors it, like JSON Schema", () => {
+		expect(accepts({ pattern: "^v\\d+$" }, "v12")).toBe(true)
+		expect(accepts({ pattern: "^v\\d+$" }, "v12x")).toBe(false)
+		expect(accepts({ pattern: "\\d" }, "abc1")).toBe(true)
+	})
+
+	it("minLength and maxLength bound the string", () => {
+		expect(accepts({ minLength: 2, maxLength: 3 }, "a")).toBe(false)
+		expect(accepts({ minLength: 2, maxLength: 3 }, "ab")).toBe(true)
+		expect(accepts({ minLength: 2, maxLength: 3 }, "abcd")).toBe(false)
+	})
+
+	it("names the offending param and the constraint in the message", () => {
+		const result = normalizeParams(spec({ format: "slug" }), { value: "Not A Slug" })
+		expect(result.ok).toBe(false)
+		expect(result.ok === false && result.message).toMatch(/value: .*slug/)
+	})
+
+	const FORMAT_CASES: Array<[ParamFormat, string[], string[]]> = [
+		["slug", ["a", "my-app", "a1-b2"], ["", "My", "a--b", "-a", "a-", "a_b", "../x"]],
+		["path-segment", ["x", "my.pkg", ".hidden", "..."], ["", ".", "..", "a/b", "a\\b", "a\nb", "a\u0000b"]],
+		["relative-path", ["x", "a/b", "packages/ui", "a/..b"], ["", "/abs", "..", "../x", "a/../b", "a/..", "a\\b"]],
+		["identifier", ["a", "_a1", "$x"], ["", "1a", "a-b", "a b"]],
+		["package-name", ["pkg", "@scope/pkg", "my-pkg.js"], ["", "Pkg", "@scope", "@/pkg", "a b"]],
+	]
+	for (const [format, good, bad] of FORMAT_CASES) {
+		it(`format ${format}`, () => {
+			for (const v of good) expect(accepts({ format }, v), `accepts ${JSON.stringify(v)}`).toBe(true)
+			for (const v of bad) expect(accepts({ format }, v), `rejects ${JSON.stringify(v)}`).toBe(false)
+		})
+	}
+
+	it("applies to array items and nested object fields", () => {
+		const specs: ModuleActionParam[] = [
+			{
+				name: "names",
+				type: "array",
+				required: true,
+				description: "n",
+				items: { type: "string", format: "slug" },
+			},
+			{
+				name: "owner",
+				type: "object",
+				required: false,
+				description: "o",
+				properties: [{ name: "id", type: "string", required: true, description: "i", maxLength: 3 }],
+			},
+		]
+		expect(normalizeParams(specs, { names: ["a", "b-c"] }).ok).toBe(true)
+		expect(normalizeParams(specs, { names: ["a", "B"] }).ok).toBe(false)
+		expect(normalizeParams(specs, { names: [], owner: { id: "abcd" } }).ok).toBe(false)
 	})
 })

@@ -54,6 +54,47 @@ describe("ModuleActionParamSchema", () => {
 	})
 })
 
+describe("ModuleActionParamSchema string constraints", () => {
+	const base = { name: "p", required: true, description: "d" }
+
+	it("accepts pattern, minLength, maxLength, and a named format on a string", () => {
+		const parsed = ModuleActionParamSchema.safeParse({
+			...base,
+			type: "string",
+			pattern: "^a",
+			minLength: 1,
+			maxLength: 9,
+			format: "slug",
+		})
+		expect(parsed.success).toBe(true)
+	})
+
+	it("rejects them on any other type", () => {
+		for (const extra of [{ pattern: "a" }, { minLength: 1 }, { maxLength: 1 }, { format: "slug" }]) {
+			expect(ModuleActionParamSchema.safeParse({ ...base, type: "number", ...extra }).success).toBe(false)
+		}
+	})
+
+	it("rejects an invalid regular expression, an unknown format, and min greater than max", () => {
+		expect(ModuleActionParamSchema.safeParse({ ...base, type: "string", pattern: "(" }).success).toBe(false)
+		expect(ModuleActionParamSchema.safeParse({ ...base, type: "string", format: "email" }).success).toBe(false)
+		expect(ModuleActionParamSchema.safeParse({ ...base, type: "string", minLength: 3, maxLength: 2 }).success).toBe(
+			false,
+		)
+	})
+
+	it("rejects a default that violates the constraints", () => {
+		const parsed = ModuleActionParamSchema.safeParse({
+			...base,
+			required: false,
+			type: "string",
+			format: "slug",
+			default: "Not A Slug",
+		})
+		expect(parsed.success).toBe(false)
+	})
+})
+
 describe("ModuleActionSchema", () => {
 	it("applies the documented defaults for requiresReasoning, filePatterns, and validators", () => {
 		const parsed = ModuleActionSchema.parse({ id: "scaffold", description: "scaffold a project", params: [] })

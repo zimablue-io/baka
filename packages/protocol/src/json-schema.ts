@@ -1,5 +1,5 @@
 import { zodToJsonSchema } from "zod-to-json-schema"
-import { ActionResultSchema, type ModuleActionParam, paramsToZod } from "./schemas"
+import { ActionResultSchema, type ModuleActionParam, type ParamTypeNode, paramsToZod } from "./schemas"
 
 /** A JSON Schema (draft-07) document. */
 export type JsonSchema = Record<string, unknown>
@@ -16,7 +16,30 @@ function toJsonSchema(schema: Parameters<typeof zodToJsonSchema>[0]): JsonSchema
  * enum values, element type, nested properties, and default.
  */
 export function paramsJsonSchema(params: readonly ModuleActionParam[]): JsonSchema {
-	return toJsonSchema(paramsToZod(params))
+	const schema = toJsonSchema(paramsToZod(params))
+	annotateObject(schema, params)
+	return schema
+}
+
+/**
+ * `pattern`, `minLength`, and `maxLength` are standard keywords and come from
+ * the Zod schema. A named `format` is carried as its expanded `pattern` and
+ * also as `x-baka-format`, so a reader can tell `slug` from a hand-written
+ * regex without a draft-07 validator rejecting an unknown `format` name.
+ */
+function annotateObject(schema: JsonSchema, params: readonly ModuleActionParam[]): void {
+	const properties = schema.properties as Record<string, JsonSchema> | undefined
+	if (!properties) return
+	for (const param of params) {
+		const property = properties[param.name]
+		if (property) annotateNode(property, param)
+	}
+}
+
+function annotateNode(schema: JsonSchema, node: ParamTypeNode): void {
+	if (node.format) schema["x-baka-format"] = node.format
+	if (node.type === "array" && node.items && schema.items) annotateNode(schema.items as JsonSchema, node.items)
+	if (node.type === "object" && node.properties) annotateObject(schema, node.properties)
 }
 
 /** The JSON Schema of the `ActionResult` receipt that `runAction` returns. */

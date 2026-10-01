@@ -311,13 +311,13 @@ The arxiv literature on LLM agent reproducibility (Measuring Determinism in LLM 
   ],
   "outputTreeHash": "<sha256 hex>",
   "slots": [ /* the slot fills, see "Slot records and replay" */ ],
-  "compensation": { "created": ["hello.md"], "overwritten": [], "actionData": { "written": ["hello.md"] } },
+  "compensation": { "created": ["hello.md"], "createdDirs": [], "overwritten": [], "actionData": { "written": ["hello.md"] } },
   "output": null,               // what a side-effect action.ts returned, else null
   "dryRun": false
 }
 ```
 
-`ok` is false when any diagnostic has `severity: "error"`. A run that fails while executing (a template error, a missing slot, an `action.ts` that reports failure) leaves nothing behind: files it created are removed, files it overwrote are restored, the changeset is empty, and the one error diagnostic carries a stable code in `rule` (`module-not-found`, `action-not-found`, `action-empty`, `invalid-params`, `slot-no-provider`, `slot-provider-error`, `slot-record-missing`, `slot-record-stale`, `slot-fill-invalid`, `template-invalid`, `dry-run-unsupported`, `action-failed`, `unexpected`). A run whose validators fail is different: the files stay, `ok` is false, and `compensation` still describes everything written so the caller can undo it with `compensateAction`.
+`ok` is false when any diagnostic has `severity: "error"`. A run that fails while executing (a template error, a missing slot, an `action.ts` that reports failure) leaves nothing behind: files it created are removed, files it overwrote are restored, directories it created are removed, the changeset is empty, and the one error diagnostic carries a stable code in `rule` (`module-not-found`, `action-not-found`, `action-empty`, `invalid-params`, `slot-no-provider`, `slot-provider-error`, `slot-record-missing`, `slot-record-stale`, `slot-fill-invalid`, `template-invalid`, `path-escape`, `dry-run-unsupported`, `action-failed`, `unexpected`). A run whose validators fail is different: the files stay, `ok` is false, and `compensation` still describes everything written so the caller can undo it with `compensateAction`.
 
 ### Changeset
 
@@ -350,6 +350,23 @@ baka.tree.v1\n
 ### Dry run
 
 `dryRun: true` (`baka run --dry-run`) plans and returns the same receipt without writing anything: no project files and no slot-cache entries. The tree it reports is the tree a real run would leave, given the same slot fills. A dry run is only available for template-only actions; an action with an `action.ts` has side effects (spawn, git, package.json edits) that cannot be virtualised, so it fails with `dry-run-unsupported` rather than pretending. Validators inspect the real tree, so a dry run does not run them. Because a dry run does not persist fills, hand its `slots` to the real run (see "Slot records and replay") when the real run must produce the tree the dry run predicted.
+
+## Path containment
+
+Everything Baka writes, and everything it deletes on rollback, stays inside the project root. A path is checked in two steps, before the first byte of a run is written and again right before each write:
+
+1. **Lexical.** The path must be a non-empty POSIX string without backslashes, NUL or other control characters; it must not be absolute (`/x`, `C:x`); it must contain no `..` segment (even one that would come back inside, like `a/../b`); it must not name the root itself; it must not go through a `.git` directory at any depth or start in the root's `.baka/` (those hold hooks and installed modules, which are code that runs later).
+2. **Resolution.** After resolving symbolic links, the deepest existing ancestor of the target must lie inside the root's real path, and the target itself must not be a symbolic link (a write must not land on the file the link points at).
+
+A violation fails the run with `path-escape`, before anything is written, so the changeset is empty and nothing is left to undo. This covers:
+
+- template output paths rendered from params (`{{dir}}/{{name}}/README.md` with `name = ../../x`, or with an empty `dir` that renders an absolute path);
+- every file written through the `ctx.files` API of an `action.ts` (see "The `action.ts` contract");
+- rollback: `compensateAction` validates every path in the compensation it is given (a receipt may come from anywhere) and refuses the whole undo if one of them leaves the root.
+
+Rollback also removes the directories a run created. `compensation.createdDirs` lists them in creation order; undoing a run deletes the created files, restores the overwritten ones, then removes those directories deepest first once they are empty (a directory something else has since put a file in is left alone).
+
+Containment covers what the engine writes. An `action.ts` is code you chose to install and can still call `node:fs` directly; Baka cannot confine that, which is why pins (`baka.lock.json`) exist and why side-effect actions should write through `ctx.files`. Constrain string params with `format` or `pattern` (see "Param types") so a bad value is rejected as `invalid-params` before containment is even reached.
 
 ## Slot records and replay
 
@@ -391,6 +408,16 @@ An action's `params` in the manifest is a list of declarations. Each has a `name
 | `enum` | `enumValues`: the allowed strings (non-empty) |
 | `array` | `items`: the element's type declaration (`{ type, ... }`, recursively) |
 | `object` | `properties`: a list of param declarations, the object's fields |
+
+A `string` declaration may constrain its value, and the constraints are enforced with the rest of param validation (an `invalid-params` failure naming the param, before any file is planned or written):
+
+| Field | Meaning |
+|---|---|
+| `pattern` | A regular expression the value must match. Unanchored, as in JSON Schema: write `^...$` to match the whole value. |
+| `minLength`, `maxLength` | Bounds on the length in UTF-16 code units. |
+| `format` | A named, anchored pattern: `slug` (`my-app`), `path-segment` (one safe path component: no `/`, backslash, control character, `.` or `..`), `relative-path` (a POSIX path with no leading `/`, no `..` segment, no backslash), `identifier` (`[A-Za-z_$][A-Za-z0-9_$]*`), `package-name` (npm name, optionally scoped). |
+
+They may also sit on `items` (array elements) and on object `properties`. The manifest schema rejects them on any other type, an invalid `pattern`, `minLength` greater than `maxLength`, and a `default` that does not satisfy them. In the JSON Schema below, `pattern`, `minLength`, and `maxLength` are exported as the standard keywords, and a `format` is exported as its expanded `pattern` plus `"x-baka-format": "<name>"`. Constrain every param that ends up in a path: `{ name: "name", type: "string", required: true, description: "...", format: "slug" }`.
 
 Any declaration may carry a `default` (a JSON value of that type). A param with a default is optional, so it must not also be `required`. The manifest schema rejects a declaration whose extra fields do not fit its type (an `enum` without values, a `default` of the wrong type, `enumValues` on a string, and so on), so a bad manifest is caught by `baka module validate` and by discovery, not at run time.
 

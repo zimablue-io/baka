@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { dirname, posix } from "node:path"
 import type {
 	ActionCompensation,
 	ChangesetEntry,
@@ -11,6 +11,7 @@ import type {
 	SlotRecord,
 } from "@repo/protocol"
 import type { z } from "zod"
+import { ensureDirectory, removeCreatedDirectories, resolveContained } from "./contain.js"
 import { ActionError } from "./errors.js"
 import type { SlotStore } from "./slot-cache.js"
 import {
@@ -150,13 +151,13 @@ export async function planTemplates(opts: PlanTemplatesOptions): Promise<Templat
 			throw new ActionError("template-invalid", `templates ${other} and ${file.rel} render to the same path "${path}"`)
 		}
 		targets.set(path, file.rel)
-		const abs = join(opts.root, path)
+		const abs = resolveContained(opts.root, path)
 		if (existsSync(abs) && !statSync(abs).isFile()) {
 			throw new ActionError("template-invalid", `"${path}" exists and is not a regular file`)
 		}
 	}
 	if (opts.onExisting === "fail") {
-		const existing = [...targets.keys()].filter((path) => existsSync(join(opts.root, path)))
+		const existing = [...targets.keys()].filter((path) => existsSync(resolveContained(opts.root, path)))
 		if (existing.length > 0) {
 			throw new ActionError(
 				"target-exists",
@@ -230,7 +231,7 @@ export async function planTemplates(opts: PlanTemplatesOptions): Promise<Templat
 			throw err
 		}
 		const contentHash = hashBytes(content)
-		const abs = join(opts.root, path)
+		const abs = resolveContained(opts.root, path)
 		if (!existsSync(abs)) {
 			planned.set(path, { path, op: "create", contentHash, content })
 			continue
@@ -257,22 +258,44 @@ export async function planTemplates(opts: PlanTemplatesOptions): Promise<Templat
 	}
 }
 
-/** Undo what `applyPlan` did (and what a failed side-effect action left behind). */
-export function revertFiles(root: string, compensation: Pick<ActionCompensation, "created" | "overwritten">): void {
-	for (const rel of compensation.created) rmSync(join(root, rel), { force: true })
-	for (const { path, contentBase64 } of compensation.overwritten) {
-		writeFileSync(join(root, path), Buffer.from(contentBase64, "base64"))
+type Rollback = Pick<ActionCompensation, "created" | "createdDirs" | "overwritten">
+
+/**
+ * Undo what `applyPlan` did (and what a failed side-effect action left
+ * behind): delete the files the run created, restore the files it
+ * overwrote, then remove the directories it created, deepest first, once
+ * they are empty.
+ *
+ * The compensation may come from outside (a stored receipt), so every path
+ * in it is checked against the project root before anything is touched; one
+ * path that escapes refuses the whole rollback.
+ */
+export function revertFiles(root: string, compensation: Rollback): void {
+	const created = compensation.created.map((rel) => resolveContained(root, rel))
+	const restore = compensation.overwritten.map((entry) => ({
+		abs: resolveContained(root, entry.path),
+		bytes: Buffer.from(entry.contentBase64, "base64"),
+	}))
+	const dirs = compensation.createdDirs.map((rel) => {
+		resolveContained(root, rel)
+		return rel
+	})
+	for (const abs of created) rmSync(abs, { force: true })
+	for (const { abs, bytes } of restore) {
+		mkdirSync(dirname(abs), { recursive: true })
+		writeFileSync(abs, bytes)
 	}
+	removeCreatedDirectories(root, dirs)
 }
 
 /** Write every create/update in the plan. On a failed write, revert what was written and rethrow. */
-export function applyPlan(root: string, plan: TemplatePlan): Pick<ActionCompensation, "created" | "overwritten"> {
-	const done: Pick<ActionCompensation, "created" | "overwritten"> = { created: [], overwritten: [] }
+export function applyPlan(root: string, plan: TemplatePlan): Rollback {
+	const done: Rollback = { created: [], createdDirs: [], overwritten: [] }
 	try {
 		for (const file of plan.files) {
 			if (file.op !== "create" && file.op !== "update") continue
-			const abs = join(root, file.path)
-			mkdirSync(dirname(abs), { recursive: true })
+			const abs = resolveContained(root, file.path)
+			ensureDirectory(root, posix.dirname(file.path), done.createdDirs)
 			if (file.op === "update" && file.previous) {
 				done.overwritten.push({ path: file.path, contentBase64: file.previous.toString("base64") })
 			}

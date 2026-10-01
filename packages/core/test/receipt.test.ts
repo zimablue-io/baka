@@ -32,6 +32,7 @@ describe("receipt: changeset and outputTreeHash", () => {
 		expect(result.diagnostics).toEqual([])
 		expect(result.compensation).toEqual({
 			created: ["hello.md"],
+			createdDirs: [],
 			overwritten: [],
 			actionData: { written: ["hello.md"] },
 		})
@@ -189,7 +190,7 @@ describe("side-effect actions", () => {
 		expect(result.ok).toBe(false)
 		expect(result.diagnostics).toEqual([{ severity: "error", rule: "action-failed", message: "boom" }])
 		expect(result.changeset).toEqual([])
-		expect(result.compensation).toEqual({ created: [], overwritten: [], actionData: null })
+		expect(result.compensation).toEqual({ created: [], createdDirs: [], overwritten: [], actionData: null })
 		expect(existsSync(join(root, "out.txt"))).toBe(false)
 	})
 })

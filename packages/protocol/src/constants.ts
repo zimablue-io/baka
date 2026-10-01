@@ -67,6 +67,7 @@ export const ACTION_ERROR_CODES = [
 	"slot-record-stale",
 	"slot-fill-invalid",
 	"template-invalid",
+	"path-escape",
 	"target-exists",
 	"dry-run-unsupported",
 	"action-failed",

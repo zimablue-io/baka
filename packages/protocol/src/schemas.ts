@@ -15,6 +15,27 @@ import { AgentRole } from "./types"
 export const PARAM_TYPES = ["string", "boolean", "number", "enum", "array", "object"] as const
 export type ParamType = (typeof PARAM_TYPES)[number]
 
+/**
+ * Named string formats a `string` param may declare with `format`. Each is a
+ * regular expression (so JSON Schema carries it as `pattern`) and is the
+ * conventional way to keep a param safe to interpolate into a path.
+ *
+ * - `slug`: lowercase letters and digits, words joined by single hyphens (`my-app`).
+ * - `path-segment`: one path component: no `/`, backslash, or control character, and not `.` or `..`.
+ * - `relative-path`: a POSIX path below the project root: not absolute, no `..` segment, no backslash or control character.
+ * - `identifier`: a JavaScript identifier (`[A-Za-z_$][A-Za-z0-9_$]*`).
+ * - `package-name`: an npm package name, optionally scoped (`@scope/name`).
+ */
+export const PARAM_FORMATS = {
+	slug: "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+	"path-segment": "^(?!\\.{1,2}$)[^/\\\\\\u0000-\\u001f]+$",
+	"relative-path": "^(?!/)(?!(?:.*/)?\\.\\.(?:/|$))[^\\\\\\u0000-\\u001f]+$",
+	identifier: "^[A-Za-z_$][A-Za-z0-9_$]*$",
+	"package-name": "^(?:@[a-z0-9-~][a-z0-9-._~]*/)?[a-z0-9-~][a-z0-9-._~]*$",
+} as const
+export type ParamFormat = keyof typeof PARAM_FORMATS
+const PARAM_FORMAT_NAMES = Object.keys(PARAM_FORMATS) as [ParamFormat, ...ParamFormat[]]
+
 export interface ParamTypeNode {
 	type: ParamType
 	description?: string
@@ -22,6 +43,14 @@ export interface ParamTypeNode {
 	default?: unknown
 	items?: ParamTypeNode
 	properties?: ModuleActionParam[]
+	/** `string` only: a regular expression the value must match (unanchored, as in JSON Schema; anchor it with `^` and `$`). */
+	pattern?: string
+	/** `string` only: minimum length in UTF-16 code units. */
+	minLength?: number
+	/** `string` only: maximum length in UTF-16 code units. */
+	maxLength?: number
+	/** `string` only: one of the named formats in PARAM_FORMATS. */
+	format?: ParamFormat
 }
 
 export interface ModuleActionParam extends ParamTypeNode {
@@ -36,6 +65,10 @@ const ParamTypeNodeShape = {
 	default: z.unknown().optional(),
 	items: z.lazy((): z.ZodType<ParamTypeNode> => ParamTypeNodeSchema).optional(), // required when type === "array"
 	properties: z.lazy((): z.ZodType<ModuleActionParam[]> => z.array(ModuleActionParamSchema)).optional(), // required when type === "object"
+	pattern: z.string().optional(), // string only
+	minLength: z.number().int().nonnegative().optional(), // string only
+	maxLength: z.number().int().nonnegative().optional(), // string only
+	format: z.enum(PARAM_FORMAT_NAMES).optional(), // string only
 }
 
 /** The cross-field rules a type declaration must satisfy; `ctx` receives one issue per violation. */
@@ -50,6 +83,25 @@ function checkParamNode(node: ParamTypeNode, ctx: z.RefinementCtx): void {
 	need((node.enumValues?.length ?? 0) > 0, "enumValues", "enum")
 	need(node.items !== undefined, "items", "array")
 	need(node.properties !== undefined, "properties", "object")
+	for (const field of ["pattern", "minLength", "maxLength", "format"] as const) {
+		if (node.type !== "string" && node[field] !== undefined) {
+			ctx.addIssue({ code: "custom", path: [field], message: `${field} is only valid on string params` })
+		}
+	}
+	if (node.pattern !== undefined) {
+		try {
+			new RegExp(node.pattern)
+		} catch (err) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["pattern"],
+				message: `pattern is not a valid regular expression: ${err instanceof Error ? err.message : String(err)}`,
+			})
+		}
+	}
+	if (node.minLength !== undefined && node.maxLength !== undefined && node.minLength > node.maxLength) {
+		ctx.addIssue({ code: "custom", path: ["maxLength"], message: "maxLength must not be less than minLength" })
+	}
 	if (node.default !== undefined && !paramNodeToZod(node).safeParse(node.default).success) {
 		ctx.addIssue({ code: "custom", path: ["default"], message: `default does not match type ${node.type}` })
 	}
@@ -77,9 +129,15 @@ export const ModuleActionParamSchema: z.ZodType<ModuleActionParam> = z
 function paramNodeToZod(node: ParamTypeNode): z.ZodTypeAny {
 	let schema: z.ZodTypeAny
 	switch (node.type) {
-		case "string":
-			schema = z.string()
+		case "string": {
+			let str = z.string()
+			if (node.minLength !== undefined) str = str.min(node.minLength)
+			if (node.maxLength !== undefined) str = str.max(node.maxLength)
+			if (node.format !== undefined) str = str.regex(new RegExp(PARAM_FORMATS[node.format]), `must be a ${node.format}`)
+			if (node.pattern !== undefined) str = str.regex(new RegExp(node.pattern), `must match ${node.pattern}`)
+			schema = str
 			break
+		}
 		case "number":
 			schema = z.number()
 			break
@@ -273,6 +331,8 @@ export const SlotsInputSchema = z.object({
 export const ActionCompensationSchema = z.object({
 	/** Paths this run created; compensation deletes them. */
 	created: z.array(z.string()),
+	/** Directories this run created, in creation order; compensation removes them (deepest first) once empty. */
+	createdDirs: z.array(z.string()),
 	/** Files this run overwrote, with their previous bytes; compensation restores them. */
 	overwritten: z.array(z.object({ path: z.string(), contentBase64: z.string() })),
 	/** What the action's own `execute` returned as compensation data; handed back to its `compensate`. */
