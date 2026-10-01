@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs"
 import { join } from "node:path"
-import type { ModuleManifest, OrchestrationState, ValidationDiagnostic, WorkflowStep } from "@repo/protocol"
+import type { ActionStep, ModuleManifest, OrchestrationState, ValidationDiagnostic } from "@repo/protocol"
 import { createJiti } from "jiti"
 
 /**
@@ -14,7 +14,7 @@ function validatorFilename(id: string): string {
 }
 
 export interface LoadedAction<TInput, TOutput, TCompensationData> {
-	step: WorkflowStep<TInput, TOutput, TCompensationData>
+	step: ActionStep<TInput, TOutput, TCompensationData>
 	manifest: ModuleManifest
 	actionId: string
 }
@@ -24,14 +24,14 @@ export interface LoadedAction<TInput, TOutput, TCompensationData> {
  * source of truth: it owns its params, its execute, and its compensate.
  *
  * The action file is expected to export either:
- *   - a single WorkflowStep value named `${actionId}Action`, or
- *   - the default export, treated as the WorkflowStep.
+ *   - a single ActionStep value named `${actionId}Action`, or
+ *   - the default export, treated as the ActionStep.
  *
  * jiti is used so that the action file can be authored in TypeScript with
- * full type-safety against baka-sdk, without a separate build step. We set
- * the jiti cwd to the module root so that `import ... from "baka-sdk"`
- * resolves to the module's own node_modules (or, in this monorepo, to the
- * workspace symlink).
+ * full type-safety against baka-sdk, without a separate build step. The
+ * file may import types from `baka-sdk` (`import type`, erased at load
+ * time) but nothing at run time: `baka-sdk` is not installed next to a
+ * module, and `baka module validate` rejects a runtime import of it.
  */
 export function loadAction<TInput, TOutput, TCompensationData>(
 	_projectRoot: string,
@@ -50,17 +50,17 @@ export function loadAction<TInput, TOutput, TCompensationData>(
 	// This lets hyphenated ids like `add-script` resolve to `addScriptAction`.
 	const camelCaseId = toCamelCase(actionId)
 	const candidates = [camelCaseId, `${camelCaseId}Action`, `${actionId}`, `${actionId}Action`, "default"]
-	let step: WorkflowStep<TInput, TOutput, TCompensationData> | undefined
+	let step: ActionStep<TInput, TOutput, TCompensationData> | undefined
 	for (const name of candidates) {
 		const c = mod[name] as { execute?: unknown; compensate?: unknown } | undefined
 		if (c && typeof c.execute === "function" && typeof c.compensate === "function") {
-			step = c as WorkflowStep<TInput, TOutput, TCompensationData>
+			step = c as ActionStep<TInput, TOutput, TCompensationData>
 			break
 		}
 	}
 	if (!step) {
 		throw new Error(
-			`action file ${actionPath} must export a WorkflowStep value named \`${camelCaseId}\`, \`${camelCaseId}Action\`, \`${actionId}\`, \`${actionId}Action\`, or as the default export`,
+			`action file ${actionPath} must export an ActionStep value named \`${camelCaseId}\`, \`${camelCaseId}Action\`, \`${actionId}\`, \`${actionId}Action\`, or as the default export`,
 		)
 	}
 	return { step, manifest, actionId }

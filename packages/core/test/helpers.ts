@@ -33,6 +33,8 @@ interface FixtureAction {
 	templates?: Record<string, string>
 	/** Source of `<action>/action.ts`, when the action has side effects. */
 	actionTs?: string
+	/** The manifest's `supportsDryRun` for this action. */
+	supportsDryRun?: boolean
 }
 
 interface FixtureModule {
@@ -59,6 +61,7 @@ export function writeModule(modulesDir: string, mod: FixtureModule): string {
 			requiresReasoning: false,
 			filePatterns: [],
 			validators: [],
+			supportsDryRun: a.supportsDryRun ?? false,
 		})),
 		moduleValidators: [],
 	}

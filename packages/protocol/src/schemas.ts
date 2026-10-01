@@ -182,6 +182,13 @@ export const ModuleActionSchema = z.object({
 	filePatterns: z.array(z.string()).default([]),
 	validators: z.array(z.string()).default([]),
 	/**
+	 * An action with an `action.ts` can be dry-run only if it says so here: it
+	 * then promises to write solely through `ctx.files` while `ctx.dryRun` is
+	 * true (Baka checks the tree is unchanged afterwards). Template-only
+	 * actions are always dry-runnable and ignore this.
+	 */
+	supportsDryRun: z.boolean().optional(),
+	/**
 	 * Optional toolchain the registry should run against the
 	 * dry-run output for this action. Today only `tsc` is
 	 * declarable (architecture §4.6 layer 3); the closed set is

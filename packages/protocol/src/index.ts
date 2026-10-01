@@ -116,8 +116,13 @@ export {
 } from "./schemas"
 export type {
 	ActionCompensation,
+	ActionContext,
 	ActionErrorCode,
+	ActionFiles,
+	ActionFileWrite,
 	ActionResult,
+	ActionStep,
+	ActionWriteOptions,
 	BakaLock,
 	ChangeOp,
 	ChangesetEntry,

@@ -78,6 +78,22 @@ export function snapshotTree(root: string): Map<string, string> {
 	})
 }
 
+/** Every directory under a project (relative, POSIX), skipping the same trees as `snapshotTree`. */
+export function snapshotDirectories(root: string): Set<string> {
+	const out = new Set<string>()
+	const walk = (dir: string, rel: string): void => {
+		for (const entry of readdirSync(dir, { withFileTypes: true })) {
+			if (!entry.isDirectory()) continue
+			if (entry.name === ".git" || entry.name === "node_modules" || (rel === "" && entry.name === ".baka")) continue
+			const relPath = rel ? `${rel}/${entry.name}` : entry.name
+			out.add(relPath)
+			walk(join(dir, entry.name), relPath)
+		}
+	}
+	walk(root, "")
+	return out
+}
+
 const MODULE_HASH_DOMAIN = "baka.module.v1"
 
 /**

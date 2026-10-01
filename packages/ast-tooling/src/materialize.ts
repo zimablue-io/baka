@@ -258,7 +258,7 @@ export async function planTemplates(opts: PlanTemplatesOptions): Promise<Templat
 	}
 }
 
-type Rollback = Pick<ActionCompensation, "created" | "createdDirs" | "overwritten">
+export type Rollback = Pick<ActionCompensation, "created" | "createdDirs" | "overwritten">
 
 /**
  * Undo what `applyPlan` did (and what a failed side-effect action left

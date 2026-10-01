@@ -33,7 +33,7 @@ interface ActionResult {
 	action: string
 	diagnostics: ValidationDiagnostic[] // a failed run carries one error whose `rule` is an ActionErrorCode
 	changeset: ChangesetEntry[] // { path, op: "create" | "update" | "delete" | "unchanged" | "skip", contentHash, reason? }
-	outputTreeHash: string // sha256 over the canonical (path, contentHash) list
+	outputTreeHash: string // sha256 over the canonical (path, contentHash) list of every file the action owns
 	slots: SlotRecord[]
 	compensation: ActionCompensation // { created, createdDirs, overwritten, actionData }; feed to compensateAction() to undo the run
 	output: unknown // what a side-effect action.ts returned, else null
@@ -60,11 +60,19 @@ replayed.outputTreeHash === recorded.outputTreeHash // true
 
 In `replay`, a missing slot fails the run with `slot-record-missing` and no model call is ever made. Modes `live` (cache then model, the default) and `record` (always the model) are described in [docs/MODULES.md](../../docs/MODULES.md#slot-records-and-replay).
 
-`dryRun: true` computes the same receipt without writing a byte. The exact definition of `outputTreeHash`, the changeset ops, and the failure semantics are in [docs/MODULES.md](../../docs/MODULES.md#running-an-action-the-receipt).
+`dryRun: true` computes the same receipt without writing a byte (template-only actions, and `action.ts` actions that declare `supportsDryRun` and write through `ctx.files`). The exact definition of `outputTreeHash`, the changeset ops, and the failure semantics are in [docs/MODULES.md](../../docs/MODULES.md#running-an-action-the-receipt).
+
+## What `outputTreeHash` covers
+
+The hash is over the **full set of files the action owns**, not just the ones that changed: every template target, every file an `action.ts` wrote or removed through `ctx.files` or declared with `ctx.files.own(...)`, and every file its `execute` created, changed, or deleted. A file that was already there with the right bytes is listed as `unchanged`. So a first run and a rerun over the same tree list the same paths with the same content hashes and have the same `outputTreeHash`; the changeset ops (`create` vs `unchanged`) are deliberately not hashed. `skip` entries hash the bytes on disk, so a rerun that left a differing file alone hashes differently from a fresh run, which is the point. Definition and the one gap (plain `node:fs` writes an action does not `own`): [docs/MODULES.md](../../docs/MODULES.md#outputtreehash).
+
+## Side-effect actions (`action.ts`)
+
+An `action.ts` exports an `ActionStep` (`execute(params, state, ctx)` and `compensate(data, state, ctx)`). `ctx` carries `onExisting`, `dryRun`, `module`, `projectRoot`, `llmProvider`, and a contained file API `ctx.files` (`exists`, `readText`, `write`, `remove`, `own`) whose writes honour `onExisting`, show up in the changeset (as `unchanged` on a rerun), run against a virtual tree in a dry run, and are undone by the engine if the run fails. A failed `action.ts` run is compensated by the engine: its `compensate` is called with the data `execute` returned, and every file and directory the run created is removed. See [docs/MODULES.md](../../docs/MODULES.md#the-actionts-contract).
 
 ## The catalog and JSON Schema
 
-`describeModules(registry)` returns every module's actions with their param declarations, a JSON Schema (draft-07) per action in `paramsSchema`, and the receipt's schema in `resultSchema`; all of it is plain JSON. `runAction` validates params against the same declarations (defaults applied, numeric and boolean text coerced, undeclared keys rejected with `invalid-params`). See [docs/MODULES.md](../../docs/MODULES.md#param-types-and-the-catalogs-json-schema).
+`describeModules(registry)` returns every module's actions with their param declarations, a JSON Schema (draft-07) per action in `paramsSchema`, and the receipt's schema in `resultSchema`; all of it is plain JSON. `runAction` validates params against the same declarations (defaults applied, numeric and boolean text coerced, string constraints checked, undeclared keys rejected with `invalid-params`). See [docs/MODULES.md](../../docs/MODULES.md#param-types-and-the-catalogs-json-schema).
 
 ## Reruns
 

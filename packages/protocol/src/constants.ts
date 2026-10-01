@@ -70,6 +70,7 @@ export const ACTION_ERROR_CODES = [
 	"path-escape",
 	"target-exists",
 	"dry-run-unsupported",
+	"dry-run-violation",
 	"action-failed",
 	"unexpected",
 ] as const

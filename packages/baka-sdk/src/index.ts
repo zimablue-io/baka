@@ -12,6 +12,12 @@
 export type { RoleConfig, RoleName } from "@repo/agent-engine"
 export { createLLMProvider, loadLLMConfig, OpenAICompatibleProvider, SUPPORTED_ROLES } from "@repo/agent-engine"
 export type {
+	ActionContext,
+	ActionFiles,
+	ActionFileWrite,
+	ActionStep,
+	ActionWriteOptions,
+	ChangesetEntry,
 	LLMMessage,
 	LLMProvider,
 	LLMRequest,

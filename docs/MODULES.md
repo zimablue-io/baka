@@ -34,18 +34,19 @@ modules/<my-module>/
 
 The engine enforces the layout. `action.ts` may be omitted when `templates/` is the output tree. Missing both produces an `action-missing` diagnostic.
 
-The module must be **self-contained**: run its package manager inside the module directory so `baka-sdk` resolves from the module's own `node_modules/`. `baka module test` copies the module (including its `node_modules`) into a temp dir and runs the action from that copy, so a module that only resolves `baka-sdk` from a parent workspace fails at run time even if it validates.
+The module must be **self-contained**: `baka module test` copies the module (including its `node_modules`) into a temp dir and runs the action from that copy, so anything the module imports at run time must resolve from inside it. Types from `baka-sdk` are erased and need no install.
 
 ## Public boundary: `baka-sdk`
 
-Modules must import only from `baka-sdk` (not from `@repo/protocol` or the engine internals). This makes them portable: when installed in a user's project, the same import resolves to a real `node_modules` entry that the `baka` CLI ships.
+Modules import only from `baka-sdk` (not from `@repo/protocol` or the engine internals), and **only types**. `baka-sdk` is not installed next to a module and the engine does not alias it at run time, so a runtime import (`import { AgentRole } from "baka-sdk"`, a bare `import "baka-sdk"`, `require("baka-sdk")`) fails to load in any catalog without its own `node_modules`. Write `import type { ... } from "baka-sdk"` everywhere: jiti erases it, and the module type-checks against the SDK (or a copy of its `.d.ts`) without Baka being installed. `baka module validate` scans a module's TypeScript files and fails on a runtime import of `baka-sdk` (`sdk-runtime-import`, with the file and line); `import type { A } from "baka-sdk"` and `import { type A } from "baka-sdk"` are both accepted.
+
+An `action.ts` therefore exports an `ActionStep`, which has no `role` (the one runtime value a step used to need, `AgentRole.WORKER`, is gone):
 
 ```ts
-// modules/<my-module>/<action>/action.ts
-import { AgentRole, type StepResponse, type WorkflowStep } from "baka-sdk"
+import type { ActionStep } from "baka-sdk"
 ```
 
-`baka-sdk` re-exports the public types and runtime helpers you need (`WorkflowStep`, `StepResponse`, `AgentRole`, `OrchestrationState`, `ModuleManifest`, `ModuleManifestSchema`, `ValidationDiagnostic`, `callLLMAsValidator`, ...). If you need something that isn't there, it almost certainly shouldn't be in a module - it should be in the engine.
+`baka-sdk` exports the public types you need (`ActionStep`, `ActionContext`, `ActionFiles`, `OrchestrationState`, `ModuleManifest`, `ValidationDiagnostic`, ...). If you need something that isn't there, it almost certainly shouldn't be in a module - it should be in the engine.
 
 ## A complete example module
 
@@ -80,54 +81,67 @@ export const Manifest: ModuleManifest = {
 
 ### `modules/hello-mod/say-hello/action.ts`
 
-An action is a `WorkflowStep` object: `execute` writes files directly (plain `node:fs`, into `state.targetDirectory`) and returns a `StepResponse`; `compensate` undoes whatever `execute` did if a later step in the plan fails.
+An action is an `ActionStep` object: `execute` writes files through `ctx.files` (contained to the project, honouring `onExisting`, virtual in a dry run) and returns a `StepResponse`; `compensate` undoes whatever `execute` did by means the engine cannot see (the engine itself undoes `ctx.files` writes, template files, and the directories it created). The full contract is in "The `action.ts` contract" below.
 
 The loader resolves the action by export name, in this order: `camelCase(id)`, `camelCase(id)` + `Action`, the exact id, id + `Action`, then the default export. For the id `say-hello`, the export `sayHello` or `sayHelloAction` resolves; the example uses `sayHelloAction`.
 
 ```ts
-import { mkdirSync, rmSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
-import { AgentRole, type StepResponse, type WorkflowStep } from "baka-sdk"
+import type { ActionStep } from "baka-sdk"
 
 interface SayHelloInput {
 	name: string
 }
 
-interface SayHelloCompensation {
-	createdFiles: string[]
-}
-
-export const sayHelloAction: WorkflowStep<SayHelloInput, boolean, SayHelloCompensation> = {
+export const sayHelloAction: ActionStep<SayHelloInput, string, null> = {
 	name: "hello-mod.say-hello",
-	role: AgentRole.WORKER,
 
-	execute: async (input, state): Promise<StepResponse<boolean, SayHelloCompensation>> => {
-		const file = join(state.targetDirectory, "hello.txt")
-		try {
-			mkdirSync(state.targetDirectory, { recursive: true })
-			writeFileSync(file, `hello ${input.name}\n`, "utf-8")
-			return { success: true, output: true, compensationData: { createdFiles: [file] } }
-		} catch (err) {
-			return {
-				success: false,
-				output: false,
-				compensationData: { createdFiles: [] },
-				error: err instanceof Error ? err.message : String(err),
-			}
-		}
+	execute: async (input, _state, ctx) => {
+		const written = ctx.files.write("hello.txt", `hello ${input.name}\n`)
+		return { success: true, output: written.op, compensationData: null }
 	},
 
-	compensate: async (data): Promise<void> => {
-		for (const file of data.createdFiles) {
-			try {
-				rmSync(file, { force: true })
-			} catch {
-				// best effort
-			}
-		}
-	},
+	// Nothing to undo that the engine does not already undo.
+	compensate: async () => {},
 }
 ```
+
+## The `action.ts` contract
+
+An action with an `action.ts` runs after its templates (if any) are written. `execute(params, state, ctx)` receives the **normalized params** (defaults applied, constraints checked), an `OrchestrationState` whose `targetDirectory` is the project root, and an `ActionContext`:
+
+| `ctx` field | Meaning |
+|---|---|
+| `onExisting` | The run's policy (`skip` default, `overwrite`, `fail`). `ctx.files.write` applies it; an action that writes by other means must honour it itself. |
+| `dryRun` | True in a dry run (see below). |
+| `files` | The contained file API: `exists(path)`, `readText(path)`, `write(path, content, { onExisting? })`, `remove(path)`, `own(...paths)`. |
+| `module` | `{ name, version, root }` of the running module (read-only; never write into `root`). |
+| `projectRoot` | The project root (same as `state.targetDirectory`). |
+| `llmProvider` | The injected provider or null. |
+
+`compensate(data, state, ctx)` gets the same context.
+
+**`ctx.files`.** Paths are project-relative POSIX paths and are contained (see "Path containment"): an escaping path throws, the run fails with `path-escape`, and everything written so far is undone. `write` creates parent directories and answers `{ path, op, contentHash }`:
+
+- the file does not exist: written, `create`;
+- it holds exactly these bytes: not touched, `unchanged` (whatever the policy, except `fail`);
+- it holds other bytes: `skip` leaves it (`skip`), `overwrite` rewrites it (`update`), `fail` throws `target-exists`.
+
+Every call is journalled, so the engine can undo it, and reported in the changeset judged against what was there when the action first touched the path (so a file written twice is one `create`). `own("path")` declares a file the action produces by other means (a spawned tool, a direct `node:fs` write): if it exists afterwards and did not change it is listed as `unchanged`, which is what keeps a rerun's `outputTreeHash` equal to the first run's for such files.
+
+**What the engine does around `execute`.** It hashes the project tree before and after (skipping `.git/`, `node_modules/`, and the root `.baka/`). Files the action created by any means, and directories it created, are therefore known: they go into `compensation.created` / `createdDirs`, and into the changeset as `create`, `update`, or `delete`. Only `ctx.files` also gives previous bytes (restorable) and `unchanged` entries.
+
+**Failure is compensated by the engine.** If `execute` throws, or returns `success: false`, the engine (1) calls the action's `compensate` with the `compensationData` it returned (not when it threw: there is no data), (2) deletes every file the run created (templates, `ctx.files`, plain `node:fs`), (3) restores every file overwritten through templates or `ctx.files`, (4) removes the directories the run created. Files an action modified behind the API's back cannot be restored (the engine never had their bytes); the receipt then carries a `rollback-incomplete` warning naming them. The failed run's changeset is empty and its single error diagnostic is `action-failed`, or the code of the engine error (`path-escape`, `target-exists`) that `ctx.files` threw.
+
+**Dry run.** `ctx.dryRun` is true when the caller asked for one. An action may only run in a dry run if its manifest action sets `supportsDryRun: true`; otherwise the run fails with `dry-run-unsupported`, exactly as before. A dry-runnable action promises to write only through `ctx.files` (which then act on a virtual tree: reads see the template files the run planned and the action's own earlier writes, the disk is never touched) and to spawn nothing. Baka checks the promise by hashing the tree before and after; an action that changed it anyway fails with `dry-run-violation` (anything it created is removed, anything it modified is named in the message). The receipt of a dry run has the same changeset and `outputTreeHash` a real run on the same tree would produce.
+
+```ts
+export const Manifest = {
+	// ...
+	actions: [{ id: "scaffold", supportsDryRun: true, /* ... */ }],
+}
+```
+
+**What is not covered.** `action.ts` is code, and plain `node:fs` and `child_process` calls are outside anything Baka can contain. Pins (`baka.lock.json`) say which code ran; `ctx.files` is the way to get containment, `unchanged` reporting, dry runs and automatic rollback.
 
 ## Validators
 
@@ -331,11 +345,20 @@ Each entry is `{ path, op, contentHash, reason? }`. `path` is project-relative, 
 | `unchanged` | The file already held exactly the bytes the action would write (`reason: "identical"`). |
 | `skip` | The file exists with other content and was left alone (`reason: "already-exists"`). |
 
-For template files the entries come straight from the plan, so they are exact. An action with an `action.ts` can do anything, so its effects are found by hashing the project tree before and after it runs (skipping `.git/`, `node_modules/`, and the root `.baka/`) and diffing; the result is merged into the template entries. `includeContent` (`--include-content`, `includeContent: true`) adds each written file's UTF-8 text as `content` on `create`, `update`, and `unchanged` entries.
+For template files the entries come straight from the plan, so they are exact. An action with an `action.ts` can do anything, so what it did is the union of the `ctx.files` journal and a diff of the project tree hashed before and after it runs (skipping `.git/`, `node_modules/`, and the root `.baka/`); the result is merged into the template entries (a path the templates already addressed keeps its op, a created file the action then edited is still a `create`, and a file the action found `unchanged` leaves the template's account alone). `includeContent` (`--include-content`, `includeContent: true`) adds each written file's UTF-8 text as `content` on `create`, `update`, and `unchanged` entries.
 
 ### outputTreeHash
 
-`outputTreeHash` identifies the tree an action produced. It is the sha256 (lowercase hex) of this UTF-8 text:
+`outputTreeHash` identifies the tree an action **owns**. The owned set is every file the action addressed, whether it produced it or found it already there unchanged:
+
+- each template target: `create`, `update`, `unchanged` (identical bytes already there), or `skip` (other bytes, left alone: the hash then covers what is on disk);
+- each file an `action.ts` wrote or removed through `ctx.files`, with the same four outcomes (a file it removed is `delete`);
+- each file it declared with `ctx.files.own(...)` that exists afterwards;
+- each file its `execute` created, changed, or deleted by any other means (found by hashing the tree around it).
+
+A rerun over a tree that already holds the action's output therefore lists the same paths with the same content hashes (as `unchanged`), and has **the same `outputTreeHash`** as the first run: the changeset is the owned set, not just the changes. The one gap is a file an `action.ts` writes with plain `node:fs` and does not `own`: it is visible only on the run where it changes.
+
+The hash is the sha256 (lowercase hex) of this UTF-8 text:
 
 ```
 baka.tree.v1\n
@@ -349,7 +372,7 @@ baka.tree.v1\n
 
 ### Dry run
 
-`dryRun: true` (`baka run --dry-run`) plans and returns the same receipt without writing anything: no project files and no slot-cache entries. The tree it reports is the tree a real run would leave, given the same slot fills. A dry run is only available for template-only actions; an action with an `action.ts` has side effects (spawn, git, package.json edits) that cannot be virtualised, so it fails with `dry-run-unsupported` rather than pretending. Validators inspect the real tree, so a dry run does not run them. Because a dry run does not persist fills, hand its `slots` to the real run (see "Slot records and replay") when the real run must produce the tree the dry run predicted.
+`dryRun: true` (`baka run --dry-run`) plans and returns the same receipt without writing anything: no project files and no slot-cache entries. The tree it reports is the tree a real run would leave, given the same slot fills. Template-only actions are always dry-runnable. An action with an `action.ts` is dry-runnable if its manifest sets `supportsDryRun` and it writes through `ctx.files` (see "The `action.ts` contract"); any other action fails with `dry-run-unsupported` rather than pretending. Validators inspect the real tree, so a dry run does not run them. Because a dry run does not persist fills, hand its `slots` to the real run (see "Slot records and replay") when the real run must produce the tree the dry run predicted.
 
 ## Path containment
 
@@ -364,7 +387,7 @@ A violation fails the run with `path-escape`, before anything is written, so the
 - every file written through the `ctx.files` API of an `action.ts` (see "The `action.ts` contract");
 - rollback: `compensateAction` validates every path in the compensation it is given (a receipt may come from anywhere) and refuses the whole undo if one of them leaves the root.
 
-Rollback also removes the directories a run created. `compensation.createdDirs` lists them in creation order; undoing a run deletes the created files, restores the overwritten ones, then removes those directories deepest first once they are empty (a directory something else has since put a file in is left alone).
+Rollback also removes the directories a run created. `compensation.createdDirs` lists them parents first; undoing a run deletes the created files, restores the overwritten ones, then removes those directories deepest first once they are empty (a directory something else has since put a file in is left alone).
 
 Containment covers what the engine writes. An `action.ts` is code you chose to install and can still call `node:fs` directly; Baka cannot confine that, which is why pins (`baka.lock.json`) exist and why side-effect actions should write through `ctx.files`. Constrain string params with `format` or `pattern` (see "Param types") so a bad value is rejected as `invalid-params` before containment is even reached.
 
@@ -512,4 +535,4 @@ The changeset is how a caller tells the outcomes apart:
 
 Slot fills are independent of this: under the default `live` mode a rerun reads the cache, so it costs no model call and renders the same bytes; see "Slot records and replay".
 
-`onExisting` governs template-materialized files only. An action with an `action.ts` decides for itself how to treat files that are already there, and whatever it changes is still reported in the changeset (found by diffing the tree around its `execute`).
+`onExisting` governs template targets and the files an `action.ts` writes through `ctx.files` (it is `ctx.onExisting` there, and the default of `ctx.files.write`), with the same table and the same `unchanged` / `skip` / `update` reporting. An action that writes files by other means decides for itself how to treat what is already there; whatever it changes is still reported in the changeset (found by diffing the tree around its `execute`).

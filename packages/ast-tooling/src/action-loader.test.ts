@@ -63,7 +63,7 @@ describe("loadAction", () => {
 		const loaded = loadAction<unknown, string, unknown>(tempDir, tempDir, manifest, "add-script")
 		expect(loaded.actionId).toBe("add-script")
 
-		const result = await loaded.step.execute({}, {} as never)
+		const result = await loaded.step.execute({}, {} as never, {} as never)
 		expect(result.success).toBe(true)
 		expect(result.output).toBe("add-script-ok")
 	})
@@ -83,7 +83,7 @@ describe("loadAction", () => {
 		)
 
 		const loaded = loadAction<unknown, string, unknown>(tempDir, tempDir, manifest, "pick")
-		const result = await loaded.step.execute({}, {} as never)
+		const result = await loaded.step.execute({}, {} as never, {} as never)
 		expect(result.output).toBe("pickAction")
 	})
 
@@ -98,7 +98,7 @@ describe("loadAction", () => {
 		)
 
 		const loaded = loadAction<unknown, string, unknown>(tempDir, tempDir, manifest, "scaffold")
-		const result = await loaded.step.execute({}, {} as never)
+		const result = await loaded.step.execute({}, {} as never, {} as never)
 		expect(result.output).toBe("scaffoldAction")
 	})
 
