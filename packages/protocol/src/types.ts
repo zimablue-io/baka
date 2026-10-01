@@ -10,6 +10,7 @@ import type {
 	ModuleActionSchema,
 	ModuleManifestSchema,
 	ModulePinSchema,
+	OnExistingSchema,
 	OrchestrationStateSchema,
 	ParamTypeNode,
 	ResolvedPlanSchema,
@@ -33,6 +34,7 @@ export type ActionErrorCode = (typeof ACTION_ERROR_CODES)[number]
 export type ChangeOp = z.infer<typeof ChangeOpSchema>
 export type ChangesetEntry = z.infer<typeof ChangesetEntrySchema>
 export type SlotRecord = z.infer<typeof SlotRecordSchema>
+export type OnExisting = z.infer<typeof OnExistingSchema>
 export type ModulePin = z.infer<typeof ModulePinSchema>
 export type BakaLock = z.infer<typeof BakaLockSchema>
 export type SlotMode = z.infer<typeof SlotModeSchema>

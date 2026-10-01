@@ -267,4 +267,42 @@ describe("engine Hono SSOT", () => {
 		expect(body.ok).toBe(false)
 		expect(body.diagnostics.map((d) => d.rule)).toEqual(["lock-mismatch"])
 	})
+
+	it("honours onExisting over POST /v1/run: fail is a typed 400, overwrite rewrites", async () => {
+		const cwd = fixtureProject()
+		const app = createEngineApp({ cwd })
+		await app.request("/v1/fill", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				module: "hello",
+				action: "greet",
+				slot: "blurb",
+				value: "A greeting.",
+				params: { name: "Ada" },
+			}),
+		})
+		const run = (onExisting?: string) =>
+			app.request("/v1/run", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ module: "hello", action: "greet", params: { name: "Ada" }, onExisting }),
+			})
+		expect((await run()).status).toBe(200)
+		writeFileSync(join(cwd, "hello.md"), "edited\n")
+
+		const skipped = (await (await run("skip")).json()) as { changeset: Array<{ op: string; reason?: string }> }
+		expect(skipped.changeset).toMatchObject([{ op: "skip", reason: "already-exists" }])
+		expect(readFileSync(join(cwd, "hello.md"), "utf-8")).toBe("edited\n")
+
+		const failed = await run("fail")
+		expect(failed.status).toBe(400)
+		expect(((await failed.json()) as { diagnostics: Array<{ rule: string }> }).diagnostics[0]?.rule).toBe(
+			"target-exists",
+		)
+
+		const overwritten = (await (await run("overwrite")).json()) as { changeset: Array<{ op: string }> }
+		expect(overwritten.changeset).toMatchObject([{ op: "update" }])
+		expect(readFileSync(join(cwd, "hello.md"), "utf-8")).toBe("# Ada\nA greeting.\n")
+	})
 })

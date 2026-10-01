@@ -241,6 +241,10 @@ program
 		"live (cache, then model; default), record (always ask the model), replay (records only)",
 	)
 	.option("--slot-records <file>", "JSON array of slot records, or a receipt whose slots to replay (implies replay)")
+	.option(
+		"--on-existing <policy>",
+		"what to do with a template target that already exists: skip (default), overwrite, or fail",
+	)
 	.option("--include-content", "attach each written file's text to its changeset entry")
 	.option("--json", "emit machine-readable JSON to stdout (the ActionResult receipt)")
 	.allowUnknownOption()
@@ -254,6 +258,7 @@ program
 				dryRun: opts.dryRun,
 				slotMode: opts.slotMode,
 				slotRecords: opts.slotRecords,
+				onExisting: opts.onExisting,
 				includeContent: opts.includeContent,
 				params: opts.params,
 				extra: process.argv,

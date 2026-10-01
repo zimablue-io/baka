@@ -41,6 +41,7 @@ export type {
 	LLMResponse,
 	ModuleManifest,
 	ModulePin,
+	OnExisting,
 	SlotMode,
 	SlotRecord,
 	SlotsInput,

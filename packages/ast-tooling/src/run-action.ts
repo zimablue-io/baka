@@ -12,6 +12,7 @@ import {
 	ModuleManifestSchema,
 	type ModulePin,
 	normalizeParams,
+	type OnExisting,
 	type OrchestrationState,
 	type SlotsInput,
 	type StepResponse,
@@ -107,6 +108,12 @@ export interface RunActionInput {
 	model?: string
 	/** Slot cache. Defaults to the project's on-disk cache, without the user-level fallback. */
 	store?: SlotStore
+	/**
+	 * What to do with a template target that already exists: `skip` (default),
+	 * `overwrite`, or `fail`. Governs template-materialized files only; what an
+	 * `action.ts` does to existing files is up to the action.
+	 */
+	onExisting?: OnExisting
 	/** Slot mode and replay records. Defaults to `{ mode: "live" }`. */
 	slots?: SlotsInput
 	/**
@@ -207,6 +214,7 @@ export async function runAction(input: RunActionInput): Promise<ActionResult> {
 				persist: !dryRun,
 				slotMode: input.slots?.mode ?? "live",
 				records: input.slots?.records ?? [],
+				onExisting: input.onExisting ?? "skip",
 			})
 		}
 		changeset = plan.files.map(({ path, op, contentHash, reason }) => ({

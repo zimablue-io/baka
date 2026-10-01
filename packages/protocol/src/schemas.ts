@@ -256,6 +256,14 @@ export const SlotRecordSchema = z.object({
  */
 export const SlotModeSchema = z.enum(["live", "record", "replay"])
 
+/**
+ * What a run does with a template target that already exists.
+ * - `skip` (default): leave it. Identical content is reported `unchanged`, other content `skip`.
+ * - `overwrite`: rewrite it when the content differs (`update`); identical content is `unchanged`.
+ * - `fail`: refuse the whole run with `target-exists`, before any slot fill or write.
+ */
+export const OnExistingSchema = z.enum(["skip", "overwrite", "fail"])
+
 export const SlotsInputSchema = z.object({
 	mode: SlotModeSchema,
 	/** The records `replay` draws from; ignored by the other modes. */

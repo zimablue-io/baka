@@ -464,3 +464,25 @@ over every file under the module directory, with paths relative to the module ro
 - `runAction({ lock })` in `@baka/core` does the same with a lock you pass in (`readLockfile(root)` loads and validates one; `createLock(registry)` builds one). The library never goes looking for a lockfile on its own.
 
 A project with no `baka.lock.json` runs unlocked; the receipt's `pins` still say exactly what ran.
+
+## Rerunning an action
+
+Running an action again over a tree that already contains its output is normal (a retried job, a second pass after an edit), so what a rerun does is defined, per run, by `onExisting` (`--on-existing`, `onExisting`; default `skip`). It decides what happens to each **template target that already exists**:
+
+| `onExisting` | Existing file has the bytes the template renders | Existing file has other bytes |
+|---|---|---|
+| `skip` (default) | left alone, reported `unchanged` (`reason: "identical"`) | left alone, reported `skip` (`reason: "already-exists"`), `contentHash` is the file on disk |
+| `overwrite` | left alone, reported `unchanged` | rewritten, reported `update`; its previous bytes go into `compensation.overwritten` so the run can be undone |
+| `fail` | the run fails with `target-exists` | the run fails with `target-exists` |
+
+`fail` is decided before any slot is filled and before any file is written (so it never costs a model call), and its message lists every existing target. Two further cases fail the same way under every policy, also before any model call: a target path that exists and is not a regular file, and two templates that render to the same path (`template-invalid`).
+
+The changeset is how a caller tells the outcomes apart:
+
+- A rerun over its own output reports every file `unchanged` and returns the same `outputTreeHash` as the run that created them: **same tree**, nothing to do.
+- A rerun that reports any `skip` did **not** produce the tree the templates describe: those files hold other bytes, and `outputTreeHash` (which covers the bytes on disk) differs from a fresh run's. Re-run with `overwrite` to converge, or `fail` to refuse up front.
+- `overwrite` over a tree that differs reports `update` entries and converges on the same `outputTreeHash` as a fresh run.
+
+Slot fills are independent of this: under the default `live` mode a rerun reads the cache, so it costs no model call and renders the same bytes; see "Slot records and replay".
+
+`onExisting` governs template-materialized files only. An action with an `action.ts` decides for itself how to treat files that are already there, and whatever it changes is still reported in the changeset (found by diffing the tree around its `execute`).

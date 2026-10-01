@@ -40,6 +40,7 @@ export function parseParamFlags(raw: string[] | undefined, paramsJson?: string):
 			key === "dry-run" ||
 			key === "slot-mode" ||
 			key === "slot-records" ||
+			key === "on-existing" ||
 			key === "include-content" ||
 			key === "params" ||
 			key === "slot" ||
@@ -58,7 +59,8 @@ export function parseParamFlags(raw: string[] | undefined, paramsJson?: string):
 				key === "value" ||
 				key === "port" ||
 				key === "slot-mode" ||
-				key === "slot-records"
+				key === "slot-records" ||
+				key === "on-existing"
 			) {
 				i++
 			}
@@ -88,6 +90,7 @@ export async function runRunCommand(
 		includeContent?: boolean
 		slotMode?: string
 		slotRecords?: string
+		onExisting?: string
 		params?: string
 		extra?: string[]
 	},
@@ -95,9 +98,20 @@ export async function runRunCommand(
 	const { module, action } = parseModuleAction(target)
 	const params = parseParamFlags(opts.extra, opts.params)
 	const slots = parseSlotsFlags(opts.slotMode, opts.slotRecords)
+	if (opts.onExisting !== undefined && !["skip", "overwrite", "fail"].includes(opts.onExisting)) {
+		die(BAKA_EXIT_CODE.USER_ERROR, `--on-existing must be skip, overwrite, or fail; got "${opts.onExisting}"`)
+	}
 	const { status, json } = await engineRequest(opts.cwd, "/v1/run", {
 		method: "POST",
-		body: { module, action, params, slots, dryRun: opts.dryRun, includeContent: opts.includeContent },
+		body: {
+			module,
+			action,
+			params,
+			slots,
+			onExisting: opts.onExisting,
+			dryRun: opts.dryRun,
+			includeContent: opts.includeContent,
+		},
 	})
 	const body = json as RunBody
 	if (opts.json) {

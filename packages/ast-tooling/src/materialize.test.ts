@@ -58,6 +58,7 @@ describe("planTemplates", () => {
 			persist: true,
 			slotMode: "live",
 			records: [],
+			onExisting: "skip",
 		})
 		expect(plan.slots).toHaveLength(1)
 		expect(plan.slots[0]).toMatchObject({ id: "blurb", source: "cache", value: "Pinned from disk." })
@@ -83,6 +84,7 @@ describe("planTemplates", () => {
 				persist: true,
 				slotMode: "live",
 				records: [],
+				onExisting: "skip",
 			})
 			hashes.push(plan.files[0]?.contentHash ?? null)
 		}
@@ -112,6 +114,7 @@ describe("planTemplates", () => {
 			persist: false,
 			slotMode: "live",
 			records: [],
+			onExisting: "skip",
 		})
 		expect(plan.slots[0]).toMatchObject({ source: "llm", model: "fake-model", value: "Fresh." })
 		expect(existsSync(join(dir, ".baka"))).toBe(false)
@@ -139,6 +142,7 @@ describe("applyPlan", () => {
 			persist: true,
 			slotMode: "live",
 			records: [],
+			onExisting: "skip",
 		})
 		const done = applyPlan(dir, plan)
 		expect(done).toEqual({ created: ["note.md"], overwritten: [] })

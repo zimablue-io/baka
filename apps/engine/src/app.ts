@@ -18,7 +18,13 @@ import {
 	validateProject,
 	writeSlotCache,
 } from "@repo/ast-tooling"
-import { BAKA_DEFAULT_WORKER_MODEL, BAKA_EXIT_CODE, type LLMProvider, SlotsInputSchema } from "@repo/protocol"
+import {
+	BAKA_DEFAULT_WORKER_MODEL,
+	BAKA_EXIT_CODE,
+	type LLMProvider,
+	OnExistingSchema,
+	SlotsInputSchema,
+} from "@repo/protocol"
 import { Hono } from "hono"
 import { cors } from "hono/cors"
 import { z } from "zod"
@@ -43,6 +49,7 @@ const RunBodySchema = z.object({
 	params: z.record(z.unknown()).default({}),
 	dryRun: z.boolean().optional(),
 	slots: SlotsInputSchema.optional(),
+	onExisting: OnExistingSchema.optional(),
 	validate: z.boolean().optional(),
 	includeContent: z.boolean().optional(),
 	project: z.string().optional(),
@@ -163,6 +170,7 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 			model,
 			dryRun: parsed.data.dryRun,
 			slots: parsed.data.slots,
+			onExisting: parsed.data.onExisting,
 			includeContent: parsed.data.includeContent,
 			validate: parsed.data.validate ?? false,
 		})

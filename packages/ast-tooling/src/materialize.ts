@@ -5,6 +5,7 @@ import type {
 	ChangesetEntry,
 	LLMProvider,
 	LLMRequest,
+	OnExisting,
 	SlotDecl,
 	SlotMode,
 	SlotRecord,
@@ -116,6 +117,8 @@ export interface PlanTemplatesOptions {
 	slotMode: SlotMode
 	/** The records a `replay` draws from. */
 	records: readonly SlotRecord[]
+	/** What to do with targets that already exist; see OnExistingSchema. */
+	onExisting: OnExisting
 }
 
 export interface PlannedFile extends ChangesetEntry {
@@ -137,6 +140,30 @@ export interface TemplatePlan {
  */
 export async function planTemplates(opts: PlanTemplatesOptions): Promise<TemplatePlan> {
 	const { files, slots } = parseActionTemplates(opts.templatesDir)
+	// Everything decidable from the params and the disk alone is checked up front, so a bad
+	// target fails the run before any slot is filled or any model is asked.
+	const targets = new Map<string, string>() // output path -> template it came from
+	for (const file of files) {
+		const path = interpolatePath(file.rel.replace(/\.hbs$/, ""), opts.params)
+		const other = targets.get(path)
+		if (other !== undefined) {
+			throw new ActionError("template-invalid", `templates ${other} and ${file.rel} render to the same path "${path}"`)
+		}
+		targets.set(path, file.rel)
+		const abs = join(opts.root, path)
+		if (existsSync(abs) && !statSync(abs).isFile()) {
+			throw new ActionError("template-invalid", `"${path}" exists and is not a regular file`)
+		}
+	}
+	if (opts.onExisting === "fail") {
+		const existing = [...targets.keys()].filter((path) => existsSync(join(opts.root, path)))
+		if (existing.length > 0) {
+			throw new ActionError(
+				"target-exists",
+				`onExisting is "fail" and these targets already exist: ${existing.join(", ")}`,
+			)
+		}
+	}
 	const paramsHash = hashBytes(canonicalJson(opts.params))
 	const fills: Record<string, unknown> = {}
 	const records: SlotRecord[] = []
@@ -195,9 +222,6 @@ export async function planTemplates(opts: PlanTemplatesOptions): Promise<Templat
 	const planned = new Map<string, PlannedFile>()
 	for (const file of files) {
 		const path = interpolatePath(file.rel.replace(/\.hbs$/, ""), opts.params)
-		if (planned.has(path)) {
-			throw new ActionError("template-invalid", `two templates render to the same path "${path}"`)
-		}
 		let content: string
 		try {
 			content = renderTemplate(file.source, opts.params, fills)
@@ -211,12 +235,11 @@ export async function planTemplates(opts: PlanTemplatesOptions): Promise<Templat
 			planned.set(path, { path, op: "create", contentHash, content })
 			continue
 		}
-		if (!statSync(abs).isFile()) {
-			throw new ActionError("template-invalid", `"${path}" exists and is not a regular file`)
-		}
 		const previous = readFileSync(abs)
 		if (hashBytes(previous) === contentHash) {
 			planned.set(path, { path, op: "unchanged", contentHash, reason: "identical", content, previous })
+		} else if (opts.onExisting === "overwrite") {
+			planned.set(path, { path, op: "update", contentHash, content, previous })
 		} else {
 			planned.set(path, {
 				path,
