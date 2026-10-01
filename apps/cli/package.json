@@ -24,7 +24,6 @@
 	},
 	"dependencies": {
 		"@baka/engine": "workspace:*",
-		"@hono/node-server": "^1.13.0",
 		"@inquirer/prompts": "^8.5.2",
 		"@repo/agent-engine": "workspace:*",
 		"@repo/ast-tooling": "workspace:*",
