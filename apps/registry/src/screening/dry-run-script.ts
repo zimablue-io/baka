@@ -286,9 +286,62 @@ const state = {
 	artifacts: {},
 }
 
+// The ActionContext an action.ts receives (docs/MODULES.md, "The action.ts
+// contract"). The sandbox is the project root and is empty, and nothing
+// outside it is writable, so this is a plain sandbox-confined file API: it
+// exists so a module that writes through ctx.files can be screened at all.
+function sandboxFile(p) {
+	if (typeof p !== 'string' || p === '' || p.indexOf('\\') !== -1 || p.charAt(0) === '/' || /^[A-Za-z]:/.test(p) || /[\u0000-\u001f]/.test(p)) {
+		throw new Error('path "' + p + '" is not a contained relative path')
+	}
+	const parts = p.split('/').filter((s) => s !== '' && s !== '.')
+	if (parts.length === 0 || parts.indexOf('..') !== -1) throw new Error('path "' + p + '" is not a contained relative path')
+	return { rel: parts.join('/'), abs: path.join(sandboxDir, ...parts) }
+}
+const sandboxFiles = {
+	exists: (p) => fs.existsSync(sandboxFile(p).abs),
+	readText: (p) => fs.readFileSync(sandboxFile(p).abs, 'utf8'),
+	write: (p, content) => {
+		const f = sandboxFile(p)
+		const bytes = typeof content === 'string' ? Buffer.from(content, 'utf8') : Buffer.from(content)
+		const existed = fs.existsSync(f.abs)
+		fs.mkdirSync(path.dirname(f.abs), { recursive: true })
+		fs.writeFileSync(f.abs, bytes)
+		return { path: f.rel, op: existed ? 'update' : 'create', contentHash: '' }
+	},
+	remove: (p) => {
+		const f = sandboxFile(p)
+		const existed = fs.existsSync(f.abs)
+		fs.rmSync(f.abs, { force: true })
+		return existed
+	},
+	own: () => {},
+}
+const moduleData = {}
+try {
+	const dataDir = path.join(moduleDir, 'data')
+	if (fs.existsSync(dataDir)) {
+		for (const name of fs.readdirSync(dataDir)) {
+			if (name.endsWith('.json')) moduleData[name.slice(0, -5)] = JSON.parse(fs.readFileSync(path.join(dataDir, name), 'utf8'))
+		}
+	}
+} catch (err) {
+	emit({ success: false, error: 'module data failed to load: ' + (err && err.message ? err.message : String(err)) })
+	process.exit(1)
+}
+const actionContext = {
+	llmProvider: null,
+	module: { name: path.basename(moduleDir), version: '0.0.0', root: moduleDir },
+	projectRoot: sandboxDir,
+	onExisting: 'skip',
+	dryRun: false,
+	files: sandboxFiles,
+	data: moduleData,
+}
+
 let result
 try {
-	result = await step.execute({}, state, { llmProvider: null })
+	result = await step.execute({}, state, actionContext)
 } catch (err) {
 	// Hard failure inside the action's execute(): surface the
 	// actual error message verbatim. If the error is the Node

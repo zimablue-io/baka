@@ -198,8 +198,8 @@ export async function runOutputValidation(opts: RunOutputValidationOptions): Pro
 
 		// Per-action validators run against the action's subdir so
 		// the validator sees only that action's produced files.
-		// The engine contract passes the action's `compensationData`
-		// as the second argument (`runValidators` does the same).
+		// The engine contract hands the validator the run in `state.run`
+		// (`runValidators` does the same); here it is the screening dry run.
 		for (const { actionId, state } of actionMaterialized) {
 			const action = opts.manifest.actions.find((a) => a.id === actionId)
 			if (action === undefined) continue
@@ -211,6 +211,7 @@ export async function runOutputValidation(opts: RunOutputValidationOptions): Pro
 					actionId,
 					validatorId,
 					targetDirectory: join(validationDir, actionId),
+					moduleName: opts.manifest.name,
 					actionData: state,
 				})
 				actionValidatorResults.push(summary)
@@ -362,8 +363,7 @@ async function invokeModuleValidator(opts: {
 
 /**
  * Loads an action-level validator from the module's own tree
- * and invokes it against `targetDirectory` with `actionData` as
- * the second argument. Mirrors `loadActionValidator` in
+ * and invokes it against `targetDirectory` with the run in `state.run`. Mirrors `loadActionValidator` in
  * `packages/ast-tooling/src/action-loader.ts:103-117`:
  *   path = `<moduleRoot>/<actionId>/validators/<kebabId>.ts`
  *   export = `mod[validatorId] ?? mod.default`
@@ -374,6 +374,7 @@ async function invokeActionValidator(opts: {
 	actionId: string
 	validatorId: string
 	targetDirectory: string
+	moduleName: string
 	actionData: unknown
 }): Promise<ValidatorSummary> {
 	const validatorPath = join(opts.moduleReal, opts.actionId, "validators", `${kebabCase(opts.validatorId)}.ts`)
@@ -383,14 +384,18 @@ async function invokeActionValidator(opts: {
 	const jiti = createJiti(opts.jitiRoot, { interopDefault: true })
 	const mod = jiti(validatorPath) as Record<string, unknown>
 	const fn = (mod[opts.validatorId] ?? mod.default) as
-		| ((state: OrchestrationState, actionData: unknown) => Promise<ValidationDiagnostic[]>)
+		| ((state: OrchestrationState) => Promise<ValidationDiagnostic[]>)
 		| undefined
 	if (typeof fn !== "function") {
 		throw new Error(
 			`action validator '${opts.validatorId}' must export a function named '${opts.validatorId}' (or as default)`,
 		)
 	}
-	const diagnostics = await safeInvokeActionValidator(fn, opts.targetDirectory, opts.actionData)
+	const diagnostics = await safeInvokeActionValidator(fn, opts.targetDirectory, {
+		module: opts.moduleName,
+		action: opts.actionId,
+		actionData: opts.actionData,
+	})
 	return { validatorId: opts.validatorId, path: validatorPath, diagnostics }
 }
 
@@ -409,13 +414,26 @@ async function safeInvokeValidator(
 }
 
 async function safeInvokeActionValidator(
-	fn: (state: OrchestrationState, actionData: unknown) => Promise<ValidationDiagnostic[]>,
+	fn: (state: OrchestrationState) => Promise<ValidationDiagnostic[]>,
 	targetDirectory: string,
-	actionData: unknown,
+	run: { module: string; action: string; actionData: unknown },
 ): Promise<ValidationDiagnostic[]> {
-	const state: OrchestrationState = makeOrchestrationState(targetDirectory)
+	// The same `state.run` the engine gives an action validator after a run (see docs/MODULES.md,
+	// "Validators"): the screening dry run has no params and no changeset, but the action did run.
+	const state: OrchestrationState = {
+		...makeOrchestrationState(targetDirectory),
+		run: {
+			module: run.module,
+			action: run.action,
+			ran: true,
+			params: {},
+			compensationData: run.actionData,
+			output: null,
+			changeset: [],
+		},
+	}
 	try {
-		const out = await fn(state, actionData)
+		const out = await fn(state)
 		return Array.isArray(out) ? out : []
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err)

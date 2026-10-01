@@ -413,6 +413,55 @@ export default {
 			const filePaths = (previewsBody.previews[0]?.files ?? []).map((f) => f.path).sort()
 			expect(filePaths).toEqual(["nested/inner.txt", "preview.txt"])
 		})
+
+		it("an action that writes through ctx.files (and reads ctx.data) screens too", async () => {
+			const actionBody = `
+export default {
+  name: "writer",
+  async execute(_input, _state, ctx) {
+    ctx.files.write("preview.txt", "hello-from-ctx-files")
+    ctx.files.write("nested/inner.txt", ctx.files.readText("preview.txt"))
+    return { success: true, output: { dataKeys: Object.keys(ctx.data), exists: ctx.files.exists("preview.txt") }, compensationData: undefined }
+  },
+  async compensate() {},
+}
+`
+			await stack.git.commitManifest({
+				name: "@acme/ctxfiles",
+				version: "1.0.0",
+				tag: "v1.0.0",
+				modulePath: "ctxfiles",
+				actions: [{ id: "writer", description: "writer", filePatterns: ["preview.txt", "nested"], body: actionBody }],
+			})
+			const res = await stack.fx.app.request("/v1/publish", {
+				method: "POST",
+				headers: { "content-type": "application/json", "x-api-key": stack.fx.keys.owner },
+				body: JSON.stringify({
+					repo: stack.git.bareUrl,
+					tag: "v1.0.0",
+					org: "acme",
+					visibility: "public",
+					modulePath: "ctxfiles",
+				}),
+			})
+			const { versionId } = (await res.json()) as { versionId: string }
+			expect((await stack.fx.waitForTerminal(versionId)).status).toBe("ready")
+			const detail = await stack.fx.app.request("/v1/modules/acme/ctxfiles/v1.0.0", {
+				headers: { "x-api-key": stack.fx.keys.owner },
+			})
+			const body = (await detail.json()) as {
+				screening: {
+					verdict: string
+					dryRun: {
+						perAction: Array<{ actionId: string; status: string; previewFiles?: Array<{ path: string }> }>
+					} | null
+				} | null
+			}
+			expect(body.screening?.verdict).toBe("screened")
+			const writer = body.screening?.dryRun?.perAction.find((p) => p.actionId === "writer")
+			expect(writer?.status).toBe("screened")
+			expect((writer?.previewFiles ?? []).map((f) => f.path).sort()).toEqual(["nested/inner.txt", "preview.txt"])
+		})
 	})
 
 	describe("requiresReasoning (needs-llm preview state)", () => {
