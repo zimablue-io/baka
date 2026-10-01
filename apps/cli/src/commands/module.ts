@@ -3,6 +3,7 @@ import { cpSync, existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } fr
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
+	findModuleSdkImports,
 	loadAction,
 	loadActionValidator,
 	loadModuleValidator,
@@ -23,14 +24,17 @@ function die(code: number, msg: string): never {
 // `baka module validate <name>`
 // ---------------------------------------------------------------------------
 
-export function runModuleValidate(name: string, opts: { cwd?: string; json?: boolean } = {}): void {
+export function runModuleValidate(
+	name: string,
+	opts: { cwd?: string; moduleDirs?: string[]; json?: boolean } = {},
+): void {
 	if (!name) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka module validate <name>")
 
 	const cwd = opts.cwd ?? process.cwd()
 	// Resolve through the same registry the engine uses so validate sees the
 	// same modules plan/apply see (tree, project marketplace, user
 	// marketplace, bundled), not just the in-tree modules/ dir.
-	const root = new ModuleRegistry(cwd).resolveModuleRoot(name)
+	const root = new ModuleRegistry(cwd, { moduleDirs: opts.moduleDirs }).resolveModuleRoot(name)
 	if (!root) {
 		const msg = `module not found: ${name} (searched tree, project marketplace, user marketplace, and bundled scopes)`
 		if (opts.json) {
@@ -49,7 +53,7 @@ export function runModuleValidate(name: string, opts: { cwd?: string; json?: boo
 	} else {
 		// Parse the manifest by transpiling the TS to JS in-process via jiti
 		try {
-			const jiti = createJiti(cwd)
+			const jiti = createJiti(root)
 			const mod = jiti(manifestPath) as { Manifest?: unknown }
 			if (!mod.Manifest) {
 				errors.push("manifest.ts must export a `Manifest` value")
@@ -136,6 +140,13 @@ export function runModuleValidate(name: string, opts: { cwd?: string; json?: boo
 		}
 	}
 
+	// baka-sdk is a types-only boundary: a runtime import cannot load in a catalog without its own node_modules.
+	for (const finding of findModuleSdkImports(root)) {
+		errors.push(
+			`${finding.file}:${finding.line}: runtime import of "baka-sdk" (\`${finding.statement}\`); baka-sdk is not installed next to a module, so use \`import type\` (see docs/MODULES.md, "Public boundary")`,
+		)
+	}
+
 	// README recommendation
 	if (!existsSync(join(root, "README.md"))) warnings.push("README.md is missing")
 
@@ -160,13 +171,16 @@ export function runModuleValidate(name: string, opts: { cwd?: string; json?: boo
 // `baka module list-actions <name>`
 // ---------------------------------------------------------------------------
 
-export function runModuleListActions(name: string, opts: { cwd?: string; json?: boolean } = {}): void {
+export function runModuleListActions(
+	name: string,
+	opts: { cwd?: string; moduleDirs?: string[]; json?: boolean } = {},
+): void {
 	if (!name) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka module list-actions <name>")
 	const cwd = opts.cwd ?? process.cwd()
 	// Resolve through the same registry the engine uses so list-actions sees
 	// the same modules plan/apply/validate see (tree, project marketplace,
 	// user marketplace, bundled), not just the in-tree modules/ dir.
-	const root = new ModuleRegistry(cwd).resolveModuleRoot(name)
+	const root = new ModuleRegistry(cwd, { moduleDirs: opts.moduleDirs }).resolveModuleRoot(name)
 	if (!root) {
 		const msg = `module not found: ${name} (searched tree, project marketplace, user marketplace, and bundled scopes)`
 		if (opts.json) {
@@ -179,7 +193,7 @@ export function runModuleListActions(name: string, opts: { cwd?: string; json?: 
 
 	let mod: { Manifest?: ModuleManifest }
 	try {
-		const jiti = createJiti(cwd)
+		const jiti = createJiti(root)
 		mod = jiti(manifestPath) as { Manifest?: ModuleManifest }
 	} catch (err) {
 		die(BAKA_EXIT_CODE.ENGINE_ERROR, `failed to load manifest: ${err instanceof Error ? err.message : String(err)}`)
@@ -233,7 +247,7 @@ export function runModuleListActions(name: string, opts: { cwd?: string; json?: 
 // `baka module edit <name>`
 // ---------------------------------------------------------------------------
 
-export async function runModuleEdit(name: string, opts: { cwd?: string } = {}): Promise<void> {
+export async function runModuleEdit(name: string, opts: { cwd?: string; moduleDirs?: string[] } = {}): Promise<void> {
 	if (!name) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka module edit <name>")
 	const editorCmd = process.env.EDITOR
 	if (!editorCmd) die(BAKA_EXIT_CODE.USER_ERROR, "no $EDITOR set")
@@ -241,7 +255,7 @@ export async function runModuleEdit(name: string, opts: { cwd?: string } = {}): 
 	// Resolve through the same registry the engine uses so edit opens the
 	// module plan/apply/validate see (tree, project marketplace, user
 	// marketplace, bundled), not just the in-tree modules/ dir.
-	const root = new ModuleRegistry(cwd).resolveModuleRoot(name)
+	const root = new ModuleRegistry(cwd, { moduleDirs: opts.moduleDirs }).resolveModuleRoot(name)
 	if (!root) die(BAKA_EXIT_CODE.USER_ERROR, `module not found: ${name}`)
 	const manifestPath = join(root, "manifest.ts")
 
@@ -251,7 +265,7 @@ export async function runModuleEdit(name: string, opts: { cwd?: string } = {}): 
 	})
 
 	// Re-validate after edit
-	runModuleValidate(name, { cwd })
+	runModuleValidate(name, { cwd, moduleDirs: opts.moduleDirs })
 }
 
 // ---------------------------------------------------------------------------
@@ -264,7 +278,7 @@ export async function runModuleTest(
 	name: string,
 	actionId: string,
 	inputJson: string,
-	opts: { cwd?: string } = {},
+	opts: { cwd?: string; moduleDirs?: string[] } = {},
 ): Promise<void> {
 	if (!name) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka module test <name> --action=<id> [--input=<json>]")
 	if (!actionId) die(BAKA_EXIT_CODE.USER_ERROR, "--action=<id> is required")
@@ -273,7 +287,7 @@ export async function runModuleTest(
 	// Resolve through the same registry the engine uses so `module test`
 	// sees the same modules plan/apply see (tree, project marketplace, user
 	// marketplace, bundled), not just the in-tree modules/ dir.
-	const resolved = new ModuleRegistry(cwd).resolveModuleRoot(name)
+	const resolved = new ModuleRegistry(cwd, { moduleDirs: opts.moduleDirs }).resolveModuleRoot(name)
 	if (!resolved) die(BAKA_EXIT_CODE.USER_ERROR, `module not found: ${name}`)
 	// Marketplace installs are symlinks; copy the real directory so the
 	// action's writes land in the temp copy, never in the installed source.

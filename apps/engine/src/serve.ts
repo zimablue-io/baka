@@ -1,5 +1,6 @@
 import { delimiter, resolve } from "node:path"
 import { serve } from "@hono/node-server"
+import { moduleDirsFromEnv } from "@repo/ast-tooling"
 import { createEngineApp } from "./app.js"
 
 /** Env var carrying the bearer token (the `--token` flag wins over it). */
@@ -24,6 +25,8 @@ export interface ServeFlags {
 	host?: string
 	token?: string
 	allowRoots?: readonly string[]
+	/** Module directories (see `EngineAppOptions.moduleDirs`); they beat `BAKA_MODULE_DIRS`. */
+	moduleDirs?: readonly string[]
 }
 
 export interface ServeConfig {
@@ -31,6 +34,7 @@ export interface ServeConfig {
 	host: string
 	token?: string
 	allowedRoots: string[]
+	moduleDirs?: string[]
 }
 
 /**
@@ -56,7 +60,10 @@ export function resolveServeConfig(flags: ServeFlags, env: NodeJS.ProcessEnv, cw
 				`Set ${ENGINE_TOKEN_ENV} or pass --token, or bind to 127.0.0.1.`,
 		)
 	}
-	return { port: flags.port ?? DEFAULT_ENGINE_PORT, host, token, allowedRoots }
+	const moduleDirs = flags.moduleDirs?.length
+		? flags.moduleDirs.map((dir) => resolve(cwd, dir))
+		: moduleDirsFromEnv(env)
+	return { port: flags.port ?? DEFAULT_ENGINE_PORT, host, token, allowedRoots, moduleDirs }
 }
 
 export interface RunningEngine {
@@ -67,7 +74,12 @@ export interface RunningEngine {
 
 /** Start the engine's HTTP server for `cwd`; `config` comes from `resolveServeConfig`. */
 export function serveEngine(cwd: string, config: ServeConfig): Promise<RunningEngine> {
-	const app = createEngineApp({ cwd, token: config.token, allowedRoots: config.allowedRoots })
+	const app = createEngineApp({
+		cwd,
+		token: config.token,
+		allowedRoots: config.allowedRoots,
+		moduleDirs: config.moduleDirs,
+	})
 	return new Promise((resolveStart, reject) => {
 		const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
 			const shown = info.family === "IPv6" ? `[${info.address}]` : info.address

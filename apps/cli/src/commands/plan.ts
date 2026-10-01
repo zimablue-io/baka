@@ -21,6 +21,7 @@ function die(code: number, msg: string): never {
 
 interface PlanOpts {
 	cwd?: string
+	moduleDirs?: string[]
 	dryRun?: boolean
 	save?: boolean
 	json?: boolean
@@ -64,7 +65,7 @@ export async function runPlanCommand(intent: string, opts: PlanOpts): Promise<vo
 	const log = new StructuredLog(runId)
 	log.write({ level: "info", source: "baka.plan", message: "starting plan", intent, runId })
 
-	const state = await featurePlanningWorkflow(intent, cwd, provider)
+	const state = await featurePlanningWorkflow(intent, cwd, provider, opts.moduleDirs)
 
 	// --save runs BEFORE the JSON-mode early-return so `--save --json` together
 	// emits both the documented JSON contract AND the persisted .plan.json file.
@@ -137,7 +138,12 @@ export function runListPlans(cwd: string): void {
 	console.log("")
 }
 
-export async function runApplyCommand(planFile: string, cwd: string, opts: { json?: boolean } = {}): Promise<void> {
+export async function runApplyCommand(
+	planFile: string,
+	scope: { cwd: string; moduleDirs?: string[] },
+	opts: { json?: boolean } = {},
+): Promise<void> {
+	const { cwd, moduleDirs } = scope
 	const plan = loadPlan(planFile)
 	const runId = `apply-${Date.now()}`
 	const log = new StructuredLog(runId)
@@ -151,7 +157,7 @@ export async function runApplyCommand(planFile: string, cwd: string, opts: { jso
 	// project. The apply surface and the worker surface therefore
 	// resolve modules from any cwd identically.
 	const { runSaga: runSagaImpl, executeWorkerStep } = await import("@repo/ast-tooling")
-	const registry = new ModuleRegistry(cwd)
+	const registry = new ModuleRegistry(cwd, { moduleDirs })
 	const moduleNames = new Set<string>()
 	for (const planStep of plan.resolvedSteps) {
 		// Normalize the module name by stripping the version suffix the
@@ -203,6 +209,7 @@ export async function runApplyCommand(planFile: string, cwd: string, opts: { jso
 	const state: OrchestrationState = {
 		userIntent: plan.meta.intent,
 		targetDirectory: cwd,
+		moduleDirs,
 		status: "PLANNING",
 		executionPlan: { steps: plan.resolvedSteps, currentStepIndex: 0 },
 		logs: ["[apply] starting"],
@@ -269,8 +276,12 @@ function loadModuleManifest(moduleRoot: string, _moduleName: string): ModuleMani
 	return mod.Manifest
 }
 
-export async function runValidateCommand(cwd: string, opts: { json?: boolean; module?: string } = {}): Promise<void> {
-	const { status, json } = await engineRequest(cwd, "/v1/validate", {
+export async function runValidateCommand(
+	scope: { cwd: string; moduleDirs?: string[] },
+	opts: { json?: boolean; module?: string } = {},
+): Promise<void> {
+	const { status, json } = await engineRequest(scope.cwd, "/v1/validate", {
+		moduleDirs: scope.moduleDirs,
 		method: "POST",
 		body: opts.module ? { module: opts.module } : {},
 	})

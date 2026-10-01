@@ -22,8 +22,10 @@ export {
 	createLock,
 	createMemorySlotStore,
 	describeModules,
+	MODULE_DIRS_ENV,
 	ModuleNotFoundError,
 	ModuleRegistry,
+	moduleDirsFromEnv,
 	readLockfile,
 	runAction,
 	validateProject as validate,
@@ -31,8 +33,13 @@ export {
 } from "@repo/ast-tooling"
 export type {
 	ActionCompensation,
+	ActionContext,
 	ActionErrorCode,
+	ActionFiles,
+	ActionFileWrite,
 	ActionResult,
+	ActionStep,
+	ActionWriteOptions,
 	BakaLock,
 	ChangeOp,
 	ChangesetEntry,
@@ -43,11 +50,14 @@ export type {
 	ModuleManifest,
 	ModulePin,
 	OnExisting,
+	OrchestrationState,
 	SlotMode,
 	SlotRecord,
 	SlotsInput,
 	ValidationDiagnostic,
+	ValidationResult,
+	ValidatorRun,
 } from "@repo/protocol"
-export { ACTION_ERROR_CODES, BAKA_LOCKFILE_NAME } from "@repo/protocol"
+export { ACTION_ERROR_CODES, BAKA_LOCKFILE_NAME, PARAM_FORMATS } from "@repo/protocol"
 export type { CreateRegistryOptions } from "./registry.js"
 export { createRegistry } from "./registry.js"

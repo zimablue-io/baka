@@ -43,11 +43,13 @@ export {
 export type { SavedPlan } from "./plan-io.js"
 export { listPlans, loadPlan, plansDir, savePlan } from "./plan-io.js"
 export type { ModuleRegistryOptions } from "./registry.js"
-export { ModuleRegistry, validatorFilename } from "./registry.js"
+export { MODULE_DIRS_ENV, ModuleRegistry, moduleDirsFromEnv, validatorFilename } from "./registry.js"
 export type { CompensateActionInput, RunActionInput } from "./run-action.js"
 export { compensateAction, listActionSlots, previewAction, resolveAction, runAction } from "./run-action.js"
 export type { CompletedStep, SagaResult, SagaStep } from "./saga.js"
 export { ranActions, runSaga } from "./saga.js"
+export type { SdkImportFinding } from "./sdk-imports.js"
+export { findModuleSdkImports, findRuntimeSdkImports } from "./sdk-imports.js"
 export type { SlotCacheRecord, SlotStore } from "./slot-cache.js"
 export {
 	createDiskSlotStore,

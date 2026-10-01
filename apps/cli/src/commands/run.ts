@@ -48,12 +48,14 @@ export function parseParamFlags(raw: string[] | undefined, paramsJson?: string):
 			key === "file" ||
 			key === "value" ||
 			key === "cwd" ||
+			key === "modules-dir" ||
 			key === "port" ||
 			key === "help" ||
 			key === "version"
 		) {
 			if (
 				key === "cwd" ||
+				key === "modules-dir" ||
 				key === "params" ||
 				key === "slot" ||
 				key === "file" ||
@@ -86,6 +88,7 @@ export async function runRunCommand(
 	target: string,
 	opts: {
 		cwd: string
+		moduleDirs?: string[]
 		json?: boolean
 		dryRun?: boolean
 		includeContent?: boolean
@@ -105,6 +108,7 @@ export async function runRunCommand(
 		die(BAKA_EXIT_CODE.USER_ERROR, `--on-existing must be skip, overwrite, or fail; got "${opts.onExisting}"`)
 	}
 	const { status, json } = await engineRequest(opts.cwd, "/v1/run", {
+		moduleDirs: opts.moduleDirs,
 		method: "POST",
 		body: {
 			module,
@@ -183,11 +187,15 @@ function printRunSummary(target: string, body: RunBody): void {
 	console.log(`  tree      ${body.outputTreeHash}`)
 }
 
-export async function runSlotsCommand(target: string, opts: { cwd: string; json?: boolean }): Promise<void> {
+export async function runSlotsCommand(
+	target: string,
+	opts: { cwd: string; moduleDirs?: string[]; json?: boolean },
+): Promise<void> {
 	const { module, action } = parseModuleAction(target)
 	const { status, json } = await engineRequest(
 		opts.cwd,
 		`/v1/slots?module=${encodeURIComponent(module)}&action=${encodeURIComponent(action)}`,
+		{ moduleDirs: opts.moduleDirs },
 	)
 	if (opts.json) printJson(json)
 	else {
@@ -200,11 +208,15 @@ export async function runSlotsCommand(target: string, opts: { cwd: string; json?
 	if (status >= 400) process.exit(BAKA_EXIT_CODE.USER_ERROR)
 }
 
-export async function runInspectCommand(target: string, opts: { cwd: string; json?: boolean }): Promise<void> {
+export async function runInspectCommand(
+	target: string,
+	opts: { cwd: string; moduleDirs?: string[]; json?: boolean },
+): Promise<void> {
 	const { module, action } = parseModuleAction(target)
 	const { status, json } = await engineRequest(
 		opts.cwd,
 		`/v1/preview?module=${encodeURIComponent(module)}&action=${encodeURIComponent(action)}`,
+		{ moduleDirs: opts.moduleDirs },
 	)
 	const body = json as {
 		error?: string
@@ -236,6 +248,7 @@ export async function runFillCommand(
 	target: string,
 	opts: {
 		cwd: string
+		moduleDirs?: string[]
 		json?: boolean
 		slot?: string
 		file?: string
@@ -253,6 +266,7 @@ export async function runFillCommand(
 	if (value === undefined) die(BAKA_EXIT_CODE.USER_ERROR, "--value or --file is required")
 	const params = parseParamFlags(opts.extra, opts.params)
 	const { status, json } = await engineRequest(opts.cwd, "/v1/fill", {
+		moduleDirs: opts.moduleDirs,
 		method: "POST",
 		body: { module, action, slot: opts.slot, value, params },
 	})
@@ -265,8 +279,12 @@ export async function runFillCommand(
 	if (status >= 400) process.exit(BAKA_EXIT_CODE.ENGINE_ERROR)
 }
 
-export async function runListModulesCommand(opts: { cwd: string; json?: boolean }): Promise<void> {
-	const { status, json } = await engineRequest(opts.cwd, "/v1/modules")
+export async function runListModulesCommand(opts: {
+	cwd: string
+	moduleDirs?: string[]
+	json?: boolean
+}): Promise<void> {
+	const { status, json } = await engineRequest(opts.cwd, "/v1/modules", { moduleDirs: opts.moduleDirs })
 	const body = json as {
 		modules?: Array<{ name: string; version: string; description: string; actions: unknown[] }>
 		diagnostics?: Array<{ severity: string; message: string }>
@@ -299,8 +317,8 @@ export async function runListModulesCommand(opts: { cwd: string; json?: boolean 
  * ones) to its current version and content hash in `<cwd>/baka.lock.json`.
  * From then on `baka run` refuses a module that no longer matches.
  */
-export function runLockCommand(opts: { cwd: string; json?: boolean; modules?: string[] }): void {
-	const registry = new ModuleRegistry(opts.cwd)
+export function runLockCommand(opts: { cwd: string; moduleDirs?: string[]; json?: boolean; modules?: string[] }): void {
+	const registry = new ModuleRegistry(opts.cwd, { moduleDirs: opts.moduleDirs })
 	const { modules } = registry.discover(false)
 	for (const name of opts.modules ?? []) {
 		if (!modules.some((m) => m.name === name)) die(BAKA_EXIT_CODE.USER_ERROR, `module "${name}" not found`)
@@ -318,6 +336,7 @@ export function runLockCommand(opts: { cwd: string; json?: boolean; modules?: st
 
 export async function runServeCommand(opts: {
 	cwd: string
+	moduleDirs?: string[]
 	port: number
 	host?: string
 	token?: string
@@ -327,7 +346,7 @@ export async function runServeCommand(opts: {
 	let config: ReturnType<typeof resolveServeConfig>
 	try {
 		config = resolveServeConfig(
-			{ port: opts.port, host: opts.host, token: opts.token, allowRoots: opts.allowRoots },
+			{ port: opts.port, host: opts.host, token: opts.token, allowRoots: opts.allowRoots, moduleDirs: opts.moduleDirs },
 			process.env,
 			opts.cwd,
 		)

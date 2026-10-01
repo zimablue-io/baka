@@ -46,6 +46,17 @@ describe("resolveServeConfig", () => {
 		})
 	})
 
+	it("takes module directories from the flags (resolved against cwd) or from BAKA_MODULE_DIRS, flags first", () => {
+		expect(resolveServeConfig({ moduleDirs: ["cat", "/abs/cat"] }, {}, "/work").moduleDirs).toEqual([
+			"/work/cat",
+			"/abs/cat",
+		])
+		const env = { BAKA_MODULE_DIRS: ["/a", "/b"].join(delimiter) }
+		expect(resolveServeConfig({}, env, "/work").moduleDirs).toEqual(["/a", "/b"])
+		expect(resolveServeConfig({ moduleDirs: ["/flag"] }, env, "/work").moduleDirs).toEqual(["/flag"])
+		expect(resolveServeConfig({}, {}, "/work").moduleDirs).toBeUndefined()
+	})
+
 	it("refuses a non-loopback bind without a token, and says how to fix it", () => {
 		for (const host of ["0.0.0.0", "::", "192.168.1.20"]) {
 			expect(() => resolveServeConfig({ host }, {}, "/work")).toThrow(/not a loopback address.*BAKA_ENGINE_TOKEN/)

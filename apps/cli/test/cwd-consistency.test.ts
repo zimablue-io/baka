@@ -265,7 +265,7 @@ describe("cli-cwd-consistency / scripts/baka.mjs passes the invoker's cwd throug
 		const fakeHome = makeEmptyDir("baka-cwd-consistency-wrapper-list-home-")
 		writeFixtureModule(fixtureDir, "wrapper-fixture-mod", "wrapper-list-marker.txt")
 
-		// scripts/baka.mjs does `pnpm --filter baka exec tsx src/index.ts <args>`.
+		// scripts/baka.mjs runs the CLI (tsx) from the invoker's directory.
 		// From a different process cwd, with --cwd <fixtureDir>, it should see the
 		// fixture (not the baka repo's bundled modules).
 		const child: ChildProcess = spawn("node", [BAKA_MJS, "--cwd", fixtureDir, "list-modules", "--json"], {

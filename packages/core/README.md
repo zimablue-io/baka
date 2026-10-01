@@ -100,4 +100,22 @@ Each receipt's `pins` is `[{ id, version, contentHash }]` for the module the run
 
 ## Install
 
-`@baka/core` is built with tsup and packed with `pnpm run pack` (see `docs/PUBLISHING.md`). The tarball is self-contained ESM plus `index.d.ts`; `handlebars`, `jiti`, and `zod` are its runtime dependencies.
+`@baka/core` is not on a registry yet. Build a tarball and install it into any project (ESM only, Node 20 or newer):
+
+```bash
+# in the Baka repo
+pnpm build --filter @baka/core && pnpm run pack      # writes dist-tarballs/baka-core-<version>.tgz
+
+# in your project, outside the workspace
+npm install /abs/path/to/baka/dist-tarballs/baka-core-<version>.tgz     # or: pnpm add file:/abs/path/...tgz
+```
+
+```ts
+import { createRegistry, describeModules, runAction, validate } from "@baka/core"
+```
+
+Its four runtime dependencies are declared and install normally: `handlebars`, `jiti`, `zod` (**3.x**: the `LLMRequest.responseSchema` type and the JSON Schema export are zod 3), and `zod-to-json-schema`. The private workspace packages (`@repo/*`) are bundled into `dist/index.js`, so nothing else is needed; the tarball ships `dist/index.js`, `dist/index.d.ts`, the README, and the licence. Use `pnpm run pack` (`scripts/pack.mjs`), not a bare `pnpm pack`: a bare pack also carries the workspace's `devDependencies` (inert on install, but with made-up versions).
+
+`node scripts/verify-core-pack.mjs` (`pnpm run verify:core`) proves the route end to end: it packs, installs the tarball with npm into a scratch project outside the repo, imports it, runs a module from a catalog directory against another project directory, and type-checks a consumer file against `index.d.ts`. CI runs it after the pack step.
+
+Modules you run through it follow the same rule as with the CLI: they import `baka-sdk` for **types only** (`import type`), so a catalog needs no install of its own (see [docs/MODULES.md](../../docs/MODULES.md#public-boundary-baka-sdk)).

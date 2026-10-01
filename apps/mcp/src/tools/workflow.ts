@@ -65,7 +65,7 @@ export async function runPlan(
 	}
 	const provider = createLLMProvider(config)
 
-	const state = await featurePlanningWorkflow(intent, ctx.cwd, provider)
+	const state = await featurePlanningWorkflow(intent, ctx.cwd, provider, ctx.moduleDirs)
 
 	let planFile: string | undefined
 	let savedAt: string | undefined
@@ -103,7 +103,7 @@ export async function runApply(
 	const plan = loadPlan(planFile)
 	const provider = await setupProvider(ctx)
 
-	const registry = new ModuleRegistry(ctx.cwd)
+	const registry = new ModuleRegistry(ctx.cwd, { moduleDirs: ctx.moduleDirs })
 	registry.discover(false)
 	const stepsByKey = new Map<string, WorkflowStep<unknown, unknown, unknown>>()
 	for (const m of registry.all()) {
@@ -115,6 +115,7 @@ export async function runApply(
 	const state: OrchestrationState = {
 		userIntent: plan.meta.intent,
 		targetDirectory: ctx.cwd,
+		moduleDirs: ctx.moduleDirs,
 		status: "PLANNING",
 		executionPlan: { steps: plan.resolvedSteps, currentStepIndex: 0 },
 		logs: ["[apply] starting"],

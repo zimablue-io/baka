@@ -6,6 +6,7 @@ export async function featurePlanningWorkflow(
 	intent: string,
 	rootDir: string,
 	provider: LLMProvider,
+	moduleDirs?: readonly string[],
 ): Promise<OrchestrationState> {
 	const state: OrchestrationState = {
 		...createInitialOrchestrationState(intent, rootDir),
@@ -17,7 +18,7 @@ export async function featurePlanningWorkflow(
 	// Discovery goes through the engine's single ModuleRegistry so plan sees
 	// exactly the modules apply/validate see (tree, project marketplace,
 	// user marketplace, bundled).
-	const registry = new ModuleRegistry(rootDir)
+	const registry = new ModuleRegistry(rootDir, { moduleDirs })
 	const { modules } = registry.discover(false)
 	state.logs.push(`[plan] discovered ${modules.length} module(s)`)
 	if (modules.length === 0) {

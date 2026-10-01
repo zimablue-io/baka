@@ -28,7 +28,8 @@ Before publishing anything, walk this list. If any step fails, stop and fix the 
    tar -tzf dist-tarballs/baka-core-<version>.tgz | head -40
    ```
    Each lists `package/`, `package/package.json`, `package/dist/index.js`, `package/README.md`, `package/LICENSE`. None of them lists `package/.env*`, `package/.git`, `package/node_modules`, `package/coverage`, `package/test`, or `package/src`. If anything leaks, fix `package.json` `files` field or `.npmignore` and rebuild the tarball.
-6. **Local install smoke.** Install both tarballs into a fresh `mktemp -d` and run the documented smoke sequence:
+6. **Core tarball outside the workspace.** `node scripts/verify-core-pack.mjs` (`pnpm run verify:core`) packs `@baka/core`, installs the tarball with npm into a scratch project, runs a module from a catalog against another directory, and type-checks a consumer. It must print `types ok`.
+7. **Local install smoke.** Install both tarballs into a fresh `mktemp -d` and run the documented smoke sequence:
    ```bash
    SCRATCH=$(mktemp -d)
    cd "$SCRATCH"

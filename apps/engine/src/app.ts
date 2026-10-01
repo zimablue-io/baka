@@ -53,6 +53,14 @@ export interface EngineAppOptions {
 	 * anything below it). Empty or unset: a request may only name `cwd` itself.
 	 */
 	allowedRoots?: readonly string[]
+	/**
+	 * Directories modules are drawn from, highest precedence first (relative
+	 * paths resolve against the project). When set, ONLY these are searched:
+	 * the project's `modules/`, `.baka/modules`, and the user marketplace are
+	 * not, so a catalog elsewhere can serve any project without symlinks and
+	 * without being written to. Unset: the default discovery.
+	 */
+	moduleDirs?: readonly string[]
 }
 
 const RunBodySchema = z.object({
@@ -160,6 +168,7 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 	// Resolved once so a symlinked root cannot be swapped for another target later.
 	const allowedRoots = (opts.allowedRoots ?? []).map((root) => realpathSync(root))
 	const projectOf = (raw: string | undefined): string => resolveProject(cwd, raw, allowedRoots)
+	const registryOf = (project: string): ModuleRegistry => new ModuleRegistry(project, { moduleDirs: opts.moduleDirs })
 
 	app.use(
 		"*",
@@ -186,7 +195,7 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 		} catch (err) {
 			return failure(c, err, 400)
 		}
-		return c.json(describeModules(new ModuleRegistry(project)))
+		return c.json(describeModules(registryOf(project)))
 	})
 
 	app.get("/v1/slots", (c) => {
@@ -197,7 +206,7 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 		}
 		try {
 			const project = projectOf(c.req.query("project"))
-			const listed = listActionSlots(new ModuleRegistry(project), moduleName, actionId)
+			const listed = listActionSlots(registryOf(project), moduleName, actionId)
 			return c.json(listed)
 		} catch (err) {
 			return failure(c, err, 404)
@@ -212,7 +221,7 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 		}
 		try {
 			const project = projectOf(c.req.query("project"))
-			return c.json(previewAction(new ModuleRegistry(project), moduleName, actionId))
+			return c.json(previewAction(registryOf(project), moduleName, actionId))
 		} catch (err) {
 			return failure(c, err, 404)
 		}
@@ -244,7 +253,7 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 		}
 		const { provider, model } = await resolveWorker(project)
 		const result = await runAction({
-			registry: new ModuleRegistry(project),
+			registry: registryOf(project),
 			lock: lock ?? undefined,
 			store: createDiskSlotStore(project, { userFallback: true }),
 			module: parsed.data.module,
@@ -275,7 +284,7 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 		}
 		try {
 			const project = projectOf(parsed.data.project)
-			const { moduleRoot, action } = resolveAction(new ModuleRegistry(project), parsed.data.module, parsed.data.action)
+			const { moduleRoot, action } = resolveAction(registryOf(project), parsed.data.module, parsed.data.action)
 			const templatesDir = join(moduleRoot, action.id, "templates")
 			if (!existsSync(templatesDir)) {
 				return c.json({ error: `action "${action.id}" has no templates/` }, 400)
@@ -330,7 +339,7 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 			return failure(c, err, 400)
 		}
 		try {
-			return c.json(await validateProject(new ModuleRegistry(project), body.module))
+			return c.json(await validateProject(registryOf(project), body.module))
 		} catch (err) {
 			if (err instanceof ModuleNotFoundError) {
 				return c.json({ error: err.message, code: BAKA_EXIT_CODE.USER_ERROR }, 400)
@@ -354,9 +363,9 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 export async function engineRequest(
 	cwd: string,
 	path: string,
-	init?: { method?: string; body?: unknown },
+	init?: { method?: string; body?: unknown; moduleDirs?: readonly string[] },
 ): Promise<{ status: number; json: unknown }> {
-	const app = createEngineApp({ cwd })
+	const app = createEngineApp({ cwd, moduleDirs: init?.moduleDirs })
 	const res = await app.request(path, {
 		method: init?.method ?? "GET",
 		headers: init?.body !== undefined ? { "content-type": "application/json" } : undefined,

@@ -553,3 +553,33 @@ describe("engine run: validates by default, as runAction does", () => {
 		expect(((await res.json()) as { ok: boolean }).ok).toBe(true)
 	})
 })
+
+describe("engine moduleDirs: modules come from elsewhere, output goes to the project", () => {
+	it("lists and runs a catalog module without writing into the catalog", async () => {
+		const catalog = mkdtempSync(join(tmpdir(), "baka-engine-catalog-"))
+		const project = mkdtempSync(join(tmpdir(), "baka-engine-project-"))
+		cleanup.push(catalog, project)
+		const moduleRoot = join(catalog, "hello")
+		mkdirSync(join(moduleRoot, "greet", "templates"), { recursive: true })
+		writeFileSync(
+			join(moduleRoot, "manifest.ts"),
+			`export const Manifest = { name: "hello", version: "0.0.0", description: "x", dependencies: [], conflictsWith: [],
+  actions: [{ id: "greet", description: "x", requiresReasoning: false, filePatterns: [], validators: [], params: [] }], moduleValidators: [] }
+`,
+		)
+		writeFileSync(join(moduleRoot, "greet", "templates", "hi.txt.hbs"), "hi\n")
+		const app = createEngineApp({ cwd: project, moduleDirs: [catalog] })
+		const listed = (await (await app.request("/v1/modules")).json()) as { modules: Array<{ name: string }> }
+		expect(listed.modules.map((m) => m.name)).toEqual(["hello"])
+		const res = await app.request("/v1/run", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ module: "hello", action: "greet", params: {} }),
+		})
+		expect(res.status).toBe(200)
+		expect(readFileSync(join(project, "hi.txt"), "utf-8")).toBe("hi\n")
+		expect(readdirSync(catalog)).toEqual(["hello"])
+		expect(readdirSync(moduleRoot).sort()).toEqual(["greet", "manifest.ts"])
+		expect(readdirSync(project).filter((n) => n !== ".baka")).toEqual(["hi.txt"])
+	})
+})

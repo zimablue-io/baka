@@ -330,6 +330,8 @@ export const ValidatorRunSchema = z.object({
 export const OrchestrationStateSchema = z.object({
 	userIntent: z.string(),
 	targetDirectory: z.string(),
+	/** The directories modules are drawn from, when the caller set them (`--modules-dir`, `BAKA_MODULE_DIRS`); absent means the default discovery. */
+	moduleDirs: z.array(z.string()).optional(),
 	status: z.nativeEnum(ENGINE_STATUS),
 	currentRole: z.nativeEnum(AgentRole).optional(),
 	executionPlan: z.object({

@@ -61,6 +61,9 @@ jobs:
       - name: Knip (repository hygiene)
         run: pnpm knip
 
+      - name: Install the @baka/core tarball into a scratch project outside the workspace
+        run: node scripts/verify-core-pack.mjs
+
       - name: Smoke test against packed tarballs
         run: |
           set -euo pipefail

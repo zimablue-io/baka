@@ -248,7 +248,11 @@ function registerWorkflowTools(server: McpServer, ctx: ServerContext): void {
 			inputSchema: ValidateInputSchema.shape,
 		},
 		async () => {
-			const { status, json } = await engineRequest(ctx.cwd, "/v1/validate", { method: "POST", body: {} })
+			const { status, json } = await engineRequest(ctx.cwd, "/v1/validate", {
+				method: "POST",
+				body: {},
+				moduleDirs: ctx.moduleDirs,
+			})
 			const result = json as { valid?: boolean; error?: string }
 			if (status >= 400) {
 				return { ...jsonResult({ valid: false, error: result.error ?? "validate failed" }), isError: true }
@@ -266,7 +270,7 @@ function registerWorkflowTools(server: McpServer, ctx: ServerContext): void {
 		},
 		async (raw) => {
 			const input = ListActionsInputSchema.parse(raw)
-			const { status, json } = await engineRequest(ctx.cwd, "/v1/modules")
+			const { status, json } = await engineRequest(ctx.cwd, "/v1/modules", { moduleDirs: ctx.moduleDirs })
 			const body = json as {
 				modules?: Array<{
 					name: string
@@ -347,6 +351,7 @@ function registerEngineTools(server: McpServer, ctx: ServerContext): void {
 		async (raw) => {
 			const input = RunInputSchema.parse(raw)
 			const { status, json } = await engineRequest(ctx.cwd, "/v1/run", {
+				moduleDirs: ctx.moduleDirs,
 				method: "POST",
 				body: {
 					module: input.module,
@@ -374,6 +379,7 @@ function registerEngineTools(server: McpServer, ctx: ServerContext): void {
 			const { status, json } = await engineRequest(
 				ctx.cwd,
 				`/v1/slots?module=${encodeURIComponent(input.module)}&action=${encodeURIComponent(input.action)}`,
+				{ moduleDirs: ctx.moduleDirs },
 			)
 			return { ...jsonResult(json), ...(status >= 400 ? { isError: true } : {}) }
 		},
@@ -388,6 +394,7 @@ function registerEngineTools(server: McpServer, ctx: ServerContext): void {
 		async (raw) => {
 			const input = FillInputSchema.parse(raw)
 			const { status, json } = await engineRequest(ctx.cwd, "/v1/fill", {
+				moduleDirs: ctx.moduleDirs,
 				method: "POST",
 				body: {
 					module: input.module,

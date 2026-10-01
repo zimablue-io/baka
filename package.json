@@ -8,6 +8,7 @@
 		"lint": "biome check .",
 		"test": "turbo run test",
 		"check-types": "turbo run check-types",
+		"verify:core": "node scripts/verify-core-pack.mjs",
 		"pack": "rm -rf dist-tarballs && mkdir -p dist-tarballs && node scripts/pack.mjs baka --out \"$PWD/dist-tarballs\" && node scripts/pack.mjs @baka/mcp-server --out \"$PWD/dist-tarballs\" && node scripts/pack.mjs @baka/core --out \"$PWD/dist-tarballs\"",
 		"knip": "node node_modules/knip/bin/knip.js --treat-config-hints-as-errors",
 		"format": "biome format --write .",

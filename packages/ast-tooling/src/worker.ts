@@ -47,7 +47,7 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, unknown, WorkerRollbac
 		}
 		const model = resolveWorkerModel(ctx?.llmProvider ?? null)
 		const run = await runAction({
-			registry: new ModuleRegistry(targetDirectory),
+			registry: new ModuleRegistry(targetDirectory, { moduleDirs: state.moduleDirs }),
 			store: createDiskSlotStore(targetDirectory, { userFallback: true }),
 			module: input.moduleName,
 			action: input.actionName,
@@ -74,9 +74,9 @@ export const executeWorkerStep: WorkflowStep<WorkerInput, unknown, WorkerRollbac
 		}
 	},
 
-	compensate: async (data: WorkerRollbackData, _state: OrchestrationState, ctx?: StepContext) => {
+	compensate: async (data: WorkerRollbackData, state: OrchestrationState, ctx?: StepContext) => {
 		await compensateAction({
-			registry: new ModuleRegistry(data.targetDirectory),
+			registry: new ModuleRegistry(data.targetDirectory, { moduleDirs: state.moduleDirs }),
 			module: data.moduleName,
 			action: data.actionName,
 			compensation: data.receipt.compensation,

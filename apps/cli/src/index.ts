@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { moduleDirsFromEnv } from "@repo/ast-tooling"
 import { BAKA_EXIT_CODE } from "@repo/protocol"
 import { Command } from "commander"
 import { runInit } from "./commands/init"
@@ -52,7 +53,29 @@ program
 	.description("Baka CLI: enforce your patterns by routing LLM intent through declared module actions")
 	.version(cliPkg.version)
 
-program.option("--cwd <path>", "use the given directory as the project root", process.cwd())
+// A relative --cwd is resolved here, once, so every command sees an absolute project root.
+program.option(
+	"--cwd <path>",
+	"use the given directory as the project root (relative paths resolve against the current directory)",
+	(value: string) => resolve(value),
+	process.cwd(),
+)
+// The project root and the module scope are separate: --modules-dir (or BAKA_MODULE_DIRS) names the
+// directories modules are drawn from, so a catalog elsewhere can serve any project without symlinks
+// and without being written to.
+program.option(
+	"--modules-dir <path>",
+	"directory containing <module>/manifest.ts entries; repeatable, highest precedence first. When given (or BAKA_MODULE_DIRS is set) ONLY these are searched, instead of the project's modules/, .baka/modules, and the user marketplace",
+	(value: string, prior: string[]) => [...prior, resolve(value)],
+	[] as string[],
+)
+
+/** The project root and module directories every command works with: flags first, then BAKA_MODULE_DIRS. */
+function globals(): { cwd: string; moduleDirs?: string[] } {
+	const opts = program.opts<{ cwd?: string; modulesDir?: string[] }>()
+	const moduleDirs = opts.modulesDir?.length ? opts.modulesDir : moduleDirsFromEnv(process.env)
+	return { cwd: opts.cwd ?? process.cwd(), moduleDirs }
+}
 
 // Validate --cwd up front: a non-existent path is a USER_ERROR (the user
 // gave us a bad path), not a silent no-op that returns zero results.
@@ -136,7 +159,7 @@ moduleCmd
 		"Design a new module through a chat-driven double-diamond flow (Discover -> Define -> Develop -> Deliver). Re-run to resume.",
 	)
 	.action(async (name) => {
-		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
+		const cwd = globals().cwd
 		// Lazy-load: a broken module-design barrel must not kill sibling subcommands.
 		const { runModuleDesign } = await import("./commands/module-design/index.js")
 		try {
@@ -155,7 +178,7 @@ moduleCmd
 	.option("-i, --intent <text>", "the user intent to plan against (default: action's testIntent)")
 	.option("-n, --n <count>", "number of runs (default: 5)", "5")
 	.action(async (name, opts) => {
-		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
+		const cwd = globals().cwd
 		// Lazy-load: a broken module-design barrel must not kill sibling subcommands.
 		const { runModuleConsistency } = await import("./commands/module-design/index.js")
 		try {
@@ -176,16 +199,14 @@ moduleCmd
 	.description("Check a module's manifest and layout")
 	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp manifest resource)")
 	.action((name, opts) => {
-		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
-		runModuleValidate(name, { cwd, json: opts.json })
+		runModuleValidate(name, { ...globals(), json: opts.json })
 	})
 moduleCmd
 	.command("list-actions <name>")
 	.description("Show a module's actions")
 	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp `baka_list_actions` tool)")
 	.action((name, opts) => {
-		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
-		runModuleListActions(name, { cwd, json: opts.json })
+		runModuleListActions(name, { ...globals(), json: opts.json })
 	})
 
 moduleCmd
@@ -195,17 +216,15 @@ moduleCmd
 	.option("-i, --input <json>", "JSON input for the action", "{}")
 	.action(async (name, opts) => {
 		if (!opts.action) die(BAKA_EXIT_CODE.USER_ERROR, "--action <id> is required")
-		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
-		await runModuleTest(name, opts.action, opts.input ?? "{}", { cwd })
+		await runModuleTest(name, opts.action, opts.input ?? "{}", globals())
 	})
 
 moduleCmd
 	.command("edit <name>")
 	.description("Open the module's manifest in $EDITOR, then re-validate")
 	.action(async (name) => {
-		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		try {
-			await runModuleEdit(name, { cwd })
+			await runModuleEdit(name, globals())
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
 			if (message.includes("User force closed")) return
@@ -220,9 +239,8 @@ program
 	.description("List modules discovered in this project (tree, project marketplace, user marketplace)")
 	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp `baka://modules` resource)")
 	.action(async (opts) => {
-		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		try {
-			await runListModulesCommand({ cwd, json: opts.json })
+			await runListModulesCommand({ ...globals(), json: opts.json })
 		} catch (err) {
 			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
 		}
@@ -251,10 +269,9 @@ program
 	.allowUnknownOption()
 	.allowExcessArguments(true)
 	.action(async (target, opts) => {
-		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		try {
 			await runRunCommand(target, {
-				cwd,
+				...globals(),
 				json: opts.json,
 				dryRun: opts.dryRun,
 				slotMode: opts.slotMode,
@@ -278,9 +295,8 @@ program
 	.argument("[modules...]", "module names to pin (default: every discovered module)")
 	.option("--json", "emit machine-readable JSON to stdout")
 	.action((modules: string[], opts) => {
-		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		try {
-			runLockCommand({ cwd, json: opts.json, modules })
+			runLockCommand({ ...globals(), json: opts.json, modules })
 		} catch (err) {
 			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
 		}
@@ -292,9 +308,8 @@ program
 	.argument("<target>", "module/action")
 	.option("--json", "emit machine-readable JSON to stdout")
 	.action(async (target, opts) => {
-		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		try {
-			await runSlotsCommand(target, { cwd, json: opts.json })
+			await runSlotsCommand(target, { ...globals(), json: opts.json })
 		} catch (err) {
 			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
 		}
@@ -312,10 +327,9 @@ program
 	.allowUnknownOption()
 	.allowExcessArguments(true)
 	.action(async (target, opts) => {
-		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		try {
 			await runFillCommand(target, {
-				cwd,
+				...globals(),
 				json: opts.json,
 				slot: opts.slot,
 				value: opts.value,
@@ -334,9 +348,8 @@ program
 	.argument("<target>", "module/action")
 	.option("--json", "emit machine-readable JSON to stdout")
 	.action(async (target, opts) => {
-		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		try {
-			await runInspectCommand(target, { cwd, json: opts.json })
+			await runInspectCommand(target, { ...globals(), json: opts.json })
 		} catch (err) {
 			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
 		}
@@ -360,9 +373,8 @@ program
 		[] as string[],
 	)
 	.action(async (opts) => {
-		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		await runServeCommand({
-			cwd,
+			...globals(),
 			port: Number(opts.port),
 			host: opts.host,
 			token: opts.token,
@@ -380,10 +392,9 @@ program
 	.option("--save", "persist the plan to .baka/plans/")
 	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp `baka_plan` tool)")
 	.action(async (intent, opts) => {
-		const globalOpts = program.opts<{ cwd?: string }>()
 		try {
 			await runPlanCommand(intent, {
-				cwd: globalOpts.cwd,
+				...globals(),
 				dryRun: opts.dryRun,
 				save: opts.save,
 				json: opts.json,
@@ -399,7 +410,7 @@ program
 	.command("list-plans")
 	.description("List saved plan files")
 	.action(() => {
-		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
+		const cwd = globals().cwd
 		runListPlans(cwd)
 	})
 
@@ -410,9 +421,8 @@ program
 	.description("Apply a saved plan (executes the steps with SAGA compensation)")
 	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp `baka_apply` tool)")
 	.action(async (planFile, opts) => {
-		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		try {
-			await runApplyCommand(planFile, cwd, { json: opts.json })
+			await runApplyCommand(planFile, globals(), { json: opts.json })
 		} catch (err) {
 			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
 		}
@@ -429,9 +439,8 @@ program
 		"run validators for a single module only; exits BAKA_EXIT_CODE.USER_ERROR (1) if the module is not found",
 	)
 	.action(async (opts) => {
-		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 		try {
-			await runValidateCommand(cwd, { json: opts.json, module: opts.module })
+			await runValidateCommand(globals(), { json: opts.json, module: opts.module })
 		} catch (err) {
 			die(BAKA_EXIT_CODE.VALIDATION_ERROR, err instanceof Error ? err.message : String(err))
 		}
@@ -465,7 +474,7 @@ program
 		"emit machine-readable JSON to stdout (status, scope, name, version, previousVersion, registry, modulePath)",
 	)
 	.action(async (spec, opts) => {
-		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
+		const cwd = globals().cwd
 		const scope = opts.user ? "user" : "project"
 		try {
 			await runInstallCommand(spec, {
@@ -490,7 +499,7 @@ program
 	.option("-u, --user", "uninstall from the user scope")
 	.option("--json", "emit machine-readable JSON to stdout (status, scope, name, modulePath, settingsPath)")
 	.action(async (spec, opts) => {
-		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
+		const cwd = globals().cwd
 		const scope = opts.user ? "user" : "project"
 		try {
 			await runUninstallCommand(spec, { cwd, scope, json: opts.json })
@@ -516,7 +525,7 @@ program
 	.description("Remove a non-registry source string from settings (and from disk if materialized)")
 	.option("-u, --user", "remove from the user scope")
 	.action((source, opts) => {
-		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
+		const cwd = globals().cwd
 		const scope = opts.user ? "user" : "project"
 		try {
 			runRemoveCommand(source, { cwd, scope })
@@ -531,7 +540,7 @@ program
 	.command("list-packages")
 	.description("List installed module packages (project + user scopes; project wins on dedup)")
 	.action(() => {
-		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
+		const cwd = globals().cwd
 		runListPackagesCommand(cwd)
 	})
 
@@ -548,7 +557,7 @@ program
 		"emit machine-readable JSON to stdout (query, results, warnings; each hit carries its source `registry`)",
 	)
 	.action(async (query, opts) => {
-		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
+		const cwd = globals().cwd
 		try {
 			await runSearchCommand(query, {
 				json: opts.json,

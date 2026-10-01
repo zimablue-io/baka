@@ -11,6 +11,19 @@ A **module** is a self-contained directory that exposes typed, validated actions
 
 Discovery walks every scope on every run; there is no registration step, and both real directories and symlinks are accepted. When two scopes provide the same module name, the first scope in precedence order owns it and the lower-precedence copies are skipped. The bundled scope is listed only when the current working directory looks like a project (has a `package.json`), so `baka list-modules` from an unrelated directory does not echo the bundled catalog.
 
+### Using a catalog from another directory
+
+The project root (`--cwd`, default the current directory; a relative path resolves against it) is where actions write and where `baka.lock.json` lives. It is separate from the module scope. `--modules-dir <path>` (repeatable, highest precedence first) or the environment variable `BAKA_MODULE_DIRS` (paths separated like `PATH`, `:` or `;`) names the directories modules are drawn from, each holding `<module>/manifest.ts` entries. When either is given **only** those directories are searched (not the project's `modules/`, `.baka/modules`, or the user marketplace), a flag beats the variable, and relative paths resolve against the current directory. A catalog repo can therefore serve any project with no symlinks and is never written to:
+
+```bash
+baka --cwd ~/code/my-app --modules-dir ~/code/baka-modules/modules run ts-package/scaffold --name ui
+BAKA_MODULE_DIRS=~/code/baka-modules/modules baka --cwd ~/code/my-app validate
+```
+
+It applies to every command that reads modules (`run`, `slots`, `fill`, `inspect`, `list-modules`, `lock`, `validate`, `plan`, `apply`, `serve`, `module validate|list-actions|test|edit`), to `baka-engine --modules-dir=<path>`, and to the MCP server (via `BAKA_MODULE_DIRS`). From the library it is `createRegistry({ root, moduleDirs })`.
+
+`scripts/baka.mjs` (what `pnpm baka` runs) works from any directory: `node /path/to/baka/scripts/baka.mjs --cwd . run ...`.
+
 Install a module into the project marketplace with `baka install <source>` (links it under `<project>/.baka/modules/`); add `--user` to install into the user marketplace instead. Sources can be `npm:@scope/pkg[@ver]`, `git:host/repo[@ref]`, `https://...`, `/abs/path`, or `./rel/path`.
 
 ## Layout

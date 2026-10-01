@@ -22,6 +22,8 @@ Hosts already know how to run CLIs. `--json` composes. Do not prefer MCP.
 ```bash
 # Discover
 baka list-modules --json
+# Modules from a catalog elsewhere (no symlinks; output goes to --cwd, never into the catalog):
+#   baka --cwd <project> --modules-dir <catalog> run ...      (or BAKA_MODULE_DIRS=<catalog>)
 
 # Product path: named action. --json prints the receipt: ok, diagnostics, changeset
 # (path, op, contentHash), outputTreeHash, pins, slots, compensation. A run validates by

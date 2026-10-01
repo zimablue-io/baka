@@ -12,6 +12,7 @@ import type {
 	ModulePinSchema,
 	OnExistingSchema,
 	OrchestrationStateSchema,
+	ParamFormat,
 	ParamTypeNode,
 	ResolvedPlanSchema,
 	SlotDeclSchema,
@@ -30,7 +31,7 @@ export type ModuleManifest = z.infer<typeof ModuleManifestSchema>
 export type OrchestrationState = z.infer<typeof OrchestrationStateSchema>
 export type ResolvedPlan = z.infer<typeof ResolvedPlanSchema>
 export type SlotDecl = z.infer<typeof SlotDeclSchema>
-export type { ModuleActionParam, ParamTypeNode }
+export type { ModuleActionParam, ParamFormat, ParamTypeNode }
 export type ActionErrorCode = (typeof ACTION_ERROR_CODES)[number]
 export type ChangeOp = z.infer<typeof ChangeOpSchema>
 export type ChangesetEntry = z.infer<typeof ChangesetEntrySchema>
