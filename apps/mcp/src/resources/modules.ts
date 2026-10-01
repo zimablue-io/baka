@@ -1,10 +1,10 @@
+import { describeModules } from "@repo/ast-tooling"
 import type { ServerContext } from "../context.js"
 import { getModules } from "../context.js"
 
 /**
- * baka://modules — list of all discovered modules (one entry per module).
- * The host can read this to populate a "what can I do" panel without
- * triggering full manifest loads.
+ * baka://modules — the module catalog: every discovered module with its
+ * actions, param declarations, and JSON Schemas, plus the result schema.
  */
 export const MODULES_RESOURCE_URI = "baka://modules" as const
 
@@ -18,19 +18,14 @@ export function listModulesResource(_ctx: ServerContext) {
 }
 
 export function readModulesResource(ctx: ServerContext) {
-	const modules = getModules(ctx).map((m) => ({
-		name: m.name,
-		version: m.version,
-		description: m.description,
-		actions: m.actions.length,
-		uri: `baka://module/${m.name}/manifest`,
-	}))
+	// The catalog verbatim: the same document `baka list-modules --json` and GET /v1/modules return.
+	const catalog = describeModules(ctx.registry)
 	return {
 		contents: [
 			{
 				uri: MODULES_RESOURCE_URI,
 				mimeType: "application/json",
-				text: JSON.stringify({ modules }, null, 2),
+				text: JSON.stringify(catalog, null, 2),
 			},
 		],
 	}

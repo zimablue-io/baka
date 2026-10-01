@@ -256,28 +256,21 @@ export async function runListModulesCommand(opts: { cwd: string; json?: boolean 
 	if (status >= 400) {
 		die(BAKA_EXIT_CODE.ENGINE_ERROR, body.error ?? "list-modules failed")
 	}
-	const mapped = {
-		modules: (body.modules ?? []).map((m) => ({
-			name: m.name,
-			version: m.version,
-			description: m.description,
-			actions: Array.isArray(m.actions) ? m.actions.length : 0,
-			uri: `baka://module/${m.name}/manifest`,
-		})),
-		diagnostics: body.diagnostics ?? [],
-	}
 	if (opts.json) {
-		printJson(mapped)
+		// The catalog verbatim: the same document as GET /v1/modules, the baka://modules
+		// MCP resource, and describeModules() in @baka/core (params, JSON Schemas, resultSchema).
+		printJson(json)
 		return
 	}
-	console.log(`\nFound ${mapped.modules.length} module(s):\n`)
-	if (mapped.modules.length === 0) {
-		for (const d of mapped.diagnostics) console.log(`  (${d.severity}) ${d.message}`)
+	const modules = body.modules ?? []
+	console.log(`\nFound ${modules.length} module(s):\n`)
+	if (modules.length === 0) {
+		for (const d of body.diagnostics ?? []) console.log(`  (${d.severity}) ${d.message}`)
 	} else {
-		mapped.modules.forEach((m) => {
+		for (const m of modules) {
 			console.log(`  - ${m.name.padEnd(20)} v${m.version}`)
-			console.log(`    Actions: ${m.actions}`)
-		})
+			console.log(`    Actions: ${m.actions.length}`)
+		}
 	}
 	console.log("")
 }

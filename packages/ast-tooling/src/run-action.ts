@@ -8,6 +8,8 @@ import {
 	ENGINE_STATUS,
 	type LLMProvider,
 	type ModuleManifest,
+	ModuleManifestSchema,
+	normalizeParams,
 	type OrchestrationState,
 	type SlotsInput,
 	type StepResponse,
@@ -38,8 +40,15 @@ function loadManifest(moduleRoot: string, moduleName: string): ModuleManifest {
 	const manifestPath = join(moduleRoot, "manifest.ts")
 	const jiti = createJiti(moduleRoot, { interopDefault: true })
 	const mod = jiti(manifestPath) as { Manifest?: ModuleManifest }
-	if (!mod.Manifest) throw new Error(`${moduleName}: manifest.ts did not export \`Manifest\``)
-	return mod.Manifest
+	if (!mod.Manifest) {
+		throw new ActionError("module-invalid", `${moduleName}: manifest.ts did not export \`Manifest\``)
+	}
+	const parsed = ModuleManifestSchema.safeParse(mod.Manifest)
+	if (!parsed.success) {
+		const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")
+		throw new ActionError("module-invalid", `${moduleName}: manifest does not match the schema: ${issues}`)
+	}
+	return parsed.data
 }
 
 export function resolveAction(
@@ -49,14 +58,12 @@ export function resolveAction(
 ): { moduleRoot: string; manifest: ModuleManifest; action: ModuleManifest["actions"][number] } {
 	const moduleRoot = registry.resolveModuleRoot(moduleName)
 	if (!moduleRoot) {
-		throw new Error(
-			`module "${moduleName}" not found (searched tree, project marketplace, user marketplace, and bundled scopes)`,
-		)
+		throw new ActionError("module-not-found", `module "${moduleName}" not found in the registry's module directories`)
 	}
 	const manifest = loadManifest(moduleRoot, moduleName)
 	const action = manifest.actions.find((a) => a.id === actionId)
 	if (!action) {
-		throw new Error(`action "${actionId}" is not declared on module "${moduleName}"`)
+		throw new ActionError("action-not-found", `action "${actionId}" is not declared on module "${moduleName}"`)
 	}
 	return { moduleRoot, manifest, action }
 }
@@ -132,7 +139,7 @@ export async function runAction(input: RunActionInput): Promise<ActionResult> {
 	const dryRun = input.dryRun === true
 	const provider = input.provider ?? null
 	const model = input.model ?? BAKA_DEFAULT_WORKER_MODEL
-	const params = input.params
+	let params = input.params
 
 	let plan: TemplatePlan = { files: [], slots: [] }
 	let compensation = emptyCompensation()
@@ -160,6 +167,11 @@ export async function runAction(input: RunActionInput): Promise<ActionResult> {
 		const templatesDir = join(moduleRoot, action.id, "templates")
 		const hasTemplates = existsSync(templatesDir)
 		const hasAction = existsSync(join(moduleRoot, action.id, "action.ts"))
+		const normalized = normalizeParams(action.params, input.params)
+		if (!normalized.ok) {
+			throw new ActionError("invalid-params", `params for ${moduleName}/${actionId}: ${normalized.message}`)
+		}
+		params = normalized.params
 		if (!hasTemplates && !hasAction) {
 			throw new ActionError("action-empty", `action "${actionId}" has neither templates/ nor action.ts`)
 		}

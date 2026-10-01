@@ -5,10 +5,11 @@ import type {
 	ActionResultSchema,
 	ChangeOpSchema,
 	ChangesetEntrySchema,
-	ModuleActionParamSchema,
+	ModuleActionParam,
 	ModuleActionSchema,
 	ModuleManifestSchema,
 	OrchestrationStateSchema,
+	ParamTypeNode,
 	ResolvedPlanSchema,
 	SlotDeclSchema,
 	SlotModeSchema,
@@ -20,12 +21,12 @@ import type {
 // Inferred schemas (re-exported as types for ergonomic consumption)
 // ---------------------------------------------------------------------------
 
-export type ModuleActionParam = z.infer<typeof ModuleActionParamSchema>
 export type ModuleAction = z.infer<typeof ModuleActionSchema>
 export type ModuleManifest = z.infer<typeof ModuleManifestSchema>
 export type OrchestrationState = z.infer<typeof OrchestrationStateSchema>
 export type ResolvedPlan = z.infer<typeof ResolvedPlanSchema>
 export type SlotDecl = z.infer<typeof SlotDeclSchema>
+export type { ModuleActionParam, ParamTypeNode }
 export type ActionErrorCode = (typeof ACTION_ERROR_CODES)[number]
 export type ChangeOp = z.infer<typeof ChangeOpSchema>
 export type ChangesetEntry = z.infer<typeof ChangesetEntrySchema>

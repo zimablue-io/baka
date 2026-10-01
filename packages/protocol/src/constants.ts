@@ -55,6 +55,7 @@ export const BAKA_USER_DIR = "baka" as const
 // string instead of parsing a message.
 export const ACTION_ERROR_CODES = [
 	"module-not-found",
+	"module-invalid",
 	"action-not-found",
 	"action-empty",
 	"invalid-params",

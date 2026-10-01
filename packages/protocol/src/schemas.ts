@@ -6,13 +6,114 @@ import { AgentRole } from "./types"
 // Module manifest
 // ---------------------------------------------------------------------------
 
-export const ModuleActionParamSchema = z.object({
-	name: z.string().min(1),
-	type: z.enum(["string", "boolean", "number", "enum"]),
-	required: z.boolean(),
-	description: z.string(),
+/**
+ * A param's type, as a manifest declares it. Scalars (`string`, `number`,
+ * `boolean`), `enum` (needs `enumValues`), `array` (needs `items`, the element
+ * type), and `object` (needs `properties`, its fields as params). `default`
+ * is a JSON value of that type and makes the param optional.
+ */
+export const PARAM_TYPES = ["string", "boolean", "number", "enum", "array", "object"] as const
+export type ParamType = (typeof PARAM_TYPES)[number]
+
+export interface ParamTypeNode {
+	type: ParamType
+	description?: string
+	enumValues?: string[]
+	default?: unknown
+	items?: ParamTypeNode
+	properties?: ModuleActionParam[]
+}
+
+export interface ModuleActionParam extends ParamTypeNode {
+	name: string
+	required: boolean
+	description: string
+}
+
+const ParamTypeNodeShape = {
+	type: z.enum(PARAM_TYPES),
 	enumValues: z.array(z.string()).optional(), // required when type === "enum"
-})
+	default: z.unknown().optional(),
+	items: z.lazy((): z.ZodType<ParamTypeNode> => ParamTypeNodeSchema).optional(), // required when type === "array"
+	properties: z.lazy((): z.ZodType<ModuleActionParam[]> => z.array(ModuleActionParamSchema)).optional(), // required when type === "object"
+}
+
+/** The cross-field rules a type declaration must satisfy; `ctx` receives one issue per violation. */
+function checkParamNode(node: ParamTypeNode, ctx: z.RefinementCtx): void {
+	const need = (ok: boolean, field: string, type: ParamType): void => {
+		if (node.type === type && !ok)
+			ctx.addIssue({ code: "custom", path: [field], message: `${type} params need ${field}` })
+		if (node.type !== type && node[field as keyof ParamTypeNode] !== undefined) {
+			ctx.addIssue({ code: "custom", path: [field], message: `${field} is only valid on ${type} params` })
+		}
+	}
+	need((node.enumValues?.length ?? 0) > 0, "enumValues", "enum")
+	need(node.items !== undefined, "items", "array")
+	need(node.properties !== undefined, "properties", "object")
+	if (node.default !== undefined && !paramNodeToZod(node).safeParse(node.default).success) {
+		ctx.addIssue({ code: "custom", path: ["default"], message: `default does not match type ${node.type}` })
+	}
+}
+
+export const ParamTypeNodeSchema: z.ZodType<ParamTypeNode> = z
+	.object({ ...ParamTypeNodeShape, description: z.string().optional() })
+	.superRefine(checkParamNode)
+
+export const ModuleActionParamSchema: z.ZodType<ModuleActionParam> = z
+	.object({
+		...ParamTypeNodeShape,
+		name: z.string().min(1),
+		required: z.boolean(),
+		description: z.string(),
+	})
+	.superRefine((param, ctx) => {
+		checkParamNode(param, ctx)
+		if (param.required && param.default !== undefined) {
+			ctx.addIssue({ code: "custom", path: ["default"], message: "a param with a default cannot be required" })
+		}
+	})
+
+/** The Zod validator for one declared type (no name, no required flag). */
+function paramNodeToZod(node: ParamTypeNode): z.ZodTypeAny {
+	let schema: z.ZodTypeAny
+	switch (node.type) {
+		case "string":
+			schema = z.string()
+			break
+		case "number":
+			schema = z.number()
+			break
+		case "boolean":
+			schema = z.boolean()
+			break
+		case "enum":
+			schema = z.enum((node.enumValues ?? []) as [string, ...string[]])
+			break
+		case "array":
+			schema = z.array(node.items ? paramNodeToZod(node.items) : z.unknown())
+			break
+		case "object":
+			schema = paramsToZod(node.properties ?? [])
+			break
+	}
+	if (node.description) schema = schema.describe(node.description)
+	if (node.default !== undefined) schema = schema.default(node.default)
+	return schema
+}
+
+/**
+ * The strict Zod object for an action's declared params. A param is optional
+ * unless it is `required` (and has no default); undeclared keys are rejected.
+ */
+export function paramsToZod(params: readonly ModuleActionParam[]): z.ZodObject<z.ZodRawShape> {
+	const shape: z.ZodRawShape = {}
+	for (const param of params) {
+		const field = paramNodeToZod(param)
+		// A default already makes the input optional (and must not be wrapped, or it never applies).
+		shape[param.name] = param.required || param.default !== undefined ? field : field.optional()
+	}
+	return z.object(shape).strict()
+}
 
 export const ModuleActionSchema = z.object({
 	id: z.string().min(1),

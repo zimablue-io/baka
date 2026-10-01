@@ -66,11 +66,13 @@ describe("baka-mcp: resources", () => {
 	test("baka://modules lists the fixture modules", async () => {
 		const result = await client.readResource({ uri: "baka://modules" })
 		const parsed = JSON.parse(result.contents[0]?.text ?? "") as {
-			modules: Array<{ name: string; actions: number; uri: string }>
+			modules: Array<{ name: string; actions: Array<{ id: string; paramsSchema: { type: string } }> }>
+			resultSchema: { properties: Record<string, unknown> }
 		}
 		const listed = parsed.modules.find((m) => m.name === "honest-mod")
-		expect(listed?.actions).toBeGreaterThan(0)
-		expect(listed?.uri).toBe("baka://module/honest-mod/manifest")
+		expect(listed?.actions.length).toBeGreaterThan(0)
+		expect(listed?.actions[0]?.paramsSchema.type).toBe("object")
+		expect(parsed.resultSchema.properties).toHaveProperty("changeset")
 	})
 
 	test("baka://module/honest-mod/manifest returns the write action", async () => {

@@ -380,3 +380,51 @@ baka run hello/greet --name Ada --json --slot-records receipt.json   # same outp
 ```
 
 The on-disk cache (`<project>/.baka/slots/<key>.json`, falling back to `$BAKA_HOME/slots` for the CLI and engine) stays the default store behind `live` and `record`. Its key still includes the model (`templateHash + slotId + paramsHash + model`), so two models never share a cached fill. Library callers can inject any `SlotStore`; `createMemorySlotStore()` keeps fills off the disk entirely.
+
+## Param types and the catalog's JSON Schema
+
+An action's `params` in the manifest is a list of declarations. Each has a `name`, a `description`, a `required` flag, and a `type`:
+
+| `type` | Extra fields |
+|---|---|
+| `string`, `number`, `boolean` | none |
+| `enum` | `enumValues`: the allowed strings (non-empty) |
+| `array` | `items`: the element's type declaration (`{ type, ... }`, recursively) |
+| `object` | `properties`: a list of param declarations, the object's fields |
+
+Any declaration may carry a `default` (a JSON value of that type). A param with a default is optional, so it must not also be `required`. The manifest schema rejects a declaration whose extra fields do not fit its type (an `enum` without values, a `default` of the wrong type, `enumValues` on a string, and so on), so a bad manifest is caught by `baka module validate` and by discovery, not at run time.
+
+```ts
+params: [
+  { name: "title", type: "string", required: true, description: "Page title." },
+  { name: "level", type: "number", required: false, description: "Heading level.", default: 1 },
+  { name: "tags", type: "array", required: false, description: "Labels.", items: { type: "string" } },
+  {
+    name: "owner", type: "object", required: false, description: "Who owns it.",
+    properties: [{ name: "login", type: "string", required: true, description: "Handle." }],
+  },
+]
+```
+
+`runAction` validates the params it is given against these declarations before it does anything else: declared defaults are applied, numeric and `true`/`false` text (CLI flags, form fields) is coerced to the declared scalar type, and anything else is rejected with an `invalid-params` diagnostic that names each offending path. Undeclared params are rejected too, since a typo would otherwise silently change nothing. The params the action sees (and that the slot-key hash covers) are the normalized ones, so spelling out a default gives the same run as omitting it.
+
+### JSON Schema
+
+`baka list-modules --json`, `GET /v1/modules`, the `baka://modules` MCP resource, and `describeModules()` from `@baka/core` all return one catalog document:
+
+```jsonc
+{
+  "modules": [{
+    "name": "hello", "version": "0.1.0", "description": "...",
+    "actions": [{
+      "id": "greet", "description": "...", "requiresReasoning": false, "filePatterns": [],
+      "params": [ /* the declarations above */ ],
+      "paramsSchema": { /* JSON Schema draft-07 of the params */ }
+    }]
+  }],
+  "resultSchema": { /* JSON Schema draft-07 of the ActionResult receipt */ },
+  "diagnostics": []
+}
+```
+
+Both schemas are generated from the Zod schemas the engine itself validates with, never written by hand. `paramsSchema` is a closed object (`additionalProperties: false`) whose `required` lists the required params and whose properties carry each description, enum, element type, nested fields, and default. `resultSchema` describes the receipt in "Running an action: the receipt".

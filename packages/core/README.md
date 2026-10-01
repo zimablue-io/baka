@@ -62,6 +62,10 @@ In `replay`, a missing slot fails the run with `slot-record-missing` and no mode
 
 `dryRun: true` computes the same receipt without writing a byte. The exact definition of `outputTreeHash`, the changeset ops, and the failure semantics are in [docs/MODULES.md](../../docs/MODULES.md#running-an-action-the-receipt).
 
+## The catalog and JSON Schema
+
+`describeModules(registry)` returns every module's actions with their param declarations, a JSON Schema (draft-07) per action in `paramsSchema`, and the receipt's schema in `resultSchema`; all of it is plain JSON. `runAction` validates params against the same declarations (defaults applied, numeric and boolean text coerced, undeclared keys rejected with `invalid-params`). See [docs/MODULES.md](../../docs/MODULES.md#param-types-and-the-catalogs-json-schema).
+
 ## What this package does not do
 
 - It never reads `${BAKA_HOME:-$HOME/.baka}` (config, user marketplace, user slot cache). Modules come only from the directories you pass to `createRegistry`. The user-level slot cache is only consulted if you build a store with `createDiskSlotStore(root, { userFallback: true })`.

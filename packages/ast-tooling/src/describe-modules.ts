@@ -1,8 +1,11 @@
 import {
+	actionResultJsonSchema,
 	ENGINE_STATUS,
+	type JsonSchema,
 	type ModuleAction,
 	type ModuleManifest,
 	type OrchestrationState,
+	paramsJsonSchema,
 	type ValidationDiagnostic,
 	type ValidationResult,
 } from "@repo/protocol"
@@ -13,6 +16,8 @@ export interface CatalogAction {
 	id: string
 	description: string
 	params: ModuleAction["params"]
+	/** JSON Schema (draft-07) of the params, generated from the same Zod schema `runAction` validates against. */
+	paramsSchema: JsonSchema
 	requiresReasoning: boolean
 	filePatterns: string[]
 	compensatesWith?: string
@@ -27,6 +32,8 @@ export interface CatalogModule {
 
 export interface Catalog {
 	modules: CatalogModule[]
+	/** JSON Schema (draft-07) of the receipt `runAction` returns. */
+	resultSchema: JsonSchema
 	diagnostics: ValidationDiagnostic[]
 }
 
@@ -36,7 +43,7 @@ export interface Catalog {
  */
 export function describeModules(registry: ModuleRegistry): Catalog {
 	const { modules, diagnostics } = registry.discover(false)
-	return { modules: modules.map(describeModule), diagnostics }
+	return { modules: modules.map(describeModule), resultSchema: actionResultJsonSchema(), diagnostics }
 }
 
 function describeModule(m: ModuleManifest): CatalogModule {
@@ -48,6 +55,7 @@ function describeModule(m: ModuleManifest): CatalogModule {
 			id: a.id,
 			description: a.description,
 			params: a.params,
+			paramsSchema: paramsJsonSchema(a.params),
 			requiresReasoning: a.requiresReasoning,
 			filePatterns: a.filePatterns,
 			compensatesWith: a.compensatesWith,

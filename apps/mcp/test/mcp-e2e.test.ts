@@ -712,7 +712,7 @@ describe("VAL-MCP-013/014 resources/list and resources/read", () => {
 		}
 	})
 
-	it("resources/read baka://modules returns the directory JSON", async () => {
+	it("resources/read baka://modules returns the catalog JSON", async () => {
 		const state = spawnMcp({})
 		try {
 			await initialize(state)
@@ -721,7 +721,7 @@ describe("VAL-MCP-013/014 resources/list and resources/read", () => {
 			const result = resp?.result as { contents: Array<{ uri: string; text: string }> }
 			expect(result.contents[0].uri).toBe("baka://modules")
 			const parsed = JSON.parse(result.contents[0].text) as {
-				modules: Array<{ name: string; uri: string }>
+				modules: Array<{ name: string }>
 			}
 			expect(parsed.modules.length).toBeGreaterThanOrEqual(2)
 			const names = parsed.modules.map((m) => m.name)

@@ -326,15 +326,23 @@ describe("list-modules against a project with fixture modules", () => {
 		})
 		expect(code, stderr).toBe(0)
 		const parsed = JSON.parse(stdout) as {
-			modules: Array<{ name: string; version: string; description: string; actions: number; uri: string }>
+			modules: Array<{
+				name: string
+				version: string
+				description: string
+				actions: Array<{ id: string; params: unknown[]; paramsSchema: { type: string; additionalProperties: boolean } }>
+			}>
+			resultSchema: { properties: Record<string, unknown> }
 			diagnostics: unknown[]
 		}
 		expect(parsed.modules).toHaveLength(2)
 		expect(parsed.diagnostics).toEqual([])
 		for (const m of parsed.modules) {
-			expect(m.uri).toBe(`baka://module/${m.name}/manifest`)
-			expect(m.actions).toBe(1)
+			expect(m.actions).toHaveLength(1)
+			// Every action carries its params as a JSON Schema generated from the manifest.
+			expect(m.actions[0]?.paramsSchema).toMatchObject({ type: "object", additionalProperties: false })
 		}
+		expect(parsed.resultSchema.properties).toHaveProperty("outputTreeHash")
 	})
 
 	it("is cwd-scoped: repo checkout is empty, fixture project is not, empty dir is not", async () => {

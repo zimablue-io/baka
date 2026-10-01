@@ -43,6 +43,10 @@ export {
 	ENGINE_STATUS,
 	MODULE_CATEGORY,
 } from "./constants"
+export type { JsonSchema } from "./json-schema"
+export { actionResultJsonSchema, paramsJsonSchema } from "./json-schema"
+export type { NormalizedParams } from "./params"
+export { normalizeParams } from "./params"
 export type {
 	RegistryActionPreview,
 	RegistryArtifact,
@@ -93,6 +97,9 @@ export {
 	ModuleActionSchema,
 	ModuleManifestSchema,
 	OrchestrationStateSchema,
+	PARAM_TYPES,
+	ParamTypeNodeSchema,
+	paramsToZod,
 	ResolvedPlanSchema,
 	ResolvedPlanStepSchema,
 	SlotDeclSchema,
@@ -119,6 +126,7 @@ export type {
 	ModuleActionParam,
 	ModuleManifest,
 	OrchestrationState,
+	ParamTypeNode,
 	ResolvedLLMConfig,
 	ResolvedPlan,
 	SlotDecl,
