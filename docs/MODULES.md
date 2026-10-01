@@ -30,8 +30,8 @@ Install a module into the project marketplace with `baka install <source>` (link
 
 ```
 modules/<my-module>/
-  package.json         # self-contained; depends on baka-sdk, peer-deps on baka
-  tsconfig.json        # extends your TS base; maps "baka-sdk" to a real path
+  package.json         # self-contained; baka-sdk (types only) as a devDependency, peer-deps on baka
+  tsconfig.json        # extends your TS base; maps "baka-sdk" to a real path (types)
   README.md            # recommended; its absence is a `baka module validate` warning
   manifest.ts          # exports `Manifest` (typed via ModuleManifestSchema)
   scaffold/
