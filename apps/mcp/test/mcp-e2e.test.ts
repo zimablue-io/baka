@@ -12,12 +12,10 @@
 //
 //   VAL-MCP-001   initialize returns serverInfo.name === "baka-mcp"
 //   VAL-MCP-002   serverInfo.version matches apps/mcp/package.json
-//   VAL-MCP-003   tools/list enumerates engine + per-action (11 tools)
+//   VAL-MCP-003   tools/list enumerates 10 tools (7 engine + 3 registry; no per-action)
 //   VAL-MCP-004   every inputSchema has type/properties/required
-//   VAL-MCP-005   per-action required arrays reflect manifest
-//                  (sdd init-constitution: ["productName","summary"])
-//   VAL-MCP-006   per-action enum params carry enum in schema
-//                  (baka_base_scaffold.moduleType: ["esm","commonjs"])
+//   VAL-MCP-005   baka_run required fields are module and action
+//   VAL-MCP-006   baka_run exposes params as an object
 //   VAL-MCP-007   baka_apply missing plan returns isError
 //   VAL-MCP-008   baka_apply error text is parseable / stable-prefixed
 //   VAL-MCP-009   baka_list_actions with known module returns actions
@@ -27,15 +25,15 @@
 //   VAL-MCP-013   resources/list advertises baka://modules
 //   VAL-MCP-014   resources/read baka://modules returns the directory
 //   VAL-MCP-015   resources/templates/list advertises manifest template
-//   VAL-MCP-016   resources/read baka://module/baka-base/manifest
+//   VAL-MCP-016   resources/read baka://module/honest-mod/manifest
 //   VAL-MCP-017   prompts/list advertises baka_design_module
 //   VAL-MCP-018   prompts/get baka_design_module returns messages
 //   VAL-MCP-019   malformed JSON-RPC does not crash the server
-//   VAL-MCP-020   cwd sensitivity: 11 tools in repo, 4 in empty dir
+//   VAL-MCP-020   cwd sensitivity: same 10 tools in repo and empty dir
 //   VAL-MCP-021   missing required field returns schema error
 //   VAL-MCP-022   unknown tool returns structured error
 //   VAL-MCP-023   concurrent initialize is rejected
-//   VAL-MCP-024   per-action inputSchema has description per property
+//   VAL-MCP-024   every tool property has a description field
 //   VAL-MCP-025   one structured stderr log line per tools/call
 //   VAL-CROSS-010 CLI `baka plan --json` and MCP `tools/call baka_plan`
 //                  produce the same top-level JSON shape
@@ -49,11 +47,12 @@
 // ---------------------------------------------------------------------------
 
 import { type ChildProcess, spawn } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+import { copyPlatformFixtures } from "../../cli/test/helpers/copy-fixtures"
 
 // ---------------------------------------------------------------------------
 // Constants and helpers
@@ -88,7 +87,7 @@ interface SpawnedMcp {
  * Write a baka config to <home>/.baka/config.json with the role-keyed
  * shape (worker / validator). The worker role is what the LLM-backed
  * MCP tools (baka_plan) need. The validator role is needed only when
- * the sdd module's validators run (e.g. via baka_validate -m sdd); for
+ * a module's validators run (e.g. via baka_validate --module); for
  * the existing black-box probes, the worker role is sufficient.
  */
 function seedRoleConfig(home: string, cfg: { baseUrl: string; model: string; apiKey?: string }) {
@@ -126,7 +125,7 @@ function spawnMcp(args: {
 		env = { ...env, HOME: home }
 	}
 	const child: ChildProcess = spawn("node", [DIST_INDEX], {
-		cwd: args.cwd ?? BAKA_REPO,
+		cwd: args.cwd ?? FIXTURE_CWD,
 		env,
 		stdio: ["pipe", "pipe", "pipe"],
 	})
@@ -288,7 +287,7 @@ function startFakeLLM(script: ScriptedResponse[]): Promise<FakeLLMHandle> {
 	})
 }
 
-function planResponse(name: string, module = "baka-base", action = "scaffold"): ScriptedResponse {
+function planResponse(name: string, module = "honest-mod", action = "write"): ScriptedResponse {
 	return {
 		content: JSON.stringify({
 			resolvedSteps: [
@@ -317,18 +316,13 @@ function trackDir(path: string): string {
 	return path
 }
 
-/** Symlink the in-repo modules into a temp scratch dir so it sees them via cwd. */
 function prepareScratchWithModules(prefix: string): string {
 	const scratch = trackDir(makeEmptyDir(prefix))
-	mkdirSync(join(scratch, "modules"), { recursive: true })
-	for (const mod of ["baka-base", "sdd", "ts-style"]) {
-		const target = join(BAKA_REPO, "modules", mod)
-		const link = join(scratch, "modules", mod)
-		// Symlink so the module manifests resolve regardless of cwd.
-		symlinkSync(target, link)
-	}
+	copyPlatformFixtures(scratch)
 	return scratch
 }
+
+let FIXTURE_CWD = ""
 
 // ---------------------------------------------------------------------------
 // Cleanup tracking
@@ -339,9 +333,10 @@ beforeAll(() => {
 		throw new Error(`built MCP dist not found at ${DIST_INDEX}; run \`pnpm --filter @baka/mcp-server build\` first`)
 	}
 	if (!existsSync(EMPTY_CWD)) {
-		const { mkdirSync } = require("node:fs") as typeof import("node:fs")
 		mkdirSync(EMPTY_CWD, { recursive: true })
 	}
+	FIXTURE_CWD = mkdtempSync(join(tmpdir(), "baka-mcp-e2e-fx-"))
+	copyPlatformFixtures(FIXTURE_CWD)
 })
 
 afterEach(() => {
@@ -357,6 +352,9 @@ afterEach(() => {
 afterAll(() => {
 	if (existsSync(EMPTY_CWD)) {
 		rmSync(EMPTY_CWD, { recursive: true, force: true })
+	}
+	if (FIXTURE_CWD && existsSync(FIXTURE_CWD)) {
+		rmSync(FIXTURE_CWD, { recursive: true, force: true })
 	}
 })
 
@@ -402,11 +400,11 @@ describe("VAL-MCP-002 serverInfo.version", () => {
 })
 
 // ---------------------------------------------------------------------------
-// VAL-MCP-003..006 — tools/list enumerates engine + per-action (7 per-action + 4 engine)
+//   VAL-MCP-003..006 — tools/list enumerates engine + registry (no per-action tools)
 // ---------------------------------------------------------------------------
 
 describe("VAL-MCP-003..006 tools/list", () => {
-	it("returns 14 tools: 4 engine + 3 registry + 7 per-action (3 baka-base + 2 sdd + 2 ts-style)", async () => {
+	it("returns 10 tools: 7 engine + 3 registry (no per-action tools)", async () => {
 		const state = spawnMcp({})
 		try {
 			await initialize(state)
@@ -415,30 +413,21 @@ describe("VAL-MCP-003..006 tools/list", () => {
 			expect(resp?.error).toBeUndefined()
 			const result = resp?.result as { tools: Array<{ name: string; inputSchema: Record<string, unknown> }> }
 			const names = result.tools.map((t) => t.name).sort()
-			expect(result.tools.length).toBe(14)
+			expect(result.tools.length).toBe(10)
 
-			// The four engine tools.
 			expect(names).toContain("baka_plan")
 			expect(names).toContain("baka_apply")
 			expect(names).toContain("baka_validate")
 			expect(names).toContain("baka_list_actions")
+			expect(names).toContain("baka_run")
+			expect(names).toContain("baka_slots")
+			expect(names).toContain("baka_fill")
 
-			// The three registry discovery tools (milestone 5
-			// mcp-registry-tools; architecture §8 decision 9: MCP
-			// has no install capability — the install handoff is
-			// the `baka` CLI).
 			expect(names).toContain("baka_registry_search")
 			expect(names).toContain("baka_registry_get_module")
 			expect(names).toContain("baka_registry_get_preview")
 
-			// Per-action tools for the in-repo modules.
-			expect(names).toContain("baka_baka_base_scaffold")
-			expect(names).toContain("baka_baka_base_add_script")
-			expect(names).toContain("baka_baka_base_add_dependency")
-			expect(names).toContain("baka_sdd_init_constitution")
-			expect(names).toContain("baka_sdd_create_feature")
-			expect(names).toContain("baka_ts_style_install_config")
-			expect(names).toContain("baka_ts_style_lint")
+			expect(names.filter((n) => n.startsWith("baka_baka_base_"))).toEqual([])
 		} finally {
 			await shutdown(state)
 		}
@@ -464,23 +453,21 @@ describe("VAL-MCP-003..006 tools/list", () => {
 		}
 	})
 
-	it("VAL-MCP-005 per-action required arrays reflect the manifest", async () => {
+	it("VAL-MCP-005 baka_run required fields are module and action", async () => {
 		const state = spawnMcp({})
 		try {
 			await initialize(state)
 			const id = sendRpc(state, "tools/list")
 			const resp = await waitForResponse(state, id, 5_000)
 			const result = resp?.result as { tools: Array<{ name: string; inputSchema: { required?: string[] } }> }
-			const sdd = result.tools.find((t) => t.name === "baka_sdd_init_constitution")
-			expect(sdd?.inputSchema.required).toEqual(["productName", "summary"])
-			const addScript = result.tools.find((t) => t.name === "baka_baka_base_add_script")
-			expect(addScript?.inputSchema.required).toEqual(["name", "command"])
+			const run = result.tools.find((t) => t.name === "baka_run")
+			expect(run?.inputSchema.required).toEqual(["module", "action"])
 		} finally {
 			await shutdown(state)
 		}
 	})
 
-	it("VAL-MCP-006 per-action enum params carry 'enum' in the schema", async () => {
+	it("VAL-MCP-006 baka_run exposes params as an object", async () => {
 		const state = spawnMcp({})
 		try {
 			await initialize(state)
@@ -489,20 +476,18 @@ describe("VAL-MCP-003..006 tools/list", () => {
 			const result = resp?.result as {
 				tools: Array<{
 					name: string
-					inputSchema: {
-						properties?: Record<string, { enum?: string[] }>
-					}
+					inputSchema: { properties?: Record<string, { type?: string }> }
 				}>
 			}
-			const scaffold = result.tools.find((t) => t.name === "baka_baka_base_scaffold")
-			expect(scaffold).toBeDefined()
-			expect(scaffold?.inputSchema.properties?.moduleType?.enum).toEqual(["esm", "commonjs"])
+			const run = result.tools.find((t) => t.name === "baka_run")
+			expect(run).toBeDefined()
+			expect(run?.inputSchema.properties?.params?.type).toBe("object")
 		} finally {
 			await shutdown(state)
 		}
 	})
 
-	it("VAL-MCP-024 every per-action property has a description field", async () => {
+	it("VAL-MCP-024 every tool property has a description field", async () => {
 		const state = spawnMcp({})
 		try {
 			await initialize(state)
@@ -533,83 +518,23 @@ describe("VAL-MCP-003..006 tools/list", () => {
 // VAL-FOUND-018..020 — per-action MCP tools load and execute hyphenated actions
 // ---------------------------------------------------------------------------
 
-describe("VAL-FOUND-018..020 per-action MCP tools execute shipped actions", () => {
-	it("baka_baka_base_add_script succeeds and edits package.json", async () => {
-		const scratch = prepareScratchWithModules("baka-mcp-add-script-")
-		writeFileSync(
-			join(scratch, "package.json"),
-			JSON.stringify({ name: "mcp-test", version: "1.0.0", private: true }),
-			"utf-8",
-		)
+describe("baka_run executes a fixture action", () => {
+	it("baka_run honest-mod/write writes marker.txt", async () => {
+		const scratch = prepareScratchWithModules("baka-mcp-run-")
 		const state = spawnMcp({ cwd: scratch })
 		try {
 			await initialize(state)
 			const id = sendRpc(state, "tools/call", {
-				name: "baka_baka_base_add_script",
-				arguments: { name: "build", command: "tsc" },
+				name: "baka_run",
+				arguments: { module: "honest-mod", action: "write", params: {} },
 			})
 			const resp = await waitForResponse(state, id, 5_000)
 			expect(resp?.error).toBeUndefined()
 			const result = resp?.result as { isError?: boolean; content: Array<{ type: string; text: string }> }
 			expect(result.isError).toBeFalsy()
-			const parsed = JSON.parse(result.content[0].text) as { success: boolean }
-			expect(parsed.success).toBe(true)
-			const pkg = JSON.parse(readFileSync(join(scratch, "package.json"), "utf-8"))
-			expect(pkg.scripts).toEqual({ build: "tsc" })
-		} finally {
-			await shutdown(state)
-		}
-	})
-
-	it("baka_baka_base_add_dependency succeeds and edits package.json", async () => {
-		const scratch = prepareScratchWithModules("baka-mcp-add-dep-")
-		writeFileSync(
-			join(scratch, "package.json"),
-			JSON.stringify({ name: "mcp-test", version: "1.0.0", private: true }),
-			"utf-8",
-		)
-		const state = spawnMcp({ cwd: scratch })
-		try {
-			await initialize(state)
-			const id = sendRpc(state, "tools/call", {
-				name: "baka_baka_base_add_dependency",
-				arguments: { name: "lodash", version: "latest", dev: false },
-			})
-			const resp = await waitForResponse(state, id, 5_000)
-			expect(resp?.error).toBeUndefined()
-			const result = resp?.result as { isError?: boolean; content: Array<{ type: string; text: string }> }
-			expect(result.isError).toBeFalsy()
-			const parsed = JSON.parse(result.content[0].text) as { success: boolean }
-			expect(parsed.success).toBe(true)
-			const pkg = JSON.parse(readFileSync(join(scratch, "package.json"), "utf-8"))
-			expect(pkg.dependencies).toEqual({ lodash: "latest" })
-		} finally {
-			await shutdown(state)
-		}
-	})
-
-	it("baka_ts_style_install_config succeeds and writes config files", async () => {
-		const scratch = prepareScratchWithModules("baka-mcp-install-config-")
-		writeFileSync(
-			join(scratch, "package.json"),
-			JSON.stringify({ name: "mcp-test", version: "1.0.0", private: true }),
-			"utf-8",
-		)
-		const state = spawnMcp({ cwd: scratch })
-		try {
-			await initialize(state)
-			const id = sendRpc(state, "tools/call", {
-				name: "baka_ts_style_install_config",
-				arguments: { strict: false },
-			})
-			const resp = await waitForResponse(state, id, 5_000)
-			expect(resp?.error).toBeUndefined()
-			const result = resp?.result as { isError?: boolean; content: Array<{ type: string; text: string }> }
-			expect(result.isError).toBeFalsy()
-			const parsed = JSON.parse(result.content[0].text) as { success: boolean }
-			expect(parsed.success).toBe(true)
-			expect(existsSync(join(scratch, "tsconfig.json"))).toBe(true)
-			expect(existsSync(join(scratch, "biome.json"))).toBe(true)
+			const parsed = JSON.parse(result.content[0].text) as { ok: boolean }
+			expect(parsed.ok).toBe(true)
+			expect(readFileSync(join(scratch, "marker.txt"), "utf-8")).toBe("honest-mod was here\n")
 		} finally {
 			await shutdown(state)
 		}
@@ -663,7 +588,7 @@ describe("VAL-MCP-009/010 tools/call baka_list_actions", () => {
 			await initialize(state)
 			const id = sendRpc(state, "tools/call", {
 				name: "baka_list_actions",
-				arguments: { module: "sdd" },
+				arguments: { module: "honest-mod" },
 			})
 			const resp = await waitForResponse(state, id, 5_000)
 			const result = resp?.result as { content: Array<{ type: string; text: string }>; isError?: boolean }
@@ -672,8 +597,8 @@ describe("VAL-MCP-009/010 tools/call baka_list_actions", () => {
 				module: string
 				actions: Array<{ id: string }>
 			}
-			expect(parsed.module).toBe("sdd")
-			expect(parsed.actions.map((a) => a.id).sort()).toEqual(["create-feature", "init-constitution"])
+			expect(parsed.module).toBe("honest-mod")
+			expect(parsed.actions.map((a) => a.id).sort()).toEqual(["write"])
 		} finally {
 			await shutdown(state)
 		}
@@ -715,7 +640,7 @@ describe("VAL-MCP-011 tools/call baka_validate", () => {
 				validation: { kind: string; diagnostics: unknown[] }
 			}
 			expect(typeof parsed.modulesDiscovered).toBe("number")
-			expect(parsed.modulesDiscovered).toBeGreaterThanOrEqual(3)
+			expect(parsed.modulesDiscovered).toBeGreaterThanOrEqual(2)
 			expect(["pass", "fail"]).toContain(parsed.validation.kind)
 			expect(Array.isArray(parsed.validation.diagnostics)).toBe(true)
 			// The failure surface is unambiguous (VAL-FOUND-042): a failing
@@ -757,8 +682,8 @@ describe("VAL-MCP-012 tools/call baka_plan dry-run", () => {
 			expect(Array.isArray(parsed.logs)).toBe(true)
 			if (parsed.status === "SUCCESS") {
 				expect(parsed.steps.length).toBeGreaterThanOrEqual(1)
-				expect(parsed.steps[0]?.module).toBe("baka-base")
-				expect(parsed.steps[0]?.action).toBe("scaffold")
+				expect(parsed.steps[0]?.module).toBe("honest-mod")
+				expect(parsed.steps[0]?.action).toBe("write")
 			}
 			// Fake LLM was actually hit (the orchestrator runs the planning step).
 			expect(fake.calls).toBeGreaterThanOrEqual(1)
@@ -798,11 +723,10 @@ describe("VAL-MCP-013/014 resources/list and resources/read", () => {
 			const parsed = JSON.parse(result.contents[0].text) as {
 				modules: Array<{ name: string; uri: string }>
 			}
-			expect(parsed.modules.length).toBeGreaterThanOrEqual(3)
+			expect(parsed.modules.length).toBeGreaterThanOrEqual(2)
 			const names = parsed.modules.map((m) => m.name)
-			expect(names).toContain("baka-base")
-			expect(names).toContain("sdd")
-			expect(names).toContain("ts-style")
+			expect(names).toContain("honest-mod")
+			expect(names).toContain("slot-mod")
 		} finally {
 			await shutdown(state)
 		}
@@ -830,11 +754,11 @@ describe("VAL-MCP-015/016 resources/templates/list and per-module manifest", () 
 		}
 	})
 
-	it("resources/read baka://module/baka-base/manifest returns the manifest", async () => {
+	it("resources/read baka://module/honest-mod/manifest returns the manifest", async () => {
 		const state = spawnMcp({})
 		try {
 			await initialize(state)
-			const id = sendRpc(state, "resources/read", { uri: "baka://module/baka-base/manifest" })
+			const id = sendRpc(state, "resources/read", { uri: "baka://module/honest-mod/manifest" })
 			const resp = await waitForResponse(state, id, 5_000)
 			const result = resp?.result as { contents: Array<{ text: string }> }
 			const manifest = JSON.parse(result.contents[0].text) as {
@@ -842,9 +766,9 @@ describe("VAL-MCP-015/016 resources/templates/list and per-module manifest", () 
 				version: string
 				actions: Array<{ id: string }>
 			}
-			expect(manifest.name).toBe("baka-base")
+			expect(manifest.name).toBe("honest-mod")
 			expect(Array.isArray(manifest.actions)).toBe(true)
-			expect(manifest.actions.map((a) => a.id)).toContain("scaffold")
+			expect(manifest.actions.map((a) => a.id)).toContain("write")
 		} finally {
 			await shutdown(state)
 		}
@@ -921,17 +845,26 @@ describe("VAL-MCP-019 malformed JSON-RPC resilience", () => {
 // ---------------------------------------------------------------------------
 
 describe("VAL-MCP-020 cwd sensitivity", () => {
-	it("sees 14 tools in BAKA_REPO and 7 tools (4 engine + 3 registry) in an empty dir", async () => {
+	it("sees the same 10 tools in BAKA_REPO and in an empty dir (no per-action tools)", async () => {
+		const expected = [
+			"baka_apply",
+			"baka_fill",
+			"baka_list_actions",
+			"baka_plan",
+			"baka_registry_get_module",
+			"baka_registry_get_preview",
+			"baka_registry_search",
+			"baka_run",
+			"baka_slots",
+			"baka_validate",
+		]
 		const stateRepo = spawnMcp({ cwd: BAKA_REPO })
 		try {
 			await initialize(stateRepo)
 			const id = sendRpc(stateRepo, "tools/list")
 			const resp = await waitForResponse(stateRepo, id, 5_000)
 			const result = resp?.result as { tools: Array<{ name: string }> }
-			// 4 engine + 3 registry + 7 per-action = 14 in the repo.
-			expect(result.tools.length).toBe(14)
-			const names = result.tools.map((t) => t.name)
-			expect(names).toContain("baka_baka_base_scaffold")
+			expect(result.tools.map((t) => t.name).sort()).toEqual(expected)
 		} finally {
 			await shutdown(stateRepo)
 		}
@@ -942,21 +875,7 @@ describe("VAL-MCP-020 cwd sensitivity", () => {
 			const id = sendRpc(stateEmpty, "tools/list")
 			const resp = await waitForResponse(stateEmpty, id, 5_000)
 			const result = resp?.result as { tools: Array<{ name: string }> }
-			// Only the 4 engine + 3 registry tools (no per-action
-			// tools since no modules). The registry tools are
-			// always registered — they resolve against the env /
-			// project-settings / default chain at call time, not
-			// at tools/list time.
-			const names = result.tools.map((t) => t.name).sort()
-			expect(names).toEqual([
-				"baka_apply",
-				"baka_list_actions",
-				"baka_plan",
-				"baka_registry_get_module",
-				"baka_registry_get_preview",
-				"baka_registry_search",
-				"baka_validate",
-			])
+			expect(result.tools.map((t) => t.name).sort()).toEqual(expected)
 		} finally {
 			await shutdown(stateEmpty)
 		}
@@ -1083,7 +1002,7 @@ describe("VAL-MCP-025 stderr logging discipline", () => {
 			// line tagged with the tool name on stderr.
 			const id1 = sendRpc(state, "tools/call", {
 				name: "baka_list_actions",
-				arguments: { module: "baka-base" },
+				arguments: { module: "honest-mod" },
 			})
 			const resp1 = await waitForResponse(state, id1, 5_000)
 			expect(resp1?.error).toBeUndefined()

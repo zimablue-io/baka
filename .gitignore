@@ -45,6 +45,9 @@ docs/superpowers/
 .tmp/
 *.swp
 
+# Local live verification (throwaway project + fake HOME). Never commit.
+LIVE/
+
 # Pack output (created by `pnpm pack` / CI smoke)
 *.tgz
 dist-tarballs/

@@ -4,6 +4,7 @@ import { BRAND, SITE } from "@/lib/site"
 const NAV_LINKS = [
 	{ href: "#problem", label: "Problem" },
 	{ href: "#how-it-works", label: "How it works" },
+	{ href: "/results", label: "Results" },
 	{ href: "#modules", label: "Modules" },
 	{ href: "#get-started", label: "Get started" },
 ] as const

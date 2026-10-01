@@ -9,7 +9,7 @@
 //      Uses a small HTTP server bound to port 0 to serve scripted
 //      responses, so there's no real LLM, no network, no flake.
 //
-//   2. Slow, real LLM (gemma4:e4b-it on localhost:8080). Gated by
+//   2. Slow, real LLM (gemma4:e4b on localhost:8080). Gated by
 //      RUN_REAL_LLM=1. Skipped by default. This is the source of truth
 //      for the user-facing experience.
 //
@@ -358,14 +358,14 @@ describe("baka module create — fast (fake LLM, real CLI binary)", () => {
 // with RUN_REAL_LLM=1.
 //
 // This block uses the user's actual configured LLM (llama_cpp /
-// gemma4:e4b-it on localhost:8080 by default) to prove the same
+// gemma4:e4b on localhost:8080 by default) to prove the same
 // behaviors hold end-to-end against the real thing. It's slow because
 // the LLM is real, and non-deterministic because the LLM is real. We
 // only assert structural properties.
 // ---------------------------------------------------------------------------
 
 const REAL_LLM_BASE_URL = process.env.REAL_LLM_BASE_URL ?? "http://localhost:8080"
-const REAL_LLM_MODEL = process.env.REAL_LLM_MODEL ?? "gemma4:e4b-it"
+const REAL_LLM_MODEL = process.env.REAL_LLM_MODEL ?? "gemma4:e4b"
 const runReal = process.env.RUN_REAL_LLM === "1"
 const describeIfReal = runReal ? describe : describe.skip
 

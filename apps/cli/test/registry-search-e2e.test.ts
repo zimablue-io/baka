@@ -246,16 +246,15 @@ describe("VAL-DISC-011 baka search returns live catalog entries from the local r
 	it("lists the built-in modules and prints a clean human-readable result", async () => {
 		const cwd = makeIsolatedHome("baka-search-live-")
 		const env = { BAKA_REGISTRY_URL: serverBaseUrl }
-		const res = await spawnCli(["search", "typescript"], cwd, env, 30_000)
+		const res = await spawnCli(["search", "hello"], cwd, env, 30_000)
 		expect(res.code, `stderr=${res.stderr}`).toBe(0)
-		expect(res.stdout).toContain("baka-base")
-		expect(res.stdout).toContain("ts-style")
+		expect(res.stdout).toContain("hello")
 	})
 
 	it("emits a machine-readable JSON payload with the `registry` attribution field per hit", async () => {
 		const cwd = makeIsolatedHome("baka-search-json-")
 		const env = { BAKA_REGISTRY_URL: serverBaseUrl }
-		const res = await spawnCli(["search", "typescript", "--json"], cwd, env, 30_000)
+		const res = await spawnCli(["search", "hello", "--json"], cwd, env, 30_000)
 		expect(res.code, `stderr=${res.stderr}`).toBe(0)
 		const trimmed = res.stdout.trim()
 		expect(trimmed).toMatch(/^\{[\s\S]*\}$/)
@@ -264,7 +263,7 @@ describe("VAL-DISC-011 baka search returns live catalog entries from the local r
 			results: Array<{ scope: string; name: string; tier: string; registry: string }>
 			warnings: Array<{ source: string; error: string }>
 		}
-		expect(payload.query).toBe("typescript")
+		expect(payload.query).toBe("hello")
 		expect(payload.results.length).toBeGreaterThan(0)
 		for (const hit of payload.results) {
 			expect(hit.tier).toMatch(/^(official|verified|community-screened|community-unverified)$/)
@@ -320,7 +319,7 @@ describe("VAL-DISC-021 --registry / BAKA_REGISTRY_URL / .baka/settings.json prec
 		// the assertion distinguishes the two by per-hit `registry` field.
 		const cwd = makeIsolatedHome("baka-search-proj-")
 		seedProjectRegistries(cwd, [otherBaseUrl])
-		const res = await spawnCli(["search", "typescript", "--json"], cwd, {}, 30_000)
+		const res = await spawnCli(["search", "hello", "--json"], cwd, {}, 30_000)
 		expect(res.code, `stderr=${res.stderr}`).toBe(0)
 		const payload = JSON.parse(res.stdout.trim()) as {
 			results: Array<{ registry: string }>
@@ -335,7 +334,7 @@ describe("VAL-DISC-021 --registry / BAKA_REGISTRY_URL / .baka/settings.json prec
 		const cwd = makeIsolatedHome("baka-search-envoverride-")
 		seedProjectRegistries(cwd, [otherBaseUrl])
 		const env = { BAKA_REGISTRY_URL: serverBaseUrl }
-		const res = await spawnCli(["search", "typescript", "--json"], cwd, env, 30_000)
+		const res = await spawnCli(["search", "hello", "--json"], cwd, env, 30_000)
 		expect(res.code, `stderr=${res.stderr}`).toBe(0)
 		const payload = JSON.parse(res.stdout.trim()) as {
 			results: Array<{ registry: string }>
@@ -349,7 +348,7 @@ describe("VAL-DISC-021 --registry / BAKA_REGISTRY_URL / .baka/settings.json prec
 		const cwd = makeIsolatedHome("baka-search-flagoverride-")
 		seedProjectRegistries(cwd, [otherBaseUrl])
 		const env = { BAKA_REGISTRY_URL: otherBaseUrl }
-		const res = await spawnCli(["search", "typescript", "--registry", serverBaseUrl, "--json"], cwd, env, 30_000)
+		const res = await spawnCli(["search", "hello", "--registry", serverBaseUrl, "--json"], cwd, env, 30_000)
 		expect(res.code, `stderr=${res.stderr}`).toBe(0)
 		const payload = JSON.parse(res.stdout.trim()) as {
 			results: Array<{ registry: string }>
@@ -369,7 +368,7 @@ describe("VAL-DISC-022 per-project registries in .baka/settings.json are honored
 		const cwd = makeIsolatedHome("baka-search-projhonor-")
 		// With list = [serverBaseUrl]: queries hit serverBaseUrl.
 		seedProjectRegistries(cwd, [serverBaseUrl])
-		const withList = await spawnCli(["search", "typescript", "--json"], cwd, {}, 30_000)
+		const withList = await spawnCli(["search", "hello", "--json"], cwd, {}, 30_000)
 		expect(withList.code, `stderr=${withList.stderr}`).toBe(0)
 		const withPayload = JSON.parse(withList.stdout.trim()) as { results: Array<{ registry: string }> }
 		expect(withPayload.results.length).toBeGreaterThan(0)
@@ -381,7 +380,7 @@ describe("VAL-DISC-022 per-project registries in .baka/settings.json are honored
 		// running here, so it exits 2 — that proves the entry-point picks the
 		// default when nothing is configured).
 		rmSync(join(cwd, ".baka", "settings.json"))
-		const withoutList = await spawnCli(["search", "typescript"], cwd, {}, 30_000)
+		const withoutList = await spawnCli(["search", "hello"], cwd, {}, 30_000)
 		expect(withoutList.code, `unexpected code; stderr=${withoutList.stderr}`).toBe(2)
 		expect(withoutList.stderr).toContain("localhost:4300")
 	})
@@ -445,7 +444,7 @@ describe("VAL-DISC-036 multi-registry search merges with per-source attribution 
 		// same built-in modules, so the per-hit attribution disambiguates.
 		const env = { BAKA_REGISTRY_URL: serverBaseUrl }
 		seedProjectRegistries(cwd, [otherBaseUrl])
-		const res = await spawnCli(["search", "typescript", "--json"], cwd, env, 30_000)
+		const res = await spawnCli(["search", "hello", "--json"], cwd, env, 30_000)
 		expect(res.code, `stderr=${res.stderr}`).toBe(0)
 		const payload = JSON.parse(res.stdout.trim()) as {
 			results: Array<{ registry: string }>
@@ -463,7 +462,7 @@ describe("VAL-DISC-036 multi-registry search merges with per-source attribution 
 		// Two registries: one dead, one live. Live wins, dead becomes a
 		// named warning.
 		seedProjectRegistries(cwd, [`http://127.0.0.1:${deadPort}`, serverBaseUrl])
-		const res = await spawnCli(["search", "typescript", "--json"], cwd, {}, 30_000)
+		const res = await spawnCli(["search", "hello", "--json"], cwd, {}, 30_000)
 		expect(res.code, `unexpected code; stderr=${res.stderr}`).toBe(0)
 		const payload = JSON.parse(res.stdout.trim()) as {
 			results: Array<{ registry: string }>

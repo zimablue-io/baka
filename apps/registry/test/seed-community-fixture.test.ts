@@ -20,10 +20,8 @@ import { type CommunityFixtureResult, seedCommunityScreenedFixture } from "./see
  *      (community-screened).
  *   3. The download endpoint returns a REAL tarball blob (no 404,
  *      no "missing from storage" 500) for the ready version.
- *   4. Built-in modules (baka-base, sdd, ts-style under the official
- *      `baka` scope) are unchanged: they remain in the catalog at
- *      the `official` tier with no screening record (decision 31:
- *      built-in modules bypass the screening pipeline).
+ *   4. Production built-in catalog stays empty (no official modules
+ *      invented by community publish).
  *   5. Re-invoking the seed against the same DB is idempotent —
  *      the fixture is not re-published and no second `pending`
  *      row appears.
@@ -197,7 +195,7 @@ describe("seedCommunityScreenedFixture (the boot-time publish)", () => {
 		expect(dlRes.headers.get("content-disposition")).toContain("attachment")
 	})
 
-	it("the existing built-in catalog seed remains unchanged (baka-base / sdd / ts-style at official tier, no screening record)", async () => {
+	it("community publish does not invent official catalog rows", async () => {
 		await seedCommunityScreenedFixture({
 			app: fx.app,
 			pglite: fx.pglite,
@@ -206,22 +204,10 @@ describe("seedCommunityScreenedFixture (the boot-time publish)", () => {
 			git,
 		})
 
-		// The fixture publish must NOT touch the official-scope
-		// built-in seed. Each built-in module has tier=official
-		// (decision 26) and screening=null (decision 31: built-in
-		// modules bypass the screening pipeline).
-		// The built-in catalog seeds versions as "0.1.0" (the
-		// manifest version, not a git tag — built-ins have no
-		// tag; the registry's catalog route matches on the version
-		// column verbatim).
-		const expectedBuiltIns = ["baka-base", "sdd", "ts-style"]
-		for (const name of expectedBuiltIns) {
-			const versionRes = await fx.app.request(`/v1/modules/baka/${name}/0.1.0`)
-			expect(versionRes.status).toBe(200)
-			const body = (await versionRes.json()) as { tier: string; screening: unknown }
-			expect(body.tier).toBe("official")
-			expect(body.screening).toBeNull()
-		}
+		const official = await fx.app.request("/v1/modules?tier=official")
+		expect(official.status).toBe(200)
+		const body = (await official.json()) as { modules?: unknown[] }
+		expect(body.modules).toEqual([])
 	})
 
 	it("is idempotent: re-invoking against the same DB does not publish a second version row", async () => {

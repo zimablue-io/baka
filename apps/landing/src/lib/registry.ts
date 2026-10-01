@@ -36,7 +36,7 @@ import type { z } from "zod"
  * stubbing the env. The exported `REGISTRY_BASE_URL` is the
  * module-load value, used by callers that want a stable reference.
  */
-export const DEFAULT_REGISTRY_BASE_URL = "http://localhost:4300"
+const DEFAULT_REGISTRY_BASE_URL = "http://localhost:4300"
 
 export function resolveBaseUrl(): string {
 	const envValue = (import.meta.env.VITE_REGISTRY_URL as string | undefined) ?? ""
@@ -47,7 +47,7 @@ export function resolveBaseUrl(): string {
 
 export const REGISTRY_BASE_URL: string = resolveBaseUrl()
 
-export type RegistryErrorCode = "network" | "http" | "parse" | "not-found"
+type RegistryErrorCode = "network" | "http" | "parse" | "not-found"
 
 /**
  * Error thrown by the registry client. The UI uses `code` to branch

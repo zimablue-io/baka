@@ -153,12 +153,8 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 	})
 
 	// Seed the built-in catalog (architecture §2 / §4.5, decision 17).
-	// Inserts baka-base / sdd / ts-style under the official scope
-	// (`REGISTRY_OFFICIAL_ORG`, default `baka`) at `tier: "official"`
-	// and `visibility: "public"`, with one ready version per module.
-	// Idempotent — a re-run against an already-seeded data dir is a
-	// no-op. Bare-name resolution and the publish route map to the
-	// official scope the seed uses here.
+	// Production `BUILT_IN_CATALOG` is empty until a module is productized.
+	// Tests insert a tiny fixture via `seedCatalogModules`.
 	await seedBuiltInCatalog(database.pglite, config.officialOrg)
 
 	// Apply the verified-modules env (architecture §8 decision 20,
@@ -166,7 +162,7 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 	// seeder pins each entry's module to the `verified` tier.
 	// Runs AFTER the built-in catalog so the operator can override
 	// a built-in's tier (e.g. a registry operator who wants
-	// `baka-base` to show as `verified` rather than `official`).
+	// an official module to show as `verified`).
 	// The seeder is idempotent; failures (malformed JSON, invalid
 	// entry shape) are logged but never refuse to boot — a typo
 	// in the env must not wedge the registry.

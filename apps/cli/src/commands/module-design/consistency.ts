@@ -1,8 +1,6 @@
 // ---------------------------------------------------------------------------
 // Consistency test sandbox. Sets up a temp project that symlinks the
-// module under test (and the baka-base module it depends on), runs the
-// 5x consistency test there, and cleans up. This is what the workflow
-// invokes from the DELIVER phase.
+// module under test, runs the 5x consistency test there, and cleans up.
 // ---------------------------------------------------------------------------
 
 import { mkdirSync, rmSync, symlinkSync } from "node:fs"
@@ -66,7 +64,6 @@ export function createModuleSandbox(args: { moduleName: string; moduleDir: strin
 	const tempDir = join(tmpdir(), `baka-design-${args.moduleName}-${Date.now()}`)
 	mkdirSync(join(tempDir, ".baka", "modules"), { recursive: true })
 	symlinkSync(args.moduleDir, join(tempDir, ".baka", "modules", args.moduleName), "dir")
-	symlinkSync(join(args.cwd, "modules", "baka-base"), join(tempDir, "modules", "baka-base"), "dir")
 	return {
 		tempDir,
 		cleanup: () => {

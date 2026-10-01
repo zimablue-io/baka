@@ -23,7 +23,7 @@ export default defineConfig({
 	clean: true,
 	sourcemap: true,
 	minify: false,
-	noExternal: [/^@repo\//],
+	noExternal: [/^@repo\//, /^@baka\//],
 	external: ["jiti"],
 	splitting: false,
 })

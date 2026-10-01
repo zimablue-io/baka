@@ -32,7 +32,6 @@
 // What it does NOT cover (left for other packages):
 //   - CLI surface (apps/cli/test/role-battle-2.test.ts, role-smoke.test.ts)
 //   - Worker `baka init` hint (packages/ast-tooling/src/worker-init-message.test.ts)
-//   - sdd validator-role LLM contract (modules/sdd/.../validators/*.test.ts)
 // ---------------------------------------------------------------------------
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
@@ -235,7 +234,7 @@ describe("loadLLMConfig — legacy `providers` shape in config.json", () => {
 				providers: {
 					llama_cpp: {
 						baseUrl: "http://localhost:8080/v1",
-						model: "gemma4:e4b-it",
+						model: "gemma4:e4b",
 						apiKey: "legacy-key",
 					},
 				},

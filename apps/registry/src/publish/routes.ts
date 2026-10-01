@@ -252,7 +252,7 @@ export function createPublishRoutes(deps: PublishRoutesDeps): Hono {
 			// must not start with another `/` (a malformed scope strip).
 			let moduleName: string
 			if (org.slug === officialOrg) {
-				// Official org accepts both bare names (`baka-base`)
+				// Official org accepts both bare names (`hello`)
 				// and scoped names (`@baka/widget` → `widget`).
 				if (manifest.name.startsWith(`@${officialOrg}/`)) {
 					moduleName = manifest.name.slice(`@${officialOrg}/`.length)

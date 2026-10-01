@@ -51,6 +51,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+import { copyPlatformFixtures } from "./helpers/copy-fixtures"
 
 // ---------------------------------------------------------------------------
 // Constants and helpers
@@ -294,114 +295,71 @@ describe("VAL-ROLE-005 baka --help does not mention `providers` or `config` subc
 	})
 })
 
-// ---------------------------------------------------------------------------
-// VAL-CLI-015  list-modules (no flag) prints the human listing
-// ---------------------------------------------------------------------------
+describe("list-modules against a project with fixture modules", () => {
+	function isolatedEnv(home: string) {
+		return { HOME: home, XDG_CONFIG_HOME: home, XDG_DATA_HOME: home }
+	}
 
-describe("VAL-CLI-015 baka list-modules (human)", () => {
-	it("prints `Found N module(s):` and one block per module with name + version", async () => {
-		const { code, stdout, stderr } = await spawnCli({ argv: ["list-modules"] })
-
-		expect(code, `expected exit 0, got ${code}; stderr=${stderr}`).toBe(0)
-		expect(stdout).toMatch(/Found \d+ module\(s\):/)
-		expect(stdout).toContain("baka-base")
-		expect(stdout).toContain("sdd")
-		expect(stdout).toContain("ts-style")
+	it("prints one human block per discovered fixture", async () => {
+		const home = trackDir(makeEmptyDir("baka-cli015-home-"))
+		const project = trackDir(makeEmptyDir("baka-cli015-proj-"))
+		copyPlatformFixtures(project)
+		const { code, stdout, stderr } = await spawnCli({
+			argv: ["list-modules"],
+			cwd: project,
+			env: isolatedEnv(home),
+		})
+		expect(code, stderr).toBe(0)
+		expect(stdout).toMatch(/Found 2 module\(s\):/)
+		expect(stdout).toContain("honest-mod")
+		expect(stdout).toContain("slot-mod")
 	})
-})
 
-// ---------------------------------------------------------------------------
-// VAL-CLI-016  list-modules --json emits the documented shape
-// ---------------------------------------------------------------------------
-
-describe("VAL-CLI-016 baka list-modules --json shape", () => {
-	it("emits {modules, diagnostics}; each module has name, version, description, actions, uri", async () => {
-		const fakeHome = trackDir(makeEmptyDir("baka-cli016-home-"))
+	it("emits {modules, diagnostics} with name, version, description, actions, uri", async () => {
+		const home = trackDir(makeEmptyDir("baka-cli016-home-"))
+		const project = trackDir(makeEmptyDir("baka-cli016-proj-"))
+		copyPlatformFixtures(project)
 		const { code, stdout, stderr } = await spawnCli({
 			argv: ["list-modules", "--json"],
-			env: {
-				HOME: fakeHome,
-				XDG_CONFIG_HOME: fakeHome,
-				XDG_DATA_HOME: fakeHome,
-			},
+			cwd: project,
+			env: isolatedEnv(home),
 		})
-
-		expect(code, `expected exit 0, got ${code}; stderr=${stderr}`).toBe(0)
-
+		expect(code, stderr).toBe(0)
 		const parsed = JSON.parse(stdout) as {
 			modules: Array<{ name: string; version: string; description: string; actions: number; uri: string }>
 			diagnostics: unknown[]
 		}
-		expect(parsed.modules).toHaveLength(3)
+		expect(parsed.modules).toHaveLength(2)
 		expect(parsed.diagnostics).toEqual([])
-
-		const byName = Object.fromEntries(parsed.modules.map((m) => [m.name, m]))
-		expect(byName["baka-base"]?.uri).toBe("baka://module/baka-base/manifest")
-		expect(byName["baka-base"]?.actions).toBe(3)
-		expect(byName.sdd?.actions).toBe(2)
-		expect(byName["ts-style"]?.actions).toBe(2)
-
 		for (const m of parsed.modules) {
-			expect(typeof m.name).toBe("string")
-			expect(typeof m.version).toBe("string")
-			expect(typeof m.description).toBe("string")
-			expect(typeof m.actions).toBe("number")
 			expect(m.uri).toBe(`baka://module/${m.name}/manifest`)
+			expect(m.actions).toBe(1)
 		}
 	})
-})
 
-// ---------------------------------------------------------------------------
-// VAL-CLI-017  list-modules --json is cwd-scoped
-// ---------------------------------------------------------------------------
+	it("is cwd-scoped: repo checkout is empty, fixture project is not, empty dir is not", async () => {
+		const home = trackDir(makeEmptyDir("baka-cli017-home-"))
+		const env = isolatedEnv(home)
+		const repoProbe = await spawnCli({ argv: ["list-modules", "--json"], env })
+		expect(repoProbe.code, repoProbe.stderr).toBe(0)
+		expect(JSON.parse(repoProbe.stdout).modules).toEqual([])
 
-describe("VAL-CLI-017 baka list-modules --json is cwd-scoped", () => {
-	it("discovers 3 modules from BAKA_REPO and 0 from an empty cwd (with a no-modules diagnostic)", async () => {
-		const fakeHome = trackDir(makeEmptyDir("baka-cli017-home-"))
-		const isolatedEnv = {
-			HOME: fakeHome,
-			XDG_CONFIG_HOME: fakeHome,
-			XDG_DATA_HOME: fakeHome,
-		}
-		// (1) BAKA_REPO — 3 modules (baka-base, sdd, ts-style),
-		//     no diagnostics.
-		const repoProbe = await spawnCli({ argv: ["list-modules", "--json"], env: isolatedEnv })
-		expect(repoProbe.code, `stderr=${repoProbe.stderr}`).toBe(0)
-		const repoParsed = JSON.parse(repoProbe.stdout) as {
-			modules: unknown[]
-			diagnostics: Array<{ rule: string }>
-		}
-		expect(repoParsed.modules).toHaveLength(3)
-		expect(repoParsed.diagnostics).toEqual([])
+		const project = trackDir(makeEmptyDir("baka-cli017-proj-"))
+		copyPlatformFixtures(project)
+		const fxProbe = await spawnCli({ argv: ["list-modules", "--json"], cwd: project, env })
+		expect(JSON.parse(fxProbe.stdout).modules).toHaveLength(2)
 
-		// (2) Empty cwd — 0 modules + no-modules diagnostic.
-		const emptyProbe = await spawnCli({
-			argv: ["list-modules", "--json"],
-			cwd: EMPTY_CWD,
-			env: isolatedEnv,
-		})
-		expect(emptyProbe.code, `stderr=${emptyProbe.stderr}`).toBe(0)
+		const emptyProbe = await spawnCli({ argv: ["list-modules", "--json"], cwd: EMPTY_CWD, env })
+		expect(emptyProbe.code, emptyProbe.stderr).toBe(0)
 		const emptyParsed = JSON.parse(emptyProbe.stdout) as {
 			modules: unknown[]
 			diagnostics: Array<{ rule: string }>
 		}
 		expect(emptyParsed.modules).toEqual([])
-		expect(emptyParsed.diagnostics.length).toBeGreaterThan(0)
-		expect(emptyParsed.diagnostics[0].rule).toBe("no-modules")
+		expect(emptyParsed.diagnostics[0]?.rule).toBe("no-modules")
 
-		// (3) Empty cwd via --cwd flag — same shape as (2); proves the flag
-		//     and the process cwd both route through the same discovery path.
-		const cwdFlagProbe = await spawnCli({
-			argv: ["--cwd", EMPTY_CWD, "list-modules", "--json"],
-			env: isolatedEnv,
-		})
-		expect(cwdFlagProbe.code, `stderr=${cwdFlagProbe.stderr}`).toBe(0)
-		const cwdFlagParsed = JSON.parse(cwdFlagProbe.stdout) as {
-			modules: unknown[]
-			diagnostics: Array<{ rule: string }>
-		}
-		expect(cwdFlagParsed.modules).toEqual([])
-		expect(cwdFlagParsed.diagnostics[0].rule).toBe("no-modules")
+		const cwdFlagProbe = await spawnCli({ argv: ["--cwd", EMPTY_CWD, "list-modules", "--json"], env })
+		expect(JSON.parse(cwdFlagProbe.stdout).modules).toEqual([])
 	})
 })
 

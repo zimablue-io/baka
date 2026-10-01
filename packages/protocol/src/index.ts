@@ -35,6 +35,7 @@ export {
 	VerifiedResponseSchema,
 } from "./catalog"
 export {
+	BAKA_DEFAULT_WORKER_MODEL,
 	BAKA_EXIT_CODE,
 	BAKA_PROJECT_PATHS,
 	BAKA_USER_DIR,
@@ -87,6 +88,9 @@ export {
 	OrchestrationStateSchema,
 	ResolvedPlanSchema,
 	ResolvedPlanStepSchema,
+	SlotDeclSchema,
+	SlotFillSchema,
+	SlotKindSchema,
 } from "./schemas"
 export type {
 	LLMMessage,
@@ -101,6 +105,7 @@ export type {
 	OrchestrationState,
 	ResolvedLLMConfig,
 	ResolvedPlan,
+	SlotDecl,
 	StepContext,
 	StepResponse,
 	ValidationDiagnostic,

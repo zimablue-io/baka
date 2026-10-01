@@ -2,7 +2,6 @@
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { ModuleRegistry } from "@repo/ast-tooling"
 import { BAKA_EXIT_CODE } from "@repo/protocol"
 import { Command } from "commander"
 import { runInit } from "./commands/init"
@@ -22,6 +21,7 @@ import {
 } from "./commands/registry"
 import { runRole, runRolePath, runRoleShow } from "./commands/role"
 import { runRoles } from "./commands/roles"
+import { runFillCommand, runInspectCommand, runListModulesCommand, runRunCommand, runServeCommand, runSlotsCommand } from "./commands/run"
 import { runSearchCommand } from "./commands/search"
 
 function die(code: number, msg: string): never {
@@ -209,42 +209,106 @@ moduleCmd
 
 program
 	.command("list-modules")
-	.description("List all discoverable modules (project marketplace + in-tree + user marketplace + bundled scopes)")
+	.description("List modules discovered in this project (tree, project marketplace, user marketplace)")
 	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp `baka://modules` resource)")
-	.action((opts) => {
+	.action(async (opts) => {
 		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
-		const registry = new ModuleRegistry(cwd)
-		const { modules, diagnostics } = registry.discover(false)
-		if (opts.json) {
-			console.log(
-				JSON.stringify(
-					{
-						modules: modules.map((m) => ({
-							name: m.name,
-							version: m.version,
-							description: m.description,
-							actions: m.actions.length,
-							uri: `baka://module/${m.name}/manifest`,
-						})),
-						diagnostics,
-					},
-					null,
-					2,
-				),
-			)
-			return
+		try {
+			await runListModulesCommand({ cwd, json: opts.json })
+		} catch (err) {
+			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
 		}
-		console.log(`\nFound ${modules.length} module(s):\n`)
-		if (modules.length === 0) {
-			for (const d of diagnostics) console.log(`  (${d.severity}) ${d.message}`)
-		} else {
-			modules.forEach((m) => {
-				console.log(`  - ${m.name.padEnd(20)} v${m.version}`)
-				console.log(`    Actions: ${m.actions.length}`)
-				console.log(`    Deps:    ${m.dependencies.join(", ") || "none"}`)
+	})
+
+// `baka run | slots | fill | serve` (slot-native product path) --------------
+
+program
+	.command("run")
+	.description("Materialize a named module/action (templates + named slots). Product path; prefer this over plan.")
+	.argument("<target>", "module/action (e.g. hello/greet)")
+	.option("--params <json>", "JSON object of action params")
+	.option("--refill", "ignore the slot cache and write a new fill")
+	.option("--json", "emit machine-readable JSON to stdout")
+	.allowUnknownOption()
+	.allowExcessArguments(true)
+	.action(async (target, opts) => {
+		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
+		try {
+			await runRunCommand(target, {
+				cwd,
+				json: opts.json,
+				refill: opts.refill,
+				params: opts.params,
+				extra: process.argv,
 			})
+		} catch (err) {
+			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
 		}
-		console.log("")
+	})
+
+program
+	.command("slots")
+	.description("List named slots for a module/action")
+	.argument("<target>", "module/action")
+	.option("--json", "emit machine-readable JSON to stdout")
+	.action(async (target, opts) => {
+		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
+		try {
+			await runSlotsCommand(target, { cwd, json: opts.json })
+		} catch (err) {
+			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+		}
+	})
+
+program
+	.command("fill")
+	.description("Pin a slot fill (writes the project slot cache; model=manual)")
+	.argument("<target>", "module/action")
+	.option("--slot <id>", "slot id")
+	.option("--value <text>", "fill value (string)")
+	.option("--file <path>", "read the fill from a file")
+	.option("--params <json>", "JSON object of action params (must match the later run)")
+	.option("--json", "emit machine-readable JSON to stdout")
+	.allowUnknownOption()
+	.allowExcessArguments(true)
+	.action(async (target, opts) => {
+		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
+		try {
+			await runFillCommand(target, {
+				cwd,
+				json: opts.json,
+				slot: opts.slot,
+				value: opts.value,
+				file: opts.file,
+				params: opts.params,
+				extra: process.argv,
+			})
+		} catch (err) {
+			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+		}
+	})
+
+program
+	.command("inspect")
+	.description("Show params, named slots, and template source for a module/action")
+	.argument("<target>", "module/action")
+	.option("--json", "emit machine-readable JSON to stdout")
+	.action(async (target, opts) => {
+		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
+		try {
+			await runInspectCommand(target, { cwd, json: opts.json })
+		} catch (err) {
+			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+		}
+	})
+
+program
+	.command("serve")
+	.description("Listen on localhost so the desktop (or curl) can call the same Hono engine")
+	.option("--port <n>", "port", "4311")
+	.action(async (opts) => {
+		const cwd = program.opts<{ cwd?: string }>().cwd ?? process.cwd()
+		await runServeCommand({ cwd, port: Number(opts.port) })
 	})
 
 // `baka plan` -----------------------------------------------------------------

@@ -37,7 +37,15 @@ export const BAKA_PROJECT_PATHS = {
 	STATE: ".baka/state",
 	PLANS: ".baka/plans",
 	LOGS: ".baka/logs",
+	SLOTS: ".baka/slots",
 } as const
+
+/**
+ * The one worker-model id Baka pins. llama.cpp on this machine serves
+ * `gemma4-e4b` with alias `gemma4:e4b`. Callers use the alias (the product
+ * name). Dual keys (`e4b-it`, `gemma4-12b-qat`) are forbidden.
+ */
+export const BAKA_DEFAULT_WORKER_MODEL = "gemma4:e4b" as const
 
 // The directory name used under the user's home directory for config and data.
 export const BAKA_USER_DIR = "baka" as const

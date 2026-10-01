@@ -105,7 +105,7 @@ When the marketplace serves a module, it attaches a `tier` field based on **wher
 |---|---|
 | `built-in` | The catalog is `BUILT_IN_CATALOG` in `packages/protocol/src/built-in-catalog.ts` in the baka repo. |
 | `verified` | The catalog URL is in the registry's `REGISTRY_VERIFIED_MODULES` env var (or seeded directly in the DB). |
-| `community` | The user subscribed to the catalog via `baka marketplace add <url>`. |
+| `community` | A public catalog URL the user configured in `.baka/settings.json` `registries`. |
 
 The landing app defaults to `built-in` + `verified` and surfaces `community` only in a separate "Your catalogs" section. This is the explicit fix for the "noisy marketplace" problem — the noise is opt-in.
 
@@ -136,7 +136,7 @@ The catalog is a static JSON file. Any HTTPS URL works. Common options:
 - **S3 / R2 / GCS** — `https://<bucket>.s3.amazonaws.com/catalog.json`. CDN-friendly.
 - **Your own server** — any web server that serves JSON over HTTPS.
 
-Make sure the URL is **stable**: users will type it into `baka marketplace add <url>` and breaking it is a breaking change.
+Make sure the URL is **stable**: users pass it to `baka search` / `baka install --registry <url>` and breaking it is a breaking change.
 
 ## Validation
 
@@ -156,6 +156,7 @@ console.log("catalog is valid")
 
 ## What this format is not
 
-- **Not a module registry.** The marketplace never hosts module tarballs. Install goes through git/npm.
+- **Not a module registry.** Publish with `baka publish`. There is no `baka marketplace add`. The landing catalog reads the hosted registry API.
 - **Not a package manager.** The `source` field reuses the existing source-string format. If you need a new transport, propose it to the baka engine first.
 - **Not a sandboxed execution environment.** Modules you install run code on the user's machine. Tier filters help users opt into the level of trust they want; they don't replace review.
+- **Not a frontier-model requirement.** Screening previews and named slots must be fillable by a laptop-local `gemma4:e4b`. A slot that only works on a large API model is a failed template.

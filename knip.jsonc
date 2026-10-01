@@ -16,11 +16,22 @@
       // Inlined honest-mod fixtures are written to disk as runtime source
       // and loaded by the CLI's jiti loader; the workspace devDep is the
       // resolution target, not a static import surface.
-      "ignoreDependencies": ["baka-sdk"]
+      "ignoreDependencies": ["baka-sdk"],
+      "ignore": ["test/fixtures/**"]
     },
 
     "apps/mcp": {
       "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"]
+    },
+
+    "apps/engine": {
+      "project": ["src/**/*.{ts,tsx}"]
+    },
+
+    "apps/dashboard": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": ["src/components/ui/**"],
+      "ignoreDependencies": ["@fontsource-variable/geist", "shadcn", "tw-animate-css", "tailwindcss"]
     },
 
     "apps/landing": {
@@ -36,24 +47,6 @@
       // `seed-community-fixture.test.ts` imports, so it does not
       // need an ignore entry — knip discovers both callsites.
       "ignore": ["test/seed-server.ts"]
-    },
-
-    "modules/baka-base": {
-      // ModuleRegistry loads action and validator exports by manifest ID through jiti.
-      "entry": ["*/action.ts", "**/validators/**/*.ts"],
-      "project": ["**/*.{ts,tsx}"]
-    },
-
-    "modules/sdd": {
-      // ModuleRegistry loads action and validator exports by manifest ID through jiti.
-      "entry": ["*/action.ts", "**/validators/**/*.ts"],
-      "project": ["**/*.{ts,tsx}"]
-    },
-
-    "modules/ts-style": {
-      // ModuleRegistry loads action and validator exports by manifest ID through jiti.
-      "entry": ["*/action.ts", "**/validators/**/*.ts"],
-      "project": ["**/*.{ts,tsx}"]
     },
 
     "packages/agent-engine": {

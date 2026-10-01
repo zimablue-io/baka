@@ -16,6 +16,9 @@ import {
 	OrchestrationStateSchema,
 	ResolvedPlanSchema,
 	ResolvedPlanStepSchema,
+	SlotDeclSchema,
+	SlotFillSchema,
+	SlotKindSchema,
 } from "./schemas"
 import { AgentRole } from "./types"
 
@@ -110,7 +113,7 @@ describe("ModuleManifestSchema", () => {
 	const validAction = { id: "scaffold", description: "scaffold a project", params: [] }
 
 	it("accepts a minimal manifest and applies defaults", () => {
-		const parsed = ModuleManifestSchema.parse({ name: "baka-base", version: "0.1.0", actions: [validAction] })
+		const parsed = ModuleManifestSchema.parse({ name: "acme-mod", version: "0.1.0", actions: [validAction] })
 		expect(parsed.description).toBe("")
 		expect(parsed.dependencies).toEqual([])
 		expect(parsed.conflictsWith).toEqual([])
@@ -131,7 +134,7 @@ describe("ResolvedPlanStepSchema", () => {
 	it("accepts arbitrary JSON params (module-defined, not protocol-enforced)", () => {
 		const parsed = ResolvedPlanStepSchema.parse({
 			id: "step-1",
-			module: "baka-base",
+			module: "acme-mod",
 			action: "scaffold",
 			params: { name: "app", moduleType: "esm", nested: { deep: [1, 2] } },
 		})
@@ -140,7 +143,7 @@ describe("ResolvedPlanStepSchema", () => {
 
 	it("rejects a step missing the module/action pair the worker resolves against", () => {
 		expect(ResolvedPlanStepSchema.safeParse({ id: "step-1", action: "scaffold", params: {} }).success).toBe(false)
-		expect(ResolvedPlanStepSchema.safeParse({ id: "step-1", module: "baka-base", params: {} }).success).toBe(false)
+		expect(ResolvedPlanStepSchema.safeParse({ id: "step-1", module: "acme-mod", params: {} }).success).toBe(false)
 	})
 })
 
@@ -189,5 +192,32 @@ describe("OrchestrationStateSchema", () => {
 		expect(OrchestrationStateSchema.safeParse({ ...baseState, status: "IDLE", currentRole: "plumber" }).success).toBe(
 			false,
 		)
+	})
+})
+
+describe("SlotKindSchema / SlotDeclSchema / SlotFillSchema", () => {
+	it("accepts the four slot kinds and rejects others", () => {
+		for (const kind of ["prose", "ident", "list", "json"] as const) {
+			expect(SlotKindSchema.parse(kind)).toBe(kind)
+		}
+		expect(SlotKindSchema.safeParse("essay").success).toBe(false)
+	})
+
+	it("requires a slot id, kind, hint, and file", () => {
+		const parsed = SlotDeclSchema.parse({
+			id: "introduction",
+			kind: "prose",
+			hint: "2-3 sentences",
+			file: "README.md.hbs",
+			max: 120,
+		})
+		expect(parsed.id).toBe("introduction")
+		expect(parsed.max).toBe(120)
+	})
+
+	it("accepts a fill value as string, list, or object", () => {
+		expect(SlotFillSchema.parse({ value: "A tiny CLI." }).value).toBe("A tiny CLI.")
+		expect(SlotFillSchema.parse({ value: ["a", "b"] }).value).toEqual(["a", "b"])
+		expect(SlotFillSchema.parse({ value: { k: "v" } }).value).toEqual({ k: "v" })
 	})
 })

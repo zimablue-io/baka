@@ -22,7 +22,7 @@ import { useSyncExternalStore } from "react"
  * the router only moves the URL.
  */
 
-export interface RouterLocation {
+interface RouterLocation {
 	readonly pathname: string
 	readonly search: string
 	readonly hash: string
@@ -117,7 +117,7 @@ export function useLocation(): RouterLocation {
 	return useSyncExternalStore(subscribeLocation, getLocation, getLocation)
 }
 
-export interface ModuleMatch {
+interface ModuleMatch {
 	readonly scope: string
 	readonly name: string
 }
@@ -127,6 +127,10 @@ export interface ModuleMatch {
  * is tolerated. Returns `null` when the path does not match — the
  * caller falls back to the landing page.
  */
+export function matchResults(pathname: string): boolean {
+	return pathname === "/results" || pathname === "/results/"
+}
+
 export function matchModuleDetail(pathname: string): ModuleMatch | null {
 	const match = pathname.match(/^\/modules\/([^/]+)\/([^/]+)\/?$/)
 	if (match === null) return null

@@ -308,24 +308,18 @@ describe("VAL-DISC-037 detectNameCollision refuses cross-scope installs", () => 
 		).toBeNull()
 	})
 
-	it("flags a bundled module as a collision (VAL-CROSS-022 step 4)", () => {
-		const projectBase = trackTmp("baka-collide-bundled-projset-")
-		const userBase = trackTmp("baka-collide-bundled-userset-")
+	it("does not reserve example names as bundled collisions", () => {
+		const projectBase = trackTmp("baka-collide-nobundle-projset-")
+		const userBase = trackTmp("baka-collide-nobundle-userset-")
 		const projectSettings = join(projectBase, ".baka", "settings.json")
 		const userSettings = join(userBase, ".baka", "settings.json")
 		const projectModules = join(projectBase, ".baka", "modules")
 		const userModules = join(userBase, ".baka", "modules")
 		mkdirSync(join(projectBase, ".baka"), { recursive: true })
 		mkdirSync(join(userBase, ".baka"), { recursive: true })
-		const collision = __test__.detectNameCollision(
-			"community",
-			"sdd",
-			projectSettings,
-			userSettings,
-			projectModules,
-			userModules,
-		)
-		expect(collision).toEqual({ existingScope: "baka", existingName: "sdd", registration: "bundled" })
+		expect(
+			__test__.detectNameCollision("community", "widget", projectSettings, userSettings, projectModules, userModules),
+		).toBeNull()
 	})
 })
 
@@ -693,7 +687,7 @@ describe("isValidModuleIdentifier pins the identifier character set", () => {
 	it("accepts normal identifiers", () => {
 		expect(isValidModuleIdentifier("acme")).toBe(true)
 		expect(isValidModuleIdentifier("widget")).toBe(true)
-		expect(isValidModuleIdentifier("ts-style")).toBe(true)
+		expect(isValidModuleIdentifier("my-pack")).toBe(true)
 		expect(isValidModuleIdentifier("a.b.c")).toBe(true)
 	})
 	it("rejects invalid identifiers", () => {

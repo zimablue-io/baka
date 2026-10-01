@@ -1,17 +1,18 @@
 import { createHash } from "node:crypto"
 import type { PGlite } from "@electric-sql/pglite"
-import { BUILT_IN_CATALOG } from "@repo/protocol"
+import { BUILT_IN_CATALOG, type ModuleEntry } from "@repo/protocol"
 
 /**
  * Built-in catalog seeder (architecture §2 / §4.5, decision 17).
  *
  * The registry seeds its catalog from `BUILT_IN_CATALOG` in
- * `@repo/protocol` (the single source of truth for first-party
- * modules). On boot, after the schema-version gate and Better-Auth
- * bootstrap, this helper inserts one `modules` row per entry and a
- * matching `module_versions` row at `status: "ready"`. The seeded
- * modules are public and pinned to the `official` tier (architecture
- * §4.3 — `tier` is server-attached, never self-declared).
+ * `@repo/protocol`. That catalog is empty until a module is
+ * productized. Tests call `seedCatalogModules` with a tiny fixture.
+ * On boot, after the schema-version gate and Better-Auth bootstrap,
+ * this helper inserts one `modules` row per entry and a matching
+ * `module_versions` row at `status: "ready"`. Seeded modules are
+ * public and pinned to the `official` tier (architecture §4.3 —
+ * `tier` is server-attached, never self-declared).
  *
  * The seeder is idempotent: a second invocation against an already-
  * seeded data dir is a no-op. `commit_sha` is a deterministic 40-zero
@@ -69,10 +70,14 @@ interface SeededCounts {
  * version)` is left alone, so re-publishing a built-in module
  * intentionally is a no-op).
  */
-export async function seedBuiltInCatalog(pglite: PGlite, officialOrg: string): Promise<SeededCounts> {
+export async function seedCatalogModules(
+	pglite: PGlite,
+	officialOrg: string,
+	modules: readonly ModuleEntry[],
+): Promise<SeededCounts> {
 	const counts: SeededCounts = { modulesInserted: 0, versionsInserted: 0, modulesSkipped: 0 }
 
-	for (const entry of BUILT_IN_CATALOG.modules) {
+	for (const entry of modules) {
 		const existingModule = await pglite.query<{ id: string }>(`SELECT id FROM modules WHERE scope = $1 AND name = $2`, [
 			officialOrg,
 			entry.name,
@@ -89,7 +94,7 @@ export async function seedBuiltInCatalog(pglite: PGlite, officialOrg: string): P
 				[officialOrg, entry.name, BUILT_IN_VISIBILITY, BUILT_IN_TIER, entry.description],
 			)
 			const id = inserted.rows[0]?.id
-			if (!id) throw new Error(`seedBuiltInCatalog: failed to insert module ${entry.name}`)
+			if (!id) throw new Error(`seedCatalogModules: failed to insert module ${entry.name}`)
 			moduleId = id
 			counts.modulesInserted += 1
 		}
@@ -111,4 +116,11 @@ export async function seedBuiltInCatalog(pglite: PGlite, officialOrg: string): P
 	}
 
 	return counts
+}
+
+/**
+ * Seeds `BUILT_IN_CATALOG` (empty until a module is productized).
+ */
+export async function seedBuiltInCatalog(pglite: PGlite, officialOrg: string): Promise<SeededCounts> {
+	return seedCatalogModules(pglite, officialOrg, BUILT_IN_CATALOG.modules)
 }

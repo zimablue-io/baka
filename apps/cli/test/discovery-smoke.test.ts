@@ -246,15 +246,15 @@ describe("VAL-FOUND-026 single discovery implementation", () => {
 // VAL-CROSS-001  fresh install discovers bundled modules with zero config
 // ===========================================================================
 
-describe("VAL-CROSS-001 zero-config bundled discovery", () => {
-	it("lists exactly the three bundled modules from the repo checkout", async () => {
+describe("discovery has no leaked repo catalog", () => {
+	it("lists zero modules from the git checkout", async () => {
 		const fakeHome = makeEmptyDir("baka-cross001-home-")
 		const { code, stdout, stderr } = await spawnCli({ argv: ["list-modules", "--json"], cwd: BAKA_REPO, fakeHome })
 		expect(code, stderr).toBe(0)
-		expect(moduleNames(stdout).sort()).toEqual(["baka-base", "sdd", "ts-style"])
+		expect(moduleNames(stdout)).toEqual([])
 	})
 
-	it("exits 0 with a clean no-modules diagnostic from an empty temp dir", async () => {
+	it("exits 0 with a no-modules diagnostic from an empty temp dir", async () => {
 		const fakeHome = makeEmptyDir("baka-cross001-home-")
 		const emptyCwd = makeEmptyDir("baka-cross001-cwd-")
 		const { code, stdout, stderr } = await spawnCli({ argv: ["list-modules", "--json"], cwd: emptyCwd, fakeHome })
@@ -412,10 +412,9 @@ describe("VAL-FOUND-055 project-over-user dedup", () => {
 // ===========================================================================
 
 describe("VAL-FOUND-056 deterministic output", () => {
-	it("three list-modules runs are byte-identical with bundled + installed modules", async () => {
+	it("three list-modules runs are byte-identical with only installed fixtures", async () => {
 		const fakeHome = makeEmptyDir("baka-f056-home-")
 		const project = makeEmptyDir("baka-f056-proj-")
-		// package.json activates the bundled scope (baka-base, sdd, ts-style).
 		writeFileSync(join(project, "package.json"), JSON.stringify({ name: "det-proj", version: "0.0.0" }))
 		writeFixtureModule(join(project, ".baka", "modules", "zeta-fx"), "zeta-fx")
 		writeFixtureModule(join(project, ".baka", "modules", "alpha-fx"), "alpha-fx")
@@ -428,7 +427,7 @@ describe("VAL-FOUND-056 deterministic output", () => {
 		}
 		expect(runs[0]).toBe(runs[1])
 		expect(runs[1]).toBe(runs[2])
-		expect(moduleNames(runs[0])).toEqual(["alpha-fx", "baka-base", "sdd", "ts-style", "zeta-fx"])
+		expect(moduleNames(runs[0])).toEqual(["alpha-fx", "zeta-fx"])
 	})
 })
 

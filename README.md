@@ -104,25 +104,23 @@ After install, the canonical first-run sequence is:
 # 1. Configure an LLM provider (interactive; runs once per machine).
 baka init
 
-# 2. Discover what baka can do in the current project.
-baka list-modules
-# Found 3 module(s):
-#   baka-base (3 actions): scaffold, add-script, add-dependency
-#   sdd (2 actions): init-constitution, create-feature
-#   ts-style (2 actions): install-config, lint
+# 2. Discover what is installed in the current project (empty until you add a module).
+baka list-modules --json
 
-# 3. Plan a feature. The LLM picks from the discovered module catalog.
+# 3. Run a named action from an installed module. Files are templates; gemma4:e4b fills named slots only.
+baka run <module>/<action> --json
+baka slots <module>/<action> --json
+baka fill  <module>/<action> --slot <id> --value "..." --json
+
+# Fuzzy catalog picker (demoted; not the product path):
 baka plan "scaffold a TypeScript project with biome + vitest"
-
-# Same call, machine-readable (mirrors the MCP tool shape):
-baka plan "scaffold a TypeScript project" --json
 ```
 
 Every command accepts `--json` and emits the same shape as the corresponding MCP tool. Use `--json` from CI, scripts, and pipes; the human-readable default is for the terminal.
 
 ### Verifying determinism
 
-The same-plan claim is enforced by an opt-in e2e (`apps/cli/test/determinism-e2e.test.ts`), skipped by default. It plans the same intent 5 times sequentially through the built CLI against a local llama-server (pinned model `gemma4-12b-qat`, temperature 0, fixed `seed` 42, generous `max_tokens`) and asserts all 5 plans are byte-identical, printing each plan's sha256. Run it with:
+The same-tree claim is enforced two ways. CI uses a recorded slot cache and asserts byte-identical output with no llama. An opt-in live e2e (`apps/cli/test/determinism-e2e.test.ts`) hashes apply output against local llama-server (`gemma4:e4b`, temperature 0, seed 42). Run the live suite with:
 
 ```bash
 BAKA_E2E_LLM=1 pnpm --filter baka exec vitest run test/determinism-e2e.test.ts
@@ -266,7 +264,7 @@ baka module create test-module
 │   ├── ast-tooling/         # File/AST operations, ModuleRegistry (module discovery)
 │   ├── baka-sdk/            # The public boundary module authors import from
 │   └── typescript-config/   # Shared TS presets
-├── modules/                 # Bundled modules: baka-base, sdd, ts-style
+├── modules/                 # Empty on purpose. Modules live in a project, not here.
 ├── scripts/                 # pack.mjs, release.sh, setup.sh, unlink-global.sh
 ├── dist-tarballs/           # Output of `pnpm pack` (baka + baka-mcp tarballs)
 ├── SKILL.md                 # Declarative agent contract (Claude Code, Codex, Cursor, etc.)

@@ -13,18 +13,18 @@ For other MCP-aware hosts (Claude Code, Cursor, Codex, Zed, etc.) configure the 
 { "command": "baka-mcp" }
 ```
 
-Once connected, the agent sees one MCP tool per declared action plus `baka_plan`, `baka_apply`, `baka_validate`, and `baka_list_actions` — and the three registry-discovery tools `baka_registry_search`, `baka_registry_get_module`, `baka_registry_get_preview`. See `SKILL.md` at the repo root for the full contract.
+Once connected, the agent sees `baka_run`, `baka_slots`, `baka_fill`, `baka_validate`, `baka_list_actions`, plus `baka_plan` / `baka_apply` (demoted) and the three registry-discovery tools. There are **no** per-action MCP tools. Prefer the CLI (`baka … --json`). See `SKILL.md`.
 
 #### Registry discovery (READ-ONLY)
 
 The MCP registry tools are a read-only window onto a configured baka module registry. They do NOT modify the project, do NOT install anything, and do NOT mutate the user config — install is the `baka` CLI's job (architecture §8 decision 9). When an agent client decides a discovered module should be installed, the host prompts the user to run the install handoff at the terminal:
 
 ```bash
-# After baka_registry_search surfaces @baka/sdd
-baka install @baka/sdd
+# After baka_registry_search surfaces a module
+baka install @baka/hello
 
 # Or a pinned version:
-baka install @baka/sdd@0.1.0
+baka install @baka/hello@0.1.0
 ```
 
 The MCP tools resolve which registry to query through the same chain the CLI uses, in this order:
@@ -57,8 +57,8 @@ pnpm baka scaffold "<module_name>"
 
 # Browse the registry (mirrors the MCP tools):
 pnpm baka search "<query>" --json
-pnpm baka registry info "@baka/baka-base"
-pnpm baka registry preview "@baka/sdd"@0.1.0 --json
+pnpm baka registry info "@baka/hello"
+pnpm baka registry preview "@baka/hello"@0.1.0 --json
 ```
 
 The CLI and the MCP server share the same engine: same workflows, same validators, same plan schema, same registry-client. `--json` flags on the CLI emit the same shape the MCP tools return.

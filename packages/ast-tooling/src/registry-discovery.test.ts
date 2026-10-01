@@ -164,32 +164,29 @@ describe("ModuleRegistry.discover — malformed entries never crash discovery", 
 	})
 })
 
-describe("ModuleRegistry.discover — bundled scope", () => {
-	it("discovers the bundled baka modules when the root looks like a project", () => {
+describe("ModuleRegistry.discover — no leaked repo catalog", () => {
+	it("does not inject git-checkout modules into an unrelated project", () => {
 		const root = makeTempDir("baka-disc-bundled-")
 		writeFileSync(join(root, "package.json"), JSON.stringify({ name: "fake-project", version: "0.0.0" }))
 
 		const { modules } = new ModuleRegistry(root).discover()
-		const names = modules.map((m) => m.name)
-		expect(names).toContain("baka-base")
-		expect(names).toContain("sdd")
-		expect(names).toContain("ts-style")
+		expect(modules.map((m) => m.name)).toEqual([])
 	})
 
-	it("stays silent in a truly empty directory (no package.json gate)", () => {
+	it("stays silent in a truly empty directory", () => {
 		const root = makeTempDir("baka-disc-empty-")
 		const { modules, diagnostics } = new ModuleRegistry(root).discover()
 		expect(modules).toEqual([])
 		expect(diagnostics.some((d) => d.rule === "no-modules")).toBe(true)
 	})
 
-	it("tree scope wins over the bundled scope on a name conflict", () => {
+	it("tree scope lists modules that actually live in the project", () => {
 		const root = makeTempDir("baka-disc-treewins-")
 		writeFileSync(join(root, "package.json"), JSON.stringify({ name: "fake-project", version: "0.0.0" }))
-		writeFixtureModule(join(root, "modules", "baka-base"), "baka-base", { description: "TREE VERSION" })
+		writeFixtureModule(join(root, "modules", "note-mod"), "note-mod", { description: "TREE VERSION" })
 
 		const { modules } = new ModuleRegistry(root).discover()
-		const found = modules.find((m) => m.name === "baka-base")
+		const found = modules.find((m) => m.name === "note-mod")
 		expect(found?.description).toBe("TREE VERSION")
 	})
 })

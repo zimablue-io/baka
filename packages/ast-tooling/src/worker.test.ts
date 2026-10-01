@@ -355,7 +355,7 @@ export const Manifest: ModuleManifest = {
 `,
 		)
 		// A handlebars template so the worker takes the reasoning branch.
-		writeFileSync(join(templatesDir, "thing.md.hbs"), "hello world")
+		writeFileSync(join(templatesDir, "thing.md.hbs"), '{{#slot "body" kind="prose"}}one sentence{{/slot}}\n')
 
 		writeFileSync(
 			join(actionDir, "action.ts"),

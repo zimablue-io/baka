@@ -304,7 +304,7 @@ describe("cli-cwd-consistency / scripts/baka.mjs passes the invoker's cwd throug
 		const names = parsed.modules.map((m) => m.name)
 		expect(names).toContain("wrapper-fixture-mod")
 		// The fixture project has no bundled modules and no in-tree modules;
-		// the baka-base/sdd/ts-style bundled module names must NOT appear.
+		// engine catalog names must not leak.
 		expect(names).not.toContain("baka-base")
 		expect(names).not.toContain("sdd")
 		expect(names).not.toContain("ts-style")

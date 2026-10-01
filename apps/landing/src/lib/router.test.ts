@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { getLocation, initRouter, matchModuleDetail, navigate, subscribeLocation } from "./router"
+import { getLocation, initRouter, matchModuleDetail, matchResults, navigate, subscribeLocation } from "./router"
 
 afterEach(() => {
 	// Reset the singleton location between tests by setting the
@@ -11,9 +11,9 @@ afterEach(() => {
 
 describe("matchModuleDetail", () => {
 	it("extracts scope and name from /modules/:scope/:name", () => {
-		expect(matchModuleDetail("/modules/baka/baka-base")).toEqual({
-			scope: "baka",
-			name: "baka-base",
+		expect(matchModuleDetail("/modules/acme/widget")).toEqual({
+			scope: "acme",
+			name: "widget",
 		})
 	})
 
@@ -25,9 +25,9 @@ describe("matchModuleDetail", () => {
 	})
 
 	it("tolerates a trailing slash", () => {
-		expect(matchModuleDetail("/modules/baka/baka-base/")).toEqual({
-			scope: "baka",
-			name: "baka-base",
+		expect(matchModuleDetail("/modules/acme/widget/")).toEqual({
+			scope: "acme",
+			name: "widget",
 		})
 	})
 
@@ -47,9 +47,17 @@ describe("matchModuleDetail", () => {
 	})
 
 	it("returns null when scope or name is missing", () => {
-		expect(matchModuleDetail("/modules/baka")).toBeNull()
+		expect(matchModuleDetail("/modules/acme")).toBeNull()
 		expect(matchModuleDetail("/modules/")).toBeNull()
-		expect(matchModuleDetail("/modules/baka/")).toBeNull()
+		expect(matchModuleDetail("/modules/acme/")).toBeNull()
+	})
+})
+
+describe("matchResults", () => {
+	it("matches /results", () => {
+		expect(matchResults("/results")).toBe(true)
+		expect(matchResults("/results/")).toBe(true)
+		expect(matchResults("/")).toBe(false)
 	})
 })
 
@@ -62,13 +70,13 @@ describe("navigate + popstate", () => {
 	})
 
 	it("updates getLocation() when navigate() is called", () => {
-		navigate("/modules/baka/baka-base")
-		expect(getLocation().pathname).toBe("/modules/baka/baka-base")
+		navigate("/modules/acme/widget")
+		expect(getLocation().pathname).toBe("/modules/acme/widget")
 	})
 
 	it("preserves the search and hash from the target path", () => {
-		navigate("/modules/baka/baka-base?q=foo#preview")
-		expect(getLocation().pathname).toBe("/modules/baka/baka-base")
+		navigate("/modules/acme/widget?q=foo#preview")
+		expect(getLocation().pathname).toBe("/modules/acme/widget")
 		expect(getLocation().search).toBe("?q=foo")
 		expect(getLocation().hash).toBe("#preview")
 	})
@@ -89,7 +97,7 @@ describe("navigate + popstate", () => {
 			events.push(getLocation().pathname)
 		})
 		unsubscribe()
-		navigate("/modules/baka/sdd")
+		navigate("/modules/acme/widget")
 		expect(events).toEqual([])
 	})
 })

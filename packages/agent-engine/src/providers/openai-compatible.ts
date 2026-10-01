@@ -54,6 +54,10 @@ export class OpenAICompatibleProvider implements LLMProvider {
 		if (this.config.seed !== undefined) {
 			body.seed = this.config.seed
 		}
+		const kwargs = request.providerOptions?.chat_template_kwargs
+		if (kwargs && typeof kwargs === "object" && !Array.isArray(kwargs)) {
+			body.chat_template_kwargs = kwargs
+		}
 
 		// Constrained decoding: only attach json_schema when the schema is an object.
 		const schema = request.responseSchema
@@ -69,9 +73,21 @@ export class OpenAICompatibleProvider implements LLMProvider {
 		}
 
 		const response = await fetchWithTimeout(url, body, this.config, request)
-		const text = response.choices?.[0]?.message?.content
-		if (typeof text !== "string") {
-			throw makeError(BAKA_EXIT_CODE.PROVIDER_ERROR, `openai-compatible: empty or non-string content in response`)
+		let text = response.choices?.[0]?.message?.content
+		// Gemma 4 (and similar) can spend the whole budget on
+		// `reasoning_content` and leave `content` empty. One retry
+		// with thinking off is enough to get JSON.
+		if (typeof text !== "string" || text.trim() === "") {
+			const retryBody: Record<string, unknown> = {
+				...body,
+				max_tokens: Math.max(Number(body.max_tokens) || 0, 1024),
+				chat_template_kwargs: { enable_thinking: false },
+			}
+			const retried = await fetchWithTimeout(url, retryBody, this.config, request)
+			text = retried.choices?.[0]?.message?.content
+			if (typeof text !== "string" || text.trim() === "") {
+				throw makeError(BAKA_EXIT_CODE.PROVIDER_ERROR, "openai-compatible: empty or non-string content in response")
+			}
 		}
 
 		// Parse and validate. If parsing fails, retry once with a repair message.
@@ -234,7 +250,15 @@ function toJsonSchema(schema: z.ZodType): Record<string, unknown> {
 		}
 		return { type: "object", properties, required, additionalProperties: false }
 	}
-	if (schema instanceof z.ZodString) return { type: "string" }
+	if (schema instanceof z.ZodString) {
+		const out: Record<string, unknown> = { type: "string" }
+		const checks = (schema._def as { checks?: Array<{ kind: string; value?: number }> }).checks ?? []
+		for (const check of checks) {
+			if (check.kind === "min" && typeof check.value === "number") out.minLength = check.value
+			if (check.kind === "max" && typeof check.value === "number") out.maxLength = check.value
+		}
+		return out
+	}
 	if (schema instanceof z.ZodNumber) return { type: "number" }
 	if (schema instanceof z.ZodBoolean) return { type: "boolean" }
 	if (schema instanceof z.ZodArray) return { type: "array", items: toJsonSchema(schema.element as z.ZodType) }

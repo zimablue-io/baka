@@ -12,17 +12,17 @@
 //                  intent; saved plans are interchangeable via `baka apply`
 //   VAL-FOUND-042  MCP validation failure is inspectable as a failure
 //                  (isError set + top-level `valid: false`)
-//   VAL-FOUND-058  tools/list exposes one per-action tool for every action
-//                  of every shipped module (set parity with
-//                  `baka module list-actions <name> --json`)
+//   VAL-FOUND-058  tools/list has engine + registry tools only
+//                  (no per-action tools; named actions go through `baka run`)
 // ---------------------------------------------------------------------------
 
 import { type ChildProcess, spawn } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeAll, describe, expect, it } from "vitest"
+import { copyPlatformFixtures } from "../../cli/test/helpers/copy-fixtures"
 
 // ---------------------------------------------------------------------------
 // Constants and helpers
@@ -86,8 +86,16 @@ export const writeAction: WorkflowStep<Record<string, never>, boolean, { targetD
 \t},
 }
 `
-const SHIPPED_MODULES = ["baka-base", "sdd", "ts-style"] as const
-const ENGINE_TOOLS = ["baka_plan", "baka_apply", "baka_validate", "baka_list_actions"] as const
+const SHIPPED_MODULES = ["honest-mod", "slot-mod"] as const
+const ENGINE_TOOLS = [
+	"baka_plan",
+	"baka_apply",
+	"baka_validate",
+	"baka_list_actions",
+	"baka_run",
+	"baka_slots",
+	"baka_fill",
+] as const
 
 interface JsonRpcResponse {
 	jsonrpc: "2.0"
@@ -334,20 +342,11 @@ function prepareScratchWithHonestMod(prefix: string): string {
 	return scratch
 }
 
-/** Temp project exposing the three shipped modules via the tree scope. */
+/** Temp project with honest-mod and slot-mod in tree scope. */
 function prepareScratchWithShippedModules(prefix: string): string {
 	const scratch = makeEmptyDir(prefix)
-	mkdirSync(join(scratch, "modules"), { recursive: true })
-	for (const mod of SHIPPED_MODULES) {
-		symlinkSync(join(BAKA_REPO, "modules", mod), join(scratch, "modules", mod))
-	}
+	copyPlatformFixtures(scratch)
 	return scratch
-}
-
-/** The tool-naming convention from apps/mcp/src/server.ts (actionToolName). */
-function actionToolName(moduleName: string, actionId: string): string {
-	const safe = (s: string) => s.replace(/[^a-zA-Z0-9_]/g, "_")
-	return `baka_${safe(moduleName)}_${safe(actionId)}`
 }
 
 beforeAll(() => {
@@ -434,9 +433,31 @@ describe("VAL-FOUND-042 baka_validate failure surface", () => {
 	it("sets isError and valid:false on a failing project, valid:true with no isError on a passing one", async () => {
 		const home = makeHome("http://127.0.0.1:1/v1")
 
-		// Failing project: the shipped modules' validators reject a bare tree
-		// (no src/index.ts for baka-base, no specs/mission.md for sdd).
-		const failing = prepareScratchWithShippedModules("baka-consistency-vfail-")
+		// Failing project: a fixture validator that always fails.
+		const failing = makeEmptyDir("baka-consistency-vfail-")
+		const failMod = join(failing, "modules", "fail-mod")
+		mkdirSync(join(failMod, "noop", "templates"), { recursive: true })
+		writeFileSync(
+			join(failMod, "manifest.ts"),
+			`export const Manifest = {
+  name: "fail-mod",
+  version: "0.0.0",
+  description: "declares a missing validator so validate fails",
+  dependencies: [],
+  conflictsWith: [],
+  actions: [{
+    id: "noop",
+    description: "noop",
+    params: [],
+    requiresReasoning: false,
+    filePatterns: [],
+    validators: [],
+  }],
+  moduleValidators: ["missing-rule"],
+}
+`,
+		)
+		writeFileSync(join(failMod, "noop", "templates", "x.txt.hbs"), "x\n")
 		const failState = spawnMcp(failing, home)
 		try {
 			await initialize(failState)
@@ -485,8 +506,8 @@ describe("VAL-FOUND-042 baka_validate failure surface", () => {
 // VAL-FOUND-058  tools/list exposes one tool per action per shipped module
 // ---------------------------------------------------------------------------
 
-describe("VAL-FOUND-058 per-action tool parity", () => {
-	it("maps the per-action tools exactly onto `baka module list-actions` for every shipped module", async () => {
+describe("VAL-FOUND-058 MCP has no per-action tools", () => {
+	it("exposes engine + registry tools only; agents run `baka … --json` for named actions", async () => {
 		const scratch = prepareScratchWithShippedModules("baka-consistency-tools-")
 		const home = makeHome("http://127.0.0.1:1/v1")
 
@@ -516,24 +537,16 @@ describe("VAL-FOUND-058 per-action tool parity", () => {
 		// registry tool must carry that prefix to land in this
 		// exclusion automatically.
 		const REGISTRY_TOOL_PREFIX = "baka_registry_"
-		const perActionTools = new Set(
-			toolNames.filter((n) => !(ENGINE_TOOLS as readonly string[]).includes(n) && !n.startsWith(REGISTRY_TOOL_PREFIX)),
+		const leftover = toolNames.filter(
+			(n) => !(ENGINE_TOOLS as readonly string[]).includes(n) && !n.startsWith(REGISTRY_TOOL_PREFIX),
 		)
+		expect(leftover).toEqual([])
 
-		// The CLI's own action listing is the reference set.
-		const expected = new Set<string>()
 		for (const mod of SHIPPED_MODULES) {
-			// `baka module list-actions` resolves against process.cwd().
 			const listed = await runCli(["module", "list-actions", mod, "--json"], { cwd: scratch, home })
 			expect(listed.code, `list-actions ${mod} failed: ${listed.stderr}`).toBe(0)
 			const parsed = JSON.parse(listed.stdout) as { actions: Array<{ id: string }> }
 			expect(parsed.actions.length).toBeGreaterThan(0)
-			for (const a of parsed.actions) {
-				expected.add(actionToolName(mod, a.id))
-			}
 		}
-
-		// No missing tools and no stale tools.
-		expect([...perActionTools].sort()).toEqual([...expected].sort())
 	}, 60_000)
 })

@@ -1,0 +1,30 @@
+# Registry + landing deploy (Needs Human — DEV-219)
+
+Do not treat this file as a completed deploy. Secrets, domain, and DNS stay with a human.
+
+services:
+  - type: web
+    name: baka-registry
+    runtime: node
+    plan: starter
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @baka/registry check-types
+    startCommand: pnpm --filter @baka/registry dev
+    envVars:
+      - key: PORT
+        generateValue: false
+      - key: DATABASE_URL
+        sync: false
+      - key: BETTER_AUTH_SECRET
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+
+  - type: static
+    name: baka-landing
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @baka/landing build
+    staticPublishPath: apps/landing/dist
+    envVars:
+      - key: VITE_REGISTRY_URL
+        sync: false

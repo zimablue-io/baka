@@ -29,11 +29,10 @@ import { ModuleRegistry } from "./registry.js"
  * If `moduleFilter` is provided, only modules whose name is in the
  * list run. This is the apply-path filter: the apply should only
  * validate modules whose actions actually ran, not every discovered
- * module. Running every discovered module on a large monorepo
- * (where bundled modules like `ts-style` scan the whole
- * tree) turns a 0.1s validate into a 3-minute apply, and surfaces
- * violations from modules the user did not invoke (e.g. `ts-style`
- * finding `: any`. `moduleFilter` takes precedence over `moduleName` when
+ * module. Running every discovered module on a large project
+ * turns a 0.1s validate into a 3-minute apply, and surfaces
+ * violations from modules the user did not invoke.
+ * `moduleFilter` takes precedence over `moduleName` when
  * both are provided.
  */
 export async function runValidators(

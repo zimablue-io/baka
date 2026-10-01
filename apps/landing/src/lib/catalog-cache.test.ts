@@ -4,10 +4,10 @@ import { getCachedCatalog, setCachedCatalog, subscribeCatalogCache } from "./cat
 const SAMPLE_MODULES = [
 	{
 		scope: "baka",
-		name: "baka-base",
+		name: "widget",
 		tier: "official" as const,
 		visibility: "public" as const,
-		description: "Scaffold a TypeScript project.",
+		description: "A sample catalog module.",
 		latestVersion: "0.1.0",
 		latestStatus: "ready",
 	},

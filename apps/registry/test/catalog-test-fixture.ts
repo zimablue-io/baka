@@ -8,7 +8,8 @@ import type { Hono } from "hono"
 import { type BetterAuthHandle, createBetterAuth } from "../src/auth/better-auth"
 import { createPgPool } from "../src/auth/kysely-db"
 import { ensureOrgPlanColumn } from "../src/auth/plan-limits"
-import { seedBuiltInCatalog } from "../src/catalog/seed"
+import { seedBuiltInCatalog, seedCatalogModules } from "../src/catalog/seed"
+import { TEST_CATALOG_MODULE } from "./test-catalog-module"
 import { applyAppMigrations } from "../src/db/migrate"
 import { buildApp } from "../src/index"
 import { createFilesystemStorage, type StorageAdapter } from "../src/storage"
@@ -16,11 +17,9 @@ import { createFilesystemStorage, type StorageAdapter } from "../src/storage"
 /**
  * Test fixture for the catalog read-paths feature.
  *
- * Boots a fresh PGlite + Better-Auth + Hono stack, applies the app
- * migrations, then seeds the built-in catalog (baka-base, sdd, ts-style
- * under the official `baka` scope). The same seeder runs at every real
- * boot via `server.ts`; the fixture mirrors that flow so the test path
- * is identical to production wiring.
+ * Boots a fresh PGlite + Better-Auth + Hono stack, applies migrations,
+ * then inserts one tiny catalog row (`hello`) so list/search/info tests
+ * have something to query. Production `BUILT_IN_CATALOG` stays empty.
  */
 
 export interface CatalogTestStack {
@@ -83,6 +82,7 @@ export async function buildCatalogTestStack(): Promise<CatalogTestStack> {
 	await ensureOrgPlanColumn(pglite)
 
 	await seedBuiltInCatalog(pglite, "baka")
+	await seedCatalogModules(pglite, "baka", [TEST_CATALOG_MODULE])
 
 	const app = buildApp({ auth: betterAuth.auth, pglite, officialOrg: "baka", storage })
 

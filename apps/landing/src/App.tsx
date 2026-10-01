@@ -2,9 +2,10 @@ import { Analytics } from "@vercel/analytics/react"
 import { useEffect, useRef } from "react"
 import { LandingPage } from "./components/LandingPage"
 import { ModuleDetail } from "./components/ModuleDetail"
+import { ResultsGallery } from "./components/ResultsGallery"
 import { SiteFooter } from "./components/SiteFooter"
 import { SiteHeader } from "./components/SiteHeader"
-import { matchModuleDetail, useLocation } from "./lib/router"
+import { matchModuleDetail, matchResults, useLocation } from "./lib/router"
 
 /**
  * App root. Two routes:
@@ -21,6 +22,7 @@ import { matchModuleDetail, useLocation } from "./lib/router"
 export function App() {
 	const location = useLocation()
 	const detail = matchModuleDetail(location.pathname)
+	const results = matchResults(location.pathname)
 
 	// Scroll to the top on route change so a deep link to
 	// `/modules/:scope/:name` does not inherit the previous page's
@@ -41,7 +43,15 @@ export function App() {
 		<div className="min-h-screen flex flex-col">
 			<SiteHeader />
 			<main className="flex-1">
-				{detail === null ? <LandingPage /> : <ModuleDetail scope={detail.scope} name={detail.name} />}
+				{detail === null ? (
+					results ? (
+						<ResultsGallery />
+					) : (
+						<LandingPage />
+					)
+				) : (
+					<ModuleDetail scope={detail.scope} name={detail.name} />
+				)}
 			</main>
 			<SiteFooter />
 			<Analytics />

@@ -349,7 +349,7 @@ interface InfoSpec {
 function parseRegistryInfoSpec(spec: string): InfoSpec {
 	const trimmed = spec.trim()
 	if (trimmed.length === 0) {
-		throw new Error("usage: baka registry info <spec> (e.g. @baka/baka-base or @acme/widget@1.0.0)")
+		throw new Error("usage: baka registry info <spec> (e.g. @baka/hello or @acme/widget@1.0.0)")
 	}
 	let body = trimmed
 	let pinnedVersion: string | null = null

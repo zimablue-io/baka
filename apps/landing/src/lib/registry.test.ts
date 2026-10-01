@@ -72,19 +72,19 @@ describe("getCatalog", () => {
 					modules: [
 						{
 							scope: "baka",
-							name: "baka-base",
+							name: "widget",
 							tier: "official",
 							visibility: "public",
-							description: "Scaffold a TypeScript project.",
+							description: "A sample catalog module.",
 							latestVersion: "0.1.0",
 							latestStatus: "ready",
 						},
 						{
 							scope: "baka",
-							name: "sdd",
+							name: "gadget",
 							tier: "official",
 							visibility: "public",
-							description: "Spec-driven development.",
+							description: "Another sample catalog module.",
 							latestVersion: "0.2.0",
 							latestStatus: "ready",
 						},
@@ -95,7 +95,7 @@ describe("getCatalog", () => {
 		])
 		const result = await getCatalog("http://localhost:4300")
 		expect(result).toHaveLength(2)
-		expect(result[0]?.name).toBe("baka-base")
+		expect(result[0]?.name).toBe("widget")
 		expect(result[1]?.tier).toBe("official")
 		expect(calls).toHaveLength(1)
 		expect(calls[0]?.url).toBe("http://localhost:4300/v1/modules")
@@ -207,7 +207,7 @@ describe("getVersionDetail", () => {
 			new Response(
 				JSON.stringify({
 					scope: "baka",
-					name: "baka-base",
+					name: "widget",
 					tier: "official",
 					version: "0.1.0",
 					status: "ready",
@@ -215,7 +215,7 @@ describe("getVersionDetail", () => {
 					contentHash: "deadbeef",
 					error: null,
 					manifest: {
-						name: "baka-base",
+						name: "widget",
 						version: "0.1.0",
 						description: "",
 						dependencies: [],
@@ -230,9 +230,9 @@ describe("getVersionDetail", () => {
 				{ status: 200, headers: { "content-type": "application/json" } },
 			),
 		])
-		const result = await getVersionDetail("baka", "baka-base", "0.1.0", "http://localhost:4300")
+		const result = await getVersionDetail("baka", "widget", "0.1.0", "http://localhost:4300")
 		expect(result.version).toBe("0.1.0")
-		expect(calls[0]?.url).toBe("http://localhost:4300/v1/modules/baka/baka-base/0.1.0")
+		expect(calls[0]?.url).toBe("http://localhost:4300/v1/modules/baka/widget/0.1.0")
 	})
 })
 
@@ -244,8 +244,8 @@ describe("getPreviewList", () => {
 				headers: { "content-type": "application/json" },
 			}),
 		])
-		await getPreviewList("baka", "baka-base", "0.1.0", "http://localhost:4300")
-		expect(calls[0]?.url).toBe("http://localhost:4300/v1/modules/baka/baka-base/0.1.0/previews")
+		await getPreviewList("baka", "widget", "0.1.0", "http://localhost:4300")
+		expect(calls[0]?.url).toBe("http://localhost:4300/v1/modules/baka/widget/0.1.0/previews")
 	})
 
 	it("returns the parsed preview entries (rendered + needs-llm)", async () => {
@@ -254,17 +254,17 @@ describe("getPreviewList", () => {
 				JSON.stringify({
 					previews: [
 						{
-							actionId: "scaffold",
+							actionId: "greet",
 							state: "rendered",
 							files: [{ path: "package.json", size: 42, sha256: "deadbeef" }],
 						},
-						{ actionId: "init-constitution", state: "needs-llm" },
+						{ actionId: "compose", state: "needs-llm" },
 					],
 				}),
 				{ status: 200, headers: { "content-type": "application/json" } },
 			),
 		])
-		const result = await getPreviewList("baka", "sdd", "0.1.0", "http://localhost:4300")
+		const result = await getPreviewList("baka", "widget", "0.1.0", "http://localhost:4300")
 		expect(result.previews).toHaveLength(2)
 		expect(result.previews[0]?.state).toBe("rendered")
 		expect(result.previews[0]?.files?.[0]?.path).toBe("package.json")
@@ -286,29 +286,29 @@ describe("getActionPreview", () => {
 		const { calls } = installFetchStub([
 			new Response(
 				JSON.stringify({
-					actionId: "scaffold",
+					actionId: "greet",
 					state: "rendered",
 					files: [{ path: "package.json", content: "{}", size: 2, sha256: "deadbeef" }],
 				}),
 				{ status: 200, headers: { "content-type": "application/json" } },
 			),
 		])
-		await getActionPreview("baka", "baka-base", "0.1.0", "scaffold", "http://localhost:4300")
-		expect(calls[0]?.url).toBe("http://localhost:4300/v1/modules/baka/baka-base/0.1.0/previews/scaffold")
+		await getActionPreview("baka", "widget", "0.1.0", "greet", "http://localhost:4300")
+		expect(calls[0]?.url).toBe("http://localhost:4300/v1/modules/baka/widget/0.1.0/previews/greet")
 	})
 
 	it("parses the needs-llm state with no files carrier", async () => {
 		installFetchStub([
 			new Response(
 				JSON.stringify({
-					actionId: "init-constitution",
+					actionId: "compose",
 					state: "needs-llm",
 					reason: "action skipped because it requires LLM reasoning",
 				}),
 				{ status: 200, headers: { "content-type": "application/json" } },
 			),
 		])
-		const result = await getActionPreview("baka", "sdd", "0.1.0", "init-constitution", "http://localhost:4300")
+		const result = await getActionPreview("baka", "widget", "0.1.0", "compose", "http://localhost:4300")
 		expect(result.state).toBe("needs-llm")
 		expect(result.reason).toContain("LLM reasoning")
 		expect(result.files).toBeUndefined()
@@ -318,7 +318,7 @@ describe("getActionPreview", () => {
 		installFetchStub([
 			new Response(
 				JSON.stringify({
-					actionId: "init-constitution",
+					actionId: "compose",
 					state: "needs-llm",
 					reason: "action skipped because it requires LLM reasoning",
 					files: [{ path: "specs/mission.md", content: "# Mission\n", size: 11, sha256: "feedface" }],
@@ -326,7 +326,7 @@ describe("getActionPreview", () => {
 				{ status: 200, headers: { "content-type": "application/json" } },
 			),
 		])
-		const result = await getActionPreview("baka", "sdd", "0.1.0", "init-constitution", "http://localhost:4300")
+		const result = await getActionPreview("baka", "widget", "0.1.0", "compose", "http://localhost:4300")
 		expect(result.state).toBe("needs-llm")
 		expect(result.files).toHaveLength(1)
 		expect(result.files?.[0]?.path).toBe("specs/mission.md")
@@ -336,11 +336,11 @@ describe("getActionPreview", () => {
 		installFetchStub([
 			new Response(JSON.stringify({ error: "no preview record for action 'missing'" }), { status: 404 }),
 		])
-		await expect(
-			getActionPreview("baka", "baka-base", "0.1.0", "missing", "http://localhost:4300"),
-		).rejects.toMatchObject({
-			name: "RegistryError",
-			code: "not-found",
-		})
+		await expect(getActionPreview("baka", "widget", "0.1.0", "missing", "http://localhost:4300")).rejects.toMatchObject(
+			{
+				name: "RegistryError",
+				code: "not-found",
+			},
+		)
 	})
 })

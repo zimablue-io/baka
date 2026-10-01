@@ -18,9 +18,9 @@
  * REAL `POST /v1/publish` path (see `seedCommunityScreenedFixture`),
  * so a vanilla boot produces:
  *
- *   - the existing built-in catalog (baka-base / sdd / ts-style
- *     under the official `baka` scope, decision 31: built-in modules
- *     bypass screening and serve screening=null)
+ *   - empty production built-in catalog (tests may insert a `hello`
+ *     fixture via seedCatalogModules; built-in modules bypass screening
+ *     and serve screening=null)
  *   - one public community module on a non-bundled scope that
  *     passed through the real publish → ingest → screening pipeline
  *     with both preview states (rendered + needs-llm-with-sentinel)
@@ -72,7 +72,7 @@ import { type BetterAuthHandle, createBetterAuth } from "../src/auth/better-auth
 import { createPgPool } from "../src/auth/kysely-db"
 import { ensureOfficialOrg } from "../src/auth/official-org"
 import { applySeedPlans, ensureOrgPlanColumn } from "../src/auth/plan-limits"
-import { seedBuiltInCatalog } from "../src/catalog/seed"
+import { seedBuiltInCatalog, seedCatalogModules } from "../src/catalog/seed"
 import { applyAppMigrations } from "../src/db/migrate"
 import { buildApp } from "../src/index"
 import { applyVerifiedModules } from "../src/screening/tier-assignment"
@@ -80,6 +80,7 @@ import { createFilesystemStorage, type StorageAdapter } from "../src/storage"
 import { createInMemoryEnqueuer } from "../src/worker/enqueue"
 import { startWorker, type WorkerHandle } from "../src/worker/runner"
 import { createGitFixture, type GitFixture } from "./git-fixture"
+import { TEST_CATALOG_MODULE } from "./test-catalog-module"
 
 interface SeededUser {
 	userId: string
@@ -206,6 +207,7 @@ async function bootSeedPublishingServer(opts: {
 	await applySeedPlans(pglite, process.env.REGISTRY_SEED_PLANS)
 	const officialOrg = opts.officialOrg ?? "baka"
 	await seedBuiltInCatalog(pglite, officialOrg)
+	await seedCatalogModules(pglite, officialOrg, [TEST_CATALOG_MODULE])
 	// Mirrors src/server.ts: the verified-tier seeder runs at every
 	// boot, after the built-in catalog seed, and never refuses to
 	// boot on a malformed entry.

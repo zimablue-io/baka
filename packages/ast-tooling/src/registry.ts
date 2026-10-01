@@ -1,6 +1,5 @@
 import { type Dirent, existsSync, readdirSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
 import {
 	BAKA_PROJECT_PATHS,
 	bakaHomeDir,
@@ -35,40 +34,11 @@ export class ModuleRegistry {
 	}
 
 	/**
-	 * Resolve the bundled-modules directory by walking up from this
-	 * module's source location looking for the baka repo's `modules/`
-	 * marker (`<repo>/modules/baka-base/manifest.ts`). Returns the
-	 * absolute path to `<repo>/modules/` or `null` if the baka repo is
-	 * not reachable (e.g. when the dist is globally linked and the
-	 * bundled modules are not shipped in the tarball).
-	 *
-	 * The walk-up is anchored on `import.meta.url` rather than `cwd`
-	 * so the result is correct regardless of which directory the user
-	 * runs `baka` from. The function is computed once at module load
-	 * and memoized.
+	 * Bundled modules ship next to an installed CLI, not by walking the
+	 * git checkout. Walking up from this file used to inject the repo's
+	 * example modules into every project that had a package.json.
 	 */
-	private static readonly bundledModulesDirCache: { value: string | null | undefined } = { value: undefined }
 	private static findBundledModulesDir(): string | null {
-		if (ModuleRegistry.bundledModulesDirCache.value !== undefined) {
-			return ModuleRegistry.bundledModulesDirCache.value
-		}
-		// Walk up at most 8 levels. In the baka repo, the registry is at
-		// `packages/ast-tooling/src/registry.ts` (4 levels up = baka/).
-		// In the dist, it's inlined at `apps/cli/dist/index.js` (4 levels
-		// up = baka/). Globally linked installs won't find the marker.
-		const start = dirname(fileURLToPath(import.meta.url))
-		let cur = start
-		for (let i = 0; i < 8; i++) {
-			const marker = join(cur, "modules", "baka-base", "manifest.ts")
-			if (existsSync(marker)) {
-				ModuleRegistry.bundledModulesDirCache.value = join(cur, "modules")
-				return ModuleRegistry.bundledModulesDirCache.value
-			}
-			const parent = dirname(cur)
-			if (parent === cur) break
-			cur = parent
-		}
-		ModuleRegistry.bundledModulesDirCache.value = null
 		return null
 	}
 
@@ -126,7 +96,7 @@ export class ModuleRegistry {
 	 * Discover and validate every module under <root>/modules/*.
 	 * A module must have:
 	 *   - manifest.ts exporting a `Manifest` value of type ModuleManifest
-	 *   - one folder per declared action, containing action.ts
+	 *   - one folder per declared action, containing templates/ and/or action.ts
 	 * Layout errors are collected and reported; we do not throw on a single
 	 * bad module unless `strict` is true.
 	 */
@@ -228,11 +198,12 @@ export class ModuleRegistry {
 				// Layout enforcement (per spec section 4)
 				for (const action of parsed.data.actions) {
 					const actionTs = join(moduleRoot, action.id, "action.ts")
-					if (!existsSync(actionTs)) {
+					const templatesDir = join(moduleRoot, action.id, "templates")
+					if (!existsSync(actionTs) && !existsSync(templatesDir)) {
 						diagnostics.push({
 							severity: "error",
 							rule: "action-missing",
-							message: `${entry.name}: action "${action.id}" is missing ${action.id}/action.ts`,
+							message: `${entry.name}: action "${action.id}" is missing ${action.id}/action.ts and ${action.id}/templates/`,
 						})
 					}
 					if (action.requiresReasoning) {

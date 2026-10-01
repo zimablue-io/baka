@@ -8,7 +8,7 @@ function makeRun(idx: number, files: string[], hashes: Record<string, string>) {
 	return {
 		runIndex: idx,
 		planSteps: 1,
-		planActions: ["baka-base:scaffold"],
+		planActions: ["honest-mod:write"],
 		planParams: { name: "demo" },
 		files,
 		fileHashes: hashes,

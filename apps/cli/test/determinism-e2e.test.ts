@@ -9,7 +9,7 @@
 // flag the whole suite reports as skipped (vitest prints the suite name,
 // which names the opt-in). With the flag, the suite plans the same intent 5
 // times SEQUENTIALLY through the built CLI against the shared llama-server
-// (pinned model gemma4-12b-qat, temperature 0, fixed seed 42, generous
+// (pinned model gemma4:e4b, temperature 0, fixed seed 42, generous
 // max_tokens) and asserts all 5 plans are byte-identical, printing each
 // plan's sha256.
 //
@@ -20,7 +20,7 @@
 
 import { type ChildProcess, spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeAll, describe, expect, it } from "vitest"
@@ -28,9 +28,10 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest"
 const BAKA_REPO = join(__dirname, "..", "..", "..")
 const DIST_INDEX = join(BAKA_REPO, "apps", "cli", "dist", "index.js")
 const HONEST_MOD_FIXTURE = join(BAKA_REPO, "apps", "cli", "test", "fixtures", "honest-mod")
+const SLOT_MOD_FIXTURE = join(BAKA_REPO, "apps", "cli", "test", "fixtures", "slot-mod")
 
 const E2E_BASE_URL = process.env.BAKA_E2E_LLM_BASE_URL ?? "http://127.0.0.1:8080/v1"
-const E2E_MODEL = "gemma4-12b-qat"
+const E2E_MODEL = "gemma4:e4b"
 const E2E_SEED = 42
 const E2E_RUNS = 5
 const INTENT = "write a marker"
@@ -186,6 +187,67 @@ describeIfOptIn(
 					.join("\n")}`,
 			).toBe(1)
 			console.log(`[determinism-e2e] all ${E2E_RUNS} plans byte-identical: ${hashes[0]}`)
+		}, 1_200_000)
+
+		it(`produces byte-identical apply trees across 2 sequential runs of honest-mod/write`, async (ctx) => {
+			const probe = await probeLlamaServer()
+			if (!probe.reachable) {
+				ctx.skip(`VAL-FOUND-028 prerequisite unmet: ${probe.reason}`)
+			}
+
+			const hashes: string[] = []
+			for (let run = 1; run <= 2; run++) {
+				const scratch = trackDir(mkdtempSync(join(tmpdir(), "baka-determinism-apply-")))
+				mkdirSync(join(scratch, "modules"), { recursive: true })
+				symlinkSync(HONEST_MOD_FIXTURE, join(scratch, "modules", "honest-mod"))
+				const home = trackDir(mkdtempSync(join(tmpdir(), "baka-determinism-apply-home-")))
+				seedRoleConfig(home)
+				writeFileSync(join(scratch, "package.json"), JSON.stringify({ name: "probe", private: true }))
+				const applied = await spawnCli(
+					["--cwd", scratch, "run", "honest-mod/write", "--json"],
+					scratch,
+					{ HOME: home },
+					300_000,
+				)
+				expect(applied.code, `run ${run} failed; stdout=${applied.stdout}; stderr=${applied.stderr}`).toBe(0)
+				const marker = readFileSync(join(scratch, "marker.txt"), "utf-8")
+				const hash = createHash("sha256").update(marker).digest("hex")
+				hashes.push(hash)
+				console.log(`[determinism-e2e] apply run ${run} tree sha256: ${hash}`)
+			}
+			expect(new Set(hashes).size, `apply trees diverged: ${hashes.join(" ")}`).toBe(1)
+		}, 1_200_000)
+
+		it(`produces byte-identical slot-mod trees across 2 sequential gemma4:e4b fills`, async (ctx) => {
+			const probe = await probeLlamaServer()
+			if (!probe.reachable) {
+				ctx.skip(`VAL-FOUND-028 prerequisite unmet: ${probe.reason}`)
+			}
+
+			const hashes: string[] = []
+			for (let run = 1; run <= 2; run++) {
+				const scratch = trackDir(mkdtempSync(join(tmpdir(), "baka-determinism-slot-")))
+				mkdirSync(join(scratch, "modules"), { recursive: true })
+				symlinkSync(SLOT_MOD_FIXTURE, join(scratch, "modules", "slot-mod"))
+				const home = trackDir(mkdtempSync(join(tmpdir(), "baka-determinism-slot-home-")))
+				seedRoleConfig(home)
+				writeFileSync(join(scratch, "package.json"), JSON.stringify({ name: "probe", private: true }))
+				const applied = await spawnCli(
+					["--cwd", scratch, "run", "slot-mod/write", "--title", "Probe", "--json"],
+					scratch,
+					{ HOME: home },
+					300_000,
+				)
+				expect(applied.code, `slot-mod run ${run} failed; stdout=${applied.stdout}; stderr=${applied.stderr}`).toBe(0)
+				const parsed = JSON.parse(applied.stdout) as { ok?: boolean; slots?: Array<{ id: string }> }
+				expect(parsed.ok, `slot-mod run ${run} not ok: ${applied.stdout}`).toBe(true)
+				const note = readFileSync(join(scratch, "note.md"), "utf-8")
+				expect(note.startsWith("# Probe\n")).toBe(true)
+				const hash = createHash("sha256").update(note).digest("hex")
+				hashes.push(hash)
+				console.log(`[determinism-e2e] slot-mod run ${run} tree sha256: ${hash}`)
+			}
+			expect(new Set(hashes).size, `slot-mod trees diverged: ${hashes.join(" ")}`).toBe(1)
 		}, 1_200_000)
 	},
 )

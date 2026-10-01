@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { cpSync, existsSync, mkdirSync, readdirSync, realpathSync, rmSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
@@ -7,9 +7,11 @@ import {
 	loadActionValidator,
 	loadModuleValidator,
 	ModuleRegistry,
+	parseActionTemplates,
+	runNamedAction,
 	validatorFilename,
 } from "@repo/ast-tooling"
-import { BAKA_EXIT_CODE, type ModuleManifest, ModuleManifestSchema, type OrchestrationState } from "@repo/protocol"
+import { BAKA_DEFAULT_WORKER_MODEL, BAKA_EXIT_CODE, type ModuleManifest, ModuleManifestSchema } from "@repo/protocol"
 import { createJiti } from "jiti"
 
 function die(code: number, msg: string): never {
@@ -63,25 +65,34 @@ export function runModuleValidate(name: string, opts: { cwd?: string; json?: boo
 					// must actually import through the same loader the engine uses.
 					for (const action of parsed.data.actions) {
 						const actionDir = join(root, action.id)
-						if (!existsSync(join(actionDir, "action.ts"))) {
-							errors.push(`action "${action.id}" is missing ${action.id}/action.ts`)
+						const actionTs = join(actionDir, "action.ts")
+						const templatesDir = join(actionDir, "templates")
+						const hasAction = existsSync(actionTs)
+						const hasTemplates = existsSync(templatesDir)
+						if (!hasAction && !hasTemplates) {
+							errors.push(`action "${action.id}" is missing ${action.id}/action.ts and ${action.id}/templates/`)
 							continue
 						}
-						try {
-							loadAction(cwd, root, parsed.data, action.id)
-						} catch (err) {
-							errors.push(`action "${action.id}" is not loadable: ${err instanceof Error ? err.message : String(err)}`)
-						}
-						if (action.requiresReasoning) {
-							const templatesDir = join(actionDir, "templates")
-							if (!existsSync(templatesDir)) {
-								errors.push(`action "${action.id}" has requiresReasoning: true but no templates/ folder`)
-							} else {
-								const hasTemplate = readdirSyncSafe(templatesDir).some((f) => f.endsWith(".hbs"))
-								if (!hasTemplate) {
-									errors.push(`action "${action.id}" has requiresReasoning: true but no .hbs files in templates/`)
-								}
+						if (hasAction) {
+							try {
+								loadAction(cwd, root, parsed.data, action.id)
+							} catch (err) {
+								errors.push(
+									`action "${action.id}" is not loadable: ${err instanceof Error ? err.message : String(err)}`,
+								)
 							}
+						}
+						if (hasTemplates) {
+							try {
+								parseActionTemplates(templatesDir)
+							} catch (err) {
+								errors.push(
+									`action "${action.id}" templates failed the Handlebars subset: ${err instanceof Error ? err.message : String(err)}`,
+								)
+							}
+						}
+						if (action.requiresReasoning && !hasTemplates) {
+							errors.push(`action "${action.id}" has requiresReasoning: true but no templates/ folder`)
 						}
 						for (const validatorId of action.validators ?? []) {
 							const ruleFile = validatorFilename(validatorId)
@@ -143,14 +154,6 @@ export function runModuleValidate(name: string, opts: { cwd?: string; json?: boo
 	}
 	console.log(`module "${name}": valid`)
 	for (const w of warnings) console.log(`  warning: ${w}`)
-}
-
-function readdirSyncSafe(dir: string): string[] {
-	try {
-		return readdirSync(dir)
-	} catch {
-		return []
-	}
 }
 
 // ---------------------------------------------------------------------------
@@ -276,9 +279,13 @@ export async function runModuleTest(
 	// action's writes land in the temp copy, never in the installed source.
 	const root = realpathSync(resolved)
 
-	const actionTsPath = join(root, actionId, "action.ts")
-	if (!existsSync(actionTsPath)) {
-		die(BAKA_EXIT_CODE.USER_ERROR, `action "${actionId}" not found (no ${actionId}/action.ts in module ${name})`)
+	const hasAction = existsSync(join(root, actionId, "action.ts"))
+	const hasTemplates = existsSync(join(root, actionId, "templates"))
+	if (!hasAction && !hasTemplates) {
+		die(
+			BAKA_EXIT_CODE.USER_ERROR,
+			`action "${actionId}" not found (no ${actionId}/action.ts or ${actionId}/templates/ in module ${name})`,
+		)
 	}
 
 	let parsedInput: Record<string, unknown> = {}
@@ -290,39 +297,36 @@ export async function runModuleTest(
 		}
 	}
 
-	// Run the action in a temp copy of the module so the targetDirectory is a
-	// real project-like root (with package.json, etc.) while still isolating FS
-	// effects from the user's actual module source.
 	const tempDir = join(tmpdir(), `baka-test-${name}-${actionId}-${Date.now()}`)
-	mkdirSync(tempDir, { recursive: true })
-	const moduleCopy = join(tempDir, name)
+	mkdirSync(join(tempDir, "modules"), { recursive: true })
+	writeFileSync(join(tempDir, "package.json"), JSON.stringify({ name: "baka-module-test", private: true }))
+	const moduleCopy = join(tempDir, "modules", name)
 	cpSync(root, moduleCopy, { recursive: true })
 
-	console.log(`running ${name}:${actionId} in ${moduleCopy}`)
+	console.log(`running ${name}:${actionId} in ${tempDir}`)
 	console.log(`  input: ${JSON.stringify(parsedInput)}`)
 	console.log("")
 
-	// Load and run the action in-process via the same loader the engine uses.
 	let exitCode: number = BAKA_EXIT_CODE.SUCCESS
 	try {
-		const manifestPath = join(moduleCopy, "manifest.ts")
-		const jiti = createJiti(moduleCopy)
-		const mod = jiti(manifestPath) as { Manifest?: ModuleManifest }
-		if (!mod.Manifest) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, "manifest.ts did not export a Manifest")
-		}
-		const loaded = loadAction<Record<string, unknown>, unknown, unknown>(moduleCopy, moduleCopy, mod.Manifest, actionId)
-		const state = {
-			userIntent: "test",
-			targetDirectory: moduleCopy,
-			status: "EXECUTING",
-			executionPlan: { steps: [], currentStepIndex: 0 },
-			logs: [],
-			artifacts: {},
-		} as OrchestrationState
-		const result = await loaded.step.execute(parsedInput, state)
-		console.log("RESULT:", JSON.stringify(result.output, null, 2))
-		if (!result.success) {
+		const result = await runNamedAction({
+			cwd: tempDir,
+			module: name,
+			action: actionId,
+			params: parsedInput,
+			provider: null,
+			model: BAKA_DEFAULT_WORKER_MODEL,
+			validate: false,
+		})
+		console.log(
+			"RESULT:",
+			JSON.stringify(
+				result.ok ? { output: result.output, tree: result.tree, written: result.written } : result,
+				null,
+				2,
+			),
+		)
+		if (!result.ok) {
 			console.error("FAILED:", result.error ?? "(no error message)")
 			exitCode = BAKA_EXIT_CODE.ENGINE_ERROR
 		}

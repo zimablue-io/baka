@@ -136,6 +136,11 @@ export function ModuleCatalog() {
 			})
 	}
 
+	const orgs = useMemo(() => {
+		const list = modules ?? []
+		return [...new Set(list.map((m) => m.scope))].sort()
+	}, [modules])
+
 	const filtered = useMemo(() => {
 		const list = modules ?? []
 		const q = query.trim().toLowerCase()
@@ -157,8 +162,9 @@ export function ModuleCatalog() {
 							Modules from the registry.
 						</h2>
 						<p className="mt-3 text-neutral-400">
-							Each module is a versioned, typed catalog of declared actions. The orchestrator can only pick from what
-							these manifests expose.
+							Public catalog grouped by org. Publish with{" "}
+							<code className="font-mono text-neutral-300">baka publish</code>. Each module is a versioned catalog of
+							declared actions.
 						</p>
 					</div>
 					<div className="w-full sm:w-72">
@@ -178,6 +184,28 @@ export function ModuleCatalog() {
 						/>
 					</div>
 				</div>
+
+				{orgs.length > 0 ? (
+					<div data-testid="catalog-orgs" className="mb-6 flex flex-wrap gap-2">
+						<button
+							type="button"
+							onClick={() => setQuery("")}
+							className="rounded-full border border-neutral-800 px-3 py-1 text-xs text-neutral-300 hover:border-neutral-600"
+						>
+							All orgs
+						</button>
+						{orgs.map((org) => (
+							<button
+								key={org}
+								type="button"
+								onClick={() => setQuery(org)}
+								className="rounded-full border border-neutral-800 px-3 py-1 font-mono text-xs text-neutral-300 hover:border-neutral-600"
+							>
+								@{org}
+							</button>
+						))}
+					</div>
+				) : null}
 
 				{loading ? (
 					<div

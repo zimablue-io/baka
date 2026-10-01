@@ -32,6 +32,26 @@ export const ModuleActionSchema = z.object({
 	toolchain: z.enum(["tsc"]).optional(),
 })
 
+// ---------------------------------------------------------------------------
+// Slot-native templates (docs/superpowers/specs/2026-08-25-slot-native-templates.md)
+// ---------------------------------------------------------------------------
+
+export const SlotKindSchema = z.enum(["prose", "ident", "list", "json"])
+
+export const SlotDeclSchema = z.object({
+	id: z.string().min(1),
+	kind: SlotKindSchema,
+	hint: z.string(),
+	file: z.string().min(1),
+	max: z.number().int().positive().optional(),
+	item: z.string().optional(),
+	schemaPath: z.string().optional(),
+})
+
+export const SlotFillSchema = z.object({
+	value: z.union([z.string(), z.array(z.string()), z.record(z.unknown())]),
+})
+
 export const ModuleManifestSchema = z.object({
 	name: z.string().min(1),
 	version: z.string().min(1),

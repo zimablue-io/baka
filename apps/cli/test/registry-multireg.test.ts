@@ -36,19 +36,19 @@ const CATALOG_4300 = {
 	modules: [
 		{
 			scope: "baka",
-			name: "baka-base",
+			name: "alpha",
 			tier: "official",
 			visibility: "public",
-			description: "Base scaffold for a TypeScript project.",
+			description: "First probe hit from registry 4300.",
 			latestVersion: "0.1.0",
 			latestStatus: "ready",
 		},
 		{
 			scope: "baka",
-			name: "ts-style",
+			name: "beta",
 			tier: "official",
 			visibility: "public",
-			description: "TypeScript style enforcer.",
+			description: "Second probe hit from registry 4300.",
 			latestVersion: "0.1.0",
 			latestStatus: "ready",
 		},
@@ -62,7 +62,7 @@ const CATALOG_4310 = {
 			name: "widget",
 			tier: "community-screened",
 			visibility: "public",
-			description: "A typescript widget from registry A.",
+			description: "A probe widget from registry A.",
 			latestVersion: "1.0.0",
 			latestStatus: "ready",
 		},
@@ -76,7 +76,7 @@ const CATALOG_OTHER = {
 			name: "widget",
 			tier: "community-screened",
 			visibility: "public",
-			description: "A typescript widget from registry B.",
+			description: "A probe widget from registry B.",
 			latestVersion: "1.0.0",
 			latestStatus: "ready",
 		},
@@ -106,14 +106,14 @@ describe("runSearchCommand multi-registry", () => {
 			[`${ALL_OFFLINE_BASES[0]}`]: () => ({ status: 200, body: CATALOG_4300 }),
 			[`${ALL_OFFLINE_BASES[1]}`]: () => ({ status: 200, body: CATALOG_4310 }),
 		})
-		await runSearchCommand("typescript", {
+		await runSearchCommand("probe", {
 			fetch: fetchMock,
 			registries: ["http://localhost:4300", "http://localhost:4310"],
 			cwd: REPO_ROOT_CWD,
 			json: true,
 		})
 		const out = log.mock.calls.map((c) => c[0]).join("\n")
-		expect(out).toContain("baka-base")
+		expect(out).toContain("alpha")
 		expect(out).toContain("widget")
 		expect(out).toContain("http://localhost:4300")
 		expect(out).toContain("http://localhost:4310")
@@ -159,7 +159,7 @@ describe("runSearchCommand multi-registry", () => {
 			}
 			return Promise.resolve(new Response(JSON.stringify({}), { status: 500 }))
 		}) as unknown as typeof fetch
-		await runSearchCommand("typescript", {
+		await runSearchCommand("probe", {
 			fetch: fetchMock,
 			registries: ["http://localhost:4300", "http://other:4320"],
 			cwd: REPO_ROOT_CWD,
@@ -169,7 +169,7 @@ describe("runSearchCommand multi-registry", () => {
 			results: Array<{ name: string }>
 			warnings: Array<{ source: string; error: string }>
 		}
-		expect(payload.results.map((r) => r.name)).toContain("baka-base")
+		expect(payload.results.map((r) => r.name)).toContain("alpha")
 		expect(payload.warnings.length).toBeGreaterThan(0)
 		expect(payload.warnings[0]?.source).toContain("http://other:4320")
 	})

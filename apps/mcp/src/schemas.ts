@@ -1,4 +1,3 @@
-import type { ModuleAction, ModuleActionParam } from "@repo/protocol"
 import { z } from "zod"
 
 // ---------------------------------------------------------------------------
@@ -33,7 +32,7 @@ export const ListActionsInputSchema = z.object({
 // (VAL-DISC-045).
 //
 // The schemas also refuse the bare-name space (`@scope/name`,
-// `name`, `@scope/name@version`) — bare names like `"baka-base"`
+// `name`, `@scope/name@version`) — bare names like `"hello"`
 // resolve to the official scope client-side. The MCP tool keeps
 // the inputs narrow on purpose: it surfaces the SCOPE the host
 // passed so the official scope is always explicit ("baka" rather
@@ -58,59 +57,17 @@ export const RegistryGetModuleInputSchema = z.object({
 		.string()
 		.min(1)
 		.describe("Module scope (typically the official org slug; e.g. 'baka' for first-party modules)."),
-	name: z.string().min(1).describe("Module name (e.g. 'baka-base', 'sdd')."),
+	name: z.string().min(1).describe("Module name (e.g. 'hello')."),
 })
 
 export const RegistryGetPreviewInputSchema = z.object({
 	scope: z.string().min(1).describe("Module scope (e.g. 'baka')."),
-	name: z.string().min(1).describe("Module name (e.g. 'sdd')."),
+	name: z.string().min(1).describe("Module name (e.g. 'hello')."),
 	version: z
 		.string()
 		.min(1)
 		.describe("Version tag (e.g. '0.1.0'). Omitting the version resolves to the latest ready version (semver max)."),
 })
-
-// ---------------------------------------------------------------------------
-// Per-action param -> Zod object schema
-// ---------------------------------------------------------------------------
-
-/**
- * Build a Zod object schema for an action's declared params. Used to
- * generate the `inputSchema` for each per-action MCP tool.
- */
-export function actionParamsToZodSchema(action: Pick<ModuleAction, "params">): z.ZodObject<z.ZodRawShape> {
-	// The `shape` is the plain record that `z.object` accepts; we build it
-	// from the action's param list and pass it straight through.
-	const shape: z.ZodRawShape = {}
-	for (const p of action.params as ModuleActionParam[]) {
-		shape[p.name] = paramToZod(p)
-	}
-	return z.object(shape)
-}
-
-function paramToZod(p: ModuleActionParam): z.ZodTypeAny {
-	let base: z.ZodTypeAny
-	switch (p.type) {
-		case "string":
-			base = z.string()
-			break
-		case "number":
-			base = z.number()
-			break
-		case "boolean":
-			base = z.boolean()
-			break
-		case "enum": {
-			if (!p.enumValues || p.enumValues.length === 0) {
-				throw new Error(`action param "${p.name}" has type enum but no enumValues`)
-			}
-			base = z.enum(p.enumValues as [string, ...string[]])
-			break
-		}
-	}
-	const described = base.describe(p.description)
-	return p.required ? described : described.optional()
-}
 
 // ---------------------------------------------------------------------------
 // Prompt argument shape

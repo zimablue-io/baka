@@ -1,0 +1,16 @@
+{
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"productName": "baka",
+	"version": "0.1.0",
+	"identifier": "io.zimablue.baka",
+	"build": {
+		"frontendDist": "../../dashboard/dist/client",
+		"devUrl": "http://127.0.0.1:1420",
+		"beforeDevCommand": "pnpm --filter @baka/dashboard dev",
+		"beforeBuildCommand": "pnpm --filter @baka/dashboard build"
+	},
+	"app": {
+		"windows": [{ "title": "baka lab", "width": 1280, "height": 860 }],
+		"security": { "csp": null }
+	}
+}

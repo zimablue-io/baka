@@ -10,11 +10,9 @@
 // "no preview available" line for modules without preview artifacts.
 //
 // These probes spawn the BUILT `apps/cli/dist/index.js` against a private
-// seed-publishing-server. The built-in catalog is seeded by the server at
-// boot (`baka-base`, `sdd`, `ts-style` under the official scope); the
-// screened-module branch additionally publishes a fixture module with a
-// reasoning + non-reasoning action pair so we can pin both preview
-// states (VAL-DISC-031).
+// seed-publishing-server. The seed inserts one fixture module (`hello`)
+// under the official scope; the screened-module branch additionally
+// publishes a fixture module with a reasoning + non-reasoning action pair.
 //
 // Coverage map (per validation-contract.md):
 //   VAL-DISC-030  info shows the served manifest, versions, and verdict
@@ -241,29 +239,21 @@ describe("VAL-DISC-030 baka registry info <spec> shows the served manifest and v
 		const cwd = makeIsolatedHome("baka-info-human-proj-")
 		const env = { BAKA_HOME: bakaHome, BAKA_REGISTRY_URL: owner.baseUrl }
 
-		const res = await spawnCli(["registry", "info", "@baka/baka-base"], cwd, env, 30_000)
+		const res = await spawnCli(["registry", "info", "@baka/hello"], cwd, env, 30_000)
 		expect(res.code, `stderr=${res.stderr}`).toBe(0)
 
 		// Identity: scope, name, tier, description.
-		expect(res.stdout).toContain("@baka/baka-base")
+		expect(res.stdout).toContain("@baka/hello")
 		expect(res.stdout).toMatch(/tier:\s*official/)
-		expect(res.stdout).toContain("Minimal hello-world TypeScript project scaffold")
+		expect(res.stdout).toContain("Tiny registry-test fixture")
 
 		// Versions: latest pointer + the versions list.
 		expect(res.stdout).toMatch(/latest version:\s*\S+/)
 		expect(res.stdout).toMatch(/versions:/)
 		expect(res.stdout).toMatch(/0\.1\.0/)
 
-		// Every action with its id and description.
-		expect(res.stdout).toContain("scaffold")
-		expect(res.stdout).toContain("add-script")
-		expect(res.stdout).toContain("add-dependency")
-		expect(res.stdout).toContain("Create a fresh TypeScript project")
-		expect(res.stdout).toContain("Add or update a script entry in package.json")
-		expect(res.stdout).toContain("Add a runtime or dev dependency")
-
-		// Params surfaced for at least one action.
-		expect(res.stdout).toContain("moduleType")
+		expect(res.stdout).toContain("greet")
+		expect(res.stdout).toContain("Write a greeting")
 	}, 30_000)
 
 	it("--json output is schema-parseable and matches the served manifest/versions shape", async () => {
@@ -271,7 +261,7 @@ describe("VAL-DISC-030 baka registry info <spec> shows the served manifest and v
 		const cwd = makeIsolatedHome("baka-info-json-proj-")
 		const env = { BAKA_HOME: bakaHome, BAKA_REGISTRY_URL: owner.baseUrl }
 
-		const res = await spawnCli(["registry", "info", "@baka/baka-base", "--json"], cwd, env, 30_000)
+		const res = await spawnCli(["registry", "info", "@baka/hello", "--json"], cwd, env, 30_000)
 		expect(res.code, `stderr=${res.stderr}`).toBe(0)
 		const trimmed = res.stdout.trim()
 		expect(trimmed).toMatch(/^\{[\s\S]*\}$/)
@@ -292,18 +282,16 @@ describe("VAL-DISC-030 baka registry info <spec> shows the served manifest and v
 			screening: unknown
 		}
 		expect(payload.scope).toBe("baka")
-		expect(payload.name).toBe("baka-base")
+		expect(payload.name).toBe("hello")
 		expect(payload.tier).toBe("official")
 		expect(payload.visibility).toBe("public")
 		expect(payload.latestVersion).toBeTruthy()
 		expect(payload.versions.length).toBeGreaterThan(0)
 		expect(payload.versions.every((v) => v.status === "ready")).toBe(true)
-		expect(payload.manifest.name).toBe("baka-base")
-		expect(payload.manifest.actions.length).toBeGreaterThanOrEqual(3)
+		expect(payload.manifest.name).toBe("hello")
+		expect(payload.manifest.actions.length).toBeGreaterThanOrEqual(1)
 		const ids = payload.manifest.actions.map((a) => a.id)
-		expect(ids).toContain("scaffold")
-		expect(ids).toContain("add-script")
-		expect(ids).toContain("add-dependency")
+		expect(ids).toContain("greet")
 		for (const action of payload.manifest.actions) {
 			expect(typeof action.description).toBe("string")
 			expect(action.description.length).toBeGreaterThan(0)
@@ -317,7 +305,7 @@ describe("VAL-DISC-030 baka registry info <spec> shows the served manifest and v
 		const cwd = makeIsolatedHome("baka-info-equality-proj-")
 		const env = { BAKA_HOME: bakaHome, BAKA_REGISTRY_URL: owner.baseUrl }
 
-		const res = await spawnCli(["registry", "info", "@baka/baka-base", "--json"], cwd, env, 30_000)
+		const res = await spawnCli(["registry", "info", "@baka/hello", "--json"], cwd, env, 30_000)
 		expect(res.code, `stderr=${res.stderr}`).toBe(0)
 		const payload = JSON.parse(res.stdout.trim()) as {
 			scope: string
@@ -331,7 +319,7 @@ describe("VAL-DISC-030 baka registry info <spec> shows the served manifest and v
 		}
 
 		// Module detail
-		const detailRes = await fetch(`${owner.baseUrl}/v1/modules/baka/baka-base`)
+		const detailRes = await fetch(`${owner.baseUrl}/v1/modules/baka/hello`)
 		expect(detailRes.ok).toBe(true)
 		const detail = (await detailRes.json()) as {
 			scope: string
@@ -351,7 +339,7 @@ describe("VAL-DISC-030 baka registry info <spec> shows the served manifest and v
 		expect(payload.versions).toEqual(detail.versions)
 
 		// Version detail at latestVersion carries the manifest.
-		const versionRes = await fetch(`${owner.baseUrl}/v1/modules/baka/baka-base/${detail.latestVersion}`)
+		const versionRes = await fetch(`${owner.baseUrl}/v1/modules/baka/hello/${detail.latestVersion}`)
 		expect(versionRes.ok).toBe(true)
 		const versionDetail = (await versionRes.json()) as { manifest: unknown }
 		expect(payload.manifest).toEqual(versionDetail.manifest)
@@ -378,7 +366,7 @@ describe("VAL-DISC-030 baka registry info <spec> shows the served manifest and v
 		const deadPort = await pickEphemeralPort()
 		const env = { BAKA_HOME: bakaHome, BAKA_REGISTRY_URL: `http://127.0.0.1:${deadPort}` }
 
-		const res = await spawnCli(["registry", "info", "@baka/baka-base"], cwd, env, 30_000)
+		const res = await spawnCli(["registry", "info", "@baka/hello"], cwd, env, 30_000)
 		expect(res.code, `stderr=${res.stderr}`).toBe(2)
 		expect(res.stderr).toContain(`http://127.0.0.1:${deadPort}`)
 		expect(res.stderr.toLowerCase()).toContain("unreachable")
@@ -393,21 +381,14 @@ describe("VAL-DISC-030 baka registry info <spec> shows the served manifest and v
 
 describe("VAL-DISC-031 baka registry preview <spec> prints real generated code per action and needs-llm honestly", () => {
 	it("for a module without preview artifacts prints an explicit 'no preview available' line, not an empty screen", async () => {
-		// The built-in catalog ships modules as ready but without
-		// screening (decision 31: built-ins bypass screening), so
-		// `previews` is always empty for `baka-base`, `sdd`,
-		// `ts-style`. The CLI surfaces this honestly.
 		const bakaHome = makeIsolatedHome("baka-preview-nopreview-")
 		const cwd = makeIsolatedHome("baka-preview-nopreview-proj-")
 		const env = { BAKA_HOME: bakaHome, BAKA_REGISTRY_URL: owner.baseUrl }
 
-		const res = await spawnCli(["registry", "preview", "@baka/sdd"], cwd, env, 30_000)
+		const res = await spawnCli(["registry", "preview", "@baka/hello"], cwd, env, 30_000)
 		expect(res.code, `stderr=${res.stderr}`).toBe(0)
 		expect(res.stdout.toLowerCase()).toMatch(/no preview available/)
-		// Honest mentions of the module's actions so the user
-		// knows what would have been previewed.
-		expect(res.stdout).toContain("init-constitution")
-		expect(res.stdout).toContain("create-feature")
+		expect(res.stdout).toContain("greet")
 		expect(res.stderr).toBe("")
 	}, 30_000)
 
@@ -416,7 +397,7 @@ describe("VAL-DISC-031 baka registry preview <spec> prints real generated code p
 		const cwd = makeIsolatedHome("baka-preview-nopreview-json-proj-")
 		const env = { BAKA_HOME: bakaHome, BAKA_REGISTRY_URL: owner.baseUrl }
 
-		const res = await spawnCli(["registry", "preview", "@baka/baka-base", "--json"], cwd, env, 30_000)
+		const res = await spawnCli(["registry", "preview", "@baka/hello", "--json"], cwd, env, 30_000)
 		expect(res.code, `stderr=${res.stderr}`).toBe(0)
 		const trimmed = res.stdout.trim()
 		expect(trimmed).toMatch(/^\{[\s\S]*\}$/)
@@ -427,7 +408,7 @@ describe("VAL-DISC-031 baka registry preview <spec> prints real generated code p
 			previews: Array<{ actionId: string; state: string; files?: unknown[] }>
 		}
 		expect(payload.scope).toBe("baka")
-		expect(payload.name).toBe("baka-base")
+		expect(payload.name).toBe("hello")
 		expect(payload.version).toBeTruthy()
 		expect(Array.isArray(payload.previews)).toBe(true)
 		expect(payload.previews.length).toBe(0)

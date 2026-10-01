@@ -465,10 +465,7 @@ async function fetchModuleDetail(opts: {
  * module name:
  *   - `.baka/modules/<scope>-<name>` (project scope)
  *   - `${BAKA_HOME:-$HOME/.baka}/modules/<scope>-<name>` (user scope)
- *   - bundled modules (the engine ships `baka-base`, `sdd`,
- *     `ts-style` under the official scope; a community registry
- *     module whose bare name matches a bundled one is also a
- *     collision — the engine treats bundled as a registration)
+ * The engine does not ship reserved bundled names.
  *
  * The function returns `null` when no collision exists; otherwise
  * it returns the registration that collides (scope + name +
@@ -478,7 +475,7 @@ async function fetchModuleDetail(opts: {
 interface Collision {
 	existingScope: string
 	existingName: string
-	registration: "project" | "user" | "bundled"
+	registration: "project" | "user"
 }
 
 function detectNameCollision(
@@ -506,15 +503,6 @@ function detectNameCollision(
 		if (existingScope !== null && existingScope !== scope) {
 			return { existingScope, existingName: name, registration: "user" }
 		}
-	}
-	// Bundled scope: the engine ships three bundled modules. A
-	// registry install whose bare name matches a bundled module is
-	// refused with the bundled registration named explicitly —
-	// bundled scope participates in collision detection per
-	// VAL-CROSS-022 step 4.
-	const bundled = bundledScopeForName(name)
-	if (bundled !== null && bundled !== scope) {
-		return { existingScope: bundled, existingName: name, registration: "bundled" }
 	}
 	// Belt-and-braces: also check the project/user settings files
 	// for a source string that would conflict. Settings source
@@ -626,17 +614,6 @@ function parseRegistrationScopeName(raw: string): { scope: string; name: string 
 	const slash = rest.indexOf("/")
 	if (slash <= 0) return null
 	return { scope: rest.slice(0, slash), name: rest.slice(slash + 1) }
-}
-
-/**
- * Maps a bare module name to its bundled scope. The engine ships
- * three bundled modules under the official scope (`baka`): these
- * are the only bare-name reservations at install time. A bare
- * name that doesn't match a bundled module returns `null`.
- */
-function bundledScopeForName(name: string): string | null {
-	const BUNDLED = new Set(["baka-base", "sdd", "ts-style"])
-	return BUNDLED.has(name) ? "baka" : null
 }
 
 /**

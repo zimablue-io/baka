@@ -15,7 +15,7 @@ import {
 	userConfigPath,
 	writeRoleConfig,
 } from "@repo/agent-engine"
-import { BAKA_EXIT_CODE } from "@repo/protocol"
+import { BAKA_DEFAULT_WORKER_MODEL, BAKA_EXIT_CODE } from "@repo/protocol"
 
 function die(code: number, msg: string): never {
 	process.stderr.write(`baka: ${msg}\n`)
@@ -23,7 +23,7 @@ function die(code: number, msg: string): never {
 }
 
 const DEFAULT_BASE_URL = "http://localhost:8080"
-const DEFAULT_MODEL = "gemma4:e4b-it"
+const DEFAULT_MODEL = BAKA_DEFAULT_WORKER_MODEL
 
 async function promptForRole(role: RoleName): Promise<RoleConfig> {
 	const existing = readRoleConfig(role)

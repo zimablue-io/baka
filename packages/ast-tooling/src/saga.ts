@@ -81,7 +81,7 @@ export async function runSaga(
 		state.logs.push(`[saga] step ${i + 1}/${plan.resolvedSteps.length}: ${planStep.module}:${planStep.action}`)
 
 		// Normalize the module name by stripping the version suffix the planner
-		// emits (e.g. "sdd v0.1.0" → "sdd") since worker steps are keyed by name only.
+		// emits (e.g. "widget v0.1.0" → "widget") since worker steps are keyed by name only.
 		const moduleName = planStep.module.split(" v")[0] ?? planStep.module
 		const step = stepsByKey.get(`${moduleName}:${planStep.action}`)
 		if (!step) {

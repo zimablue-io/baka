@@ -24,7 +24,6 @@
 // What it does NOT cover (left for other packages):
 //   - CLI surface (apps/cli/test/role-smoke.test.ts, cli-smoke.test.ts)
 //   - Worker `baka init` hint (packages/ast-tooling/src/worker-init-message.test.ts)
-//   - sdd validator-role LLM contract (modules/sdd/.../validators/*.test.ts)
 // ---------------------------------------------------------------------------
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"

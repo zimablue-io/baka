@@ -5,7 +5,14 @@
 // or rename is caught here, not by a user reading an exit code.
 
 import { describe, expect, it } from "vitest"
-import { BAKA_EXIT_CODE, BAKA_PROJECT_PATHS, BAKA_USER_DIR, ENGINE_STATUS, MODULE_CATEGORY } from "./constants"
+import {
+	BAKA_DEFAULT_WORKER_MODEL,
+	BAKA_EXIT_CODE,
+	BAKA_PROJECT_PATHS,
+	BAKA_USER_DIR,
+	ENGINE_STATUS,
+	MODULE_CATEGORY,
+} from "./constants"
 
 describe("BAKA_EXIT_CODE", () => {
 	it("carries the documented exit codes the CLI contract promises", () => {
@@ -37,6 +44,11 @@ describe("path constants", () => {
 			if (key === "ROOT") continue
 			expect(path.startsWith(".baka/"), `${key} must live under .baka/`).toBe(true)
 		}
+	})
+
+	it("pins the slot cache directory and the one worker-model id", () => {
+		expect(BAKA_PROJECT_PATHS.SLOTS).toBe(".baka/slots")
+		expect(BAKA_DEFAULT_WORKER_MODEL).toBe("gemma4:e4b")
 	})
 
 	it("names the user-level config directory (joined as .baka under the home dir)", () => {

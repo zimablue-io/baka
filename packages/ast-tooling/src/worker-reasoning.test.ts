@@ -57,34 +57,12 @@ export const Manifest: ModuleManifest = {
 		)
 
 		// template — handlebars pre-rendered with params, then sent to LLM
-		writeFileSync(join(templatesDir, "output.md.hbs"), "Generate content for {{name}}")
-
-		// action.ts — reads renderedTemplates["output.md"] and writes to target
 		writeFileSync(
-			join(actionDir, "action.ts"),
-			`import { writeFileSync } from "node:fs"
-import { join } from "node:path"
-import { AgentRole, type StepResponse, type WorkflowStep } from "@repo/protocol"
-
-export interface Input { name: string; renderedTemplates?: Record<string, string> }
-export interface Data { path: string }
-
-export const renderThingAction: WorkflowStep<Input, boolean, Data> = {
-	name: "render-thing",
-	role: AgentRole.WORKER,
-	execute: async (input, state): Promise<StepResponse<boolean, Data>> => {
-		const content = input.renderedTemplates?.["output.md"] ?? "FALLBACK"
-		const full = join(state.targetDirectory, "output.md")
-		writeFileSync(full, content, "utf-8")
-		return { success: true, output: true, compensationData: { path: full } }
-	},
-	compensate: async (data) => {
-		const { rmSync, existsSync } = require("node:fs") as typeof import("node:fs")
-		if (data.path && existsSync(data.path)) rmSync(data.path, { force: true })
-	},
-}
-`,
+			join(templatesDir, "output.md.hbs"),
+			'# {{name}}\n{{#slot "body" kind="prose" max=80}}one sentence{{/slot}}\n',
 		)
+
+		// action.ts is omitted: templates/ is the output tree.
 
 		// -- Fake LLM provider that tracks calls --
 		let callCount = 0
@@ -93,7 +71,7 @@ export const renderThingAction: WorkflowStep<Input, boolean, Data> = {
 			chat: async <T = unknown>(_req: LLMRequest) => {
 				callCount++
 				return {
-					content: { content: "generated content for test" } as T,
+					content: { value: "generated content for test" } as T,
 					usage: { promptTokens: 0, completionTokens: 0 },
 					raw: null,
 				}
@@ -121,7 +99,7 @@ export const renderThingAction: WorkflowStep<Input, boolean, Data> = {
 		expect(result.success, `worker failed: ${result.error}`).toBe(true)
 		expect(callCount, "LLM was not called for reasoning").toBeGreaterThan(0)
 		expect(existsSync(join(dir, "output.md")), "output file was not created").toBe(true)
-		expect(readFileSync(join(dir, "output.md"), "utf-8")).toBe("generated content for test")
+		expect(readFileSync(join(dir, "output.md"), "utf-8")).toBe("# test\ngenerated content for test\n")
 	})
 
 	// The role-keyed config refactor replaces the legacy
@@ -154,7 +132,7 @@ export const Manifest: ModuleManifest = {
 }
 `,
 		)
-		writeFileSync(join(templatesDir, "thing.md.hbs"), "hello world")
+		writeFileSync(join(templatesDir, "thing.md.hbs"), '{{#slot "body" kind="prose"}}one sentence{{/slot}}\n')
 
 		writeFileSync(
 			join(actionDir, "action.ts"),

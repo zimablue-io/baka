@@ -8,7 +8,7 @@
 
 Modern LLM-assisted development suffers from a specific failure mode: the model is asked to invent code, files, and structure from scratch, every time, on every project. The result is a thousand subtly different ways to write the same auth handler, the same error boundary, the same TypeScript module. The model re-invents the wheel constantly, and no two invocations produce the same tree.
 
-Baka fixes this by stripping the LLM of the ability to invent anything. The model is constrained to pick from a finite, declared action space — the catalog of actions in the user's installed modules. The same intent + the same modules always produce the same plan. The wheel stops being re-invented.
+Baka fixes this by stripping the LLM of the ability to invent anything. Files are templates with named slots. Params interpolate. The same command + the same params + the same slot cache always produce the same tree. The planner is a fuzzy catalog picker, not the product. The wheel stops being re-invented.
 
 ## The invariant
 
@@ -17,7 +17,7 @@ Baka fixes this by stripping the LLM of the ability to invent anything. The mode
 This invariant is enforced by architecture, not by prompting:
 
 1. **The Orchestrator** receives the user intent and the full module manifest catalog. It may only emit `{module, action, params}` steps that reference declared module/action ids. Plans are validated against a Zod schema; an action that does not exist in the catalog is a hard error.
-2. **The Worker** dispatches one declared action to a deterministic TypeScript handler in the module. When the action's manifest sets `requiresReasoning: true`, the worker uses a small LLM assist with a prompt built from the action's versioned `templates/*.hbs` — but the assist only fills fields the module's template declares. The module's structure is not negotiable.
+2. **The Worker** materializes `templates/` to disk. Params interpolate. Named `{{#slot}}` holes are the only LLM surface (constrained JSON, temperature 0, cached). `action.ts` is optional side effects. `gemma4:e4b` is the intelligence floor.
 3. **The Validator** is deterministic TypeScript. It runs the module's `validators/*.ts` and `_shared/validators/*.ts` functions against the resulting file tree. No LLM is involved.
 
 If any tier is tempted to invent, the tier boundary refuses to cooperate. The Validator would flag the result. The Worker would reject a non-declared action. The Orchestrator's schema would reject a non-catalog reference.
@@ -32,8 +32,9 @@ If any tier is tempted to invent, the tier boundary refuses to cooperate. The Va
 
 ### Worker (calls the worker-role model directly, no LLM assist on top)
 - **Input:** one `{module, action, params}` step
-- **Default mode:** load `modules/<name>/<action.id>/action.ts`, run it, get a `StepResponse`. The worker calls the worker-role LLM directly when the action needs to fill structured fields; the call is unmediated by any "assist" layer.
-- **Reasoning mode** (when `requiresReasoning: true`): render `templates/*.hbs` with the action's params, call the worker-role model with a Zod-constrained schema for the body, write the body into the file the template declares. The LLM only fills the body; the file's path, exports, and surrounding code are dictated by the template.
+- **Default mode:** materialize `templates/` (params + named slots). Load `action.ts` only when it exists (side effects).
+- **Slots** (when a template has `{{#slot}}`): one constrained JSON call per empty slot at temperature 0. Cache key = templateHash + slotId + paramsHash + model. `--refill` is explicit.
+- **Forbidden:** whole-file `{ content: string }` generation. The model never authors headings, paths, or file lists.
 - **Compensation:** calls the action referenced in `compensatesWith` (the inverse action), with bounded retries (3 attempts, exponential backoff).
 
 ### Validator (deterministic TypeScript by default, validator-role LLM available per module)
@@ -66,7 +67,7 @@ Users configure two roles in `${BAKA_HOME:-$HOME/.baka}/config.json` via the CLI
 ```bash
 baka init                              # interactive first-time setup (writes both roles)
 baka roles                             # view every role's fields (apiKey masked as <set>)
-baka role worker --field model --value gemma4:12b     # mutate one field non-interactively
+baka role worker --field model --value gemma4:e4b     # mutate one field non-interactively
 baka role validator --field baseUrl --value http://localhost:8080/v1
 ```
 

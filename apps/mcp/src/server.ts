@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { engineRequest } from "@baka/engine"
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js"
 import {
@@ -12,7 +13,7 @@ import {
 	SUPPORTED_PROTOCOL_VERSIONS,
 } from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod"
-import { createContext, getModules, type ServerContext } from "./context.js"
+import { createContext, type ServerContext } from "./context.js"
 import { DESIGN_MODULE_DESCRIPTION, DESIGN_MODULE_PROMPT_NAME, designModuleMessages } from "./prompts/design-module.js"
 import {
 	listModulesResource,
@@ -24,7 +25,6 @@ import {
 } from "./resources/modules.js"
 import {
 	ApplyInputSchema,
-	actionParamsToZodSchema,
 	DesignModuleArgsShape,
 	ListActionsInputSchema,
 	PlanInputSchema,
@@ -34,7 +34,7 @@ import {
 	ValidateInputSchema,
 } from "./schemas.js"
 import { runRegistryGetModule, runRegistryGetPreview, runRegistrySearch } from "./tools/registry.js"
-import { runAction, runApply, runListActions, runPlan, runValidate } from "./tools/workflow.js"
+import { runApply, runPlan } from "./tools/workflow.js"
 
 const SERVER_NAME = "baka-mcp"
 
@@ -75,7 +75,7 @@ export function startServer(opts: StartServerOptions): McpServer {
 	const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION })
 
 	registerWorkflowTools(server, ctx)
-	registerActionTools(server, ctx)
+	registerEngineTools(server, ctx)
 	registerRegistryTools(server, ctx)
 	registerResources(server, ctx)
 	registerPrompts(server)
@@ -247,8 +247,12 @@ function registerWorkflowTools(server: McpServer, ctx: ServerContext): void {
 			inputSchema: ValidateInputSchema.shape,
 		},
 		async () => {
-			const result = await runValidate(ctx)
-			return { ...jsonResult(result), ...(result.valid ? {} : { isError: true }) }
+			const { status, json } = await engineRequest(ctx.cwd, "/v1/validate", { method: "POST", body: {} })
+			const result = json as { valid?: boolean; error?: string }
+			if (status >= 400) {
+				return { ...jsonResult({ valid: false, error: result.error ?? "validate failed" }), isError: true }
+			}
+			return { ...jsonResult(json), ...(result.valid ? {} : { isError: true }) }
 		},
 	)
 
@@ -261,60 +265,130 @@ function registerWorkflowTools(server: McpServer, ctx: ServerContext): void {
 		},
 		async (raw) => {
 			const input = ListActionsInputSchema.parse(raw)
-			const result = await runListActions(ctx, input.module)
-			return jsonResult(result)
+			const { status, json } = await engineRequest(ctx.cwd, "/v1/modules")
+			const body = json as {
+				modules?: Array<{
+					name: string
+					version: string
+					description: string
+					actions: Array<{
+						id: string
+						description: string
+						requiresReasoning: boolean
+						compensatesWith?: string
+						params: Array<{
+							name: string
+							type: string
+							required: boolean
+							description: string
+							enumValues?: string[]
+						}>
+					}>
+				}>
+			}
+			if (status >= 400) {
+				throw new Error("failed to list modules")
+			}
+			const m = (body.modules ?? []).find((x) => x.name === input.module)
+			if (!m) {
+				const known = (body.modules ?? []).map((x) => x.name).join(", ")
+				throw new Error(`module "${input.module}" not found. Discovered modules: ${known || "(none)"}`)
+			}
+			return jsonResult({
+				module: m.name,
+				version: m.version,
+				description: m.description,
+				actions: m.actions,
+			})
 		},
 	)
 }
 
 // ---------------------------------------------------------------------------
-// Per-action tools (one per {module, action})
+// Slot-native engine tools (same handlers as `baka run|slots|fill --json`)
 // ---------------------------------------------------------------------------
 
-function registerActionTools(server: McpServer, ctx: ServerContext): void {
-	for (const m of getModules(ctx)) {
-		for (const a of m.actions) {
-			const toolName = actionToolName(m.name, a.id)
-			const description = formatActionDescription(m, a)
-			const shape = actionParamsToZodSchema(a).shape
+const RunInputSchema = z.object({
+	module: z.string().min(1).describe("Module name"),
+	action: z.string().min(1).describe("Action id"),
+	params: z.record(z.unknown()).optional().describe("Action params"),
+	refill: z.boolean().optional().describe("Ignore the slot cache and write a new fill"),
+})
 
-			server.registerTool(
-				toolName,
-				{
-					description,
-					inputSchema: shape,
+const SlotsInputSchema = z.object({
+	module: z.string().min(1).describe("Module name"),
+	action: z.string().min(1).describe("Action id"),
+})
+
+const FillInputSchema = z.object({
+	module: z.string().min(1).describe("Module name"),
+	action: z.string().min(1).describe("Action id"),
+	slot: z.string().min(1).describe("Slot id"),
+	value: z.unknown().describe("Fill value"),
+	params: z.record(z.unknown()).optional().describe("Action params (must match the later run)"),
+})
+
+function registerEngineTools(server: McpServer, ctx: ServerContext): void {
+	server.registerTool(
+		"baka_run",
+		{
+			description:
+				"Materialize a named module/action. Templates are the output tree; the LLM fills named slots only. Prefer `baka run <module>/<action> --json` in a shell. Same JSON as the CLI.",
+			inputSchema: RunInputSchema.shape,
+		},
+		async (raw) => {
+			const input = RunInputSchema.parse(raw)
+			const { status, json } = await engineRequest(ctx.cwd, "/v1/run", {
+				method: "POST",
+				body: {
+					module: input.module,
+					action: input.action,
+					params: input.params ?? {},
+					refill: input.refill,
 				},
-				async (raw) => {
-					const params = (raw ?? {}) as Record<string, unknown>
-					const result = await runAction(ctx, m.name, a.id, params)
-					return jsonResult(result)
-				},
+			})
+			const body = json as { ok?: boolean }
+			return { ...jsonResult(json), ...(status >= 400 || body.ok === false ? { isError: true } : {}) }
+		},
+	)
+
+	server.registerTool(
+		"baka_slots",
+		{
+			description: "List named slots for a module/action. Same JSON as `baka slots <module>/<action> --json`.",
+			inputSchema: SlotsInputSchema.shape,
+		},
+		async (raw) => {
+			const input = SlotsInputSchema.parse(raw)
+			const { status, json } = await engineRequest(
+				ctx.cwd,
+				`/v1/slots?module=${encodeURIComponent(input.module)}&action=${encodeURIComponent(input.action)}`,
 			)
-		}
-	}
-}
+			return { ...jsonResult(json), ...(status >= 400 ? { isError: true } : {}) }
+		},
+	)
 
-function actionToolName(moduleName: string, actionId: string): string {
-	// MCP tool names must match ^[a-zA-Z0-9_-]{1,64}$. We also normalize
-	// hyphens to underscores so the names are pure snake_case, which is
-	// easier to type in agent tool calls and is consistent across the
-	// surface (workflow tools use `baka_plan`, not `baka-plan`).
-	const safe = (s: string) => s.replace(/[^a-zA-Z0-9_]/g, "_")
-	return `baka_${safe(moduleName)}_${safe(actionId)}`
-}
-
-function formatActionDescription(
-	module: { name: string; version: string },
-	action: { id: string; description: string; requiresReasoning: boolean; compensatesWith?: string },
-): string {
-	const lines = [`[${module.name} v${module.version}] ${action.id}: ${action.description}`]
-	if (action.requiresReasoning) {
-		lines.push("This action requires an LLM provider (configured via `baka init`); it will throw if none is available.")
-	}
-	if (action.compensatesWith) {
-		lines.push(`On failure, the SAGA rolls back via \`${action.compensatesWith}\`.`)
-	}
-	return lines.join(" ")
+	server.registerTool(
+		"baka_fill",
+		{
+			description: "Pin a slot fill in the project slot cache (model=manual). Same JSON as `baka fill --json`.",
+			inputSchema: FillInputSchema.shape,
+		},
+		async (raw) => {
+			const input = FillInputSchema.parse(raw)
+			const { status, json } = await engineRequest(ctx.cwd, "/v1/fill", {
+				method: "POST",
+				body: {
+					module: input.module,
+					action: input.action,
+					slot: input.slot,
+					value: input.value,
+					params: input.params ?? {},
+				},
+			})
+			return { ...jsonResult(json), ...(status >= 400 ? { isError: true } : {}) }
+		},
+	)
 }
 
 // ---------------------------------------------------------------------------

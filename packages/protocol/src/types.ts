@@ -5,6 +5,7 @@ import type {
 	ModuleManifestSchema,
 	OrchestrationStateSchema,
 	ResolvedPlanSchema,
+	SlotDeclSchema,
 } from "./schemas"
 
 // ---------------------------------------------------------------------------
@@ -16,6 +17,7 @@ export type ModuleAction = z.infer<typeof ModuleActionSchema>
 export type ModuleManifest = z.infer<typeof ModuleManifestSchema>
 export type OrchestrationState = z.infer<typeof OrchestrationStateSchema>
 export type ResolvedPlan = z.infer<typeof ResolvedPlanSchema>
+export type SlotDecl = z.infer<typeof SlotDeclSchema>
 
 // ---------------------------------------------------------------------------
 // Agent role + workflow step contract

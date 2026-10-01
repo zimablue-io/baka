@@ -28,7 +28,8 @@
 			"!**/cypress/screenshots",
 			"!**/.turbo",
 			"!.factory",
-			"!pnpm-lock.yaml"
+			"!pnpm-lock.yaml",
+			"!**/routeTree.gen.ts"
 		]
 	},
 	"formatter": {
@@ -64,6 +65,24 @@
 			"css": {
 				"parser": {
 					"tailwindDirectives": true
+				}
+			}
+		},
+		{
+			"includes": ["**/src/components/ui/**"],
+			"linter": {
+				"rules": {
+					"a11y": {
+						"useSemanticElements": "off",
+						"noLabelWithoutControl": "off"
+					},
+					"suspicious": {
+						"noArrayIndexKey": "off",
+						"noDoubleEquals": "off"
+					},
+					"correctness": {
+						"noUnusedImports": "off"
+					}
 				}
 			}
 		},

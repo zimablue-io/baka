@@ -1,8 +1,15 @@
 # Next.js Rules
 
-**Owner**: Frontend Team
-**Last Updated**: 2026-06-11
-**Applies to**: `apps/dashboard/**`, `apps/admin/**` (Next.js apps in this monorepo).
+**Owner**: Platform
+**Last Updated**: 2026-08-25
+**Applies to**: a future Next.js **module**, if we write one. Not the Baka engine.
+
+Baka is not a Next.js product. `apps/dashboard` is TanStack Start +
+shadcn. See `.factory/rules/platform.md`. Do not use this file as a
+reason to build Next.js into the core.
+
+These notes exist so that **when** a Next.js module (or a Next.js
+app) is authored, App Router claims are checked against current docs.
 
 > All Next.js claims must be verified with `mcp__context7__query-docs`
 > before writing code, because the App Router and Server Components

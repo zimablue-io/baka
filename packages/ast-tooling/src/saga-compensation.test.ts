@@ -178,7 +178,10 @@ describe("Worker reasoning pollution", () => {
 		const actionDir = join(moduleRoot, actionId)
 		const templatesDir = join(actionDir, "templates")
 		mkdirSync(templatesDir, { recursive: true })
-		writeFileSync(join(templatesDir, "page.md.hbs"), "Hello {{name}}", "utf-8")
+		writeFileSync(
+			join(templatesDir, "page.md.hbs"),
+			'Hello {{name}}\n{{#slot "tag" kind="prose" max=40}}one word{{/slot}}\n',
+		)
 
 		writeFileSync(
 			join(moduleRoot, "manifest.ts"),
@@ -201,31 +204,12 @@ describe("Worker reasoning pollution", () => {
 `,
 		)
 
-		writeFileSync(
-			join(actionDir, "action.ts"),
-			`const { writeFileSync } = require("node:fs")
-const { join } = require("node:path")
-
-export const renderAction = {
-	name: "render",
-	role: "worker",
-	execute: async (input, state) => {
-		const content = input.renderedTemplates?.["page.md"] ?? "FALLBACK"
-		writeFileSync(join(state.targetDirectory, "page.md"), content, "utf-8")
-		return { success: true, output: true, compensationData: { path: join(state.targetDirectory, "page.md") } }
-	},
-	compensate: async (data) => {
-		const { rmSync, existsSync } = require("node:fs")
-		if (data.path && existsSync(data.path)) rmSync(data.path, { force: true })
-	},
-}
-`,
-		)
+		// templates/ is the output tree; no action.ts author.
 
 		const fakeProvider: LLMProvider = {
 			name: "fake",
 			chat: async <T = unknown>() => ({
-				content: { content: "generated" } as T,
+				content: { value: "generated" } as T,
 				usage: { promptTokens: 0, completionTokens: 0 },
 				raw: null,
 			}),
@@ -249,7 +233,7 @@ export const renderAction = {
 
 		expect(result.success, result.error).toBe(true)
 		expect(existsSync(join(dir, "page.md"))).toBe(true)
-		expect(readFileSync(join(dir, "page.md"), "utf-8")).toBe("generated")
+		expect(readFileSync(join(dir, "page.md"), "utf-8")).toBe("Hello world\ngenerated\n")
 		expect(existsSync(join(dir, "modules", moduleName, actionId, "out"))).toBe(false)
 	})
 })

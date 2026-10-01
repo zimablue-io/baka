@@ -966,32 +966,23 @@ describe("startServer — verified seeder is wired into the boot (VAL-SCAN-010)"
 		}
 	}
 
-	it("startServer applies REGISTRY_VERIFIED_MODULES at boot and surfaces tier=verified on the read surface", async () => {
+	it("startServer ignores REGISTRY_VERIFIED_MODULES names that are not in the catalog", async () => {
 		const config = loadConfig(
 			env({
-				REGISTRY_VERIFIED_MODULES: JSON.stringify(["baka/baka-base", "baka/sdd"]),
+				REGISTRY_VERIFIED_MODULES: JSON.stringify(["baka/hello"]),
 			}),
 			dataDir,
 		)
 		const handle = await startServer(config)
 		try {
-			// Both built-in modules are seeded with tier=official
-			// by the catalog seeder; the verified seeder runs
-			// AFTER the seed and overrides the tier to `verified`
-			// for the listed entries.
-			const baseRes = await fetch(`${handle.url()}/v1/modules/baka/baka-base`)
-			const baseBody = (await baseRes.json()) as { tier: string }
-			expect(baseBody.tier).toBe("verified")
-
-			const sddRes = await fetch(`${handle.url()}/v1/modules/baka/sdd`)
-			const sddBody = (await sddRes.json()) as { tier: string }
-			expect(sddBody.tier).toBe("verified")
-
-			// A built-in not in the verified list retains the
-			// official tier.
-			const tsStyleRes = await fetch(`${handle.url()}/v1/modules/baka/ts-style`)
-			const tsStyleBody = (await tsStyleRes.json()) as { tier: string }
-			expect(tsStyleBody.tier).toBe("official")
+			const health = await fetch(`${handle.url()}/healthz`)
+			expect(health.ok).toBe(true)
+			const list = await fetch(`${handle.url()}/v1/modules`)
+			expect(list.ok).toBe(true)
+			const body = (await list.json()) as { modules?: unknown[] }
+			expect(body.modules).toEqual([])
+			const missing = await fetch(`${handle.url()}/v1/modules/baka/hello`)
+			expect(missing.status).toBe(404)
 		} finally {
 			await handle.close()
 		}

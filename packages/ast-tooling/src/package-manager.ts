@@ -179,7 +179,7 @@ function resolvePath(p: string): string {
 }
 
 function npmNameToDirName(name: string): string {
-	// "@baka-mod/baka-base" -> "baka-mod-baka-base" (folder-safe, prefix-preserved)
+	// "@acme/widget" -> "acme-widget"
 	return name.replace(/^@/, "").replace("/", "-")
 }
 

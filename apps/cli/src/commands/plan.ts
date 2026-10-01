@@ -1,3 +1,4 @@
+import { engineRequest } from "@baka/engine"
 import { createLLMProvider, loadLLMConfig, validateLLMConfig } from "@repo/agent-engine"
 import { listPlans, loadPlan, ModuleRegistry, runValidators, StructuredLog, savePlan } from "@repo/ast-tooling"
 import { featurePlanningWorkflow } from "@repo/feature-planning-workflow"
@@ -138,15 +139,15 @@ export async function runApplyCommand(planFile: string, cwd: string, opts: { jso
 	// resolveModuleRoot path — the same path the Worker uses at
 	// execution time. Unlike `discover()`, this is NOT gated on the
 	// cwd's package.json, so a bare temp dir (no .baka/modules/ and no
-	// in-tree modules/) still finds the bundled baka-base / sdd /
-	// ts-style. The apply surface and the worker surface therefore
+	// in-tree modules/) still resolves whatever is installed for that
+	// project. The apply surface and the worker surface therefore
 	// resolve modules from any cwd identically.
 	const { runSaga: runSagaImpl, executeWorkerStep } = await import("@repo/ast-tooling")
 	const registry = new ModuleRegistry(cwd)
 	const moduleNames = new Set<string>()
 	for (const planStep of plan.resolvedSteps) {
 		// Normalize the module name by stripping the version suffix the
-		// planner emits (e.g. "sdd v0.1.0" → "sdd") since worker steps
+		// planner emits (e.g. "hello v0.1.0" → "hello") since worker steps
 		// are keyed by name only.
 		moduleNames.add(planStep.module.split(" v")[0] ?? planStep.module)
 	}
@@ -263,51 +264,38 @@ function loadModuleManifest(moduleRoot: string, _moduleName: string): ModuleMani
 }
 
 export async function runValidateCommand(cwd: string, opts: { json?: boolean; module?: string } = {}): Promise<void> {
-	// Count through the same single discovery implementation the validators
-	// use, so `modulesDiscovered` can never disagree with the validated set.
-	const { modules } = new ModuleRegistry(cwd).discover(false)
-	const state: OrchestrationState = {
-		userIntent: "(validate)",
-		targetDirectory: cwd,
-		status: "VALIDATING",
-		executionPlan: { steps: [], currentStepIndex: 0 },
-		logs: [],
-		artifacts: {},
-	}
-
-	// `baka validate --module <name>` filters to a single module's
-	// validators. A non-existent module is a user error (the user gave
-	// us a name that doesn't exist), not a validation error. The
-	// exit code must be BAKA_EXIT_CODE.USER_ERROR (1), not
-	// VALIDATION_ERROR (4). Catch it here, before `runValidators` runs.
-	if (opts.module) {
-		const names = new Set(modules.map((m) => m.name))
-		if (!names.has(opts.module)) {
-			die(BAKA_EXIT_CODE.USER_ERROR, `module "${opts.module}" not found`)
+	const { status, json } = await engineRequest(cwd, "/v1/validate", {
+		method: "POST",
+		body: opts.module ? { module: opts.module } : {},
+	})
+	const body = json as {
+		error?: string
+		valid?: boolean
+		modulesDiscovered?: number
+		moduleName?: string
+		validation?: {
+			kind: "pass" | "fail"
+			diagnostics?: Array<{ severity: string; rule: string; message: string }>
 		}
 	}
+	if (status >= 400) {
+		die(BAKA_EXIT_CODE.USER_ERROR, body.error ?? "validate failed")
+	}
+	const result = body.validation ?? { kind: body.valid === false ? "fail" : "pass", diagnostics: [] }
 
-	const result = await runValidators(cwd, state, undefined, opts.module)
-
-	// A validator throwing because the user forgot to configure a role is
-	// a USER_ERROR, not a VALIDATION_ERROR. The user did not produce a
-	// bad spec — they haven't configured their tooling yet. Surface the
-	// first such message via stderr and exit with code 1.
 	if (result.kind === "fail") {
-		const missingConfig = result.diagnostics.find((d) => d.severity === "error" && /missing LLM config/.test(d.message))
+		const missingConfig = result.diagnostics?.find(
+			(d) => d.severity === "error" && /missing LLM config/.test(d.message),
+		)
 		if (missingConfig) {
 			die(BAKA_EXIT_CODE.USER_ERROR, missingConfig.message)
 		}
 	}
 
 	if (opts.json) {
-		// Same shape as the MCP `baka_validate` tool, plus the optional
-		// `moduleName` echo so the consumer can confirm the filter landed.
-		// `valid` mirrors the MCP top-level boolean so both surfaces branch
-		// on failure the same way (the CLI additionally exits 4).
 		const payload: Record<string, unknown> = {
 			valid: result.kind !== "fail",
-			modulesDiscovered: modules.length,
+			modulesDiscovered: body.modulesDiscovered ?? 0,
 			validation: result,
 		}
 		if (opts.module) payload.moduleName = opts.module
@@ -318,14 +306,14 @@ export async function runValidateCommand(cwd: string, opts: { json?: boolean; mo
 		return
 	}
 
-	console.log(`discovered ${modules.length} module(s)`)
+	console.log(`discovered ${body.modulesDiscovered ?? 0} module(s)`)
 	if (opts.module) console.log(`filtered to module: ${opts.module}`)
 	if (result.kind === "pass") {
 		console.log("\nvalidation: PASS")
 		return
 	}
 	console.log("\nvalidation: FAIL")
-	for (const d of result.diagnostics) {
+	for (const d of result.diagnostics ?? []) {
 		console.log(`  - [${d.severity}] ${d.rule}: ${d.message}`)
 	}
 	process.exit(BAKA_EXIT_CODE.VALIDATION_ERROR)
