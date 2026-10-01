@@ -350,3 +350,33 @@ baka.tree.v1\n
 ### Dry run
 
 `dryRun: true` (`baka run --dry-run`) plans and returns the same receipt without writing anything: no project files and no slot-cache entries. The tree it reports is the tree a real run would leave, given the same slot fills. A dry run is only available for template-only actions; an action with an `action.ts` has side effects (spawn, git, package.json edits) that cannot be virtualised, so it fails with `dry-run-unsupported` rather than pretending. Validators inspect the real tree, so a dry run does not run them. Because a dry run does not persist fills, hand its `slots` to the real run (see "Slot records and replay") when the real run must produce the tree the dry run predicted.
+
+## Slot records and replay
+
+Every slot a run fills comes back as data in `slots`, whichever way it was filled:
+
+```jsonc
+{ "id": "blurb", "key": "<sha256 hex>", "model": "gemma4:e4b", "value": "...", "source": "llm" }
+```
+
+- `id` is the slot id; `value` is the filled value (a string, a list of strings, or a JSON object, per the slot `kind`).
+- `key` is the model-independent identity of the fill: sha256 over the template's bytes, the slot id, and the canonical (sorted-key) JSON of the action params. Change the template or the params and the key changes.
+- `model` is the model that produced the value (`manual` for a fill pinned with `baka fill`).
+- `source` is `llm` (the model was called this run), `cache` (read from the slot cache), or `replay` (taken from a supplied record).
+
+The caller chooses how slots are obtained with `slots: { mode, records? }` (`--slot-mode` and `--slot-records` on the CLI):
+
+| mode | Behaviour |
+|---|---|
+| `live` (default) | The slot cache first, then the model. Fresh fills are written to the cache. |
+| `record` | Always ask the model; the cache is not read. Fresh fills are written to the cache. Use it to capture a new authoritative set (this replaces the old `--refill`). |
+| `replay` | Use only `records`. The cache is neither read nor written and the model is never called, even if a provider was supplied. |
+
+In `replay`, a slot with no record fails the run with `slot-record-missing`. A record whose `key` no longer matches (the template or the params changed since it was taken) fails with `slot-record-stale`, and one whose value does not fit the slot's schema fails with `slot-fill-invalid`. All three are hard errors: nothing is written. Replaying a stored receipt's `slots` therefore reproduces the same bytes and the same `outputTreeHash`, on any machine, with no model:
+
+```bash
+baka run hello/greet --name Ada --json > receipt.json
+baka run hello/greet --name Ada --json --slot-records receipt.json   # same outputTreeHash, no model call
+```
+
+The on-disk cache (`<project>/.baka/slots/<key>.json`, falling back to `$BAKA_HOME/slots` for the CLI and engine) stays the default store behind `live` and `record`. Its key still includes the model (`templateHash + slotId + paramsHash + model`), so two models never share a cached fill. Library callers can inject any `SlotStore`; `createMemorySlotStore()` keeps fills off the disk entirely.

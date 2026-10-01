@@ -41,6 +41,25 @@ interface ActionResult {
 }
 ```
 
+## Slot records and replay
+
+Slot fills come back as data in `result.slots`. Pass them back to reproduce a run with no model:
+
+```ts
+const recorded = await runAction({ registry, module: "hello", action: "greet", params, provider, model })
+// ...store `recorded` anywhere...
+const replayed = await runAction({
+	registry,
+	module: "hello",
+	action: "greet",
+	params,
+	slots: { mode: "replay", records: recorded.slots }, // no provider
+})
+replayed.outputTreeHash === recorded.outputTreeHash // true
+```
+
+In `replay`, a missing slot fails the run with `slot-record-missing` and no model call is ever made. Modes `live` (cache then model, the default) and `record` (always the model) are described in [docs/MODULES.md](../../docs/MODULES.md#slot-records-and-replay).
+
 `dryRun: true` computes the same receipt without writing a byte. The exact definition of `outputTreeHash`, the changeset ops, and the failure semantics are in [docs/MODULES.md](../../docs/MODULES.md#running-an-action-the-receipt).
 
 ## What this package does not do

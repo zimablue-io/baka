@@ -9,6 +9,7 @@ import {
 	type LLMProvider,
 	type ModuleManifest,
 	type OrchestrationState,
+	type SlotsInput,
 	type StepResponse,
 	type ValidationDiagnostic,
 } from "@repo/protocol"
@@ -96,6 +97,8 @@ export interface RunActionInput {
 	model?: string
 	/** Slot cache. Defaults to the project's on-disk cache, without the user-level fallback. */
 	store?: SlotStore
+	/** Slot mode and replay records. Defaults to `{ mode: "live" }`. */
+	slots?: SlotsInput
 	/**
 	 * Compute the changeset and output tree hash against a virtual tree and
 	 * write nothing: no files, no slot cache. Template-only actions only; an
@@ -176,6 +179,8 @@ export async function runAction(input: RunActionInput): Promise<ActionResult> {
 				model,
 				store: input.store ?? createDiskSlotStore(root),
 				persist: !dryRun,
+				slotMode: input.slots?.mode ?? "live",
+				records: input.slots?.records ?? [],
 			})
 		}
 		changeset = plan.files.map(({ path, op, contentHash, reason }) => ({

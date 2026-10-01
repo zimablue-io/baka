@@ -12,6 +12,7 @@ import {
 	McpError,
 	SUPPORTED_PROTOCOL_VERSIONS,
 } from "@modelcontextprotocol/sdk/types.js"
+import { SlotsInputSchema as RunSlotsInputSchema } from "@repo/protocol"
 import { z } from "zod"
 import { createContext, type ServerContext } from "./context.js"
 import { DESIGN_MODULE_DESCRIPTION, DESIGN_MODULE_PROMPT_NAME, designModuleMessages } from "./prompts/design-module.js"
@@ -312,6 +313,9 @@ const RunInputSchema = z.object({
 	module: z.string().min(1).describe("Module name"),
 	action: z.string().min(1).describe("Action id"),
 	params: z.record(z.unknown()).optional().describe("Action params"),
+	slots: RunSlotsInputSchema.optional().describe(
+		"Slot mode: live (cache, then model; default), record (always ask the model), or replay (only the supplied records; a missing slot is an error and no model call is made)",
+	),
 	dryRun: z.boolean().optional().describe("Compute the changeset and output tree hash without writing anything"),
 	includeContent: z.boolean().optional().describe("Attach each written file's text to its changeset entry"),
 })
@@ -345,6 +349,7 @@ function registerEngineTools(server: McpServer, ctx: ServerContext): void {
 					module: input.module,
 					action: input.action,
 					params: input.params ?? {},
+					slots: input.slots,
 					dryRun: input.dryRun,
 					includeContent: input.includeContent,
 				},

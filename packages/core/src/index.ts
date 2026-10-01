@@ -36,7 +36,9 @@ export type {
 	LLMRequest,
 	LLMResponse,
 	ModuleManifest,
+	SlotMode,
 	SlotRecord,
+	SlotsInput,
 	ValidationDiagnostic,
 } from "@repo/protocol"
 export { ACTION_ERROR_CODES } from "@repo/protocol"

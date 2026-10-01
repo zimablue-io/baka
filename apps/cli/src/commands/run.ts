@@ -37,6 +37,8 @@ export function parseParamFlags(raw: string[] | undefined, paramsJson?: string):
 		if (
 			key === "json" ||
 			key === "dry-run" ||
+			key === "slot-mode" ||
+			key === "slot-records" ||
 			key === "include-content" ||
 			key === "params" ||
 			key === "slot" ||
@@ -47,7 +49,16 @@ export function parseParamFlags(raw: string[] | undefined, paramsJson?: string):
 			key === "help" ||
 			key === "version"
 		) {
-			if (key === "cwd" || key === "params" || key === "slot" || key === "file" || key === "value" || key === "port") {
+			if (
+				key === "cwd" ||
+				key === "params" ||
+				key === "slot" ||
+				key === "file" ||
+				key === "value" ||
+				key === "port" ||
+				key === "slot-mode" ||
+				key === "slot-records"
+			) {
 				i++
 			}
 			continue
@@ -74,15 +85,18 @@ export async function runRunCommand(
 		json?: boolean
 		dryRun?: boolean
 		includeContent?: boolean
+		slotMode?: string
+		slotRecords?: string
 		params?: string
 		extra?: string[]
 	},
 ): Promise<void> {
 	const { module, action } = parseModuleAction(target)
 	const params = parseParamFlags(opts.extra, opts.params)
+	const slots = parseSlotsFlags(opts.slotMode, opts.slotRecords)
 	const { status, json } = await engineRequest(opts.cwd, "/v1/run", {
 		method: "POST",
-		body: { module, action, params, dryRun: opts.dryRun, includeContent: opts.includeContent },
+		body: { module, action, params, slots, dryRun: opts.dryRun, includeContent: opts.includeContent },
 	})
 	const body = json as RunBody
 	if (opts.json) {
@@ -93,6 +107,37 @@ export async function runRunCommand(
 	if (status >= 400 || body.ok === false) {
 		process.exit(BAKA_EXIT_CODE.ENGINE_ERROR)
 	}
+}
+
+/**
+ * `--slot-mode live|record|replay` and `--slot-records <file>`. The file holds a
+ * JSON array of slot records, or a receipt (`baka run --json` output) whose
+ * `slots` are used, so a recorded run can be replayed by passing its output back.
+ */
+function parseSlotsFlags(
+	mode: string | undefined,
+	recordsFile: string | undefined,
+): { mode: string; records?: unknown[] } | undefined {
+	if (mode === undefined && recordsFile === undefined) return undefined
+	const resolved = mode ?? (recordsFile ? "replay" : "live")
+	if (!["live", "record", "replay"].includes(resolved)) {
+		die(BAKA_EXIT_CODE.USER_ERROR, `--slot-mode must be live, record, or replay; got "${resolved}"`)
+	}
+	if (!recordsFile) return { mode: resolved }
+	let parsed: unknown
+	try {
+		parsed = JSON.parse(readFileSync(recordsFile, "utf-8"))
+	} catch (err) {
+		die(BAKA_EXIT_CODE.USER_ERROR, `--slot-records ${recordsFile}: ${err instanceof Error ? err.message : String(err)}`)
+	}
+	const records = Array.isArray(parsed) ? parsed : (parsed as { slots?: unknown } | null)?.slots
+	if (!Array.isArray(records)) {
+		die(
+			BAKA_EXIT_CODE.USER_ERROR,
+			`--slot-records ${recordsFile} must be a JSON array of slot records or a receipt with "slots"`,
+		)
+	}
+	return { mode: resolved, records }
 }
 
 interface RunBody {

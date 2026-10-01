@@ -1,6 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import type { ActionCompensation, ChangesetEntry, LLMProvider, LLMRequest, SlotDecl, SlotRecord } from "@repo/protocol"
+import type {
+	ActionCompensation,
+	ChangesetEntry,
+	LLMProvider,
+	LLMRequest,
+	SlotDecl,
+	SlotMode,
+	SlotRecord,
+} from "@repo/protocol"
 import type { z } from "zod"
 import { ActionError } from "./errors.js"
 import type { SlotStore } from "./slot-cache.js"
@@ -66,6 +74,33 @@ export async function fillSlot(
 	return parsed.data.value
 }
 
+/**
+ * Find the record a replay fills `slot` from. A record for the same slot id
+ * whose key differs was taken against another template or other params, so
+ * it is rejected as stale rather than silently reused.
+ */
+function replayRecord(slot: SlotDecl, key: string, records: readonly SlotRecord[]): SlotRecord {
+	const sameId = records.filter((r) => r.id === slot.id)
+	if (sameId.length === 0) {
+		throw new ActionError("slot-record-missing", `replay: no record for slot "${slot.id}"; no model call was made`)
+	}
+	const record = sameId.find((r) => r.key === key)
+	if (!record) {
+		throw new ActionError(
+			"slot-record-stale",
+			`replay: the record for slot "${slot.id}" was taken against a different template or different params (key mismatch)`,
+		)
+	}
+	const parsed = slotResponseSchema(slot).safeParse({ value: record.value })
+	if (!parsed.success) {
+		throw new ActionError(
+			"slot-fill-invalid",
+			`replay: the record for slot "${slot.id}" does not match its schema: ${parsed.error.message}`,
+		)
+	}
+	return { ...record, source: "replay" }
+}
+
 export interface PlanTemplatesOptions {
 	/** Project root: where the files would be written and where existing files are compared. */
 	root: string
@@ -77,6 +112,10 @@ export interface PlanTemplatesOptions {
 	store: SlotStore
 	/** Write fresh fills to the store. False for dry runs, which must not touch the disk. */
 	persist: boolean
+	/** How slot values are obtained; see SlotModeSchema. */
+	slotMode: SlotMode
+	/** The records a `replay` draws from. */
+	records: readonly SlotRecord[]
 }
 
 export interface PlannedFile extends ChangesetEntry {
@@ -112,7 +151,14 @@ export async function planTemplates(opts: PlanTemplatesOptions): Promise<Templat
 		const key = slotCacheKey({ templateHash, slotId: slot.id, paramsHash, model: opts.model })
 		const manualKey = slotCacheKey({ templateHash, slotId: slot.id, paramsHash, model: "manual" })
 
-		const hit = opts.store.read(key) ?? opts.store.read(manualKey)
+		if (opts.slotMode === "replay") {
+			const replayed = replayRecord(slot, recordKey, opts.records)
+			fills[slot.id] = replayed.value
+			records.push(replayed)
+			continue
+		}
+
+		const hit = opts.slotMode === "live" ? (opts.store.read(key) ?? opts.store.read(manualKey)) : null
 		if (hit) {
 			fills[slot.id] = hit.value
 			records.push({

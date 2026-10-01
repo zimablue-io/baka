@@ -126,4 +126,40 @@ describe("run / slots / fill / list-modules via engineRequest", () => {
 			console.log = orig
 		}
 	})
+
+	it("replays a recorded receipt with --slot-records and reproduces its tree hash", async () => {
+		const recorded = fixtureProject()
+		const logs: string[] = []
+		const orig = console.log
+		console.log = (msg?: unknown) => {
+			logs.push(typeof msg === "string" ? msg : JSON.stringify(msg))
+		}
+		try {
+			await runFillCommand("hello/greet", {
+				cwd: recorded,
+				json: true,
+				slot: "blurb",
+				value: "A greeting.",
+				extra: ["--name", "Ada"],
+			})
+			await runRunCommand("hello/greet", { cwd: recorded, json: true, extra: ["--name", "Ada"] })
+			const receipt = JSON.parse(logs.at(-1) ?? "{}") as { outputTreeHash: string }
+			const receiptFile = join(recorded, "receipt.json")
+			writeFileSync(receiptFile, logs.at(-1) ?? "{}")
+
+			const replayCwd = fixtureProject()
+			await runRunCommand("hello/greet", {
+				cwd: replayCwd,
+				json: true,
+				slotRecords: receiptFile,
+				extra: ["--name", "Ada"],
+			})
+			const replayed = JSON.parse(logs.at(-1) ?? "{}") as { ok: boolean; outputTreeHash: string }
+			expect(replayed.ok).toBe(true)
+			expect(replayed.outputTreeHash).toBe(receipt.outputTreeHash)
+			expect(readFileSync(join(replayCwd, "hello.md"), "utf-8")).toBe("# Ada\nA greeting.\n")
+		} finally {
+			console.log = orig
+		}
+	})
 })

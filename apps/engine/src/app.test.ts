@@ -182,4 +182,53 @@ describe("engine Hono SSOT", () => {
 		expect(readFileSync(join(project, "hello.md"), "utf-8")).toBe("# Ada\nA greeting.\n")
 		expect(() => readFileSync(join(bind, "hello.md"), "utf-8")).toThrow()
 	})
+
+	it("replays slot records over POST /v1/run: same tree hash, and a missing record is a typed 400", async () => {
+		const recordedCwd = fixtureProject()
+		const recordedApp = createEngineApp({ cwd: recordedCwd })
+		await recordedApp.request("/v1/fill", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				module: "hello",
+				action: "greet",
+				slot: "blurb",
+				value: "A greeting.",
+				params: { name: "Ada" },
+			}),
+		})
+		const run = (app: ReturnType<typeof createEngineApp>, body: unknown) =>
+			app.request("/v1/run", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(body),
+			})
+		const recorded = (await (
+			await run(recordedApp, { module: "hello", action: "greet", params: { name: "Ada" } })
+		).json()) as {
+			outputTreeHash: string
+			slots: unknown[]
+		}
+
+		const replayApp = createEngineApp({ cwd: fixtureProject() })
+		const replayed = await run(replayApp, {
+			module: "hello",
+			action: "greet",
+			params: { name: "Ada" },
+			slots: { mode: "replay", records: recorded.slots },
+		})
+		expect(replayed.status).toBe(200)
+		expect(((await replayed.json()) as { outputTreeHash: string }).outputTreeHash).toBe(recorded.outputTreeHash)
+
+		const missing = await run(createEngineApp({ cwd: fixtureProject() }), {
+			module: "hello",
+			action: "greet",
+			params: { name: "Ada" },
+			slots: { mode: "replay", records: [] },
+		})
+		expect(missing.status).toBe(400)
+		const body = (await missing.json()) as { ok: boolean; diagnostics: Array<{ rule: string }> }
+		expect(body.ok).toBe(false)
+		expect(body.diagnostics.map((d) => d.rule)).toEqual(["slot-record-missing"])
+	})
 })

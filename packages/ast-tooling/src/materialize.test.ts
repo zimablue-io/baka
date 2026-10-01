@@ -56,6 +56,8 @@ describe("planTemplates", () => {
 			model: BAKA_DEFAULT_WORKER_MODEL,
 			store: createDiskSlotStore(dir),
 			persist: true,
+			slotMode: "live",
+			records: [],
 		})
 		expect(plan.slots).toHaveLength(1)
 		expect(plan.slots[0]).toMatchObject({ id: "blurb", source: "cache", value: "Pinned from disk." })
@@ -79,6 +81,8 @@ describe("planTemplates", () => {
 				model: BAKA_DEFAULT_WORKER_MODEL,
 				store: createDiskSlotStore(dir),
 				persist: true,
+				slotMode: "live",
+				records: [],
 			})
 			hashes.push(plan.files[0]?.contentHash ?? null)
 		}
@@ -106,6 +110,8 @@ describe("planTemplates", () => {
 			model: "fake-model",
 			store,
 			persist: false,
+			slotMode: "live",
+			records: [],
 		})
 		expect(plan.slots[0]).toMatchObject({ source: "llm", model: "fake-model", value: "Fresh." })
 		expect(existsSync(join(dir, ".baka"))).toBe(false)
@@ -131,6 +137,8 @@ describe("applyPlan", () => {
 			model: BAKA_DEFAULT_WORKER_MODEL,
 			store: createDiskSlotStore(dir),
 			persist: true,
+			slotMode: "live",
+			records: [],
 		})
 		const done = applyPlan(dir, plan)
 		expect(done).toEqual({ created: ["note.md"], overwritten: [] })

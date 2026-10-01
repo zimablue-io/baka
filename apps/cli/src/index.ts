@@ -235,6 +235,11 @@ program
 	.argument("<target>", "module/action (e.g. hello/greet)")
 	.option("--params <json>", "JSON object of action params")
 	.option("--dry-run", "compute the changeset and output tree hash without writing anything")
+	.option(
+		"--slot-mode <mode>",
+		"live (cache, then model; default), record (always ask the model), replay (records only)",
+	)
+	.option("--slot-records <file>", "JSON array of slot records, or a receipt whose slots to replay (implies replay)")
 	.option("--include-content", "attach each written file's text to its changeset entry")
 	.option("--json", "emit machine-readable JSON to stdout (the ActionResult receipt)")
 	.allowUnknownOption()
@@ -246,6 +251,8 @@ program
 				cwd,
 				json: opts.json,
 				dryRun: opts.dryRun,
+				slotMode: opts.slotMode,
+				slotRecords: opts.slotRecords,
 				includeContent: opts.includeContent,
 				params: opts.params,
 				extra: process.argv,

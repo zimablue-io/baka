@@ -33,7 +33,7 @@ If any tier is tempted to invent, the tier boundary refuses to cooperate. The Va
 ### Worker (calls the worker-role model directly, no LLM assist on top)
 - **Input:** one `{module, action, params}` step
 - **Default mode:** materialize `templates/` (params + named slots). Load `action.ts` only when it exists (side effects).
-- **Slots** (when a template has `{{#slot}}`): one constrained JSON call per empty slot at temperature 0. Cache key = templateHash + slotId + paramsHash + model. `--refill` is explicit.
+- **Slots** (when a template has `{{#slot}}`): one constrained JSON call per empty slot at temperature 0. Cache key = templateHash + slotId + paramsHash + model. Asking the model again is explicit: slot mode `record` (`--slot-mode record`) skips the cache and writes a new fill, and slot mode `replay` never calls the model at all (see docs/MODULES.md, "Slot records and replay").
 - **Forbidden:** whole-file `{ content: string }` generation. The model never authors headings, paths, or file lists.
 - **Compensation:** calls the action referenced in `compensatesWith` (the inverse action), with bounded retries (3 attempts, exponential backoff).
 

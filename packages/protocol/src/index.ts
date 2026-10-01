@@ -98,7 +98,9 @@ export {
 	SlotDeclSchema,
 	SlotFillSchema,
 	SlotKindSchema,
+	SlotModeSchema,
 	SlotRecordSchema,
+	SlotsInputSchema,
 	ValidationDiagnosticSchema,
 } from "./schemas"
 export type {
@@ -120,7 +122,9 @@ export type {
 	ResolvedLLMConfig,
 	ResolvedPlan,
 	SlotDecl,
+	SlotMode,
 	SlotRecord,
+	SlotsInput,
 	StepContext,
 	StepResponse,
 	ValidationDiagnostic,

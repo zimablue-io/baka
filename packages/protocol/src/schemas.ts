@@ -146,6 +146,21 @@ export const SlotRecordSchema = z.object({
 	source: z.enum(["llm", "cache", "replay"]),
 })
 
+/**
+ * How slot values are obtained.
+ * - `live` (default): the slot cache first, then the model; fresh fills are cached.
+ * - `record`: always ask the model (the cache is not read) and cache the fills.
+ * - `replay`: use only the supplied records. A slot without a matching record is a
+ *   hard error and no model call is ever made.
+ */
+export const SlotModeSchema = z.enum(["live", "record", "replay"])
+
+export const SlotsInputSchema = z.object({
+	mode: SlotModeSchema,
+	/** The records `replay` draws from; ignored by the other modes. */
+	records: z.array(SlotRecordSchema).optional(),
+})
+
 export const ActionCompensationSchema = z.object({
 	/** Paths this run created; compensation deletes them. */
 	created: z.array(z.string()),

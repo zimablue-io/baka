@@ -11,7 +11,9 @@ import type {
 	OrchestrationStateSchema,
 	ResolvedPlanSchema,
 	SlotDeclSchema,
+	SlotModeSchema,
 	SlotRecordSchema,
+	SlotsInputSchema,
 } from "./schemas"
 
 // ---------------------------------------------------------------------------
@@ -28,6 +30,8 @@ export type ActionErrorCode = (typeof ACTION_ERROR_CODES)[number]
 export type ChangeOp = z.infer<typeof ChangeOpSchema>
 export type ChangesetEntry = z.infer<typeof ChangesetEntrySchema>
 export type SlotRecord = z.infer<typeof SlotRecordSchema>
+export type SlotMode = z.infer<typeof SlotModeSchema>
+export type SlotsInput = z.infer<typeof SlotsInputSchema>
 export type ActionCompensation = z.infer<typeof ActionCompensationSchema>
 export type ActionResult = z.infer<typeof ActionResultSchema>
 
