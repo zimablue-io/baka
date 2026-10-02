@@ -13,14 +13,31 @@ Discovery walks every scope on every run; there is no registration step, and bot
 
 ### Using a catalog from another directory
 
-The project root (`--cwd`, default the current directory; a relative path resolves against it) is where actions write and where `baka.lock.json` lives. It is separate from the module scope. `--modules-dir <path>` (repeatable, highest precedence first) or the environment variable `BAKA_MODULE_DIRS` (paths separated like `PATH`, `:` or `;`) names the directories modules are drawn from, each holding `<module>/manifest.ts` entries. When either is given **only** those directories are searched (not the project's `modules/`, `.baka/modules`, or the user marketplace), a flag beats the variable, and relative paths resolve against the current directory. A catalog repo can therefore serve any project with no symlinks and is never written to:
+The project root (`--cwd`, default the current directory; a relative path resolves against it) is where actions write and where `baka.lock.json` lives. It is separate from the module scope. The directories modules are drawn from (each holding `<module>/manifest.ts` entries) are chosen by, highest precedence first:
+
+1. `--modules-dir <path>` (repeatable, highest precedence first); relative paths resolve against the current directory.
+2. The environment variable `BAKA_MODULE_DIRS` (paths separated like `PATH`, `:` or `;`); relative paths resolve against the current directory.
+3. `moduleDirs` in the project's `.baka/settings.json`, an array of directories; relative paths resolve against the project root (`--cwd`), absolute paths are used as they are, and the first entry wins a module name.
+4. Nothing given: the default discovery described above (the project's `modules/` and `.baka/modules`, then the user marketplace).
+
+When any of the first three decides, **only** its directories are searched (not the project's `modules/`, `.baka/modules`, or the user marketplace), and the lower ones are not read. A project that keeps its catalog in `.baka/settings.json` therefore gets the same modules from a bare `baka validate` on every machine, whatever sits in `~/.baka`:
+
+```json
+{
+	"moduleDirs": ["../baka-modules/modules"]
+}
+```
+
+The setting is checked when a command starts. A listed directory that does not exist (or is a file) ends the command with exit code 1 and a message naming the file, the entry, where it resolved, and the fix (create the directory, correct the entry, or remove it); a settings file that is not valid JSON, or a `moduleDirs` that is not an array of non-empty strings, is refused the same way. It is never a silent empty catalog. An empty list means the setting is absent. Other keys of the file (`packages`, `registries`) are kept when `baka install` and `baka uninstall` rewrite it.
+
+A catalog repo can therefore serve any project with no symlinks and is never written to:
 
 ```bash
 baka --cwd ~/code/my-app --modules-dir ~/code/baka-modules/modules run ts-package/scaffold --name ui
 BAKA_MODULE_DIRS=~/code/baka-modules/modules baka --cwd ~/code/my-app validate
 ```
 
-It applies to every command that reads modules (`run`, `slots`, `fill`, `inspect`, `list-modules`, `lock`, `validate`, `plan`, `apply`, `serve`, `module validate|list-actions|test|edit`), to `baka-engine --modules-dir=<path>`, and to the MCP server (via `BAKA_MODULE_DIRS`). From the library it is `createRegistry({ root, moduleDirs })`.
+It applies to every command that reads modules (`run`, `slots`, `fill`, `inspect`, `list-modules`, `lock`, `validate`, `plan`, `apply`, `module validate|list-actions|test|edit`), to the MCP server (`BAKA_MODULE_DIRS`, then the settings of its working directory), and to `baka serve` and `baka-engine`: `--modules-dir` and `BAKA_MODULE_DIRS` apply to every project the server answers for, and without them each project's own `moduleDirs` decides. Commands that do not read modules (`install`, `uninstall`, `search`, `registry`, `list-packages`) do not look at the setting. From the library, read the same chain with `resolveModuleDirs({ root, flag, env })` (or `moduleDirsFromSettings(root)`) and build the registry with `createRegistry({ root, moduleDirs })`.
 
 `scripts/baka.mjs` (what `pnpm baka` runs) works from any directory: `node /path/to/baka/scripts/baka.mjs --cwd . run ...`.
 

@@ -203,8 +203,13 @@ function gitNameToDirName(url: string): string {
 // Project wins on dedup. Each scope keeps a list of source strings.
 // ---------------------------------------------------------------------------
 
+/**
+ * A settings file: the installed `packages`, plus whatever else the project
+ * keeps there (`registries`, `moduleDirs`), which every rewrite preserves.
+ */
 export interface BakaSettings {
 	packages: string[]
+	[key: string]: unknown
 }
 
 export function projectSettingsPath(cwd: string): string {
@@ -226,9 +231,10 @@ export function readUserSettings(): BakaSettings {
 function readSettingsFrom(path: string): BakaSettings {
 	if (!existsSync(path)) return { packages: [] }
 	try {
-		const raw = JSON.parse(readFileSync(path, "utf-8")) as BakaSettings
-		if (!Array.isArray(raw.packages)) return { packages: [] }
-		return raw
+		const raw = JSON.parse(readFileSync(path, "utf-8")) as unknown
+		if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return { packages: [] }
+		const keys = raw as Record<string, unknown>
+		return { ...keys, packages: Array.isArray(keys.packages) ? (keys.packages as string[]) : [] }
 	} catch {
 		return { packages: [] }
 	}

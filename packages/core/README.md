@@ -90,7 +90,7 @@ Nothing is ever written, read for a write decision, or deleted outside `root`. A
 
 Each receipt's `pins` is `[{ id, version, contentHash }]` for the module the run used. `createLock(registry)` builds a `baka.lock.json` document; pass it back as `runAction({ lock })` and a module that is unlisted, or whose version or files changed, fails the run (`lock-unlisted` / `lock-mismatch`) before any model call or write. The hash definition and the file format are in [docs/MODULES.md](../../docs/MODULES.md#pinning-modules-and-bakalockjson).
 
-`ModuleRegistry` is exported because `runAction` and friends take one, but build yours with `createRegistry`. Calling `new ModuleRegistry(root)` without `moduleDirs` is the CLI's discovery: it also searches `<root>/modules`, `<root>/.baka/modules`, and the user marketplace under `${BAKA_HOME:-$HOME/.baka}`.
+`ModuleRegistry` is exported because `runAction` and friends take one, but build yours with `createRegistry`. To follow the CLI's choice of directories (the flag, `BAKA_MODULE_DIRS`, then the project's `.baka/settings.json` `moduleDirs`), pass `resolveModuleDirs({ root, env })` as `moduleDirs`; it throws `ModuleDirsError` for a listed directory that does not exist. Calling `new ModuleRegistry(root)` without `moduleDirs` is the default discovery: it also searches `<root>/modules`, `<root>/.baka/modules`, and the user marketplace under `${BAKA_HOME:-$HOME/.baka}`.
 
 ## What this package does not do
 

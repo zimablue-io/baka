@@ -1,4 +1,4 @@
-import { ModuleRegistry, moduleDirsFromEnv } from "@repo/ast-tooling"
+import { ModuleRegistry, resolveModuleDirs } from "@repo/ast-tooling"
 import type { ModuleManifest } from "@repo/protocol"
 
 /**
@@ -8,7 +8,7 @@ import type { ModuleManifest } from "@repo/protocol"
  */
 export interface ServerContext {
 	cwd: string
-	/** From `BAKA_MODULE_DIRS`: when set, modules come only from these directories. */
+	/** From `BAKA_MODULE_DIRS`, else the project's `.baka/settings.json` `moduleDirs`: when set, modules come only from these directories. */
 	moduleDirs: string[] | undefined
 	registry: ModuleRegistry
 	// Cached discovery result. Re-discovered on first call to
@@ -18,7 +18,7 @@ export interface ServerContext {
 }
 
 export function createContext(cwd: string): ServerContext {
-	const moduleDirs = moduleDirsFromEnv(process.env)
+	const moduleDirs = resolveModuleDirs({ root: cwd, env: process.env })
 	const registry = new ModuleRegistry(cwd, { moduleDirs })
 	// Eagerly discover on startup so that `tools/list` reflects the on-disk
 	// state of the modules directory. If discovery fails (e.g. no modules

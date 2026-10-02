@@ -30,6 +30,16 @@ pnpm baka plan "<intent>" --json
 pnpm baka scaffold "<module_name>"
 ```
 
+#### Where modules come from
+
+Without configuration the CLI discovers modules in the project's `modules/` and `.baka/modules` and in the user marketplace. To pin a project to one catalog (so a bare `baka validate` gives the same answer on every machine), list its directories in `.baka/settings.json`:
+
+```json
+{ "moduleDirs": ["../baka-modules/modules"] }
+```
+
+Relative entries resolve against the project root (`--cwd`); when the setting is present only those directories are searched. `BAKA_MODULE_DIRS` overrides it and `--modules-dir <path>` (repeatable) overrides both. A listed directory that does not exist is an error that names the file, the entry and the fix. See `docs/MODULES.md`.
+
 The CLI and the MCP server share the same engine: same workflows, same validators, same plan schema. `--json` flags on the CLI emit the same shape the MCP tools return.
 
 #### CLI Alias

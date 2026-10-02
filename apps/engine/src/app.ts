@@ -8,8 +8,10 @@ import {
 	describeModules,
 	hashBytes,
 	listActionSlots,
+	ModuleDirsError,
 	ModuleNotFoundError,
 	ModuleRegistry,
+	moduleDirsFromSettings,
 	parseActionTemplates,
 	previewAction,
 	readLockfile,
@@ -58,7 +60,8 @@ export interface EngineAppOptions {
 	 * paths resolve against the project). When set, ONLY these are searched:
 	 * the project's `modules/`, `.baka/modules`, and the user marketplace are
 	 * not, so a catalog elsewhere can serve any project without symlinks and
-	 * without being written to. Unset: the default discovery.
+	 * without being written to. Unset: each project's `.baka/settings.json`
+	 * `moduleDirs`, else the default discovery.
 	 */
 	moduleDirs?: readonly string[]
 }
@@ -132,9 +135,10 @@ function resolveProject(defaultCwd: string, raw: string | undefined, allowedRoot
 	return real
 }
 
-/** The JSON error response for a thrown error: a refused request keeps its own status, anything else gets `fallback`. */
+/** The JSON error response for a thrown error: a refused request keeps its own status, a bad module-directory setting is 400, anything else gets `fallback`. */
 function failure(c: Context, err: unknown, fallback: 400 | 404): Response {
 	if (err instanceof RequestError) return c.json({ error: err.message }, err.status)
+	if (err instanceof ModuleDirsError) return c.json({ error: err.message }, 400)
 	return c.json({ error: err instanceof Error ? err.message : String(err) }, fallback)
 }
 
@@ -169,7 +173,16 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 	// Resolved once so a symlinked root cannot be swapped for another target later.
 	const allowedRoots = (opts.allowedRoots ?? []).map((root) => realpathSync(root))
 	const projectOf = (raw: string | undefined): string => resolveProject(cwd, raw, allowedRoots)
-	const registryOf = (project: string): ModuleRegistry => new ModuleRegistry(project, { moduleDirs: opts.moduleDirs })
+	// Directories the engine was started with decide for every project; without them each project's own
+	// `.baka/settings.json` `moduleDirs` does, and without those the default discovery.
+	const registryOf = (project: string): ModuleRegistry =>
+		new ModuleRegistry(project, { moduleDirs: opts.moduleDirs ?? moduleDirsFromSettings(project) })
+
+	app.onError((err, c) => {
+		if (err instanceof ModuleDirsError) return c.json({ error: err.message }, 400)
+		console.error(err)
+		return c.text("Internal Server Error", 500)
+	})
 
 	app.use(
 		"*",

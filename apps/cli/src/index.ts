@@ -2,7 +2,7 @@
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { moduleDirsFromEnv } from "@repo/ast-tooling"
+import { ModuleDirsError, moduleDirsFromEnv, resolveModuleDirs } from "@repo/ast-tooling"
 import { BAKA_EXIT_CODE } from "@repo/protocol"
 import { Command } from "commander"
 import { runInit } from "./commands/init"
@@ -60,21 +60,43 @@ program.option(
 	(value: string) => resolve(value),
 	process.cwd(),
 )
-// The project root and the module scope are separate: --modules-dir (or BAKA_MODULE_DIRS) names the
-// directories modules are drawn from, so a catalog elsewhere can serve any project without symlinks
-// and without being written to.
+// The project root and the module scope are separate: --modules-dir (or BAKA_MODULE_DIRS, or the project's
+// `.baka/settings.json` `moduleDirs`) names the directories modules are drawn from, so a catalog elsewhere can
+// serve any project without symlinks and without being written to.
 program.option(
 	"--modules-dir <path>",
-	"directory containing <module>/manifest.ts entries; repeatable, highest precedence first. When given (or BAKA_MODULE_DIRS is set) ONLY these are searched, instead of the project's modules/, .baka/modules, and the user marketplace",
+	"directory containing <module>/manifest.ts entries; repeatable, highest precedence first. When given (or BAKA_MODULE_DIRS is set, or .baka/settings.json lists moduleDirs) ONLY these are searched, instead of the project's modules/, .baka/modules, and the user marketplace. Precedence: this flag, BAKA_MODULE_DIRS, settings moduleDirs",
 	(value: string, prior: string[]) => [...prior, resolve(value)],
 	[] as string[],
 )
 
-/** The project root and module directories every command works with: flags first, then BAKA_MODULE_DIRS. */
+/** The project root, for commands that never read modules (and so never fail on a module-directory setting). */
+function projectCwd(): string {
+	return program.opts<{ cwd?: string }>().cwd ?? process.cwd()
+}
+
+/** `--modules-dir`, then `BAKA_MODULE_DIRS`: what the caller named; the project's settings are not consulted. */
+function explicitModuleDirs(): string[] | undefined {
+	const flag = program.opts<{ modulesDir?: string[] }>().modulesDir
+	return flag?.length ? flag : moduleDirsFromEnv(process.env)
+}
+
+/**
+ * The project root and module directories every module-reading command works with: the flag, then
+ * BAKA_MODULE_DIRS, then `moduleDirs` of `<cwd>/.baka/settings.json`, else undefined (default discovery).
+ * A setting that cannot be honoured ends the command as a usage error naming the file and the entry.
+ */
 function globals(): { cwd: string; moduleDirs?: string[] } {
-	const opts = program.opts<{ cwd?: string; modulesDir?: string[] }>()
-	const moduleDirs = opts.modulesDir?.length ? opts.modulesDir : moduleDirsFromEnv(process.env)
-	return { cwd: opts.cwd ?? process.cwd(), moduleDirs }
+	const cwd = projectCwd()
+	try {
+		return {
+			cwd,
+			moduleDirs: resolveModuleDirs({ root: cwd, flag: program.opts<{ modulesDir?: string[] }>().modulesDir }),
+		}
+	} catch (err) {
+		if (err instanceof ModuleDirsError) die(BAKA_EXIT_CODE.USER_ERROR, err.message)
+		throw err
+	}
 }
 
 // Validate --cwd up front: a non-existent path is a USER_ERROR (the user
@@ -159,7 +181,7 @@ moduleCmd
 		"Design a new module through a chat-driven double-diamond flow (Discover -> Define -> Develop -> Deliver). Re-run to resume.",
 	)
 	.action(async (name) => {
-		const cwd = globals().cwd
+		const cwd = projectCwd()
 		// Lazy-load: a broken module-design barrel must not kill sibling subcommands.
 		const { runModuleDesign } = await import("./commands/module-design/index.js")
 		try {
@@ -178,7 +200,7 @@ moduleCmd
 	.option("-i, --intent <text>", "the user intent to plan against (default: action's testIntent)")
 	.option("-n, --n <count>", "number of runs (default: 5)", "5")
 	.action(async (name, opts) => {
-		const cwd = globals().cwd
+		const cwd = projectCwd()
 		// Lazy-load: a broken module-design barrel must not kill sibling subcommands.
 		const { runModuleConsistency } = await import("./commands/module-design/index.js")
 		try {
@@ -375,8 +397,10 @@ program
 		[] as string[],
 	)
 	.action(async (opts) => {
+		// The server answers for several projects, so each one's own settings decide when nothing was named.
 		await runServeCommand({
-			...globals(),
+			cwd: projectCwd(),
+			moduleDirs: explicitModuleDirs(),
 			port: Number(opts.port),
 			host: opts.host,
 			token: opts.token,
@@ -412,7 +436,7 @@ program
 	.command("list-plans")
 	.description("List saved plan files")
 	.action(() => {
-		const cwd = globals().cwd
+		const cwd = projectCwd()
 		runListPlans(cwd)
 	})
 
@@ -476,7 +500,7 @@ program
 		"emit machine-readable JSON to stdout (status, scope, name, version, previousVersion, registry, modulePath)",
 	)
 	.action(async (spec, opts) => {
-		const cwd = globals().cwd
+		const cwd = projectCwd()
 		const scope = opts.user ? "user" : "project"
 		try {
 			await runInstallCommand(spec, {
@@ -501,7 +525,7 @@ program
 	.option("-u, --user", "uninstall from the user scope")
 	.option("--json", "emit machine-readable JSON to stdout (status, scope, name, modulePath, settingsPath)")
 	.action(async (spec, opts) => {
-		const cwd = globals().cwd
+		const cwd = projectCwd()
 		const scope = opts.user ? "user" : "project"
 		try {
 			await runUninstallCommand(spec, { cwd, scope, json: opts.json })
@@ -527,7 +551,7 @@ program
 	.description("Remove a non-registry source string from settings (and from disk if materialized)")
 	.option("-u, --user", "remove from the user scope")
 	.action((source, opts) => {
-		const cwd = globals().cwd
+		const cwd = projectCwd()
 		const scope = opts.user ? "user" : "project"
 		try {
 			runRemoveCommand(source, { cwd, scope })
@@ -542,7 +566,7 @@ program
 	.command("list-packages")
 	.description("List installed module packages (project + user scopes; project wins on dedup)")
 	.action(() => {
-		const cwd = globals().cwd
+		const cwd = projectCwd()
 		runListPackagesCommand(cwd)
 	})
 
@@ -559,7 +583,7 @@ program
 		"emit machine-readable JSON to stdout (query, results, warnings; each hit carries its source `registry`)",
 	)
 	.action(async (query, opts) => {
-		const cwd = globals().cwd
+		const cwd = projectCwd()
 		try {
 			await runSearchCommand(query, {
 				json: opts.json,

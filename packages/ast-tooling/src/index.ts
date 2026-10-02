@@ -18,6 +18,14 @@ export { ActionError } from "./errors.js"
 export { createLock, lockfilePath, pinModule, readLockfile, verifyPin, writeLockfile } from "./lock.js"
 export type { PlannedFile, PlanTemplatesOptions, TemplatePlan } from "./materialize.js"
 export { applyPlan, fillSlot, planTemplates, revertFiles } from "./materialize.js"
+export {
+	MODULE_DIRS_ENV,
+	MODULE_DIRS_SETTING,
+	ModuleDirsError,
+	moduleDirsFromEnv,
+	moduleDirsFromSettings,
+	resolveModuleDirs,
+} from "./module-dirs.js"
 export type {
 	BakaSettings,
 	InstallOptions,
@@ -43,7 +51,7 @@ export {
 export type { SavedPlan } from "./plan-io.js"
 export { listPlans, loadPlan, plansDir, savePlan } from "./plan-io.js"
 export type { ModuleRegistryOptions } from "./registry.js"
-export { MODULE_DIRS_ENV, ModuleRegistry, moduleDirsFromEnv, validatorFilename } from "./registry.js"
+export { ModuleRegistry, validatorFilename } from "./registry.js"
 export type { CompensateActionInput, RunActionInput } from "./run-action.js"
 export { compensateAction, listActionSlots, previewAction, resolveAction, runAction } from "./run-action.js"
 export type { CompletedStep, SagaResult, SagaStep } from "./saga.js"

@@ -1,5 +1,5 @@
 import { type Dirent, existsSync, readdirSync } from "node:fs"
-import { delimiter, dirname, join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import {
 	BAKA_PROJECT_PATHS,
 	bakaHomeDir,
@@ -23,24 +23,6 @@ import { createJiti } from "jiti"
  */
 export function validatorFilename(id: string): string {
 	return id.replace(/[A-Z]/g, (m, offset) => (offset > 0 ? "-" : "") + m.toLowerCase())
-}
-
-/** Env var listing module directories, separated like PATH (`:` or `;`). See `moduleDirsFromEnv`. */
-export const MODULE_DIRS_ENV = "BAKA_MODULE_DIRS"
-
-/**
- * The module directories named by `BAKA_MODULE_DIRS` (highest precedence
- * first), resolved against the current directory; undefined when the variable
- * is unset or empty. Passing them as `ModuleRegistryOptions.moduleDirs` makes
- * a catalog usable from any project directory, without symlinks and without
- * the catalog ever being a place output is written to.
- */
-export function moduleDirsFromEnv(env: NodeJS.ProcessEnv): string[] | undefined {
-	const dirs = (env[MODULE_DIRS_ENV] ?? "")
-		.split(delimiter)
-		.filter((d) => d.trim() !== "")
-		.map((d) => resolve(d))
-	return dirs.length > 0 ? dirs : undefined
 }
 
 export interface ModuleRegistryOptions {

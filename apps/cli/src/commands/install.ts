@@ -564,23 +564,25 @@ function readScopeFromManifest(modulePath: string): string | null {
 
 /**
  * Reads a settings file defensively (parse failure → empty
- * packages). The settings reader in ast-tooling already handles
+ * packages; keys other than `packages` are kept so a rewrite never drops them). The settings reader in ast-tooling already handles
  * missing files; we keep a local copy here so the install module
  * does not need to import the settings writer into the collision
  * path.
  */
-function readProjectSettingsSafe(path: string): { packages: string[] } {
+function readProjectSettingsSafe(path: string): { packages: string[]; [key: string]: unknown } {
 	try {
 		if (!existsSync(path)) return { packages: [] }
 		const text = readFileSync(path, "utf-8")
-		const parsed = JSON.parse(text) as { packages?: string[] }
-		return { packages: Array.isArray(parsed.packages) ? parsed.packages : [] }
+		const parsed = JSON.parse(text) as unknown
+		if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return { packages: [] }
+		const keys = parsed as Record<string, unknown>
+		return { ...keys, packages: Array.isArray(keys.packages) ? (keys.packages as string[]) : [] }
 	} catch {
 		return { packages: [] }
 	}
 }
 
-function readUserSettingsSafe(path: string): { packages: string[] } {
+function readUserSettingsSafe(path: string): { packages: string[]; [key: string]: unknown } {
 	return readProjectSettingsSafe(path)
 }
 

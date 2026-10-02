@@ -584,6 +584,64 @@ describe("engine moduleDirs: modules come from elsewhere, output goes to the pro
 	})
 })
 
+describe("engine moduleDirs from the project's .baka/settings.json", () => {
+	function projectWithSettings(moduleDirs: string[]): { project: string; catalog: string } {
+		const parent = mkdtempSync(join(tmpdir(), "baka-engine-settings-"))
+		cleanup.push(parent)
+		const project = join(parent, "project")
+		const catalog = join(parent, "catalog")
+		mkdirSync(join(project, ".baka"), { recursive: true })
+		mkdirSync(join(catalog, "hello", "greet", "templates"), { recursive: true })
+		writeFileSync(
+			join(catalog, "hello", "manifest.ts"),
+			`export const Manifest = { name: "hello", version: "0.0.0", description: "x", dependencies: [], conflictsWith: [],
+  actions: [{ id: "greet", description: "x", requiresReasoning: false, filePatterns: [], validators: [], params: [] }], moduleValidators: [] }
+`,
+		)
+		writeFileSync(join(catalog, "hello", "greet", "templates", "hi.txt.hbs"), "hi\n")
+		writeFileSync(join(project, ".baka", "settings.json"), JSON.stringify({ moduleDirs }))
+		return { project, catalog }
+	}
+
+	it("serves the listed catalog when the engine was given no moduleDirs", async () => {
+		const { project } = projectWithSettings(["../catalog"])
+		const app = createEngineApp({ cwd: project })
+		const listed = (await (await app.request("/v1/modules")).json()) as { modules: Array<{ name: string }> }
+		expect(listed.modules.map((m) => m.name)).toEqual(["hello"])
+	})
+
+	it("answers 400 with the file, the entry and the fix when a listed directory is missing", async () => {
+		const { project } = projectWithSettings(["../missing"])
+		const app = createEngineApp({ cwd: project })
+		for (const path of [
+			"/v1/modules",
+			"/v1/slots?module=hello&action=greet",
+			"/v1/preview?module=hello&action=greet",
+		]) {
+			const res = await app.request(path)
+			expect(res.status, path).toBe(400)
+			const body = (await res.json()) as { error: string }
+			expect(body.error).toContain(join(project, ".baka", "settings.json"))
+			expect(body.error).toContain("moduleDirs[0]")
+		}
+		const run = await app.request("/v1/run", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ module: "hello", action: "greet", params: {} }),
+		})
+		expect(run.status).toBe(400)
+	})
+
+	it("is overridden by the moduleDirs the engine was started with", async () => {
+		const { project } = projectWithSettings(["../missing"])
+		const other = mkdtempSync(join(tmpdir(), "baka-engine-other-"))
+		cleanup.push(other)
+		const app = createEngineApp({ cwd: project, moduleDirs: [other] })
+		const res = await app.request("/v1/modules")
+		expect(res.status).toBe(200)
+	})
+})
+
 describe("engine run: format", () => {
 	it("runs the formatter the action declares only when the request says format: true", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "baka-engine-format-"))
