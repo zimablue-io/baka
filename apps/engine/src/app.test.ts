@@ -554,6 +554,73 @@ describe("engine run: validates by default, as runAction does", () => {
 	})
 })
 
+describe("engine fill: params are normalised the way a run normalises them", () => {
+	function projectWithDefaults(): string {
+		const dir = mkdtempSync(join(tmpdir(), "baka-engine-fill-"))
+		cleanup.push(dir)
+		const root = join(dir, "modules", "note")
+		mkdirSync(join(root, "write", "templates"), { recursive: true })
+		writeFileSync(
+			join(root, "manifest.ts"),
+			`export const Manifest = { name: "note", version: "0.0.0", description: "x", dependencies: [], conflictsWith: [],
+  actions: [{ id: "write", description: "x", requiresReasoning: true, filePatterns: [], validators: [], params: [
+    { name: "title", type: "string", required: true, description: "t" },
+    { name: "tone", type: "string", required: false, description: "t", default: "plain" },
+    { name: "count", type: "number", required: false, description: "t", default: 1 },
+  ] }], moduleValidators: [] }
+`,
+		)
+		writeFileSync(
+			join(root, "write", "templates", "note.md.hbs"),
+			`# {{title}} ({{tone}} x{{count}})\n{{#slot "line" kind="prose" max=40}}one sentence{{/slot}}\n`,
+		)
+		return dir
+	}
+
+	const post = (app: ReturnType<typeof createEngineApp>, path: string, body: unknown) =>
+		app.request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+
+	it("replays a fill made with the params as typed in a run that spells them differently", async () => {
+		const cwd = projectWithDefaults()
+		const app = createEngineApp({ cwd })
+		// Typed: only the required param, the count as a string (what a CLI flag gives).
+		const fill = await post(app, "/v1/fill", {
+			module: "note",
+			action: "write",
+			slot: "line",
+			value: "Pinned.",
+			params: { title: "Probe", count: "3" },
+		})
+		expect(fill.status).toBe(200)
+
+		for (const params of [
+			{ title: "Probe", count: "3" },
+			{ title: "Probe", count: 3 },
+			{ title: "Probe", tone: "plain", count: 3 },
+		]) {
+			const run = await post(app, "/v1/run", { module: "note", action: "write", params, onExisting: "overwrite" })
+			const body = (await run.json()) as { ok: boolean; slots: Array<{ source: string }> }
+			expect(body.ok, JSON.stringify(params)).toBe(true)
+			expect(body.slots.map((s) => s.source)).toEqual(["cache"])
+		}
+		expect(readFileSync(join(cwd, "note.md"), "utf-8")).toBe("# Probe (plain x3)\nPinned.\n")
+	})
+
+	it("refuses a fill whose params a run would refuse", async () => {
+		const app = createEngineApp({ cwd: projectWithDefaults() })
+		const fill = await post(app, "/v1/fill", {
+			module: "note",
+			action: "write",
+			slot: "line",
+			value: "Pinned.",
+			params: { count: "many" },
+		})
+		expect(fill.status).toBe(400)
+		const body = (await fill.json()) as { error: string }
+		expect(body.error).toMatch(/params for note\/write/)
+	})
+})
+
 describe("engine moduleDirs: modules come from elsewhere, output goes to the project", () => {
 	it("lists and runs a catalog module without writing into the catalog", async () => {
 		const catalog = mkdtempSync(join(tmpdir(), "baka-engine-catalog-"))

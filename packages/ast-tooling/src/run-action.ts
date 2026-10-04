@@ -31,7 +31,7 @@ import { applyPlan, planTemplates, type Rollback, revertFiles, type TemplatePlan
 import { loadModuleData } from "./module-data.js"
 import type { ModuleRegistry } from "./registry.js"
 import { createDiskSlotStore, type SlotStore } from "./slot-cache.js"
-import { hashBytes, parseActionTemplates } from "./slots.js"
+import { hashBytes, parseActionTemplates, slotTemplateKey } from "./slots.js"
 import { compareUtf8, diffSnapshots, outputTreeHash, snapshotDirectories, snapshotTree } from "./tree-hash.js"
 import { runValidators } from "./validator.js"
 
@@ -78,12 +78,22 @@ export function resolveAction(
 	return { moduleRoot, manifest, action }
 }
 
+/**
+ * The slots of an action's templates, each with its `templateKey`: the `key` a
+ * `match: "template"` slot record for it must carry (see `slotTemplateKey`).
+ */
+function declaredSlots(parsed: ReturnType<typeof parseActionTemplates>) {
+	return parsed.slots.map((slot) => {
+		const file = parsed.files.find((f) => f.rel === slot.file)
+		return { ...slot, templateKey: slotTemplateKey({ templateHash: hashBytes(file?.source ?? ""), slotId: slot.id }) }
+	})
+}
+
 export function listActionSlots(registry: ModuleRegistry, moduleName: string, actionId: string) {
 	const { moduleRoot, action } = resolveAction(registry, moduleName, actionId)
 	const templatesDir = join(moduleRoot, action.id, "templates")
 	if (!existsSync(templatesDir)) return { module: moduleName, action: actionId, slots: [] }
-	const { slots } = parseActionTemplates(templatesDir)
-	return { module: moduleName, action: actionId, slots }
+	return { module: moduleName, action: actionId, slots: declaredSlots(parseActionTemplates(templatesDir)) }
 }
 
 export function previewAction(registry: ModuleRegistry, moduleName: string, actionId: string) {
@@ -103,7 +113,7 @@ export function previewAction(registry: ModuleRegistry, moduleName: string, acti
 			...(f.directive.when ? { when: f.directive.when } : {}),
 			...(f.directive.mode ? { mode: f.directive.mode } : {}),
 		})),
-		slots: parsed.slots,
+		slots: declaredSlots(parsed),
 	}
 }
 

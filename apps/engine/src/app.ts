@@ -25,6 +25,7 @@ import {
 	BAKA_DEFAULT_WORKER_MODEL,
 	BAKA_EXIT_CODE,
 	type LLMProvider,
+	normalizeParams,
 	OnExistingSchema,
 	SlotsInputSchema,
 } from "@repo/protocol"
@@ -304,6 +305,18 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 			if (!existsSync(templatesDir)) {
 				return c.json({ error: `action "${action.id}" has no templates/` }, 400)
 			}
+			// A run keys its slot cache by the params after defaults and coercion, so a fill must too.
+			const normalized = normalizeParams(action.params, parsed.data.params)
+			if (!normalized.ok) {
+				return c.json(
+					{
+						error: `params for ${parsed.data.module}/${parsed.data.action}: ${normalized.message}`,
+						code: "invalid-params",
+					},
+					400,
+				)
+			}
+			const paramsHash = hashBytes(canonicalJson(normalized.params))
 			const { files, slots } = parseActionTemplates(templatesDir)
 			const slot = slots.find((s) => s.id === parsed.data.slot)
 			if (!slot) {
@@ -317,7 +330,7 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 			const key = slotCacheKey({
 				templateHash: hashBytes(template.source),
 				slotId: slot.id,
-				paramsHash: hashBytes(canonicalJson(parsed.data.params)),
+				paramsHash,
 				model,
 			})
 			const path = writeSlotCache(project, {
@@ -327,7 +340,7 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 				value: parsed.data.value,
 				model,
 				templateHash: hashBytes(template.source),
-				paramsHash: hashBytes(canonicalJson(parsed.data.params)),
+				paramsHash,
 			})
 			return c.json({ ok: true, slot: slot.id, cachePath: path, key })
 		} catch (err) {

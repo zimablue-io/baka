@@ -380,10 +380,18 @@ export const SlotRecordSchema = z.object({
 	id: z.string(),
 	/**
 	 * Model-independent identity of the fill: sha256 over the template bytes,
-	 * the slot id, and the canonical params. A replay only accepts a record
-	 * whose key matches the slot it is about to fill.
+	 * the slot id, and the canonical params (`match` "params"), or over the
+	 * template bytes and the slot id alone (`match` "template"). A replay only
+	 * accepts a record whose key matches the slot it is about to fill.
 	 */
 	key: z.string(),
+	/**
+	 * What the record's `key` covers. `params` (the default, and what every run
+	 * reports) fits one set of params. `template` fits any params for the same
+	 * template bytes: the shape of a default a catalog ships in a fixture. When a
+	 * replay has both for a slot, the record taken against exactly these params wins.
+	 */
+	match: z.enum(["params", "template"]).optional(),
 	/** The model that produced the value (`manual` for a pinned fill). */
 	model: z.string(),
 	value: SlotFillSchema.shape.value,

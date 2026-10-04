@@ -559,6 +559,7 @@ Every slot a run fills comes back as data in `slots`, whichever way it was fille
 
 - `id` is the slot id; `value` is the filled value (a string, a list of strings, or a JSON object, per the slot `kind`).
 - `key` is the model-independent identity of the fill: sha256 over the template's bytes, the slot id, and the canonical (sorted-key) JSON of the action params. Change the template or the params and the key changes.
+- `match` is optional and says what `key` covers: `params` (the default; every key a run reports) or `template` (see "Shipping default slot fills" below).
 - `model` is the model that produced the value (`manual` for a fill pinned with `baka fill`).
 - `source` is `llm` (the model was called this run), `cache` (read from the slot cache), or `replay` (taken from a supplied record).
 
@@ -576,6 +577,24 @@ In `replay`, a slot with no record fails the run with `slot-record-missing`. A r
 baka run hello/greet --name Ada --json > receipt.json
 baka run hello/greet --name Ada --json --slot-records receipt.json   # same outputTreeHash, no model call
 ```
+
+`baka fill` (and `POST /v1/fill`, the `baka_fill` tool) keys its cache entry by the params exactly as a run does: the declared defaults applied and flags such as `--level 2` coerced to the declared type, with the same `invalid-params` refusal. A fill made with the params you typed is therefore replayed by a run with those same typed params, however many defaulted params the action declares.
+
+### Shipping default slot fills
+
+A record keyed by params fits one set of params, so a catalog cannot ship it as a default for projects it has never seen. A record with `"match": "template"` is keyed by the template's bytes and the slot id only, and fills that slot for any params. Its `key` is the `templateKey` that `baka slots <module>/<action> --json` (and `baka inspect`) report for the slot, so editing the template makes the record `slot-record-stale` instead of silently applying an old default:
+
+```json
+[
+	{ "id": "blurb", "key": "<templateKey from baka slots>", "match": "template", "model": "manual", "value": "A default.", "source": "replay" }
+]
+```
+
+```bash
+baka run hello/greet --name Ada --slot-records modules/hello/fixtures/greet.slots.json
+```
+
+When a replay holds both kinds for a slot, the record taken against exactly these params wins; a template-matched record is the fallback. Template-matched records are used by `replay` only (the on-disk cache stays params-keyed).
 
 The on-disk cache (`<project>/.baka/slots/<key>.json`, falling back to `$BAKA_HOME/slots` for the CLI and engine) stays the default store behind `live` and `record`. Its key still includes the model (`templateHash + slotId + paramsHash + model`), so two models never share a cached fill. Library callers can inject any `SlotStore`; `createMemorySlotStore()` keeps fills off the disk entirely.
 

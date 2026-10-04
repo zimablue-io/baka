@@ -25,6 +25,7 @@ import {
 	slotCacheKey,
 	slotRecordKey,
 	slotResponseSchema,
+	slotTemplateKey,
 } from "./slots.js"
 import { compareUtf8 } from "./tree-hash.js"
 
@@ -79,15 +80,23 @@ export async function fillSlot(
 
 /**
  * Find the record a replay fills `slot` from. A record for the same slot id
- * whose key differs was taken against another template or other params, so
- * it is rejected as stale rather than silently reused.
+ * whose key differs was taken against another template or other params (for a
+ * `match: "template"` record, another template), so it is rejected as stale
+ * rather than silently reused. A record taken against exactly these params
+ * wins over a template-matched default.
  */
-function replayRecord(slot: SlotDecl, key: string, records: readonly SlotRecord[]): SlotRecord {
+function replayRecord(
+	slot: SlotDecl,
+	keys: { params: string; template: string },
+	records: readonly SlotRecord[],
+): SlotRecord {
 	const sameId = records.filter((r) => r.id === slot.id)
 	if (sameId.length === 0) {
 		throw new ActionError("slot-record-missing", `replay: no record for slot "${slot.id}"; no model call was made`)
 	}
-	const record = sameId.find((r) => r.key === key)
+	const record =
+		sameId.find((r) => r.match !== "template" && r.key === keys.params) ??
+		sameId.find((r) => r.match === "template" && r.key === keys.template)
 	if (!record) {
 		throw new ActionError(
 			"slot-record-stale",
@@ -202,11 +211,12 @@ export async function planTemplates(opts: PlanTemplatesOptions): Promise<Templat
 		}
 		const templateHash = hashBytes(template.source)
 		const recordKey = slotRecordKey({ templateHash, slotId: slot.id, paramsHash })
+		const templateKey = slotTemplateKey({ templateHash, slotId: slot.id })
 		const key = slotCacheKey({ templateHash, slotId: slot.id, paramsHash, model: opts.model })
 		const manualKey = slotCacheKey({ templateHash, slotId: slot.id, paramsHash, model: "manual" })
 
 		if (opts.slotMode === "replay") {
-			const replayed = replayRecord(slot, recordKey, opts.records)
+			const replayed = replayRecord(slot, { params: recordKey, template: templateKey }, opts.records)
 			fills[slot.id] = replayed.value
 			records.push(replayed)
 			continue

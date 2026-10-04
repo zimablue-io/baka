@@ -76,6 +76,7 @@ export {
 	SlotTemplateError,
 	slotCacheKey,
 	slotRecordKey,
+	slotTemplateKey,
 } from "./slots.js"
 export type { LogEntry, LogLevel } from "./structured-log.js"
 export { StructuredLog } from "./structured-log.js"

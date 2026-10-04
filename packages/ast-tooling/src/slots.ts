@@ -443,3 +443,12 @@ export function slotCacheKey(input: {
 export function slotRecordKey(input: { templateHash: string; slotId: string; paramsHash: string }): string {
 	return hashBytes(`${input.templateHash}\0${input.slotId}\0${input.paramsHash}`)
 }
+
+/**
+ * Identity of a slot fill that holds for any params: the same template bytes
+ * and slot id always yield the same key. It is what a `match: "template"`
+ * record carries, and it is tagged so it never equals a params-keyed identity.
+ */
+export function slotTemplateKey(input: { templateHash: string; slotId: string }): string {
+	return hashBytes(`template\0${input.templateHash}\0${input.slotId}`)
+}
