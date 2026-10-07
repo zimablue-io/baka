@@ -15,6 +15,11 @@ node_modules
 # Testing
 coverage
 
+# Browser-automation scratch output. The Playwright MCP server writes
+# page snapshots and console logs to .playwright-mcp/ at the repo root
+# on every navigate / snapshot / console call. Throwaway — never commit.
+.playwright-mcp/
+
 # Turbo
 .turbo
 
