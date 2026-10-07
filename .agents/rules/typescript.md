@@ -128,14 +128,14 @@ caller.
   prompt_regex:
     - "(?i)\\b(use|use\\s+of)\\s+any\\b"
     - "(?i)\\bany\\s+type\\b"
-  suggestion: "Never use any. Use unknown with a type guard or define a proper type. See .factory/rules/typescript.md."
+  suggestion: "Never use any. Use unknown with a type guard or define a proper type. See .agents/rules/typescript.md."
   citations:
     - "https://www.typescriptlang.org/docs/handbook/2/narrowing.html"
 - id: typescript-prefer-interface
   severity: low
   diff_regex: []
   prompt_regex: []
-  suggestion: "Use interface for object shapes; use type for unions, intersections, primitives. See .factory/rules/typescript.md."
+  suggestion: "Use interface for object shapes; use type for unions, intersections, primitives. See .agents/rules/typescript.md."
   citations:
     - "https://www.typescriptlang.org/docs/handbook/2/everyday-types.html"
 - id: no-require-in-esm

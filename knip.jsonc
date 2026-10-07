@@ -6,9 +6,9 @@
   // not cover the repository's actual execution model.
   "workspaces": {
     ".": {
-      // Root scripts run from package.json; Factory loads hooks from settings.json.
-      "entry": ["scripts/*.{js,mjs,cjs,ts}", ".factory/hooks/**/*.{js,mjs,cjs,ts}"],
-      "project": ["scripts/**/*.{js,mjs,cjs,ts}", ".factory/hooks/**/*.{js,mjs,cjs,ts}"]
+      // Root scripts run from package.json.
+      "entry": ["scripts/*.{js,mjs,cjs,ts}"],
+      "project": ["scripts/**/*.{js,mjs,cjs,ts}"]
     },
 
     "apps/cli": {

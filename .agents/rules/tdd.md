@@ -95,7 +95,7 @@ Everything else: TDD. Always.
   prompt_regex:
     - "(?i)\\b(skip|skipping|without)\\s+(the\\s+)?test(s)?\\b"
     - "(?i)\\b(write|add|implement)\\b.*\\bproduction\\s+code\\b"
-  suggestion: "TDD is mandatory. Write the failing test first; verify it fails for the right reason; write the minimal code; verify green. See .factory/rules/tdd.md."
+  suggestion: "TDD is mandatory. Write the failing test first; verify it fails for the right reason; write the minimal code; verify green. See .agents/rules/tdd.md."
   citations:
     - "https://en.wikipedia.org/wiki/Test-driven_development"
 ```

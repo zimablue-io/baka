@@ -62,7 +62,7 @@ Tarballs are produced by `scripts/release.sh` (see [Publishing](./docs/PUBLISHIN
 
 ### After install
 
-Add the baka MCP server to your user-level Factory config (`~/.factory/mcp.json`) so it attaches in every session. If you already have entries under `mcpServers` (supabase, sanity, context7, etc.), merge this `baka` entry into your existing `mcpServers` block. Do NOT replace the whole file; your other servers and the `persistentPermissions` block must be preserved verbatim.
+Add the baka MCP server to your user-level MCP config so it attaches in every session. If you already have entries under `mcpServers` (supabase, sanity, context7, etc.), merge this `baka` entry into your existing `mcpServers` block. Do NOT replace the whole file; your other servers must be preserved verbatim.
 
 The baka entry (exact, copy-paste-ready):
 
@@ -94,7 +94,7 @@ For a fresh config with no existing entries, the full file is:
 
 > **Do NOT touch `persistentPermissions`.** Factory uses that block to remember which MCP servers and tools you have approved. Modifying it (or losing it during a copy-paste) causes unexpected re-prompts and approval loss.
 
-That single `baka` entry is enough to make `baka_plan`, `baka_apply`, `baka_validate`, and `baka_list_actions` available in every coding-agent session, regardless of the working directory. Project-level `.factory/mcp.json` overrides this entry on a per-key conflict (e.g. a sibling project's local config wins when opened).
+That single `baka` entry is enough to make `baka_plan`, `baka_apply`, `baka_validate`, and `baka_list_actions` available in every coding-agent session, regardless of the working directory. The repo also ships a project-level `.mcp.json`, which MCP-aware hosts read automatically when you open the repo.
 
 ## Quickstart
 
@@ -214,7 +214,7 @@ The CI smoke step (`pnpm --filter baka build` + `baka --version` + JSON-RPC `ini
 
 ### For coding agents (Claude Code, Cursor, Codex, Cline, Zed, etc.)
 
-The project ships an MCP config at `.factory/mcp.json` that registers `baka-mcp` over stdio. Droid loads it automatically on session start — no `droid mcp add` needed. To add or remove MCP servers for the team, edit that file and commit the change. The `baka-mcp` binary resolves its working directory from `process.cwd()` at startup, so opening a Droid session anywhere in the repo will discover the project's modules and validators.
+The project ships an MCP config at `.mcp.json` that registers `baka-mcp` over stdio. MCP-aware hosts read it automatically on session start. To add or remove MCP servers for the team, edit that file and commit the change. The `baka-mcp` binary resolves its working directory from `process.cwd()` at startup, so opening a session anywhere in the repo will discover the project's modules and validators.
 
 For other MCP-aware hosts (Claude Code, Cursor, Codex, Zed, etc.) configure the server with:
 

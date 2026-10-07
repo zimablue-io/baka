@@ -28,7 +28,8 @@
 			"!**/cypress/screenshots",
 			"!**/.turbo",
 			"!LIVE",
-			"!.factory",
+			"!.agents",
+			"!docs/research",
 			"!pnpm-lock.yaml",
 			"!**/routeTree.gen.ts"
 		]

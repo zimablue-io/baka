@@ -53,7 +53,9 @@ This MUST return zero matches. If it doesn't, the boundary is leaking — file a
 |---|---|---|
 | `apps/cli` | this file, `docs/PHILOSOPHY.md` | CLI command surface (`init`, `role`, `roles`, `plan`, `apply`, `validate`, `module`), output formatting, exit codes, `--json` flags |
 | `apps/mcp` | this file, `docs/PHILOSOPHY.md` | MCP server (stdio JSON-RPC), tool/resource/prompt registration, `--json` parity with CLI |
-| `.factory/mcp.json` | this file | **Project-scoped MCP registration.** Source of truth for which MCP servers are wired into this repo. Edit and commit to add/remove servers for the team. Do not duplicate entries in `~/.factory/mcp.json`. |
+| `.agents/rules/` | this file, `.agents/README.md` | Harness-agnostic coding rules any agent should follow. |
+| `docs/research/` | this file | Dated engineering audits and architecture research. Human-facing, not agent-plumbing. |
+| `.mcp.json` | this file | **Project-scoped MCP registration.** Source of truth for which MCP servers are wired into this repo. Edit and commit to add/remove servers for the team. Your own user-level config can hold personal entries. |
 | `workflows/feature-planning` | this file, `docs/PHILOSOPHY.md` | Orchestrator durable step + Worker loop |
 | `workflows/module-management` | this file, `docs/PHILOSOPHY.md` | `baka module create` workflow, double-diamond design flow |
 | `packages/protocol` | this file, `docs/PHILOSOPHY.md` | All types, schemas, constants, exit codes, `LLMProvider` interface |
@@ -86,4 +88,4 @@ pnpm mcp                    # run the baka-mcp server over stdio
 - Do not change the directory name `apps/cli/`. The binary is `baka`; the package is `baka`; the directory is `cli`.
 - Do not make `apps/mcp/` depend on `apps/cli/`. Both apps are leaves that share `packages/*` and `workflows/*`. The MCP server does not shell out to the `baka` binary.
 - Do not add a streamable HTTP transport, OAuth, or a multi-tenant auth layer to `apps/mcp/` until the requirement actually lands. The process rule in `docs/PHILOSOPHY.md` forbids building for a future state.
-- Do not add a `baka` entry to your user-level `~/.factory/mcp.json`. The project-level `.factory/mcp.json` already declares it; a duplicate triggers a layering warning in `/mcp` and adds no value. To uninstall for yourself only, toggle the project's entry off in the `/mcp` UI (Droid stores the override in your user config, the project file is untouched).
+- Do not duplicate the `baka` MCP entry in your own user-level MCP config. The project-level `.mcp.json` already declares it; a duplicate adds no value. To disable it for yourself only, turn the project's entry off in your host's MCP UI.

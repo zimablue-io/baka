@@ -5,7 +5,7 @@
 
 ### For coding agents (Claude Code, Cursor, Codex, Cline, Zed, etc.)
 
-The project ships an MCP config at `.factory/mcp.json` that registers `baka-mcp` over stdio. Droid loads it automatically on session start — no `droid mcp add` needed. To add or remove MCP servers for the team, edit that file and commit the change. The `baka-mcp` binary resolves its working directory from `process.cwd()` at startup, so opening a Droid session anywhere in the repo will discover the project's modules and validators.
+The project ships an MCP config at `.mcp.json` that registers `baka-mcp` over stdio. MCP-aware hosts read it automatically on session start. To add or remove MCP servers for the team, edit that file and commit the change. The `baka-mcp` binary resolves its working directory from `process.cwd()` at startup, so opening a session anywhere in the repo will discover the project's modules and validators.
 
 For other MCP-aware hosts (Claude Code, Cursor, Codex, Zed, etc.) configure the server with:
 

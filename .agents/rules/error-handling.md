@@ -175,7 +175,7 @@ reference implementation (`verifyToken`).
     - "(?i)\\bempty\\s+catch\\b"
     - "(?i)\\bsilent\\s+catch\\b"
     - "(?i)\\bswallow\\s+the\\s+error\\b"
-  suggestion: "Empty catches hide the bug, they don't fix it. Either rethrow with cause, or convert to a meaningful user-facing action. See .factory/rules/error-handling.md."
+  suggestion: "Empty catches hide the bug, they don't fix it. Either rethrow with cause, or convert to a meaningful user-facing action. See .agents/rules/error-handling.md."
   citations:
     - "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/try...catch"
 - id: no-catch-log-and-continue
@@ -189,7 +189,7 @@ reference implementation (`verifyToken`).
   prompt_regex:
     - "(?i)\\blog\\s+and\\s+continue\\b"
     - "(?i)\\blog\\s+and\\s+return\\b"
-  suggestion: "A catch that logs and continues is a dressed-up empty catch. The operation failed; subsequent code runs on a false assumption. See .factory/rules/error-handling.md."
+  suggestion: "A catch that logs and continues is a dressed-up empty catch. The operation failed; subsequent code runs on a false assumption. See .agents/rules/error-handling.md."
   citations:
     - "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/try...catch"
 - id: no-rethrow-without-cause
@@ -201,7 +201,7 @@ reference implementation (`verifyToken`).
     - "\\.spec\\."
   prompt_regex:
     - "(?i)\\bthrow\\s+new\\s+Error\\b(?!.*\\bcause\\b)"
-  suggestion: "When rethrowing, preserve the original error with `cause`. A bare `throw new Error('Save failed')` loses the stack trace. See .factory/rules/error-handling.md."
+  suggestion: "When rethrowing, preserve the original error with `cause`. A bare `throw new Error('Save failed')` loses the stack trace. See .agents/rules/error-handling.md."
   citations:
     - "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Error/cause"
 - id: no-token-presence-as-auth-state
@@ -216,7 +216,7 @@ reference implementation (`verifyToken`).
   prompt_regex:
     - "(?i)\\btoken\\s+present\\s+.*\\s+logged\\s+in\\b"
     - "(?i)\\bif\\s*\\(\\s*token\\s*\\)\\s*\\{[^}]*auth"
-  suggestion: "A token in storage is a credential, not an authentication state. Round-trip to the server (e.g. `verifyToken` / `getSessionContext`) before claiming authenticated. See .factory/rules/error-handling.md."
+  suggestion: "A token in storage is a credential, not an authentication state. Round-trip to the server (e.g. `verifyToken` / `getSessionContext`) before claiming authenticated. See .agents/rules/error-handling.md."
   citations:
     - "https://developer.mozilla.org/en-US/docs/Web/HTTP/Authentication"
 - id: no-session-lookup-via-headers
@@ -230,7 +230,7 @@ reference implementation (`verifyToken`).
     - "\\.next/"
   prompt_regex:
     - "(?i)\\bauth\\.api\\.getSession\\b.*\\bcontext\\.headers\\b"
-  suggestion: "Don't call auth.api.getSession({ headers }) from a server-side procedure that exists only to mint something for the requester. The request boundary (Next.js route, orpc procedure) should verify the session at its own boundary and pass the verified identity in. The inner procedure should not need to call Better Auth or Postgres just to mint a code. The route at `app/(authentication)/auth/callback/route.ts` IS the auth boundary, so it is allowed to call `auth.api.getSession({ headers: request.headers })` — that call IS the verification. See .factory/rules/error-handling.md."
+  suggestion: "Don't call auth.api.getSession({ headers }) from a server-side procedure that exists only to mint something for the requester. The request boundary (Next.js route, orpc procedure) should verify the session at its own boundary and pass the verified identity in. The inner procedure should not need to call Better Auth or Postgres just to mint a code. The route at `app/(authentication)/auth/callback/route.ts` IS the auth boundary, so it is allowed to call `auth.api.getSession({ headers: request.headers })` — that call IS the verification. See .agents/rules/error-handling.md."
   citations:
     - "https://better-auth.com/docs/concepts/session-management"
 - id: recoverable-auth-states-are-not-errors
@@ -257,7 +257,7 @@ reference implementation (`verifyToken`).
     session_lookup_failed (Postgres down — can't authenticate),
     already_redeemed (code is single-use), unknown_state (server
     lost the state), exchange_threw (server-side error).
-    See .factory/rules/error-handling.md.
+    See .agents/rules/error-handling.md.
   citations:
     - "https://datatracker.ietf.org/doc/html/rfc8252"
     - "https://www.rfc-editor.org/rfc/rfc6749#section-4.1.2.1"

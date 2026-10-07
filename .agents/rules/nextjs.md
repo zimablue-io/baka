@@ -5,7 +5,7 @@
 **Applies to**: a future Next.js **module**, if we write one. Not the Baka engine.
 
 Baka is not a Next.js product. `apps/dashboard` is TanStack Start +
-shadcn. See `.factory/rules/platform.md`. Do not use this file as a
+shadcn. See `.agents/rules/platform.md`. Do not use this file as a
 reason to build Next.js into the core.
 
 These notes exist so that **when** a Next.js module (or a Next.js
@@ -149,7 +149,7 @@ is the boundary fix, not the state flag.
   prompt_regex:
     - "(?i)\\bmake\\s+(this|the\\s+\\w+)\\s+(page|layout|route|template)\\s+(a\\s+)?client\\b"
     - "(?i)\\b(use\\s+client|client\\s+component|client\\s+page|client\\s+layout)\\b"
-  suggestion: "Pages and layouts are server components by default. Make the smallest interactive child a client component instead. See .factory/rules/nextjs.md."
+  suggestion: "Pages and layouts are server components by default. Make the smallest interactive child a client component instead. See .agents/rules/nextjs.md."
   citations:
     - "https://nextjs.org/docs/app/getting-started/server-and-client-components"
     - "https://nextjs.org/docs/app/building-your-application/rendering/server-components"
@@ -163,7 +163,7 @@ is the boundary fix, not the state flag.
   prompt_regex:
     - "(?i)\\b(create|make|use|add|introduce|need)\\b.*\\bwrapper\\b"
     - "(?i)\\bwrapper\\s+component\\b"
-  suggestion: "A component whose body is just <Child {...props} /> is a wrapper. Delete it; import the child directly. See .factory/rules/nextjs.md."
+  suggestion: "A component whose body is just <Child {...props} /> is a wrapper. Delete it; import the child directly. See .agents/rules/nextjs.md."
   citations:
     - "https://react.dev/reference/react/Component"
 - id: nextjs-no-mounted-flag
@@ -176,7 +176,7 @@ is the boundary fix, not the state flag.
   prompt_regex:
     - "(?i)\\bmounted\\s+flag\\b"
     - "(?i)\\buseState\\(false\\).*setMounted\\(true\\)"
-  suggestion: "Don't dodge SSR/hydration mismatches with a useEffect-mounted flag. Make the shell a server component. See .factory/rules/nextjs.md."
+  suggestion: "Don't dodge SSR/hydration mismatches with a useEffect-mounted flag. Make the shell a server component. See .agents/rules/nextjs.md."
   citations:
     - "https://react.dev/reference/react/useEffect"
 ```

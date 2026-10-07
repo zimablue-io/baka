@@ -221,7 +221,7 @@ state survives.
   prompt_regex:
     - "(?i)\\b(skip|skipping)\\s+(this\\s+)?test\\b"
     - "(?i)\\btest\\.skip\\b"
-  suggestion: "A skipped test is a silent gap in the contract. Either fix it or delete it. See .factory/rules/testing.md."
+  suggestion: "A skipped test is a silent gap in the contract. Either fix it or delete it. See .agents/rules/testing.md."
   citations:
     - "https://vitest.dev/api/test.html#skip"
     - "https://docs.pytest.org/en/stable/how-to/skipping.html"
@@ -235,7 +235,7 @@ state survives.
   prompt_regex:
     - "(?i)\\bmock\\s+(the\\s+)?internal\\b"
     - "(?i)\\bmock\\s+implementation\\b"
-  suggestion: "Mock at the boundary (external APIs, services, time, randomness), not on the thing under test. See .factory/rules/testing.md."
+  suggestion: "Mock at the boundary (external APIs, services, time, randomness), not on the thing under test. See .agents/rules/testing.md."
   citations:
     - "https://vitest.dev/api/vi.html#vi-mock"
     - "https://mswjs.io/docs/"
@@ -249,7 +249,7 @@ state survives.
     - "\\.spec\\."
   prompt_regex:
     - "(?i)\\b(in\\s*memory|in\\s*process|shared\\s+state|server\\s*side\\s*store)\\b"
-  suggestion: "If this module holds in-process shared state, anchor it on globalThis with Symbol.for(...) and add a vi.resetModules() integration test. See .factory/rules/testing.md (Stateful Server Modules)."
+  suggestion: "If this module holds in-process shared state, anchor it on globalThis with Symbol.for(...) and add a vi.resetModules() integration test. See .agents/rules/testing.md (Stateful Server Modules)."
   citations:
     - "https://nextjs.org/docs/app/building-your-application/routing/route-handlers"
 ```

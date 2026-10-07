@@ -152,7 +152,7 @@ end-to-end state after the rewrite; commits `a9b1af6c` and
   prompt_regex:
     - "(?i)\\b(backward|backwards|legacy)\\s+(compat|compatibility|fallback|path)\\b"
     - "(?i)\\bfor\\s+backward(s)?\\s+compat(ibility)?\\b"
-  suggestion: "No compat shims in active code. Migrate callers and delete the old path in the same change. The only allowed pattern is a logging-only deprecation that runs for one release. See .factory/rules/maintenance.md."
+  suggestion: "No compat shims in active code. Migrate callers and delete the old path in the same change. The only allowed pattern is a logging-only deprecation that runs for one release. See .agents/rules/maintenance.md."
   citations:
     - "https://en.wikipedia.org/wiki/Deprecation"
 - id: rewrite-lands-coherent
@@ -162,7 +162,7 @@ end-to-end state after the rewrite; commits `a9b1af6c` and
     - "(?i)\\bcommit\\b.*\\b(partial|half[-\\s]done)\\b"
     - "(?i)\\b(commit|land|ship)\\b.*\\bthe\\s+(rest|remainder|other\\s+files)\\b"
     - "(?i)\\bnew\\s+entry\\s+point\\b"
-  suggestion: "A rewrite/area must land as a coherent end-to-end app state, not a partial one. If you changed the entry point, the rest of the subsystem (callers, dead code, docs) must be in the same commit. `git status` for the subsystem directory must show no unstaged M/D that the change did not also stage. See .factory/rules/maintenance.md."
+  suggestion: "A rewrite/area must land as a coherent end-to-end app state, not a partial one. If you changed the entry point, the rest of the subsystem (callers, dead code, docs) must be in the same commit. `git status` for the subsystem directory must show no unstaged M/D that the change did not also stage. See .agents/rules/maintenance.md."
   citations: []
 - id: one-source-of-truth-for-app-state
   severity: high
@@ -176,7 +176,7 @@ end-to-end state after the rewrite; commits `a9b1af6c` and
   prompt_regex:
     - "(?i)phase.*done.*[Ll]ogged\\s*in"
     - "(?i)[Ll]ogged\\s*in.*[Tt]oken\\s*saved"
-  suggestion: "Local component state MUST NOT contradict global app state. The `AuthState` in `apps/cli/src/state/auth.ts` is the single source of truth for 'is the user logged in?' — it is set by `verifyToken` (which round-trips the token to the server) and ONLY that can flip it to `'authenticated'`. A child component's local `phase: 'done'` or 'Logged in. Token saved.' message is a rogue SSOT and will lie to the user when the server is unreachable. After `runCliLogin` returns, render a 'verifying' placeholder and unmount the component as soon as the global auth state moves to 'verifying' — let the parent drive the next screen based on the SSOT. See .factory/rules/maintenance.md and apps/cli/AGENTS.md."
+  suggestion: "Local component state MUST NOT contradict global app state. The `AuthState` in `apps/cli/src/state/auth.ts` is the single source of truth for 'is the user logged in?' — it is set by `verifyToken` (which round-trips the token to the server) and ONLY that can flip it to `'authenticated'`. A child component's local `phase: 'done'` or 'Logged in. Token saved.' message is a rogue SSOT and will lie to the user when the server is unreachable. After `runCliLogin` returns, render a 'verifying' placeholder and unmount the component as soon as the global auth state moves to 'verifying' — let the parent drive the next screen based on the SSOT. See .agents/rules/maintenance.md and apps/cli/AGENTS.md."
   citations:
     - "file:apps/cli/src/state/auth.ts"
     - "file:apps/cli/AGENTS.md"
@@ -196,7 +196,7 @@ end-to-end state after the rewrite; commits `a9b1af6c` and
   prompt_regex:
     - "(?i)\\bdefault\\s+to\\s+localhost\\b"
     - "(?i)\\bdefault\\s+(base\\s*)?url.*localhost\\b"
-  suggestion: "A CLI app's hardcoded fallback URL (the value returned when no env var, no config file, no flag is set) MUST be the production site, not the dev site. A user who installs the CLI without configuring anything is by definition a production user; a 'default to localhost' silently breaks their install. Devs override via DASHBOARD_BASE_URL in their .env / .envrc. See .factory/rules/maintenance.md."
+  suggestion: "A CLI app's hardcoded fallback URL (the value returned when no env var, no config file, no flag is set) MUST be the production site, not the dev site. A user who installs the CLI without configuring anything is by definition a production user; a 'default to localhost' silently breaks their install. Devs override via DASHBOARD_BASE_URL in their .env / .envrc. See .agents/rules/maintenance.md."
   citations: []
 ```
 

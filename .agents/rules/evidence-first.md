@@ -122,8 +122,6 @@ For these, green tests are sufficient.
 **See also**:
 - Root `AGENTS.md` "Verification Gate" — the high-level
   principle
-- `.factory/skills/verification-before-completion/SKILL.md`
-  — the workflow
 - `no-require-in-esm` rule (in `typescript.md`) — the static
   check that catches the specific bug class
 
@@ -143,9 +141,8 @@ For these, green tests are sufficient.
   advisory: true
   prompt_regex:
     - "(?i)\\b(write|add|create|fix|update|implement)\\b.*\\b(function|component|hook|module|script|endpoint|procedure|tool)\\b"
-  suggestion: "Before writing code, read the relevant files and call mcp__context7__query-docs for any external library. State the causal chain. See .factory/rules/evidence-first.md."
-  citations:
-    - "https://docs.factory.ai/guides/power-user/setup-checklist"
+  suggestion: "Before writing code, read the relevant files and call mcp__context7__query-docs for any external library. State the causal chain. See .agents/rules/evidence-first.md."
+  citations: []
 - id: verification-is-the-binary-running
   severity: high
   diff_regex: []
@@ -163,7 +160,7 @@ For these, green tests are sufficient.
     not defined, masked by vitest's CJS polyfill) is the
     canonical case. For TUI/CLI/desktop/dashboard code,
     run the actual binary and assert the rendered output.
-    See .factory/rules/evidence-first.md and
+    See .agents/rules/evidence-first.md and
     verification-before-completion skill.
   citations:
     - "file:apps/cli/AGENTS.md"

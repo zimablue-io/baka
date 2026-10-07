@@ -158,7 +158,7 @@ export const useUserStore = create<UserState>((set) => ({
   prompt_regex:
     - "(?i)\\bclass\\s+component\\b"
     - "(?i)\\bextends\\s+Component\\b"
-  suggestion: "Use functional components with hooks. Never use class components. See .factory/rules/react.md."
+  suggestion: "Use functional components with hooks. Never use class components. See .agents/rules/react.md."
   citations:
     - "https://react.dev/reference/react/Component"
 - id: react-no-default-export
@@ -176,7 +176,7 @@ export const useUserStore = create<UserState>((set) => ({
     - "\\.test\\."
     - "\\.spec\\."
   prompt_regex: []
-  suggestion: "Use named exports for better refactoring and import clarity. Page components are an exception (Next.js requires default). See .factory/rules/react.md."
+  suggestion: "Use named exports for better refactoring and import clarity. Page components are an exception (Next.js requires default). See .agents/rules/react.md."
   citations:
     - "https://developer.mozilla.org/en-US/docs/web/javascript/reference/statements/export"
 - id: react-no-derivable-usestate
@@ -190,7 +190,7 @@ export const useUserStore = create<UserState>((set) => ({
     - "(?i)\\buseState\\b.*\\.filter\\("
     - "(?i)\\buseState\\b.*\\.map\\("
     - "(?i)\\buseState\\b.*\\.sort\\("
-  suggestion: "If a useState value is a function of a prop or other state, use useMemo or compute inline. Storing derivable values invites drift. See .factory/rules/react.md."
+  suggestion: "If a useState value is a function of a prop or other state, use useMemo or compute inline. Storing derivable values invites drift. See .agents/rules/react.md."
   citations:
     - "https://react.dev/reference/react/useMemo"
 - id: react-no-router-wrapper
@@ -203,7 +203,7 @@ export const useUserStore = create<UserState>((set) => ({
   prompt_regex:
     - "(?i)\\b(router\\s+wrapper|conditional\\s+component|switching\\s+component)\\b"
     - "(?i)\\bif\\s*\\([^)]*\\)\\s*return\\s+<[A-Z]\\w*\\s*/>\\s*;\\s*return\\s+<[A-Z]\\w*\\s*/>\\s*;"
-  suggestion: "A component whose sole job is to choose between two siblings is a router wrapper. Branch at the call site (the server page). See .factory/rules/react.md."
+  suggestion: "A component whose sole job is to choose between two siblings is a router wrapper. Branch at the call site (the server page). See .agents/rules/react.md."
   citations:
     - "https://react.dev/learn/conditional-rendering"
 ```

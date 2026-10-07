@@ -205,7 +205,7 @@ export async function GET(request: Request) {
   prompt_regex:
     - "(?i)\\b(fallback|default)\\s+(for|on)\\s+(a\\s+)?required\\b"
     - "(?i)\\bdefault\\s+to\\s+\\d+\\b"
-  suggestion: "Required means required. Don't ?? a constant onto a required input. Fail loud at the type, the schema, or boot. See .factory/rules/api.md."
+  suggestion: "Required means required. Don't ?? a constant onto a required input. Fail loud at the type, the schema, or boot. See .agents/rules/api.md."
   citations:
     - "https://zod.dev/?id=default"
     - "https://nodejs.org/api/process.html#processenv"
@@ -220,7 +220,7 @@ export async function GET(request: Request) {
     - "\\.spec\\."
   prompt_regex:
     - "(?i)\\b(as\\s+(unknown\\s+as\\s+)?[A-Z]\\w*|trust\\s+the\\s+response|trust\\s+the\\s+env|trust\\s+the\\s+query\\s+string)\\b"
-  suggestion: "Don't `as` an API response, env var, or query string. Parse it with zod. See .factory/rules/api.md and .factory/rules/typescript.md."
+  suggestion: "Don't `as` an API response, env var, or query string. Parse it with zod. See .agents/rules/api.md and .agents/rules/typescript.md."
   citations:
     - "https://zod.dev/"
     - "https://www.typescriptlang.org/docs/handbook/type-narrowing.html"
@@ -231,7 +231,7 @@ export async function GET(request: Request) {
     - "(?i)\\bno\\s+schema\\b"
     - "(?i)\\btrust\\s+the\\s+caller\\b"
     - "(?i)\\binput\\s+not\\s+validated\\b"
-  suggestion: "Every ORPC procedure has z.object input and output. Every handler parses with the schema. See .factory/rules/api.md."
+  suggestion: "Every ORPC procedure has z.object input and output. Every handler parses with the schema. See .agents/rules/api.md."
   citations:
     - "https://zod.dev/"
     - "https://orpc.unnoq.com/docs/procedure"
@@ -245,7 +245,7 @@ export async function GET(request: Request) {
     - "\\.spec\\."
   prompt_regex:
     - "(?i)\\b(dev|test)\\s+default\\b.*\\benv\\b"
-  suggestion: "Don't `process.env.X || 'dev-default'`. Let the process crash with a clear message at boot. See .factory/rules/api.md."
+  suggestion: "Don't `process.env.X || 'dev-default'`. Let the process crash with a clear message at boot. See .agents/rules/api.md."
   citations:
     - "https://nodejs.org/api/process.html#processenv"
 - id: api-no-better-auth-with-bearer-headers
@@ -253,7 +253,7 @@ export async function GET(request: Request) {
   prompt_regex:
     - "(?i)\\bauth\\.api\\.\\w+\\(\\{[^}]*headers:\\s*context\\.headers"
     - "(?i)\\bbetter\\s*auth\\b.*\\bheaders\\b.*\\bbearer\\b"
-  suggestion: "Don't call `auth.api.*` with the request headers from a procedure that the CLI/desktop bearer-token path can reach. Better Auth's session APIs require a session cookie, which the bearer-token auth path doesn't have. Read from the database (member/organization tables) using `context.user.id` instead. See .factory/rules/api.md."
+  suggestion: "Don't call `auth.api.*` with the request headers from a procedure that the CLI/desktop bearer-token path can reach. Better Auth's session APIs require a session cookie, which the bearer-token auth path doesn't have. Read from the database (member/organization tables) using `context.user.id` instead. See .agents/rules/api.md."
   citations:
     - "https://better-auth.com/docs/concepts/session-management"
 ```

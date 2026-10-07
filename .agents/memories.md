@@ -1,15 +1,15 @@
 # Project Memory
 
 Short, hand-curated facts the model should keep in mind on every session.
-Real rules live in `.factory/rules/`. This file is the index + project-specific
+Real rules live in `.agents/rules/`. This file is the index + project-specific
 nuggets that don't deserve a full rule file.
 
-Cross-project personal memory lives in `~/.factory/memories.md` and is
-injected automatically on session start.
+Cross-project personal memory lives in your agent harness's own memory
+file and is injected automatically on session start.
 
 ## Active Constraints
 
-See `.factory/rules/` for the canonical rules. This file only adds
+See `.agents/rules/` for the canonical rules. This file only adds
 project-specific constraints that don't yet deserve a full rule file.
 
 - **2026-08-26: The usable project is `demo/`.** Modules live in
@@ -25,10 +25,8 @@ project-specific constraints that don't yet deserve a full rule file.
   Search `"base"` + expect `"scaffold"` after a name swap is the
   failure mode.
 
-- All hooks in this repo are wired in `.factory/settings.json` and
-  `~/.factory/settings.json` (user-level). Universal hooks (SessionStart,
-  UserPromptSubmit, Stop) are inherited from user level via Factory's
-  extension-only merge.
+- Hooks are not configured in this repo. Formatting and the
+  format/lint/test gates come from your own agent harness.
 
 - **Port 8080 is the user's llama-server (off-limits).** AGENTS.md and
   `services.yaml` both call it out: never start, stop, kill, or check its
