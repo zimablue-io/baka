@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
@@ -84,6 +84,7 @@ function countPermissionProcesses(): number {
 
 describe("sandboxed dry-run (VAL-SCAN-003 / 013 / 014)", () => {
 	let stack: TestStack
+	const canaryDirs: string[] = []
 
 	beforeEach(async () => {
 		// Clear any canary-channel state from a previous test so
@@ -98,11 +99,15 @@ describe("sandboxed dry-run (VAL-SCAN-003 / 013 / 014)", () => {
 	afterEach(async () => {
 		delete process.env.BAKA_DRYRUN_TEST_CANARY_CONFIG
 		await teardownStack(stack)
+		for (const dir of canaryDirs.splice(0)) {
+			if (existsSync(dir)) rmSync(dir, { recursive: true, force: true })
+		}
 	})
 
 	describe("canary escape (VAL-SCAN-003)", () => {
 		it("reading a canary file outside the sandbox surfaces as ERR_ACCESS_DENIED (verdict != screened)", async () => {
 			const canaryDir = mkdtempSync(join(tmpdir(), "baka-canary-"))
+			canaryDirs.push(canaryDir)
 			const canaryPath = join(canaryDir, "canary.txt")
 			const canaryContent = `BAKA_CANARY_SECRET_${Math.random().toString(36).slice(2)}`
 			writeFileSync(canaryPath, canaryContent, "utf8")

@@ -124,6 +124,7 @@ async function bootSeedServer(): Promise<{
 				}
 			}
 			await new Promise((r) => setTimeout(r, 500))
+			if (existsSync(dataDir)) rmSync(dataDir, { recursive: true, force: true })
 		},
 	}
 }

@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
@@ -50,6 +50,9 @@ describe("static capability scan (VAL-SCAN-002 / 015 / 016)", () => {
 	afterEach(async () => {
 		await fx.close()
 		await git.cleanup()
+		for (const dir of moduleDirs.splice(0)) {
+			if (existsSync(dir)) rmSync(dir, { recursive: true, force: true })
+		}
 	})
 
 	describe("runStaticScan — unit-level AST detection", () => {
@@ -659,11 +662,16 @@ describe("static capability scan (VAL-SCAN-002 / 015 / 016)", () => {
 // Test helpers
 // ---------------------------------------------------------------------------
 
+// Module dirs are created by `setupModule` (module scope, called from
+// every `it`) and dropped by the suite-level `afterEach` so one run
+// leaves no temp dirs behind.
+const moduleDirs: string[] = []
+
 async function setupModule(files: Record<string, string>): Promise<string> {
 	const dir = mkdtempSync(join(tmpdir(), "baka-scan-unit-"))
+	moduleDirs.push(dir)
 	for (const [relPath, content] of Object.entries(files)) {
 		const fullPath = join(dir, relPath)
-		const { mkdirSync } = await import("node:fs")
 		mkdirSync(join(dir, ...relPath.split("/").slice(0, -1)), { recursive: true })
 		writeFileSync(fullPath, content, "utf8")
 	}

@@ -135,6 +135,7 @@ async function bootSeedServer(): Promise<{
 			}
 			// Give the process a moment to release the port.
 			await new Promise((r) => setTimeout(r, 500))
+			if (existsSync(dataDir)) rmSync(dataDir, { recursive: true, force: true })
 		},
 	}
 }

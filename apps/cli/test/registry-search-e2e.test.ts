@@ -117,6 +117,7 @@ async function bootSeedServer(): Promise<SeedServer> {
 				}
 			}
 			await new Promise((r) => setTimeout(r, 500))
+			if (existsSync(dataDir)) rmSync(dataDir, { recursive: true, force: true })
 		},
 	}
 }
@@ -148,8 +149,11 @@ function spawnCli(argv: string[], cwd: string, env: Record<string, string>, time
 	})
 }
 
+const createdDirs: string[] = []
+
 function makeIsolatedHome(prefix: string): string {
 	const base = mkdtempSync(join(tmpdir(), prefix))
+	createdDirs.push(base)
 	mkdirSync(join(base, ".baka"), { recursive: true })
 	return base
 }
@@ -216,6 +220,7 @@ async function bootOtherServer(): Promise<void> {
 				}
 			}
 			await new Promise((r) => setTimeout(r, 500))
+			if (existsSync(otherDataDir)) rmSync(otherDataDir, { recursive: true, force: true })
 		},
 	}
 }
@@ -236,6 +241,9 @@ afterAll(async () => {
 	if (tasks.length > 0) await Promise.all(tasks)
 	server = null
 	otherServer = null
+	for (const dir of createdDirs.splice(0)) {
+		if (existsSync(dir)) rmSync(dir, { recursive: true, force: true })
+	}
 }, 30_000)
 
 // ---------------------------------------------------------------------------

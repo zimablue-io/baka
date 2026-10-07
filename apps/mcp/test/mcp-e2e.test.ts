@@ -120,7 +120,7 @@ function spawnMcp(args: {
 }): SpawnedMcp {
 	let env: NodeJS.ProcessEnv = { ...process.env, ...args.env }
 	if (args.bakaConfig) {
-		const home = mkdtempSync(join(tmpdir(), "baka-mcp-home-"))
+		const home = trackDir(makeEmptyDir("baka-mcp-home-"))
 		seedRoleConfig(home, args.bakaConfig)
 		env = { ...env, HOME: home }
 	}
@@ -1063,7 +1063,7 @@ describe("VAL-CROSS-010 CLI plan --json vs MCP tools/call baka_plan shape parity
 		const scratch = prepareScratchWithModules("baka-cross010-")
 		const fake = await startFakeLLM([planResponse("probe")])
 
-		const fakeHome = makeEmptyDir("baka-cross010-home-")
+		const fakeHome = trackDir(makeEmptyDir("baka-cross010-home-"))
 		seedRoleConfig(fakeHome, { baseUrl: fake.url, model: "fake-llm", apiKey: "fake-key" })
 
 		// --- CLI side: `baka plan "..." --json` ---------------------------------
