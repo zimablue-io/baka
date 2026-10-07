@@ -1,4 +1,5 @@
 import { Analytics } from "@vercel/analytics/react"
+import { SpeedInsights } from "@vercel/speed-insights/react"
 import { useEffect, useRef } from "react"
 import { LandingPage } from "./components/LandingPage"
 import { ModuleDetail } from "./components/ModuleDetail"
@@ -55,6 +56,7 @@ export function App() {
 			</main>
 			<SiteFooter />
 			<Analytics />
+			<SpeedInsights />
 		</div>
 	)
 }
