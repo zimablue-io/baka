@@ -29,9 +29,11 @@ export {
 	ModuleRegistry,
 	moduleDirsFromEnv,
 	moduleDirsFromSettings,
+	MODULE_HASH_DOMAIN,
 	readLockfile,
 	resolveModuleDirs,
 	runAction,
+	TREE_HASH_DOMAIN,
 	validateProject as validate,
 	writeLockfile,
 } from "@repo/ast-tooling"

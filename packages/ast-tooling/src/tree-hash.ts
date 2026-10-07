@@ -8,8 +8,8 @@ export function sha256Hex(data: string | Uint8Array): string {
 	return createHash("sha256").update(data).digest("hex")
 }
 
-/** Domain tag; bump it if the canonical form below ever changes. */
-const TREE_HASH_DOMAIN = "baka.tree.v1"
+/** Domain tag of the output tree hash; bump it if the canonical form below ever changes. */
+export const TREE_HASH_DOMAIN = "baka.tree.v1"
 
 /** Orders strings by their UTF-8 bytes, so the order never depends on the JS engine's string comparison. */
 export function compareUtf8(a: string, b: string): number {
@@ -113,7 +113,8 @@ export function snapshotDirectories(root: string): Set<string> {
 	return out
 }
 
-const MODULE_HASH_DOMAIN = "baka.module.v1"
+/** Domain tag of a module's content hash; bump it if the canonical form below ever changes. */
+export const MODULE_HASH_DOMAIN = "baka.module.v1"
 
 /**
  * The content hash of a module: sha256 over

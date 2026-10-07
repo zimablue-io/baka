@@ -22,6 +22,12 @@ describe("@baka/core packaging", () => {
 		expect(pkg.dependencies.zod).toMatch(/^\^3\./)
 	})
 
+	it("exports the hash domain tags, so a consumer never re-declares the digest prefix", async () => {
+		const core = (await import("@baka/core")) as Record<string, unknown>
+		expect(core.TREE_HASH_DOMAIN).toBe("baka.tree.v1")
+		expect(core.MODULE_HASH_DOMAIN).toBe("baka.module.v1")
+	})
+
 	it("bundles the private workspace packages instead of depending on them", () => {
 		expect(Object.keys(pkg.dependencies).filter((d) => d.startsWith("@repo/") || d.startsWith("@baka/"))).toEqual([])
 	})

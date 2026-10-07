@@ -80,7 +80,16 @@ export {
 } from "./slots.js"
 export type { LogEntry, LogLevel } from "./structured-log.js"
 export { StructuredLog } from "./structured-log.js"
-export { compareUtf8, diffSnapshots, moduleContentHash, outputTreeHash, sha256Hex, snapshotTree } from "./tree-hash.js"
+export {
+	compareUtf8,
+	diffSnapshots,
+	moduleContentHash,
+	MODULE_HASH_DOMAIN,
+	outputTreeHash,
+	sha256Hex,
+	snapshotTree,
+	TREE_HASH_DOMAIN,
+} from "./tree-hash.js"
 export type { RanAction, ValidationScope } from "./validator.js"
 export { runValidators } from "./validator.js"
 export type { WorkerInput, WorkerRollbackData } from "./worker.js"

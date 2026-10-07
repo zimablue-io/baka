@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { diffSnapshots, outputTreeHash, sha256Hex, snapshotTree } from "./tree-hash.js"
+import { diffSnapshots, MODULE_HASH_DOMAIN, moduleContentHash, outputTreeHash, sha256Hex, snapshotTree, TREE_HASH_DOMAIN } from "./tree-hash.js"
 
 const cleanup: string[] = []
 afterEach(() => {
@@ -11,6 +11,15 @@ afterEach(() => {
 })
 
 const sha = (s: string) => createHash("sha256").update(s).digest("hex")
+
+describe("the hash domain tags", () => {
+	it("are the exported strings the digests are built from, so a consumer never re-declares them", () => {
+		expect(outputTreeHash([])).toBe(sha(`${TREE_HASH_DOMAIN}\n`))
+		expect(moduleContentHash).toBeTypeOf("function")
+		expect(MODULE_HASH_DOMAIN).toBe("baka.module.v1")
+		expect(TREE_HASH_DOMAIN).toBe("baka.tree.v1")
+	})
+})
 
 describe("outputTreeHash", () => {
 	it("is sha256 over `baka.tree.v1\\n` then one `<path>\\0<hash>\\n` line per entry, sorted by path", () => {
