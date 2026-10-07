@@ -152,7 +152,7 @@ production-equivalent assertion.
 
 ```ts
 // ✅ Correct: state on globalThis
-const STORE_KEY = Symbol.for('@kabu/server/pairing-store')
+const STORE_KEY = Symbol.for('@baka/server/pairing-store')
 const host = globalThis as unknown as { [k: symbol]: Map<string, Entry> | undefined }
 if (!host[STORE_KEY]) host[STORE_KEY] = new Map()
 const store: Map<string, Entry> = host[STORE_KEY]!
@@ -162,7 +162,7 @@ const store: Map<string, Entry> = host[STORE_KEY]!
 // ✅ Correct: integration test that re-imports
 beforeEach(() => {
   const host = globalThis as unknown as { [k: symbol]: unknown }
-  delete host[Symbol.for('@kabu/server/pairing-store')]
+  delete host[Symbol.for('@baka/server/pairing-store')]
   vi.resetModules()
 })
 

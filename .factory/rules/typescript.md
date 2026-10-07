@@ -174,7 +174,3 @@ caller.
     - "https://nodejs.org/api/esm.html"
     - "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/import"
 ```
-
-### Observed (auto-logged)
-- 2026-06-23 10:33 — `apps/api/src/middleware/auth.ts:30` — type AuthNext = MiddlewareNextFn<any>
-- 2026-06-23 10:44 — `apps/api/src/middleware/auth.ts:29` — type AuthNext = MiddlewareNextFn<any>

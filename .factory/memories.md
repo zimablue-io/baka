@@ -72,7 +72,7 @@ project-specific constraints that don't yet deserve a full rule file.
 
 - 2026-08-25: `baka serve` CORS allows `localhost` / `127.0.0.1` origins so the dashboard (TanStack Start at `127.0.0.1:1420`) can call `http://127.0.0.1:4311`. CLI `app.request()` is same-origin and does not need that header.
 
-- 2026-08-25: Desktop is a thin Tauri wrapper. The product UI is `apps/dashboard` (TanStack Start + shadcn/ui with `base` / `@base-ui/react`), same split as Kabu dashboard+Electron. Shell wiring follows Moya: SPA prerender to `index.html`, `frontendDist` is `dist/client`, `devUrl` is `127.0.0.1:1420`. Toasts use Base UI `toast.add`, not Sonner. No second file-writer.
+- 2026-08-25: The product UI is `apps/dashboard` (TanStack Start + shadcn/ui with `base` / `@base-ui/react`). SPA prerender to `index.html`, `frontendDist` is `dist/client`, `devUrl` is `127.0.0.1:1420`. Toasts use Base UI `toast.add`, not Sonner. No second file-writer.
 
 - 2026-08-25: Baka is one app. The user listed three surfaces (agent CLI, human desktop, marketplace), never "three products". That phrase was assistant-invented plan titling. Do not use it.
 

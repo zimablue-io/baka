@@ -2,68 +2,47 @@
 
 **Owner**: Backend Team
 **Last Updated**: 2026-06-12
-**Applies to**: `apps/api/src/contracts/**`, `apps/api/src/router.ts`,
-all ORPC procedures, all zod schemas that cross an API boundary.
+**Applies to**: `apps/registry/src/**`, all zod schemas that cross an
+API boundary.
 
-## Procedures Don't Call Better Auth With Bearer-Token Headers
+## Don't Call Better Auth Session APIs With Bearer-Token Headers
 
-**Applies to**: Every procedure that uses the `authorized`
-middleware (`apps/api/src/middleware/auth.ts`).
+**Applies to**: Every registry route that reads the caller's identity
+(`apps/registry/src/auth/identity.ts`,
+`apps/registry/src/auth/org-routes.ts`).
 
-**Rule**: The auth middleware accepts two kinds of credentials:
-a Better Auth session cookie (browser/dashboard) and an
-app-issued JWT bearer token (CLI, desktop, future apps). When
-the request only has the bearer token, Better Auth's
-session-cookie APIs cannot resolve the user and they 500.
+**Rule**: Better Auth's session APIs resolve a user from a session
+cookie. A request that carries only an app-issued JWT bearer token has
+no cookie, so those calls return no session and the handler has no
+`user.id` to work with.
 
 Don't call `auth.api.listOrganizations`, `auth.api.listMembers`,
-`auth.api.getSession`, etc. with `headers: context.headers`
-inside a procedure — that works for the session-cookie path
-and silently breaks the bearer-token path. The right thing is
-to read from the database (Better Auth's `member` and
-`organization` tables are real Supabase tables) using
-`context.user.id`, which the middleware populates for both
-auth paths.
+session APIs such as `auth.api.getSession` resolve a user from the
+cookie only. A bearer-token request silently yields no user.
 
 ```ts
-// ❌ Avoid: calls Better Auth with the original request headers.
-// 500s when the request only has a bearer token (no session cookie).
-const data = await auth.api.listOrganizations({ headers: context.headers })
+// ❌ Avoid: resolves the caller from the session cookie alone.
+// Returns no session when the request carries only a bearer token.
+const session = await auth.api.getSession({ headers: context.headers })
 ```
 
 ```ts
-// ✅ Correct: query the database directly using `context.user.id`,
-// which the middleware populates for both auth paths.
-const userId = context.user?.id
-if (!userId) return []
-const db = getDatabaseService()
+// ✅ Correct: resolve identity from the credential the route actually
+// received, then read authorization state from the database.
+const identity = await resolveIdentity(request)  // cookie OR bearer token
+if (!identity) return new Response('unauthorized', { status: 401 })
 const { data: memberships } = await db.getClient()
-  .from('member').select('organizationId').eq('userId', userId)
-const ids = (memberships ?? []).map((m) => m.organizationId)
-const { data: rows } = await db.getClient()
-  .from('organization').select('id, name, slug, logo, metadata, kind').in('id', ids)
-return (rows ?? []).map(/* ... */)
+  .from('member').select('organizationId').eq('userId', identity.userId)
+return (memberships ?? []).map((m) => m.organizationId)
 ```
 
-**Rationale**: The dual-path auth in `authMiddleware`
-(`apps/api/src/middleware/auth.ts`) populates `context.user`
-identically for both paths. Procedures that use Better Auth
-session APIs that require a cookie only work for the
-session-cookie path. The bearer-token path is the one the
-CLI and desktop use; the procedure must work for both. The
-bug surfaced as a 500 on `users.getAllOrganizations` when the
-CLI (with a freshly-minted bearer token from the new
-PKCE auth flow) tried to call it.
+**Rationale**: a route that accepts both credential types but
+resolves identity from only one of them looks correct and fails on the
+other. Read the credential the route actually received.
 
-**To check whether a procedure has this bug**: grep for
-`auth.api.` in `apps/api/src/routers/**.ts` and verify the
-call site either (a) runs from the browser (where Better Auth's
-session cookie is present), or (b) is admin/org-management and
-not used by the CLI/desktop hot path. Note: the
-`routers/auth/token.ts` PKCE bridge was deleted in Phase 0.5d;
-the CLI v3 calls Better Auth directly via `createVanillaAuthClient`,
-so the cookie-bearing browser flow is now the dashboard's
-sign-in page, not a per-app callback route.
+**To check**: grep for `auth.api.getSession` under
+`apps/registry/src/**` and confirm each call site resolves the bearer
+path as well as the cookie path.
 
 ## Required Inputs Don't Get Defaults
 
@@ -209,8 +188,6 @@ export async function GET(request: Request) {
 
 - `typescript.md` (no `as` casts)
 - `error-handling.md` (let errors propagate, add context with `cause`)
-- `nextjs.md` (server actions are thin orchestrators that call
-  into `apps/api`)
 - `agent-architecture.md` (local — the AI tools SSOT for this monorepo)
 
 ## Machine-readable patterns

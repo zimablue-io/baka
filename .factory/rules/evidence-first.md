@@ -98,7 +98,7 @@ it('imports useInput at the top level (not lazy-require)', () => {
 # Run the binary in a real PTY, capture the output, assert
 # the user-visible screen. If "ReferenceError" appears in
 # the output, the bug is still present.
-script -q /tmp/binary.log -c "DASHBOARD_BASE_URL=... KABU_ORG_API_KEY=... node bin/kabu.mjs" < /dev/null
+script -q /tmp/binary.log -c "BAKA_HOME=... BAKA_E2E_LLM=1 node bin/baka.mjs" < /dev/null
 grep -E "ReferenceError|require is not defined" /tmp/binary.log
 # → empty: bug is fixed
 ```

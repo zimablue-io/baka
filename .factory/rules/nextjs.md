@@ -180,6 +180,3 @@ is the boundary fix, not the state flag.
   citations:
     - "https://react.dev/reference/react/useEffect"
 ```
-
-### Observed (auto-logged)
-- 2026-06-16 22:41 — `apps/admin/src/components/slow-load-hint.tsx:10` — export function SlowLoadHint() {

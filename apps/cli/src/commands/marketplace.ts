@@ -13,19 +13,16 @@ import { BAKA_EXIT_CODE } from "@repo/protocol"
  * `baka install <source>` and `baka remove <source>` commands
  * (architecture §5.1, milestone 5).
  *
- * The legacy `baka marketplace add|list|remove|update` group is
- * removed: the marketplace catalog surface (`apps/api`,
- * `~/.baka/catalogs.json`) was deleted in milestone 2 / folded
- * into the registry. Registry resolution now lives at
- * `<cwd>/.baka/settings.json` `registries` — a list the user edits
- * directly. The cli surfaces that need an aggregated catalog use
- * `baka search`, which queries every registry in that list with
- * per-source attribution (see `commands/search.ts`). The bare-name
- * install path below queries the same registries in precedence
- * order, first-found-wins (decision 4).
+ * Registry resolution lives at `<cwd>/.baka/settings.json`
+ * `registries` — a list the user edits directly. The cli surfaces
+ * that need an aggregated catalog use `baka search`, which queries
+ * every registry in that list with per-source attribution (see
+ * `commands/search.ts`). The bare-name install path below queries
+ * the same registries in precedence order, first-found-wins
+ * (decision 4).
  *
- * Removal flow is unchanged: `baka remove <source>` strips the
- * project or user scope entry plus its materialized module dir.
+ * Removal flow: `baka remove <source>` strips the project or user
+ * scope entry plus its materialized module dir.
  */
 
 function die(code: number, msg: string): never {

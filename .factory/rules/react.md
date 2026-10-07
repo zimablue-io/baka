@@ -2,8 +2,7 @@
 
 **Owner**: Frontend Team
 **Last Updated**: 2026-06-11
-**Applies to**: `apps/dashboard/components/**`, `apps/admin/components/**`,
-`packages/ts/ui/**`, `packages/ts/ui-chart/**`, `packages/ts/ui-chart-trading/**`.
+**Applies to**: `apps/dashboard/src/**`, `apps/landing/src/**`.
 
 > React 19 + Next.js 16 App Router. Server / client boundary rules
 > live in `nextjs.md`. This file is for the React-specific patterns
@@ -208,9 +207,3 @@ export const useUserStore = create<UserState>((set) => ({
   citations:
     - "https://react.dev/learn/conditional-rendering"
 ```
-
-### Observed (auto-logged)
-- 2026-06-16 22:18 — `apps/admin/src/components/organizations-table.tsx:98` — const [searchInput, setSearchInput] = useState(filters.q)
-- 2026-06-16 22:18 — `apps/admin/src/hooks/use-debounced-value.ts:12` — const [debounced, setDebounced] = useState(value)
-- 2026-06-16 22:41 — `apps/admin/src/components/slow-load-hint.tsx:11` — const [show, setShow] = useState(false)
-- 2026-06-16 22:41 — `apps/admin/src/components/slow-load-hint.tsx:10` — export function SlowLoadHint() {

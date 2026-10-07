@@ -27,11 +27,6 @@
 //   VAL-ROLE-004 baka role nonexistent — exits 1
 //   VAL-ROLE-005 baka --help does not mention providers/config subcommands
 //
-// The legacy `baka marketplace add/list/remove/update` group is
-// removed (milestone 5 cli-search-multiregistry): the marketplace
-// catalog surface was deleted along with apps/api in milestone 2
-// and the registries list now lives at .baka/settings.json.
-//
 // Where the current implementation does NOT yet match the contract, the
 // affected assertion is marked with `it.todo(...)` plus a comment that
 // names the gap and the source location that needs the fix.
