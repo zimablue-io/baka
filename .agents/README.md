@@ -21,6 +21,5 @@ Nothing here is load-bearing for the build. `pnpm lint`, `pnpm test`,
 `pnpm check-types`, and `pnpm knip` do not read this directory.
 
 An agent harness that wants these rules should point at
-`.agents/rules/`. Factory additionally reads `.factory/` for
-vendor-specific wiring (hooks, MCP registration, project memory); see
-`AGENTS.md` for that split.
+`.agents/rules/`. Project memory lives in `memories.md` in this
+directory. MCP server registration lives at the repo root `.mcp.json`.
