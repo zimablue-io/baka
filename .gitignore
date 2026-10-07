@@ -64,10 +64,5 @@ dist-tarballs/
 # incidental).
 modules/**/out/
 
-# Rust / Tauri build output
-**/src-tauri/target/
-**/src-tauri/gen/
-**/src-tauri/Cargo.lock
-
 # Releases
 **/release/

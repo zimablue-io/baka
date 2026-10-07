@@ -28,8 +28,6 @@
 			"!**/cypress/screenshots",
 			"!**/.turbo",
 			"!LIVE",
-			"!**/src-tauri/target",
-			"!**/src-tauri/gen",
 			"!.factory",
 			"!pnpm-lock.yaml",
 			"!**/routeTree.gen.ts"
