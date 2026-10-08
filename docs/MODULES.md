@@ -438,7 +438,7 @@ A rerun over a tree that already holds the action's output therefore lists the s
 The hash is the sha256 (lowercase hex) of this UTF-8 text:
 
 ```
-baka.tree.v1\n
+workspace.tree.v1\n
 <path>\0<contentHash>\n          one line per changeset entry
 <path>\0<contentHash>\0<mode>\n   ... for an entry that declares a mode (see "Conditional files and file modes")
 ```
@@ -446,7 +446,7 @@ baka.tree.v1\n
 - Lines are sorted ascending by the UTF-8 bytes of `<path>` (not by JS string order).
 - `<contentHash>` is the entry's `contentHash`, or the literal `deleted` when it is null.
 - The `op` and `reason` are not part of the hash. A first run that `create`s two files and a rerun that finds both `unchanged` therefore hash the same, while a rerun that finds one of them `skip`ped with different content hashes differently: the hash covers the bytes on disk, which is the tree you actually have.
-- An empty changeset hashes the text `baka.tree.v1\n`.
+- An empty changeset hashes the text `workspace.tree.v1\n`.
 
 ### Dry run
 

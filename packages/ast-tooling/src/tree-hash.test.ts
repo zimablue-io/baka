@@ -3,7 +3,15 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { diffSnapshots, MODULE_HASH_DOMAIN, moduleContentHash, outputTreeHash, sha256Hex, snapshotTree, TREE_HASH_DOMAIN } from "./tree-hash.js"
+import {
+	diffSnapshots,
+	MODULE_HASH_DOMAIN,
+	moduleContentHash,
+	outputTreeHash,
+	sha256Hex,
+	snapshotTree,
+	TREE_HASH_DOMAIN,
+} from "./tree-hash.js"
 
 const cleanup: string[] = []
 afterEach(() => {
@@ -17,15 +25,15 @@ describe("the hash domain tags", () => {
 		expect(outputTreeHash([])).toBe(sha(`${TREE_HASH_DOMAIN}\n`))
 		expect(moduleContentHash).toBeTypeOf("function")
 		expect(MODULE_HASH_DOMAIN).toBe("baka.module.v1")
-		expect(TREE_HASH_DOMAIN).toBe("baka.tree.v1")
+		expect(TREE_HASH_DOMAIN).toBe("workspace.tree.v1")
 	})
 })
 
 describe("outputTreeHash", () => {
-	it("is sha256 over `baka.tree.v1\\n` then one `<path>\\0<hash>\\n` line per entry, sorted by path", () => {
+	it("is sha256 over `workspace.tree.v1\\n` then one `<path>\\0<hash>\\n` line per entry, sorted by path", () => {
 		const a = sha("a")
 		const b = sha("b")
-		const expected = sha(`baka.tree.v1\nsrc/a.ts\0${a}\nsrc/b.ts\0${b}\n`)
+		const expected = sha(`workspace.tree.v1\nsrc/a.ts\0${a}\nsrc/b.ts\0${b}\n`)
 		const entries = [
 			{ path: "src/b.ts", contentHash: b },
 			{ path: "src/a.ts", contentHash: a },
@@ -35,11 +43,13 @@ describe("outputTreeHash", () => {
 	})
 
 	it("hashes an empty changeset to the domain-tag digest", () => {
-		expect(outputTreeHash([])).toBe(sha("baka.tree.v1\n"))
+		expect(outputTreeHash([])).toBe(sha("workspace.tree.v1\n"))
 	})
 
 	it("encodes a deleted file as the literal `deleted`", () => {
-		expect(outputTreeHash([{ path: "gone.txt", contentHash: null }])).toBe(sha("baka.tree.v1\ngone.txt\0deleted\n"))
+		expect(outputTreeHash([{ path: "gone.txt", contentHash: null }])).toBe(
+			sha("workspace.tree.v1\ngone.txt\0deleted\n"),
+		)
 	})
 
 	it("changes when any content hash changes", () => {
@@ -53,7 +63,7 @@ describe("outputTreeHash", () => {
 		// UTF-8 but D83D DE00 in UTF-16. The two orders disagree.
 		const bmp = { path: "～", contentHash: sha("x") }
 		const astral = { path: "\u{1F600}", contentHash: sha("y") }
-		const expected = sha(`baka.tree.v1\n${bmp.path}\0${bmp.contentHash}\n${astral.path}\0${astral.contentHash}\n`)
+		const expected = sha(`workspace.tree.v1\n${bmp.path}\0${bmp.contentHash}\n${astral.path}\0${astral.contentHash}\n`)
 		expect(outputTreeHash([astral, bmp])).toBe(expected)
 	})
 })

@@ -29,7 +29,6 @@ export {
 	ModuleRegistry,
 	moduleDirsFromEnv,
 	moduleDirsFromSettings,
-	MODULE_HASH_DOMAIN,
 	readLockfile,
 	resolveModuleDirs,
 	runAction,

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { createRegistry, describeModules, runAction } from "../src/index.js"
+import { createRegistry, describeModules, runAction, TREE_HASH_DOMAIN } from "../src/index.js"
 import { cleanupTempDirs, tempDir, writeModule } from "./helpers.js"
 
 afterEach(cleanupTempDirs)
@@ -64,7 +64,9 @@ describe("post-generate formatting hook", () => {
 			{ path: "a.txt", op: "create", contentHash: sha("ALPHA\n") },
 			{ path: "b/c.txt", op: "create", contentHash: sha("BETA\n") },
 		])
-		expect(result.outputTreeHash).toBe(sha(`baka.tree.v1\na.txt\0${sha("ALPHA\n")}\nb/c.txt\0${sha("BETA\n")}\n`))
+		expect(result.outputTreeHash).toBe(
+			sha(`${TREE_HASH_DOMAIN}\na.txt\0${sha("ALPHA\n")}\nb/c.txt\0${sha("BETA\n")}\n`),
+		)
 	})
 
 	it("passes only files the run created or updated, and appends them when the args have no {files}", async () => {

@@ -83,8 +83,8 @@ export { StructuredLog } from "./structured-log.js"
 export {
 	compareUtf8,
 	diffSnapshots,
-	moduleContentHash,
 	MODULE_HASH_DOMAIN,
+	moduleContentHash,
 	outputTreeHash,
 	sha256Hex,
 	snapshotTree,

@@ -9,7 +9,7 @@ export function sha256Hex(data: string | Uint8Array): string {
 }
 
 /** Domain tag of the output tree hash; bump it if the canonical form below ever changes. */
-export const TREE_HASH_DOMAIN = "baka.tree.v1"
+export const TREE_HASH_DOMAIN = "workspace.tree.v1"
 
 /** Orders strings by their UTF-8 bytes, so the order never depends on the JS engine's string comparison. */
 export function compareUtf8(a: string, b: string): number {
@@ -21,7 +21,7 @@ export function compareUtf8(a: string, b: string): number {
  * pair, with `deleted` standing in for a null hash, plus its `mode` when the
  * entry declares one. The canonical text is
  *
- *   baka.tree.v1\n
+ *   workspace.tree.v1\n
  *   <path>\0<contentHash>[\0<mode>]\n   (one line per entry, ascending by UTF-8 bytes of <path>)
  *
  * and the hash is the sha256 of that text, lowercase hex. An entry without a

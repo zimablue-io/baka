@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { compensateAction, createRegistry, runAction } from "../src/index.js"
+import { compensateAction, createRegistry, runAction, TREE_HASH_DOMAIN } from "../src/index.js"
 import { cleanupTempDirs, fakeProvider, GREET_MODULE, tempDir, writeModule } from "./helpers.js"
 
 afterEach(cleanupTempDirs)
@@ -28,7 +28,7 @@ describe("receipt: changeset and outputTreeHash", () => {
 		expect(result.dryRun).toBe(false)
 		expect(result.changeset).toEqual([{ path: "hello.md", op: "create", contentHash: sha(body) }])
 		expect(readFileSync(join(root, "hello.md"), "utf-8")).toBe(body)
-		expect(result.outputTreeHash).toBe(sha(`baka.tree.v1\nhello.md\0${sha(body)}\n`))
+		expect(result.outputTreeHash).toBe(sha(`${TREE_HASH_DOMAIN}\nhello.md\0${sha(body)}\n`))
 		expect(result.diagnostics).toEqual([])
 		expect(result.compensation).toEqual({
 			created: ["hello.md"],
@@ -67,7 +67,7 @@ describe("receipt: changeset and outputTreeHash", () => {
 			{ path: "hello.md", op: "skip", contentHash: sha("mine\n"), reason: "already-exists" },
 		])
 		expect(readFileSync(join(root, "hello.md"), "utf-8")).toBe("mine\n")
-		expect(result.outputTreeHash).toBe(sha(`baka.tree.v1\nhello.md\0${sha("mine\n")}\n`))
+		expect(result.outputTreeHash).toBe(sha(`${TREE_HASH_DOMAIN}\nhello.md\0${sha("mine\n")}\n`))
 	})
 })
 
@@ -159,7 +159,7 @@ describe("side-effect actions", () => {
 			{ path: "made.txt", op: "create", contentHash: sha("made") },
 		])
 		expect(result.outputTreeHash).toBe(
-			sha(`baka.tree.v1\ndrop.txt\0deleted\nedit.txt\0${sha("edited")}\nmade.txt\0${sha("made")}\n`),
+			sha(`${TREE_HASH_DOMAIN}\ndrop.txt\0deleted\nedit.txt\0${sha("edited")}\nmade.txt\0${sha("made")}\n`),
 		)
 		expect(result.compensation.actionData).toEqual({ made: "made.txt" })
 		expect(existsSync(join(root, "made.txt"))).toBe(true)

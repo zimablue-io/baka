@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { chmodSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { compensateAction, createRegistry, runAction } from "../src/index.js"
+import { compensateAction, createRegistry, runAction, TREE_HASH_DOMAIN } from "../src/index.js"
 import { cleanupTempDirs, fakeProvider, tempDir, writeModule } from "./helpers.js"
 
 afterEach(cleanupTempDirs)
@@ -171,7 +171,10 @@ describe("file mode", () => {
 		const result = await run(registry)
 		expect(result.outputTreeHash).toBe(
 			sha(
-				`baka.tree.v1\nplain.txt\0${sha("p\n")}\nrun.sh\0${sha("#!/bin/sh\necho hi\n")}\0 0755\n`.replace("\0 ", "\0"),
+				`${TREE_HASH_DOMAIN}\nplain.txt\0${sha("p\n")}\nrun.sh\0${sha("#!/bin/sh\necho hi\n")}\0 0755\n`.replace(
+					"\0 ",
+					"\0",
+				),
 			),
 		)
 	})
