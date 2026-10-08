@@ -251,12 +251,10 @@ function toJsonSchema(schema: z.ZodType): Record<string, unknown> {
 		return { type: "object", properties, required, additionalProperties: false }
 	}
 	if (schema instanceof z.ZodString) {
-		const out: Record<string, unknown> = { type: "string" }
-		const checks = (schema._def as { checks?: Array<{ kind: string; value?: number }> }).checks ?? []
-		for (const check of checks) {
-			if (check.kind === "min" && typeof check.value === "number") out.minLength = check.value
-			if (check.kind === "max" && typeof check.value === "number") out.maxLength = check.value
-		}
+		// Zod generates a string's own constraints (`minLength`, `maxLength`, `pattern`, `format`). This used to read
+		// them off `schema._def.checks`, which is Zod 3 internals that Zod 4 no longer keeps in that shape.
+		const out = z.toJSONSchema(schema, { target: "draft-07", io: "input" }) as Record<string, unknown>
+		delete out.$schema
 		return out
 	}
 	if (schema instanceof z.ZodNumber) return { type: "number" }

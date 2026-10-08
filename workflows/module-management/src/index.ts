@@ -52,5 +52,4 @@ export {
 	userInputHook,
 	withHistory,
 	writeModuleFiles,
-	zodSchema,
 } from "./design/index.js"

@@ -24,7 +24,7 @@
 		"@repo/ast-tooling": "workspace:*",
 		"@repo/protocol": "workspace:*",
 		"hono": "^4.7.0",
-		"zod": "^3.23.0"
+		"zod": "^4.6.5"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "workspace:*",

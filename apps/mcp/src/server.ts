@@ -316,7 +316,7 @@ function registerWorkflowTools(server: McpServer, ctx: ServerContext): void {
 const RunInputSchema = z.object({
 	module: z.string().min(1).describe("Module name"),
 	action: z.string().min(1).describe("Action id"),
-	params: z.record(z.unknown()).optional().describe("Action params"),
+	params: z.record(z.string(), z.unknown()).optional().describe("Action params"),
 	slots: RunSlotsInputSchema.optional().describe(
 		"Slot mode: live (cache, then model; default), record (always ask the model), or replay (only the supplied records; a missing slot is an error and no model call is made)",
 	),
@@ -338,7 +338,7 @@ const FillInputSchema = z.object({
 	action: z.string().min(1).describe("Action id"),
 	slot: z.string().min(1).describe("Slot id"),
 	value: z.unknown().describe("Fill value"),
-	params: z.record(z.unknown()).optional().describe("Action params (must match the later run)"),
+	params: z.record(z.string(), z.unknown()).optional().describe("Action params (must match the later run)"),
 })
 
 function registerEngineTools(server: McpServer, ctx: ServerContext): void {

@@ -1,13 +1,6 @@
 import { afterEach, describe, expect, test } from "vitest"
 import { z } from "zod"
-import {
-	defineApprovalHook,
-	defineHook,
-	deliverApprovalHook,
-	developApprovalHook,
-	userInputHook,
-	zodSchema,
-} from "./hooks"
+import { defineApprovalHook, defineHook, deliverApprovalHook, developApprovalHook, userInputHook } from "./hooks"
 
 // ---------------------------------------------------------------------------
 // Local defineHook: matches the workflow-sdk API for HITL. These tests
@@ -51,21 +44,22 @@ describe("defineHook", () => {
 	})
 
 	test("schema validates the resume payload; valid passes through", async () => {
-		const hook = defineHook<{ age: number }>({ schema: zodSchema(z.object({ age: z.number() })) })
+		const hook = defineHook<{ age: number }>({ schema: z.object({ age: z.number() }) })
 		const p = hook.create({ token: "v1" })
 		hook.resume("v1", { age: 42 })
 		await expect(p).resolves.toEqual({ age: 42 })
 	})
 
-	test("schema rejects an invalid resume payload; resume throws", () => {
-		const hook = defineHook<{ age: number }>({ schema: zodSchema(z.object({ age: z.number() })) })
-		hook.create({ token: "bad" })
-		expect(() => hook.resume("bad", { age: "not a number" } as unknown as { age: number })).toThrow(/age/)
+	test("schema rejects an invalid resume payload; the pending hook rejects with the issue", async () => {
+		const hook = defineHook<{ age: number }>({ schema: z.object({ age: z.number() }) })
+		const p = hook.create({ token: "bad" })
+		hook.resume("bad", { age: "not a number" } as unknown as { age: number })
+		await expect(p).rejects.toThrow(/age/)
 	})
 
 	test("schema transforms the resume payload via Zod", async () => {
 		// Trim a string payload on resume.
-		const hook = defineHook<string, string>({ schema: zodSchema(z.string().transform((s) => s.trim())) })
+		const hook = defineHook<string, string>({ schema: z.string().transform((s) => s.trim()) })
 		const p = hook.create({ token: "trim" })
 		hook.resume("trim", "  hello  ")
 		await expect(p).resolves.toBe("hello")
@@ -158,12 +152,15 @@ describe("defineHook", () => {
 		expect(del).toBeInstanceOf(Promise)
 	})
 
-	test("design-flow hook schemas reject malformed payloads", () => {
-		userInputHook.create({ token: "u" })
-		expect(() => userInputHook.resume("u", { text: 123 as unknown as string, cancelled: false })).toThrow()
-		defineApprovalHook.create({ token: "d" })
-		expect(() => defineApprovalHook.resume("d", { approved: "yes" as unknown as boolean })).toThrow()
-		deliverApprovalHook.create({ token: "del" })
-		expect(() => deliverApprovalHook.resume("del", {} as unknown as { approved: boolean })).toThrow()
+	test("design-flow hook schemas reject malformed payloads", async () => {
+		const typed = userInputHook.create({ token: "u" })
+		userInputHook.resume("u", { text: 123 as unknown as string, cancelled: false })
+		await expect(typed).rejects.toThrow()
+		const defined = defineApprovalHook.create({ token: "d" })
+		defineApprovalHook.resume("d", { approved: "yes" as unknown as boolean })
+		await expect(defined).rejects.toThrow()
+		const delivered = deliverApprovalHook.create({ token: "del" })
+		deliverApprovalHook.resume("del", {} as unknown as { approved: boolean })
+		await expect(delivered).rejects.toThrow()
 	})
 })

@@ -1,12 +1,13 @@
-import { zodToJsonSchema } from "zod-to-json-schema"
+import { z } from "zod"
 import { ActionResultSchema, type ModuleActionParam, type ParamTypeNode, paramsToZod } from "./schemas"
 
 /** A JSON Schema (draft-07) document. */
 export type JsonSchema = Record<string, unknown>
 
-function toJsonSchema(schema: Parameters<typeof zodToJsonSchema>[0]): JsonSchema {
-	// `$refStrategy: "none"` inlines everything so each schema stands alone.
-	return zodToJsonSchema(schema, { target: "jsonSchema7", $refStrategy: "none" }) as JsonSchema
+function toJsonSchema(schema: z.ZodType): JsonSchema {
+	// `reused: "inline"` inlines everything so each schema stands alone, and `io: "input"` describes what a caller has
+	// to send: a param with a default is optional in the input even though the run always has a value for it.
+	return z.toJSONSchema(schema, { target: "draft-07", reused: "inline", io: "input" }) as JsonSchema
 }
 
 /**

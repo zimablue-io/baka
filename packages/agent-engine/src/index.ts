@@ -173,7 +173,7 @@ const PLANNING_OUTPUT_SCHEMA: z.ZodType<ResolvedPlan> = z.object({
 			id: z.string(),
 			module: z.string(),
 			action: z.string(),
-			params: z.record(z.any()),
+			params: z.record(z.string(), z.any()),
 		}),
 	),
 })

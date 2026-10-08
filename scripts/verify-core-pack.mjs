@@ -8,8 +8,8 @@
 //
 //   pnpm build --filter @baka/core && node scripts/verify-core-pack.mjs
 //
-// Needs network access for the registry dependencies (zod 3, handlebars, jiti,
-// zod-to-json-schema). Exits non-zero on the first failure.
+// Needs network access for the registry dependencies (zod, handlebars, jiti).
+// Exits non-zero on the first failure.
 
 import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"

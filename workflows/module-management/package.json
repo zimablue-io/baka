@@ -16,7 +16,8 @@
 	},
 	"dependencies": {
 		"@repo/protocol": "workspace:*",
-		"zod": "^3.23.0"
+		"@standard-schema/spec": "^1.1.0",
+		"zod": "^4.6.5"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "workspace:*",

@@ -42,7 +42,7 @@ const tierSchema = z.enum(TIER_VALUES)
 
 export const CatalogOwnerSchema = z.object({
 	name: z.string().min(1),
-	email: z.string().email().optional(),
+	email: z.email().optional(),
 })
 export type CatalogOwner = z.infer<typeof CatalogOwnerSchema>
 
@@ -55,7 +55,7 @@ export const ModuleEntrySchema = ModuleManifestSchema.extend({
 	source: z.string().min(1),
 	author: CatalogOwnerSchema.optional(),
 	license: z.string().optional(),
-	homepage: z.string().url().optional(),
+	homepage: z.url().optional(),
 	tags: z.array(z.string()).default([]),
 	category: z.string().optional(),
 	keywords: z.array(z.string()).default([]),
@@ -81,7 +81,7 @@ export const CatalogSchema = z.object({
 	version: z.string().min(1),
 	description: z.string().default(""),
 	owner: CatalogOwnerSchema,
-	homepage: z.string().url().optional(),
+	homepage: z.url().optional(),
 	modules: z.array(ModuleEntrySchema).default([]),
 })
 export type Catalog = z.infer<typeof CatalogSchema>
@@ -106,7 +106,7 @@ export type ApiCatalog = z.infer<typeof ApiCatalogSchema>
 
 /** `/v1/aggregate` request body. */
 export const AggregateRequestSchema = z.object({
-	catalogs: z.array(z.string().url()).min(1).max(50),
+	catalogs: z.array(z.url()).min(1).max(50),
 })
 export type AggregateRequest = z.infer<typeof AggregateRequestSchema>
 
@@ -136,7 +136,7 @@ export type ModuleLookupResponse = z.infer<typeof ModuleLookupResponseSchema>
 
 /** `/v1/verified` per-catalog entry. */
 export const VerifiedCatalogEntrySchema = z.object({
-	url: z.string().url(),
+	url: z.url(),
 	name: z.string().min(1),
 	description: z.string().default(""),
 	addedAt: z.string(), // ISO date

@@ -1,6 +1,6 @@
 {
 	"name": "@baka/core",
-	"version": "0.2.0",
+	"version": "0.3.0",
 	"license": "MIT",
 	"description": "Embeddable Baka engine: run declared module actions deterministically, with an injected LLM provider for named slots only. No CLI, no process-global config.",
 	"private": true,
@@ -28,8 +28,7 @@
 	"dependencies": {
 		"handlebars": "^4.7.8",
 		"jiti": "^2.6.0",
-		"zod": "^3.25.76",
-		"zod-to-json-schema": "^3.25.2"
+		"zod": "^4.6.5"
 	},
 	"devDependencies": {
 		"@repo/ast-tooling": "workspace:*",

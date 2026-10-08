@@ -17,9 +17,9 @@ describe("@baka/core packaging", () => {
 			expect(tsup).toContain(`"${name}"`)
 			expect(pkg.dependencies[name], `${name} must be a dependency`).toBeDefined()
 		}
-		expect(pkg.dependencies["zod-to-json-schema"]).toBeDefined()
-		// zod 3: the receipt's JSON Schema export and LLMRequest.responseSchema are zod 3 types
-		expect(pkg.dependencies.zod).toMatch(/^\^3\./)
+		// Zod 4 generates the JSON Schema itself (`z.toJSONSchema`), so there is no `zod-to-json-schema` alongside it.
+		expect(pkg.dependencies["zod-to-json-schema"]).toBeUndefined()
+		expect(pkg.dependencies.zod).toMatch(/^\^4\./)
 	})
 
 	it("exports the tree hash domain, so a consumer never re-declares the digest prefix", async () => {

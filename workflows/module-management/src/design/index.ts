@@ -25,7 +25,6 @@ export {
 	deliverApprovalHook,
 	developApprovalHook,
 	userInputHook,
-	zodSchema,
 } from "./hooks.js"
 export type { DesignedActionSchema, DesignTurnPayload, ProposedAction } from "./payload.js"
 export { DesignTurnPayloadSchema } from "./payload.js"

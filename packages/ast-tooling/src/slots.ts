@@ -233,7 +233,7 @@ export function slotResponseSchema(slot: SlotDecl): z.ZodType<{ value: unknown }
 			return z.object({ value: arr })
 		}
 		case "json":
-			return z.object({ value: z.record(z.unknown()) })
+			return z.object({ value: z.record(z.string(), z.unknown()) })
 	}
 }
 

@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto"
+import type { StandardSchemaV1 } from "@standard-schema/spec"
 import { z } from "zod"
+
+// The Standard Schema contract is the one `@standard-schema/spec` publishes, so a schema written by any
+// library that implements it is accepted here as it stands. Re-exported because it is part of this module's
+// surface: a caller declaring a hook's schema type needs the same interface the hook reads.
+export type { StandardSchemaV1 } from "@standard-schema/spec"
 
 // ---------------------------------------------------------------------------
 // Local `defineHook` that mirrors the workflow-sdk API exactly.
@@ -25,22 +31,6 @@ import { z } from "zod"
 // `defineHook` calls work — swap the local implementation for the real
 // `workflow.defineHook` and nothing else changes.
 // ---------------------------------------------------------------------------
-
-export interface StandardSchemaV1<Input, Output> {
-	readonly "~standard": {
-		readonly version: 1
-		readonly vendor: string
-		readonly validate: (
-			value: unknown,
-		) =>
-			| { value: Output; issues?: undefined }
-			| { issues: ReadonlyArray<{ message: string; path?: ReadonlyArray<PropertyKey> }> }
-		readonly types?: {
-			readonly input: Input
-			readonly output: Output
-		}
-	}
-}
 
 export interface HookDefinition<TInput, TOutput> {
 	/**
@@ -90,16 +80,18 @@ export function defineHook<TInput, TOutput = TInput>(opts?: {
 }): HookDefinition<TInput, TOutput> {
 	const pending = new Map<string, Pending<TOutput>>()
 
-	function validate(payload: TInput): TOutput {
-		if (!opts?.schema) return payload as unknown as TOutput
-		const result = opts.schema["~standard"].validate(payload)
-		if ("issues" in result && result.issues && result.issues.length > 0) {
-			const issues = result.issues
-				.map((i) => `${i.path?.map((p) => String(p)).join(".") || "(root)"}: ${i.message}`)
-				.join("; ")
-			throw new Error(`hook payload validation failed: ${issues}`)
-		}
-		return (result as { value: TOutput }).value
+	function validate(payload: TInput): Promise<TOutput> {
+		if (!opts?.schema) return Promise.resolve(payload as unknown as TOutput)
+		// The Standard Schema contract lets a validator answer with a promise, so the result is settled either way.
+		return Promise.resolve(opts.schema["~standard"].validate(payload)).then((result) => {
+			if ("issues" in result && result.issues && result.issues.length > 0) {
+				const issues = result.issues
+					.map((i) => `${i.path?.map((p) => String(p)).join(".") || "(root)"}: ${i.message}`)
+					.join("; ")
+				throw new Error(`hook payload validation failed: ${issues}`)
+			}
+			return (result as { value: TOutput }).value
+		})
 	}
 
 	return {
@@ -118,7 +110,12 @@ export function defineHook<TInput, TOutput = TInput>(opts?: {
 				throw new Error(`hook token "${token}" is not pending (already resumed? wrong scope?)`)
 			}
 			pending.delete(token)
-			slot.resolve(validate(payload))
+			// The payload is settled by whoever is awaiting the hook: a payload the schema refuses rejects it,
+			// so the caller awaiting `create()` sees why rather than waiting on a decision that will not come.
+			validate(payload).then(
+				(value) => slot.resolve(value),
+				(error: unknown) => slot.reject(error instanceof Error ? error : new Error(String(error))),
+			)
 		},
 		reject(token, reason) {
 			const slot = pending.get(token)
@@ -142,31 +139,11 @@ export function defineHook<TInput, TOutput = TInput>(opts?: {
 }
 
 // ---------------------------------------------------------------------------
-// Zod adapter. A Zod schema implements the Standard Schema v1 interface
-// via the `z.object(...).~standard` accessor since zod 3.24+. We adapt
-// it to a Standard Schema v1 record.
+// Schemas are handed to `defineHook` as they are. A Zod schema implements the
+// Standard Schema v1 interface through its own `~standard` accessor, so there
+// is no adapter here to keep in step with Zod: `defineHook` reads nothing but
+// `~standard.validate`.
 // ---------------------------------------------------------------------------
-
-export function zodSchema<TInput, TOutput>(
-	schema: z.ZodType<TOutput, z.ZodTypeDef, TInput>,
-): StandardSchemaV1<TInput, TOutput> {
-	return {
-		"~standard": {
-			version: 1,
-			vendor: "zod",
-			validate: (value: unknown) => {
-				const r = schema.safeParse(value)
-				if (r.success) return { value: r.data }
-				return {
-					issues: r.error.issues.map((i) => ({
-						message: i.message,
-						path: i.path,
-					})),
-				}
-			},
-		},
-	}
-}
 
 // ---------------------------------------------------------------------------
 // The design-flow hooks. Each one models a HITL pause point in the
@@ -189,36 +166,28 @@ export function zodSchema<TInput, TOutput>(
 // ---------------------------------------------------------------------------
 
 export const userInputHook = defineHook<{ text: string; cancelled: boolean }>({
-	schema: zodSchema(
-		z.object({
-			text: z.string(),
-			cancelled: z.boolean(),
-		}),
-	),
+	schema: z.object({
+		text: z.string(),
+		cancelled: z.boolean(),
+	}),
 })
 
 export const defineApprovalHook = defineHook<{ approved: boolean; note?: string }>({
-	schema: zodSchema(
-		z.object({
-			approved: z.boolean(),
-			note: z.string().optional(),
-		}),
-	),
+	schema: z.object({
+		approved: z.boolean(),
+		note: z.string().optional(),
+	}),
 })
 
 export const developApprovalHook = defineHook<{ approved: boolean; edits?: string }>({
-	schema: zodSchema(
-		z.object({
-			approved: z.boolean(),
-			edits: z.string().optional(),
-		}),
-	),
+	schema: z.object({
+		approved: z.boolean(),
+		edits: z.string().optional(),
+	}),
 })
 
 export const deliverApprovalHook = defineHook<{ approved: boolean }>({
-	schema: zodSchema(
-		z.object({
-			approved: z.boolean(),
-		}),
-	),
+	schema: z.object({
+		approved: z.boolean(),
+	}),
 })

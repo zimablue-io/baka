@@ -114,7 +114,7 @@ npm install /abs/path/to/baka/dist-tarballs/baka-core-<version>.tgz     # or: pn
 import { createRegistry, describeModules, runAction, validate } from "@baka/core"
 ```
 
-Its four runtime dependencies are declared and install normally: `handlebars`, `jiti`, `zod` (**3.x**: the `LLMRequest.responseSchema` type and the JSON Schema export are zod 3), and `zod-to-json-schema`. The private workspace packages (`@repo/*`) are bundled into `dist/index.js`, so nothing else is needed; the tarball ships `dist/index.js`, `dist/index.d.ts`, the README, and the licence. Use `pnpm run pack` (`scripts/pack.mjs`), not a bare `pnpm pack`: a bare pack also carries the workspace's `devDependencies` (inert on install, but with made-up versions).
+Its three runtime dependencies are declared and install normally: `handlebars`, `jiti`, and `zod` (**4.x**: the `LLMRequest.responseSchema` type and the JSON Schema export are zod 4 schemas, and zod 4 generates JSON Schema itself through `z.toJSONSchema`, so no separate converter is shipped). The private workspace packages (`@repo/*`) are bundled into `dist/index.js`, so nothing else is needed; the tarball ships `dist/index.js`, `dist/index.d.ts`, the README, and the licence. Use `pnpm run pack` (`scripts/pack.mjs`), not a bare `pnpm pack`: a bare pack also carries the workspace's `devDependencies` (inert on install, but with made-up versions).
 
 `node scripts/verify-core-pack.mjs` (`pnpm run verify:core`) proves the route end to end: it packs, installs the tarball with npm into a scratch project outside the repo, imports it, runs a module from a catalog directory against another project directory, and type-checks a consumer file against `index.d.ts`. CI runs it after the pack step.
 

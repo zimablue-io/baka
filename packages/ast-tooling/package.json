@@ -20,7 +20,7 @@
 		"@repo/protocol": "workspace:*",
 		"handlebars": "^4.7.8",
 		"jiti": "^2.6.0",
-		"zod": "^3.25.76"
+		"zod": "^4.6.5"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "workspace:*",

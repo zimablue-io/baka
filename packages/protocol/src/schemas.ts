@@ -126,8 +126,8 @@ export const ModuleActionParamSchema: z.ZodType<ModuleActionParam> = z
 	})
 
 /** The Zod validator for one declared type (no name, no required flag). */
-function paramNodeToZod(node: ParamTypeNode): z.ZodTypeAny {
-	let schema: z.ZodTypeAny
+function paramNodeToZod(node: ParamTypeNode): z.ZodType {
+	let schema: z.ZodType
 	switch (node.type) {
 		case "string": {
 			let str = z.string()
@@ -164,7 +164,7 @@ function paramNodeToZod(node: ParamTypeNode): z.ZodTypeAny {
  * unless it is `required` (and has no default); undeclared keys are rejected.
  */
 export function paramsToZod(params: readonly ModuleActionParam[]): z.ZodObject<z.ZodRawShape> {
-	const shape: z.ZodRawShape = {}
+	const shape: Record<string, z.ZodType> = {}
 	for (const param of params) {
 		const field = paramNodeToZod(param)
 		// A default already makes the input optional (and must not be wrapped, or it never applies).
@@ -250,7 +250,7 @@ export const SlotDeclSchema = z.object({
 })
 
 export const SlotFillSchema = z.object({
-	value: z.union([z.string(), z.array(z.string()), z.record(z.unknown())]),
+	value: z.union([z.string(), z.array(z.string()), z.record(z.string(), z.unknown())]),
 })
 
 export const ModuleManifestSchema = z.object({
@@ -271,7 +271,7 @@ export const ResolvedPlanStepSchema = z.object({
 	id: z.string(),
 	module: z.string(),
 	action: z.string(),
-	params: z.record(z.any()),
+	params: z.record(z.string(), z.any()),
 })
 
 export const ResolvedPlanSchema = z.object({
@@ -325,7 +325,7 @@ export const ValidatorRunSchema = z.object({
 	action: z.string(),
 	ran: z.boolean(),
 	/** The params the action ran with (normalized); empty when `ran` is false. */
-	params: z.record(z.unknown()),
+	params: z.record(z.string(), z.unknown()),
 	/** What the action's `execute` returned as compensation data (template-only actions: `{ written }`); null when it did not run. */
 	compensationData: z.unknown(),
 	/** What the action's `execute` returned as output; null for template-only actions and when it did not run. */
@@ -345,14 +345,14 @@ export const OrchestrationStateSchema = z.object({
 	targetDirectory: z.string(),
 	/** The directories modules are drawn from, when the caller set them (`--modules-dir`, `BAKA_MODULE_DIRS`); absent means the default discovery. */
 	moduleDirs: z.array(z.string()).optional(),
-	status: z.nativeEnum(ENGINE_STATUS),
-	currentRole: z.nativeEnum(AgentRole).optional(),
+	status: z.enum(ENGINE_STATUS),
+	currentRole: z.enum(AgentRole).optional(),
 	executionPlan: z.object({
 		steps: z.array(ResolvedPlanStepSchema),
 		currentStepIndex: z.number(),
 	}),
 	logs: z.array(z.string()),
-	artifacts: z.record(z.any()).default({}),
+	artifacts: z.record(z.string(), z.any()).default({}),
 	/** Set for validators only: the action run they are judging. */
 	run: ValidatorRunSchema.optional(),
 })
@@ -450,7 +450,7 @@ export const ModulePinSchema = z.object({
 /** `baka.lock.json`: the pins a project insists on, keyed by module id. */
 export const BakaLockSchema = z.object({
 	lockfileVersion: z.literal(1),
-	modules: z.record(z.object({ version: z.string(), contentHash: z.string() })),
+	modules: z.record(z.string(), z.object({ version: z.string(), contentHash: z.string() })),
 })
 
 export const ActionResultSchema = z.object({
@@ -458,7 +458,7 @@ export const ActionResultSchema = z.object({
 	module: z.string(),
 	action: z.string(),
 	/** The params the run used: the declared defaults applied and scalars coerced. The input as given when they did not validate. */
-	params: z.record(z.unknown()),
+	params: z.record(z.string(), z.unknown()),
 	/** Error diagnostics (a failed run carries one whose `rule` is an ActionErrorCode) plus validator output, warnings included. */
 	diagnostics: z.array(ValidationDiagnosticSchema),
 	changeset: z.array(ChangesetEntrySchema),

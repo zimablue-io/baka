@@ -70,7 +70,7 @@ export interface EngineAppOptions {
 const RunBodySchema = z.object({
 	module: z.string().min(1),
 	action: z.string().min(1),
-	params: z.record(z.unknown()).default({}),
+	params: z.record(z.string(), z.unknown()).default({}),
 	dryRun: z.boolean().optional(),
 	slots: SlotsInputSchema.optional(),
 	onExisting: OnExistingSchema.optional(),
@@ -85,7 +85,7 @@ const FillBodySchema = z.object({
 	action: z.string().min(1),
 	slot: z.string().min(1),
 	value: z.unknown(),
-	params: z.record(z.unknown()).default({}),
+	params: z.record(z.string(), z.unknown()).default({}),
 	project: z.string().optional(),
 })
 
