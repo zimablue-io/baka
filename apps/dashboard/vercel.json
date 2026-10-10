@@ -3,5 +3,11 @@
 	"framework": null,
 	"buildCommand": "pnpm build",
 	"outputDirectory": "dist/client",
-	"rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+	"rewrites": [
+		{
+			"source": "/(.*)",
+			"destination": "/index.html"
+		}
+	],
+	"ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ../../packages/typescript-config ../../pnpm-lock.yaml ../../package.json ../../.nvmrc"
 }
