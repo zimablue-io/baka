@@ -23,7 +23,14 @@
 				"properties": {
 					"type": {
 						"type": "string",
-						"enum": ["string", "boolean", "number", "enum", "array", "object"]
+						"enum": [
+							"string",
+							"boolean",
+							"number",
+							"enum",
+							"array",
+							"object"
+						]
 					},
 					"enumValues": {
 						"type": "array",
@@ -78,7 +85,9 @@
 								"type": "string"
 							}
 						},
-						"required": ["type"],
+						"required": [
+							"type"
+						],
 						"additionalProperties": false
 					},
 					"properties": {
@@ -107,7 +116,12 @@
 						"type": "string"
 					}
 				},
-				"required": ["type", "name", "required", "description"],
+				"required": [
+					"type",
+					"name",
+					"required",
+					"description"
+				],
 				"additionalProperties": false
 			}
 		},
@@ -138,7 +152,10 @@
 						"type": "string"
 					}
 				},
-				"required": ["rel", "source"],
+				"required": [
+					"rel",
+					"source"
+				],
 				"additionalProperties": false
 			}
 		},
@@ -153,7 +170,12 @@
 					},
 					"kind": {
 						"type": "string",
-						"enum": ["prose", "ident", "list", "json"]
+						"enum": [
+							"prose",
+							"ident",
+							"list",
+							"json"
+						]
 					},
 					"hint": {
 						"type": "string"
@@ -176,7 +198,13 @@
 						"type": "string"
 					}
 				},
-				"required": ["id", "kind", "hint", "file", "templateKey"],
+				"required": [
+					"id",
+					"kind",
+					"hint",
+					"file",
+					"templateKey"
+				],
 				"additionalProperties": false
 			}
 		}

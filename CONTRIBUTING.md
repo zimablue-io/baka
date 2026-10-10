@@ -6,6 +6,28 @@ Thanks for your interest in contributing. Baka is a deterministic pack-recipe en
 
 This project follows the [Contributor Covenant](./CODE_OF_CONDUCT.md). By participating, you agree to its terms.
 
+## Contributor License Agreement
+
+> Draft text, awaiting legal review before the first public release.
+
+Baka is open source under the [Apache License 2.0](./LICENSE), and the owner also sells paid options built around it (see [COMMERCIAL.md](./COMMERCIAL.md)). So that the owner can license every contribution both ways, each outside contribution comes under this agreement. It is the same for every contributor and is needed from the first one.
+
+By submitting a contribution (a pull request, a patch, or anything else sent for inclusion), you, the contributor, agree that:
+
+1. **You wrote it, or may submit it.** The contribution is your original work, or you have the right to submit it under these terms, and your employer, if any, does not object.
+2. **Copyright license.** You grant Zima Blue (the owner) and everyone who receives Baka a perpetual, worldwide, non-exclusive, royalty-free, irrevocable license to reproduce, prepare derivative works of, publicly display, publicly perform, sublicense and distribute your contribution and such derivative works.
+3. **Relicensing.** You also agree that the owner may license your contribution under any other terms, including commercial terms and a different open-source license, for any version of Baka or of its paid options. You keep the copyright in your contribution.
+4. **Patent license.** You grant the owner and every recipient a perpetual, worldwide, non-exclusive, royalty-free, irrevocable patent license to make, use, sell, offer to sell, import and otherwise transfer your contribution, limited to the patent claims you can license that are necessarily infringed by it alone or with the work it was submitted to.
+5. **No warranty.** You provide the contribution as is, with no warranty or obligation to support it.
+
+To agree, put this line in the description of every pull request, unchanged:
+
+```
+I have read and agree to the Contributor License Agreement in CONTRIBUTING.md.
+```
+
+The `CLA` check on pull requests fails until the line is there. Authors listed in `.github/cla-exempt.txt` (the owner and automation) do not need it.
+
 ## Reporting security issues
 
 Please do not open public issues for security vulnerabilities. Follow the [Security policy](./SECURITY.md) instead.

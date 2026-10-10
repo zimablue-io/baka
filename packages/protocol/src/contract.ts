@@ -19,7 +19,7 @@ import {
  * document id (`baka.receipt/1`). A breaking change raises the major and the ids with it; anything
  * additive raises the minor.
  */
-export const BAKA_CONTRACT_VERSION = "1.0.0"
+export const BAKA_CONTRACT_VERSION = "1.1.0"
 
 /** The major of {@link BAKA_CONTRACT_VERSION}: what a host asks for with `--require-contract`. */
 export const BAKA_CONTRACT_MAJOR = 1
@@ -29,6 +29,7 @@ export const BAKA_CONTRACT_MAJOR = 1
  * (`baka version --json --require <name>`). Names are only ever added within a contract major.
  */
 export const BAKA_CAPABILITIES = [
+	"addons",
 	"errors.json",
 	"health",
 	"isolated",

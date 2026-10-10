@@ -5,7 +5,11 @@
 	"properties": {
 		"mode": {
 			"type": "string",
-			"enum": ["live", "record", "replay"]
+			"enum": [
+				"live",
+				"record",
+				"replay"
+			]
 		},
 		"records": {
 			"type": "array",
@@ -20,7 +24,10 @@
 					},
 					"match": {
 						"type": "string",
-						"enum": ["params", "template"]
+						"enum": [
+							"params",
+							"template"
+						]
 					},
 					"model": {
 						"type": "string"
@@ -44,10 +51,21 @@
 					},
 					"source": {
 						"type": "string",
-						"enum": ["llm", "cache", "replay", "supplied"]
+						"enum": [
+							"llm",
+							"cache",
+							"replay",
+							"supplied"
+						]
 					}
 				},
-				"required": ["id", "key", "model", "value", "source"],
+				"required": [
+					"id",
+					"key",
+					"model",
+					"value",
+					"source"
+				],
 				"additionalProperties": false
 			}
 		},
@@ -56,7 +74,9 @@
 			"additionalProperties": {}
 		}
 	},
-	"required": ["mode"],
+	"required": [
+		"mode"
+	],
 	"additionalProperties": false,
 	"$schema": "http://json-schema.org/draft-07/schema#"
 }

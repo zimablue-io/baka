@@ -272,3 +272,28 @@ export type ValidationResult = { kind: "pass" | "fail"; diagnostics: ValidationD
 
 export type LlmCall = z.infer<typeof LlmCallSchema>
 export type ApiError = z.infer<typeof ApiErrorSchema>
+
+/** What an add-on is told before a recipe runs. */
+export interface AddonRunRequest {
+	pack: string
+	recipe: string
+	/** The params after defaults and coercion: what the run will use. */
+	params: Record<string, unknown>
+	/** The pack as it is on disk now: its version and content hash. */
+	pin: PackPin
+	dryRun: boolean
+	/** The directory the recipe writes into. */
+	root: string
+}
+
+/**
+ * The one extension point of the open engine (docs/CONTRACT.md, "Add-ons"). A closed package attaches
+ * through a call's `addons` without patching anything: `beforeRun` may refuse a run by throwing,
+ * before anything is written; `afterRun` sees every receipt, refused runs included. An add-on that
+ * fails in `afterRun` cannot change the result: the receipt gains an `addon-failed` warning.
+ */
+export interface BakaAddon {
+	name: string
+	beforeRun?(request: AddonRunRequest): void | Promise<void>
+	afterRun?(receipt: RecipeResult): void | Promise<void>
+}

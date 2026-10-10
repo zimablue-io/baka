@@ -30,6 +30,7 @@
 			"!LIVE",
 			"!.agents",
 			"!docs/research",
+			"!packages/core/schemas",
 			"!pnpm-lock.yaml",
 			"!**/routeTree.gen.ts"
 		]

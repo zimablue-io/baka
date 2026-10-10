@@ -104,7 +104,9 @@
 														"type": "string"
 													}
 												},
-												"required": ["type"],
+												"required": [
+													"type"
+												],
 												"additionalProperties": false
 											},
 											"properties": {
@@ -133,7 +135,12 @@
 												"type": "string"
 											}
 										},
-										"required": ["type", "name", "required", "description"],
+										"required": [
+											"type",
+											"name",
+											"required",
+											"description"
+										],
 										"additionalProperties": false
 									}
 								},
@@ -166,7 +173,10 @@
 											}
 										}
 									},
-									"required": ["command", "args"],
+									"required": [
+										"command",
+										"args"
+									],
 									"additionalProperties": false
 								}
 							},
@@ -203,7 +213,10 @@
 				"properties": {
 					"severity": {
 						"type": "string",
-						"enum": ["error", "warning"]
+						"enum": [
+							"error",
+							"warning"
+						]
 					},
 					"rule": {
 						"type": "string"
@@ -224,12 +237,21 @@
 						"type": "string"
 					}
 				},
-				"required": ["severity", "rule", "message"],
+				"required": [
+					"severity",
+					"rule",
+					"message"
+				],
 				"additionalProperties": false
 			}
 		}
 	},
-	"required": ["schema", "packs", "resultSchema", "diagnostics"],
+	"required": [
+		"schema",
+		"packs",
+		"resultSchema",
+		"diagnostics"
+	],
 	"additionalProperties": false,
 	"$schema": "http://json-schema.org/draft-07/schema#"
 }

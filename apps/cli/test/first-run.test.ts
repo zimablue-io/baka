@@ -215,3 +215,83 @@ describe("errors a machine can read", () => {
 		expect((JSON.parse(run.stdout) as { error: { code: string } }).error.code).toBe("bad-request")
 	})
 })
+
+describe("add-ons", () => {
+	function writeAddon(dir: string, name: string, source: string): string {
+		const file = join(dir, name)
+		writeFileSync(file, source)
+		return file
+	}
+
+	it("--addon attaches a module that can refuse a run before anything is written", async () => {
+		const { project, home } = freshProject()
+		writeAddon(
+			project,
+			"gate.mjs",
+			'export default { name: "gate", beforeRun() { throw new Error("not on this plan") } }\n',
+		)
+		const run = await baka(["run", "add-readme", "--name", "x", "--addon", "./gate.mjs", "--json"], project, home)
+		expect(run.code).toBe(1)
+		const receipt = JSON.parse(run.stdout) as { ok: boolean; diagnostics: Array<{ rule: string; message: string }> }
+		expect(receipt.diagnostics[0]).toMatchObject({ rule: "addon-refused", message: "gate: not on this plan" })
+		expect(existsSync(join(project, "README.md"))).toBe(false)
+	})
+
+	it("BAKA_ADDONS attaches one too, and afterRun sees the receipt", async () => {
+		const { project, home } = freshProject()
+		const log = join(project, "seen.txt")
+		writeAddon(
+			project,
+			"history.mjs",
+			`import { appendFileSync } from "node:fs"\nexport default { name: "history", afterRun(r) { appendFileSync(${JSON.stringify(log)}, r.recipe + " " + r.ok + "\\n") } }\n`,
+		)
+		const run = await baka(["run", "add-readme", "--name", "x"], project, home, {
+			BAKA_ADDONS: join(project, "history.mjs"),
+		})
+		expect(run.code, run.stderr).toBe(0)
+		expect(readFileSync(log, "utf-8")).toBe("add-readme true\n")
+	})
+
+	it("an add-on that cannot be loaded is bad input, exit 2, naming it", async () => {
+		const { project, home } = freshProject()
+		const run = await baka(["run", "add-readme", "--name", "x", "--addon", "./nowhere.mjs", "--json"], project, home)
+		expect(run.code).toBe(2)
+		const body = JSON.parse(run.stdout) as { error: { code: string; message: string } }
+		expect(body.error.code).toBe("addon-invalid")
+		expect(body.error.message).toContain("nowhere.mjs")
+	})
+})
+
+describe("the open core makes no network connection of its own", () => {
+	it("lists, inspects and runs a recipe without opening a socket, resolving a name or calling fetch", async () => {
+		const { project, home } = freshProject()
+		const trace = join(tempDir("baka-net-"), "trace.txt")
+		const preload = join(tempDir("baka-net-"), "trace.cjs")
+		writeFileSync(
+			preload,
+			`const fs = require("node:fs")
+const net = require("node:net")
+const dns = require("node:dns")
+const note = (what) => fs.appendFileSync(${JSON.stringify(trace)}, what + "\\n")
+const connect = net.Socket.prototype.connect
+net.Socket.prototype.connect = function (...args) { note("connect " + JSON.stringify(args[0])); return connect.apply(this, args) }
+const lookup = dns.lookup
+dns.lookup = function (...args) { note("lookup " + args[0]); return lookup.apply(this, args) }
+const realFetch = globalThis.fetch
+globalThis.fetch = function (...args) { note("fetch " + String(args[0])); return realFetch.apply(this, args) }
+`,
+		)
+		const env = { NODE_OPTIONS: `--require ${preload}` }
+		for (const argv of [
+			["version", "--json"],
+			["health"],
+			["list-packs", "--json"],
+			["inspect", "add-readme"],
+			["run", "add-readme", "--name", "x"],
+		]) {
+			const out = await baka(argv, project, home, env)
+			expect(out.code, `${argv.join(" ")}: ${out.stderr}`).toBe(0)
+		}
+		expect(existsSync(trace) ? readFileSync(trace, "utf-8") : "").toBe("")
+	})
+})

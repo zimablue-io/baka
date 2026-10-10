@@ -21,7 +21,13 @@
 			"type": "string"
 		}
 	},
-	"required": ["schema", "ok", "slot", "cachePath", "key"],
+	"required": [
+		"schema",
+		"ok",
+		"slot",
+		"cachePath",
+		"key"
+	],
 	"additionalProperties": false,
 	"$schema": "http://json-schema.org/draft-07/schema#"
 }

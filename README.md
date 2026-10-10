@@ -366,6 +366,12 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full contribution guide. CI mus
 
 To cut a new version, run `scripts/release.sh <semver>` from a clean tree. The script bumps the version in `package.json`, `apps/cli/package.json`, and `apps/mcp/package.json` consistently; runs `pnpm pack` for both workspaces; and prints the global-install command. It refuses to run on a dirty tree and supports `--dry-run` for plan-only output. The script does not push to npm — the publish step is a separate manual flow documented in [docs/PUBLISHING.md](./docs/PUBLISHING.md).
 
-## License
+## License, paid options and privacy
 
-[MIT](./LICENSE) — Copyright (c) 2026 zima blue ([zimablue.io](https://zimablue.io)).
+Baka is open source under the [Apache License 2.0](./LICENSE) ([NOTICE](./NOTICE)): use it, embed it, fork it, sell what you build on it. Everything in this repository is free and complete, with no account. The owner also offers paid options built around it, a private pack registry and team features among them; they are listed in [COMMERCIAL.md](./COMMERCIAL.md) and live outside this repository. The name and logos are reserved ([TRADEMARKS.md](./TRADEMARKS.md)); outside contributions come under the agreement in [CONTRIBUTING.md](./CONTRIBUTING.md).
+
+**No telemetry, no phoning home.** Nothing in the open code sends usage data, checks for updates or contacts a server on its own. The code makes a network connection only when you ask it to: a model endpoint you name for slots, a registry or git/npm source you name for `baka install`, `search` or `publish`. `apps/cli/test/first-run.test.ts` runs `version`, `health`, `list-packs`, `inspect` and `run` with every socket, name lookup and `fetch` traced and fails on any.
+
+A paid add-on attaches through one documented extension point (`--addon`, see [docs/CONTRACT.md](./docs/CONTRACT.md)); the open tool contains no license checks.
+
+Copyright 2026 zima blue ([zimablue.io](https://zimablue.io)).

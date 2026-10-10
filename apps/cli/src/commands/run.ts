@@ -57,6 +57,7 @@ export function parseParamFlags(raw: string[] | undefined, paramsJson?: string):
 			key === "slot" ||
 			key === "slots-file" ||
 			key === "isolated" ||
+			key === "addon" ||
 			key === "llm-base-url" ||
 			key === "llm-model" ||
 			key === "llm-api-key" ||
@@ -75,6 +76,7 @@ export function parseParamFlags(raw: string[] | undefined, paramsJson?: string):
 				key === "params" ||
 				key === "slot" ||
 				key === "slots-file" ||
+				key === "addon" ||
 				key === "llm-base-url" ||
 				key === "llm-model" ||
 				key === "llm-api-key" ||

@@ -1,7 +1,7 @@
 import { findBundledPacks } from "@baka/engine"
 import { isolatedFromEnv, llmCallFromEnv } from "@repo/agent-engine"
 import { PackRegistry, resolvePackDirs } from "@repo/ast-tooling"
-import type { LlmCall, PackManifest } from "@repo/protocol"
+import type { BakaAddon, LlmCall, PackManifest } from "@repo/protocol"
 
 /**
  * Per-process context for the MCP server. The server is launched once per
@@ -18,6 +18,7 @@ export interface ServerContext {
 	llm: LlmCall | undefined
 	/** The packs that ship with this install. */
 	bundledPacksDir: string | undefined
+	addons: BakaAddon[]
 	registry: PackRegistry
 	// Cached discovery result. Re-discovered on first call to
 	// `getPacks()`. The registry's internal state is mutated by `discover`,
@@ -25,7 +26,7 @@ export interface ServerContext {
 	discoverDiagnostics: () => ReadonlyArray<{ severity: string; rule: string; message: string }>
 }
 
-export function createContext(cwd: string): ServerContext {
+export function createContext(cwd: string, addons: BakaAddon[] = []): ServerContext {
 	const packDirs = resolvePackDirs({ root: cwd, env: process.env })
 	const isolated = isolatedFromEnv(process.env)
 	const bundledPacksDir = findBundledPacks(import.meta.url)
@@ -41,6 +42,7 @@ export function createContext(cwd: string): ServerContext {
 		isolated,
 		llm: llmCallFromEnv(process.env),
 		bundledPacksDir,
+		addons,
 		registry,
 		discoverDiagnostics: () => {
 			const { diagnostics } = registry.discover(false)
@@ -51,7 +53,13 @@ export function createContext(cwd: string): ServerContext {
 
 /** What every engine call of this server is made with: the host's launch environment decides, per server. */
 export function engineOptions(ctx: ServerContext) {
-	return { packDirs: ctx.packDirs, isolated: ctx.isolated, llm: ctx.llm, bundledPacksDir: ctx.bundledPacksDir }
+	return {
+		packDirs: ctx.packDirs,
+		isolated: ctx.isolated,
+		llm: ctx.llm,
+		bundledPacksDir: ctx.bundledPacksDir,
+		addons: ctx.addons,
+	}
 }
 
 export function getPacks(ctx: ServerContext): PackManifest[] {

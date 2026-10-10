@@ -2,6 +2,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import {
 	BAKA_DEFAULT_WORKER_MODEL,
+	type BakaAddon,
 	type BakaLock,
 	type ChangesetEntry,
 	ENGINE_STATUS,
@@ -151,6 +152,8 @@ export function previewRecipe(registry: PackRegistry, packName: string, recipeId
 }
 
 export interface RunRecipeInput {
+	/** Add-ons attached to this call; see `BakaAddon`. */
+	addons?: readonly BakaAddon[]
 	/** Where packs come from; `registry.root` is the directory the recipe writes into. */
 	registry: PackRegistry
 	pack: string
@@ -236,6 +239,22 @@ function emptyCompensation(): RecipeCompensation {
  * diagnostic they produce (warnings too) lands in `diagnostics`.
  */
 export async function runRecipe(input: RunRecipeInput): Promise<RecipeResult> {
+	const receipt = await runRecipeOnce(input)
+	for (const addon of input.addons ?? []) {
+		try {
+			await addon.afterRun?.(receipt)
+		} catch (err) {
+			receipt.diagnostics.push({
+				severity: "warning",
+				rule: "addon-failed",
+				message: `${addon.name}: ${err instanceof Error ? err.message : String(err)}`,
+			})
+		}
+	}
+	return receipt
+}
+
+async function runRecipeOnce(input: RunRecipeInput): Promise<RecipeResult> {
 	const { registry, pack: packName, recipe: recipeId } = input
 	const root = registry.root
 	const dryRun = input.dryRun === true
@@ -283,6 +302,13 @@ export async function runRecipe(input: RunRecipeInput): Promise<RecipeResult> {
 			throw new RecipeError("invalid-params", `params for ${packName}/${recipeId}: ${normalized.message}`)
 		}
 		params = normalized.params
+		for (const addon of input.addons ?? []) {
+			try {
+				await addon.beforeRun?.({ pack: packName, recipe: recipeId, params, pin, dryRun, root })
+			} catch (err) {
+				throw new RecipeError("addon-refused", `${addon.name}: ${err instanceof Error ? err.message : String(err)}`)
+			}
+		}
 		if (!hasTemplates && !hasRecipe) {
 			throw new RecipeError("recipe-empty", `recipe "${recipeId}" has neither templates/ nor recipe.ts`)
 		}

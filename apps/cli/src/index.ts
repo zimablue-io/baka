@@ -4,8 +4,15 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { findBundledPacks } from "@baka/engine"
 import { isolatedFromEnv, llmCallFromEnv } from "@repo/agent-engine"
-import { PackDirsError, packDirsFromEnv, resolvePackDirs } from "@repo/ast-tooling"
-import { BAKA_EXIT_CODE, type LlmCall } from "@repo/protocol"
+import {
+	AddonLoadError,
+	addonSpecsFromEnv,
+	loadAddons,
+	PackDirsError,
+	packDirsFromEnv,
+	resolvePackDirs,
+} from "@repo/ast-tooling"
+import { BAKA_EXIT_CODE, type BakaAddon, type LlmCall } from "@repo/protocol"
 import { Command } from "commander"
 import type { CallOptions } from "./call"
 import { runHealthCommand, runSchemaCommand, runVersionCommand } from "./commands/contract"
@@ -81,6 +88,12 @@ program.option(
 	"--llm-base-url <url>",
 	"OpenAI-compatible endpoint for slots the call must fill (env: BAKA_LLM_BASE_URL)",
 )
+program.option(
+	"--addon <module>",
+	"attach an add-on to this call: a module path or a package name whose default export is an add-on; repeatable (env: BAKA_ADDONS, separated like PATH)",
+	(value: string, prior: string[]) => [...prior, value],
+	[] as string[],
+)
 program.option("--llm-model <name>", "model name for the endpoint (env: BAKA_LLM_MODEL)")
 program.option(
 	"--llm-api-key-env <name>",
@@ -131,6 +144,7 @@ function globals(): CallOptions {
 			isolated: program.opts<{ isolated?: boolean }>().isolated === true || isolatedFromEnv(process.env),
 			llm: callLlm(),
 			bundledPacksDir: findBundledPacks(import.meta.url),
+			addons,
 		}
 	} catch (err) {
 		if (err instanceof PackDirsError) die(BAKA_EXIT_CODE.BAD_INPUT, err.message)
@@ -142,11 +156,20 @@ function globals(): CallOptions {
 // gave us a bad path), not a silent no-op that returns zero results.
 // `preAction` fires before every subcommand recipe handler; --help /
 // --version don't fire recipes so they remain unaffected.
-program.hook("preAction", () => {
-	const opts = program.opts<{ cwd?: string }>()
+let addons: BakaAddon[] = []
+program.hook("preAction", async () => {
+	const opts = program.opts<{ cwd?: string; addon?: string[] }>()
 	const cwd = opts.cwd ?? process.cwd()
 	if (!existsSync(cwd)) {
 		die(BAKA_EXIT_CODE.BAD_INPUT, `cwd does not exist: ${cwd}`)
+	}
+	// Only what the caller named is loaded: the open engine never goes looking for add-ons.
+	const specs = opts.addon?.length ? opts.addon : addonSpecsFromEnv(process.env)
+	try {
+		addons = await loadAddons(specs, cwd)
+	} catch (err) {
+		if (err instanceof AddonLoadError) die(BAKA_EXIT_CODE.BAD_INPUT, err.message, { code: "addon-invalid" })
+		throw err
 	}
 })
 
@@ -884,4 +907,4 @@ orgCmd
 		}
 	})
 
-program.parse(process.argv)
+await program.parseAsync(process.argv)

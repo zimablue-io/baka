@@ -12,7 +12,7 @@ import {
 	McpError,
 	SUPPORTED_PROTOCOL_VERSIONS,
 } from "@modelcontextprotocol/sdk/types.js"
-import { OnExistingSchema, SlotsInputSchema as RunSlotsInputSchema } from "@repo/protocol"
+import { type BakaAddon, OnExistingSchema, SlotsInputSchema as RunSlotsInputSchema } from "@repo/protocol"
 import { z } from "zod"
 import { createContext, engineOptions, type ServerContext } from "./context.js"
 import { DESIGN_PACK_DESCRIPTION, DESIGN_PACK_PROMPT_NAME, designPackMessages } from "./prompts/design-pack.js"
@@ -69,10 +69,12 @@ const SERVER_VERSION = serverPkg.version
 
 interface StartServerOptions {
 	cwd: string
+	/** Add-ons the host launched this server with (`BAKA_ADDONS`), already loaded. */
+	addons?: BakaAddon[]
 }
 
 export function startServer(opts: StartServerOptions): McpServer {
-	const ctx = createContext(opts.cwd)
+	const ctx = createContext(opts.cwd, opts.addons)
 	const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION })
 
 	registerWorkflowTools(server, ctx)

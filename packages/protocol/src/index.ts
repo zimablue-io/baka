@@ -138,7 +138,9 @@ export {
 	ValidatorRunSchema,
 } from "./schemas"
 export type {
+	AddonRunRequest,
 	ApiError,
+	BakaAddon,
 	BakaLock,
 	ChangeOp,
 	ChangesetEntry,

@@ -1,0 +1,39 @@
+name: CLA
+
+# Every outside pull request carries the contributor agreement line (CONTRIBUTING.md). The check reads the
+# pull request's own description and a list of exempt logins from the base branch; it runs no code from the PR.
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  cla:
+    name: Contributor License Agreement
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read the exempt list from the base branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: .github/cla-exempt.txt
+          sparse-checkout-cone-mode: false
+
+      - name: The pull request agrees to the CLA
+        env:
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          line='I have read and agree to the Contributor License Agreement in CONTRIBUTING.md.'
+          if grep -v '^#' .github/cla-exempt.txt | grep -qxF "${AUTHOR}"; then
+            echo "${AUTHOR} is exempt."
+            exit 0
+          fi
+          if printf '%s\n' "${BODY}" | tr -d '\r' | grep -qxF "${line}"; then
+            echo "The CLA line is present."
+            exit 0
+          fi
+          echo "::error::Add this line to the pull request description: ${line}"
+          exit 1

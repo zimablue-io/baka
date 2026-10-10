@@ -5,6 +5,7 @@
  * user slot cache) unless the caller opts in, and nothing here knows about a
  * CLI or an LLM vendor: the caller injects an `LLMProvider`.
  */
+
 export type {
 	Catalog,
 	CatalogPack,
@@ -37,6 +38,8 @@ export {
 	writeLockfile,
 } from "@repo/ast-tooling"
 export type {
+	AddonRunRequest,
+	BakaAddon,
 	BakaCapability,
 	BakaLock,
 	ChangeOp,

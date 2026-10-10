@@ -1,4 +1,4 @@
-import { ApiErrorSchema, BAKA_EXIT_CODE, type LlmCall } from "@repo/protocol"
+import { ApiErrorSchema, BAKA_EXIT_CODE, type BakaAddon, type LlmCall } from "@repo/protocol"
 import { die } from "./die"
 
 /** What every command that reaches the engine is called with: where, which packs, and what it may read. */
@@ -11,10 +11,18 @@ export interface CallOptions {
 	llm?: LlmCall
 	/** The packs that ship with the installed CLI. */
 	bundledPacksDir?: string
+	/** Add-ons the caller named (`--addon`, `BAKA_ADDONS`), already loaded. */
+	addons?: BakaAddon[]
 }
 
 export function engineInit(opts: CallOptions) {
-	return { packDirs: opts.packDirs, isolated: opts.isolated, llm: opts.llm, bundledPacksDir: opts.bundledPacksDir }
+	return {
+		packDirs: opts.packDirs,
+		isolated: opts.isolated,
+		llm: opts.llm,
+		bundledPacksDir: opts.bundledPacksDir,
+		addons: opts.addons,
+	}
 }
 
 /** The options a `PackRegistry` takes for the same call, so every command sees the same set of packs. */

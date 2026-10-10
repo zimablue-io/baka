@@ -75,6 +75,7 @@ export const RECIPE_ERROR_CODES = [
 	"target-exists",
 	"dry-run-unsupported",
 	"dry-run-violation",
+	"addon-refused",
 	"format-failed",
 	"recipe-failed",
 	"unexpected",

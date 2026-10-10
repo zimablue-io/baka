@@ -8,6 +8,7 @@
 // `allowImportingTsExtensions` would allow `.ts`, but the runtime consumers
 // (jiti, vitest, tsup) all resolve `.js` against the on-disk `.ts` source.
 
+export { AddonLoadError, addonSpecsFromEnv, loadAddons } from "./addons.js"
 export type { ConsistencyOptions, ConsistencyResult, PerRunResult } from "./consistency.js"
 export { cleanupConsistency, runConsistencyTest } from "./consistency.js"
 export type { Catalog, CatalogPack, CatalogRecipe, ValidateResult } from "./describe-packs.js"

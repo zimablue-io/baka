@@ -24,7 +24,12 @@
 					},
 					"kind": {
 						"type": "string",
-						"enum": ["prose", "ident", "list", "json"]
+						"enum": [
+							"prose",
+							"ident",
+							"list",
+							"json"
+						]
 					},
 					"hint": {
 						"type": "string"
@@ -47,12 +52,23 @@
 						"type": "string"
 					}
 				},
-				"required": ["id", "kind", "hint", "file", "templateKey"],
+				"required": [
+					"id",
+					"kind",
+					"hint",
+					"file",
+					"templateKey"
+				],
 				"additionalProperties": false
 			}
 		}
 	},
-	"required": ["schema", "pack", "recipe", "slots"],
+	"required": [
+		"schema",
+		"pack",
+		"recipe",
+		"slots"
+	],
 	"additionalProperties": false,
 	"$schema": "http://json-schema.org/draft-07/schema#"
 }

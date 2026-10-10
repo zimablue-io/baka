@@ -27,7 +27,10 @@
 				"properties": {
 					"severity": {
 						"type": "string",
-						"enum": ["error", "warning"]
+						"enum": [
+							"error",
+							"warning"
+						]
 					},
 					"rule": {
 						"type": "string"
@@ -48,7 +51,11 @@
 						"type": "string"
 					}
 				},
-				"required": ["severity", "rule", "message"],
+				"required": [
+					"severity",
+					"rule",
+					"message"
+				],
 				"additionalProperties": false
 			}
 		},
@@ -62,14 +69,26 @@
 					},
 					"op": {
 						"type": "string",
-						"enum": ["create", "update", "delete", "unchanged", "skip"]
+						"enum": [
+							"create",
+							"update",
+							"delete",
+							"unchanged",
+							"skip"
+						]
 					},
 					"contentHash": {
-						"type": ["string", "null"]
+						"type": [
+							"string",
+							"null"
+						]
 					},
 					"reason": {
 						"type": "string",
-						"enum": ["identical", "already-exists"]
+						"enum": [
+							"identical",
+							"already-exists"
+						]
 					},
 					"mode": {
 						"type": "string",
@@ -79,7 +98,11 @@
 						"type": "string"
 					}
 				},
-				"required": ["path", "op", "contentHash"],
+				"required": [
+					"path",
+					"op",
+					"contentHash"
+				],
 				"additionalProperties": false
 			}
 		},
@@ -101,7 +124,11 @@
 						"type": "string"
 					}
 				},
-				"required": ["id", "version", "contentHash"],
+				"required": [
+					"id",
+					"version",
+					"contentHash"
+				],
 				"additionalProperties": false
 			}
 		},
@@ -118,7 +145,10 @@
 					},
 					"match": {
 						"type": "string",
-						"enum": ["params", "template"]
+						"enum": [
+							"params",
+							"template"
+						]
 					},
 					"model": {
 						"type": "string"
@@ -142,10 +172,21 @@
 					},
 					"source": {
 						"type": "string",
-						"enum": ["llm", "cache", "replay", "supplied"]
+						"enum": [
+							"llm",
+							"cache",
+							"replay",
+							"supplied"
+						]
 					}
 				},
-				"required": ["id", "key", "model", "value", "source"],
+				"required": [
+					"id",
+					"key",
+					"model",
+					"value",
+					"source"
+				],
 				"additionalProperties": false
 			}
 		},
@@ -160,7 +201,12 @@
 					},
 					"kind": {
 						"type": "string",
-						"enum": ["prose", "ident", "list", "json"]
+						"enum": [
+							"prose",
+							"ident",
+							"list",
+							"json"
+						]
 					},
 					"hint": {
 						"type": "string"
@@ -183,7 +229,13 @@
 						"type": "string"
 					}
 				},
-				"required": ["id", "kind", "hint", "file", "templateKey"],
+				"required": [
+					"id",
+					"kind",
+					"hint",
+					"file",
+					"templateKey"
+				],
 				"additionalProperties": false
 			}
 		},
@@ -217,13 +269,20 @@
 								"type": "string"
 							}
 						},
-						"required": ["path", "contentBase64"],
+						"required": [
+							"path",
+							"contentBase64"
+						],
 						"additionalProperties": false
 					}
 				},
 				"recipeData": {}
 			},
-			"required": ["created", "createdDirs", "overwritten"],
+			"required": [
+				"created",
+				"createdDirs",
+				"overwritten"
+			],
 			"additionalProperties": false
 		},
 		"output": {},

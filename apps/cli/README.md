@@ -1,5 +1,5 @@
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](./LICENSE)
 
 ## Usage
 
@@ -121,4 +121,4 @@ All provider knowledge (HTTP clients, API keys, model names) is sealed inside `p
 
 ## License
 
-[MIT](./LICENSE) — Copyright (c) 2026 zima blue ([zimablue.io](https://zimablue.io)).
+[Apache-2.0](./LICENSE) — Copyright 2026 zima blue ([zimablue.io](https://zimablue.io)).

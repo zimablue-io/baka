@@ -19,12 +19,18 @@
 						"type": "string"
 					}
 				},
-				"required": ["version", "contentHash"],
+				"required": [
+					"version",
+					"contentHash"
+				],
 				"additionalProperties": false
 			}
 		}
 	},
-	"required": ["lockfileVersion", "packs"],
+	"required": [
+		"lockfileVersion",
+		"packs"
+	],
 	"additionalProperties": false,
 	"$schema": "http://json-schema.org/draft-07/schema#"
 }

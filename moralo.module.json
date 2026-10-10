@@ -8,10 +8,16 @@
 		"name": "zimablue-io",
 		"url": "https://github.com/zimablue-io"
 	},
-	"license": "MIT",
+	"license": "Apache-2.0",
+	"commercial": {
+		"summary": "Private pack registry, hosted catalog, synced receipts and team add-ons; the open tool is free and complete.",
+		"url": "https://github.com/zimablue-io/baka/blob/main/COMMERCIAL.md"
+	},
 	"source": "https://github.com/zimablue-io/baka",
 	"docs": "https://github.com/zimablue-io/baka/blob/main/docs/CONTRACT.md",
-	"requires": { "moralo": ">=0 <1" },
+	"requires": {
+		"moralo": ">=0 <1"
+	},
 	"kinds": ["module"],
 	"transports": [
 		{
@@ -20,9 +26,14 @@
 			"json": true,
 			"handshake": ["version", "--json"],
 			"schemas": ["schema", "{id}"],
-			"env": { "BAKA_ISOLATED": "1" }
+			"env": {
+				"BAKA_ISOLATED": "1"
+			}
 		},
-		{ "type": "mcp", "command": "baka-mcp" },
+		{
+			"type": "mcp",
+			"command": "baka-mcp"
+		},
 		{
 			"type": "http",
 			"command": "baka",
@@ -30,14 +41,21 @@
 			"baseUrl": "http://127.0.0.1:{port}",
 			"auth": "bearer"
 		},
-		{ "type": "library", "package": "@baka/core", "entry": "." }
+		{
+			"type": "library",
+			"package": "@baka/core",
+			"entry": "."
+		}
 	],
 	"surfaces": [
 		{
 			"surface": "nodeKind",
 			"id": "run-recipe",
 			"label": "Run a recipe",
-			"ports": { "in": ["params", "slots"], "out": ["receipt"] },
+			"ports": {
+				"in": ["params", "slots"],
+				"out": ["receipt"]
+			},
 			"transport": "cli",
 			"run": ["run", "{recipe}", "--json"],
 			"result": "baka.receipt/1",
@@ -101,7 +119,10 @@
 			"why": "only when the caller passes a model for slots it did not fill itself"
 		}
 	],
-	"scope": { "install": "org", "enable": "project" },
+	"scope": {
+		"install": "org",
+		"enable": "project"
+	},
 	"runsOn": ["machine"],
 	"config": {
 		"type": "object",
@@ -109,7 +130,9 @@
 		"properties": {
 			"packDirs": {
 				"type": "array",
-				"items": { "type": "string" },
+				"items": {
+					"type": "string"
+				},
 				"default": [],
 				"description": "Directories packs are drawn from, highest precedence first. When set, only these are searched (and the bundled starter pack is not)."
 			},
@@ -126,8 +149,13 @@
 	},
 	"sandbox": {
 		"fixture": "./sandbox/fixture",
-		"entry": { "surface": "nodeKind", "id": "run-recipe" },
+		"entry": {
+			"surface": "nodeKind",
+			"id": "run-recipe"
+		},
 		"needs": ["machine"]
 	},
-	"health": { "run": ["health", "--json"] }
+	"health": {
+		"run": ["health", "--json"]
+	}
 }

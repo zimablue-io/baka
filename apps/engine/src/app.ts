@@ -25,6 +25,7 @@ import {
 } from "@repo/ast-tooling"
 import {
 	BAKA_DEFAULT_WORKER_MODEL,
+	type BakaAddon,
 	type LLMProvider,
 	type LlmCall,
 	LlmCallSchema,
@@ -78,6 +79,8 @@ export interface EngineAppOptions {
 	llm?: LlmCall
 	/** Packs that ship with the installed tool; searched after every other default scope. */
 	bundledPacksDir?: string
+	/** Add-ons attached to every run this engine serves (see `BakaAddon`). */
+	addons?: readonly BakaAddon[]
 }
 
 const RunBodySchema = z.object({
@@ -340,6 +343,7 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 			includeContent: parsed.data.includeContent,
 			validate: parsed.data.validate,
 			format: parsed.data.format,
+			addons: opts.addons,
 		})
 		const status = result.ok ? 200 : 400
 		return c.json(result, status)
@@ -446,6 +450,7 @@ export async function engineRequest(
 		isolated?: boolean
 		llm?: LlmCall
 		bundledPacksDir?: string
+		addons?: readonly BakaAddon[]
 	},
 ): Promise<{ status: number; json: unknown }> {
 	const app = createEngineApp({
@@ -454,6 +459,7 @@ export async function engineRequest(
 		isolated: init?.isolated,
 		llm: init?.llm,
 		bundledPacksDir: init?.bundledPacksDir,
+		addons: init?.addons,
 	})
 	const res = await app.request(path, {
 		method: init?.method ?? "GET",

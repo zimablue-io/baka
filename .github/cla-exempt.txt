@@ -1,0 +1,4 @@
+# GitHub logins that need no CLA line on their pull requests: the owner and automation.
+# One login per line; blank lines and lines starting with # are ignored.
+lefamoffat
+dependabot[bot]

@@ -1,12 +1,12 @@
 # The Baka contract
 
-**Contract version 1.0.0.** This page is what a host (a script, an agent, a CI job, another product such as Moralo) may rely on. Anything not written here may change without notice.
+**Contract version 1.1.0.** This page is what a host (a script, an agent, a CI job, another product such as Moralo) may rely on. Anything not written here may change without notice.
 
 Baka stands on its own and knows nothing about its hosts. Everything below is reachable three ways with the same documents: the `baka` command, the HTTP service (`baka serve`) and the library (`@baka/core`). `baka-mcp` exposes the same engine as tools for an agent.
 
 ## Versioning
 
-- The contract has a semver version (`1.0.0`). `baka version --json` reports it as `contract`.
+- The contract has a semver version (`1.1.0`). `baka version --json` reports it as `contract`.
 - Every document has an id made of a name and the contract's **major** version: `baka.receipt/1`. Within a major, documents only gain optional fields and capabilities only gain names. A change that breaks a reader raises the major and every id with it.
 - The tool has its own semver (`version`), released on its own line. The contract version is not the tool version.
 - The changelog is at the end of this page.
@@ -66,6 +66,7 @@ It prints the handshake and exits `0` when the contract major matches and every 
 | `errors.json` | Failures are `baka.error/1` on stdout under `--json`. |
 | `health` | `baka health` says whether the install can do its job. |
 | `serve` | `baka serve` exposes the same documents over HTTP. |
+| `addons` | A call can name add-ons (`--addon`, `BAKA_ADDONS`, `addons`): see "Add-ons". |
 
 `baka health --json` prints `baka.health/1` (`ok` and the `checks` behind it) and exits `3` when `ok` is false. The exit code is part of the answer.
 
@@ -88,7 +89,7 @@ A failed run has two shapes. A run that started and failed returns its **receipt
 { "error": { "code": "recipe-not-found", "message": "no installed pack declares a recipe \"nope\"; installed: starter/add-contributing, starter/add-editorconfig, ..." } }
 ```
 
-`baka.error/1`. With `--json` it goes to stdout, and the message also goes to stderr as `baka: <message>`. `hint` is optional (`incompatible`, `manifest-missing` and `manifest-stale` carry one). `code` is a stable kebab-case word: `bad-request`, `unauthorized`, `forbidden`, `not-found`, `unavailable`, `incompatible`, `unknown-schema`, `pack-dirs-invalid`, `manifest-missing`, `manifest-stale`, and every recipe error code (`recipe-not-found`, `recipe-ambiguous`, `pack-not-found`, `invalid-params`, `slots-open`, `lock-mismatch`, ...). Nothing falls back silently.
+`baka.error/1`. With `--json` it goes to stdout, and the message also goes to stderr as `baka: <message>`. `hint` is optional (`incompatible`, `manifest-missing` and `manifest-stale` carry one). `code` is a stable kebab-case word: `bad-request`, `unauthorized`, `forbidden`, `not-found`, `unavailable`, `incompatible`, `addon-invalid`, `unknown-schema`, `pack-dirs-invalid`, `manifest-missing`, `manifest-stale`, and every recipe error code (`recipe-not-found`, `recipe-ambiguous`, `pack-not-found`, `invalid-params`, `slots-open`, `lock-mismatch`, ...). Nothing falls back silently.
 
 Over HTTP the same document comes with the matching status (`400`, `401`, `403`, `404`, `501`).
 
@@ -165,6 +166,23 @@ baka pack manifest --check       # exit 1 when the file no longer matches the pa
 
 The file declares `kinds: ["pack"]`, one runnable node per recipe (`result: baka.receipt/1`, `reproducible: true`), the permissions a recipe needs, and `requires.baka`. The author owns `id`, `name`, `summary`, `publisher`, `license`, `source` and `docs` (kept when the file is regenerated); everything that follows from the packs is generated. Anyone can install the repository: `baka install git:github.com/owner/repo@tag`. Listing it on a hub is the host's concern.
 
+## Add-ons
+
+The one extension point of the open engine, for packages that are not part of it (the paid options in `COMMERCIAL.md` are such packages). An add-on is an object with a `name` and either hook:
+
+```ts
+interface BakaAddon {
+  name: string
+  beforeRun?(request: { pack, recipe, params, pin, dryRun, root }): void | Promise<void>
+  afterRun?(receipt: RecipeResult): void | Promise<void>
+}
+```
+
+- `beforeRun` runs once the pack is found, pinned and its params are valid, before any slot is filled or file written. Throwing refuses the run: the receipt is `ok: false` with the diagnostic `addon-refused` (`<add-on name>: <message>`), exit `1`, and nothing is written.
+- `afterRun` sees every receipt, a refused or failed one included. It cannot change the result. If it throws, the receipt gains the warning `addon-failed` and the run's outcome stands.
+- An add-on is named by the caller, never discovered: `--addon <module-or-package>` (repeatable) or `BAKA_ADDONS` (separated like `PATH`) for the command and for `baka-mcp`, `addons` on `createEngineApp` and on `runRecipe` in the library. The module's default export is the add-on, or a function returning one. A module that cannot be loaded ends the command as bad input (`addon-invalid`, exit `2`).
+- The open code never loads, looks for or checks a license for an add-on. What an add-on verifies, and how, is its own business.
+
 ## Documents
 
 `baka schema` lists the ids; `baka schema <id>` prints the JSON Schema (draft-07). The same files ship in `@baka/core` under `schemas/`, and a test fails if they drift from the code.
@@ -189,6 +207,10 @@ The file declares `kinds: ["pack"]`, one runnable node per recipe (`result: baka
 `moralo.module.json` at the root of this repository follows the module manifest (draft v0). It declares the `cli`, `mcp`, `http` and `library` transports, a runnable `run-recipe` node (`result: baka.receipt/1`, `reproducible: true`), the agent tools, the permissions and `env: { BAKA_ISOLATED: "1" }` for a runner. Where the draft was silent, the choices made are listed in the notes for the Moralo thread.
 
 ## Changelog
+
+### 1.1.0
+
+Add-ons (`addons` capability): `--addon`, `BAKA_ADDONS`, the `addons` option, the `addon-refused` error code and the `addon-failed` warning. Additive; every 1.0.0 call behaves as before.
 
 ### 1.0.0
 

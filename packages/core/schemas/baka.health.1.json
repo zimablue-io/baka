@@ -25,12 +25,20 @@
 						"type": "string"
 					}
 				},
-				"required": ["name", "ok", "detail"],
+				"required": [
+					"name",
+					"ok",
+					"detail"
+				],
 				"additionalProperties": false
 			}
 		}
 	},
-	"required": ["schema", "ok", "checks"],
+	"required": [
+		"schema",
+		"ok",
+		"checks"
+	],
 	"additionalProperties": false,
 	"$schema": "http://json-schema.org/draft-07/schema#"
 }

@@ -27,7 +27,14 @@
 			"type": "string"
 		}
 	},
-	"required": ["schema", "name", "version", "contract", "capabilities", "node"],
+	"required": [
+		"schema",
+		"name",
+		"version",
+		"contract",
+		"capabilities",
+		"node"
+	],
 	"additionalProperties": false,
 	"$schema": "http://json-schema.org/draft-07/schema#"
 }

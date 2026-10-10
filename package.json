@@ -21,7 +21,7 @@
 		"mcp": "pnpm --filter @baka/mcp-server dev",
 		"link:global": "pnpm --filter baka --filter @baka/mcp-server exec pnpm link --global"
 	},
-	"license": "MIT",
+	"license": "Apache-2.0",
 	"devDependencies": {
 		"@biomejs/biome": "2.5.0",
 		"@types/node": "^22.19.15",

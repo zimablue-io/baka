@@ -41,3 +41,9 @@
 ## Additional context
 
 <!-- Anything else a reviewer should know. -->
+
+## Contributor License Agreement
+
+Keep this line (outside contributors; see CONTRIBUTING.md):
+
+I have read and agree to the Contributor License Agreement in CONTRIBUTING.md.
