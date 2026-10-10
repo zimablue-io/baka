@@ -2,7 +2,7 @@ import type { RegistryCatalogResponseSchema } from "@repo/protocol"
 import { useSyncExternalStore } from "react"
 import type { z } from "zod"
 
-type CatalogModules = z.infer<typeof RegistryCatalogResponseSchema>["modules"]
+type CatalogPacks = z.infer<typeof RegistryCatalogResponseSchema>["packs"]
 
 /**
  * Module-level singleton cache for the catalog fetch.
@@ -10,7 +10,7 @@ type CatalogModules = z.infer<typeof RegistryCatalogResponseSchema>["modules"]
  * The catalog is fetched once per page load and reused across every
  * component that mounts it (the landing page, the catalog section,
  * future search surfaces). The cache survives navigation between
- * `/` and `/modules/:scope/:name` so the user does not see a loading
+ * `/` and `/packs/:scope/:name` so the user does not see a loading
  * state flash when they pop back to the catalog (VAL-WEB-009).
  *
  * The cache is intentionally module-scoped (not context-scoped) so
@@ -23,20 +23,20 @@ type CatalogModules = z.infer<typeof RegistryCatalogResponseSchema>["modules"]
  * stale-while-revalidate layer is a future-feature concern.
  */
 
-let cached: CatalogModules | null = null
+let cached: CatalogPacks | null = null
 const listeners = new Set<() => void>()
 
 function emit(): void {
 	for (const listener of listeners) listener()
 }
 
-export function getCachedCatalog(): CatalogModules | null {
+export function getCachedCatalog(): CatalogPacks | null {
 	return cached
 }
 
-export function setCachedCatalog(modules: CatalogModules | null): void {
-	if (cached === modules) return
-	cached = modules
+export function setCachedCatalog(packs: CatalogPacks | null): void {
+	if (cached === packs) return
+	cached = packs
 	emit()
 }
 
@@ -51,6 +51,6 @@ export function subscribeCatalogCache(listener: () => void): () => void {
  * React hook returning the cached catalog or `null` if it has not
  * been loaded yet. Subscribes to cache mutations.
  */
-export function useCachedCatalog(): CatalogModules | null {
+export function useCachedCatalog(): CatalogPacks | null {
 	return useSyncExternalStore(subscribeCatalogCache, getCachedCatalog, () => null)
 }

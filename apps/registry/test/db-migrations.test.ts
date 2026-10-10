@@ -67,8 +67,8 @@ describe("ensureSchemaVersion (data-layer version bump)", () => {
 			const names = tables.rows.map((r) => r.table_name)
 			expect(names).toEqual(
 				expect.arrayContaining([
-					"modules",
-					"module_versions",
+					"packs",
+					"pack_versions",
 					"artifacts",
 					"screening_results",
 					"plan_limits",
@@ -104,7 +104,7 @@ describe("ensureSchemaVersion (data-layer version bump)", () => {
 					  WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`,
 				)
 				const names = tables.rows.map((r) => r.table_name)
-				expect(names).not.toContain("modules")
+				expect(names).not.toContain("packs")
 			} finally {
 				await db.close()
 			}

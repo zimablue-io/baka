@@ -5,7 +5,7 @@
  *
  * The publish endpoint validates every tag against the strict SemVer
  * 2.0.0 grammar (with an optional leading `v` — see `publish/semver.ts`)
- * BEFORE writing the row. Every `module_versions.version` string in
+ * BEFORE writing the row. Every `pack_versions.version` string in
  * the database is therefore a known-valid semver. We do not need to
  * re-validate the inputs here; we only need to compare them.
  *

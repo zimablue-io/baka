@@ -16,8 +16,8 @@ export const ApplyInputSchema = z.object({
 
 export const ValidateInputSchema = z.object({})
 
-export const ListActionsInputSchema = z.object({
-	module: z.string().min(1).describe("Module name to list actions for."),
+export const ListRecipesInputSchema = z.object({
+	pack: z.string().min(1).describe("Pack name to list recipes for."),
 })
 
 // ---------------------------------------------------------------------------
@@ -48,21 +48,18 @@ export const RegistrySearchInputSchema = z.object({
 		.string()
 		.min(1)
 		.describe(
-			"Search term matched case-insensitively against module scope, name, and description. Required; non-empty string.",
+			"Search term matched case-insensitively against pack scope, name, and description. Required; non-empty string.",
 		),
 })
 
-export const RegistryGetModuleInputSchema = z.object({
-	scope: z
-		.string()
-		.min(1)
-		.describe("Module scope (typically the official org slug; e.g. 'baka' for first-party modules)."),
-	name: z.string().min(1).describe("Module name (e.g. 'hello')."),
+export const RegistryGetPackInputSchema = z.object({
+	scope: z.string().min(1).describe("Pack scope (typically the official org slug; e.g. 'baka' for first-party packs)."),
+	name: z.string().min(1).describe("Pack name (e.g. 'hello')."),
 })
 
 export const RegistryGetPreviewInputSchema = z.object({
-	scope: z.string().min(1).describe("Module scope (e.g. 'baka')."),
-	name: z.string().min(1).describe("Module name (e.g. 'hello')."),
+	scope: z.string().min(1).describe("Pack scope (e.g. 'baka')."),
+	name: z.string().min(1).describe("Pack name (e.g. 'hello')."),
 	version: z
 		.string()
 		.min(1)
@@ -74,10 +71,10 @@ export const RegistryGetPreviewInputSchema = z.object({
 // ---------------------------------------------------------------------------
 
 /**
- * Args schema for the `baka_design_module` prompt. Zod-typed so the host
+ * Args schema for the `baka_design_pack` prompt. Zod-typed so the host
  * validates the user's input shape before invoking the prompt.
  */
-export const DesignModuleArgsShape = {
-	name: z.string().min(1).describe("Module name to design (kebab-case)."),
+export const DesignPackArgsShape = {
+	name: z.string().min(1).describe("Pack name to design (kebab-case)."),
 	resume: z.boolean().optional().describe("Set true to resume an in-progress design from .baka/state/."),
 } as const

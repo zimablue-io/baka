@@ -3,21 +3,21 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
-	parseModuleAction,
+	parsePackRecipe,
 	parseParamFlags,
 	runFillCommand,
 	runInspectCommand,
-	runListModulesCommand,
+	runListPacksCommand,
 	runLockCommand,
 	runRunCommand,
 	runSlotsCommand,
 } from "./run.js"
 
-describe("parseModuleAction", () => {
-	it("splits module/action", () => {
-		expect(parseModuleAction("hello/greet")).toEqual({
-			module: "hello",
-			action: "greet",
+describe("parsePackRecipe", () => {
+	it("splits pack/recipe", () => {
+		expect(parsePackRecipe("hello/greet")).toEqual({
+			pack: "hello",
+			recipe: "greet",
 		})
 	})
 })
@@ -69,17 +69,17 @@ function fixtureProject(): string {
 	const dir = mkdtempSync(join(tmpdir(), "baka-cli-run-"))
 	cleanup.push(dir)
 	writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "probe", private: true }))
-	const templates = join(dir, "modules", "hello", "greet", "templates")
+	const templates = join(dir, "packs", "hello", "greet", "templates")
 	mkdirSync(templates, { recursive: true })
 	writeFileSync(
-		join(dir, "modules", "hello", "manifest.ts"),
+		join(dir, "packs", "hello", "manifest.ts"),
 		`export const Manifest = {
   name: "hello",
   version: "0.0.0",
   description: "fixture",
   dependencies: [],
   conflictsWith: [],
-  actions: [{
+  recipes: [{
     id: "greet",
     description: "write a greeting",
     params: [{ name: "name", type: "string", required: true, description: "who" }],
@@ -87,7 +87,7 @@ function fixtureProject(): string {
     filePatterns: ["hello.md"],
     validators: [],
   }],
-  moduleValidators: [],
+  packValidators: [],
 }
 `,
 	)
@@ -98,8 +98,8 @@ function fixtureProject(): string {
 	return dir
 }
 
-describe("run / slots / fill / list-modules via engineRequest", () => {
-	it("lists modules, lists slots, pins a fill, and materializes a byte-identical tree", async () => {
+describe("run / slots / fill / list-packs via engineRequest", () => {
+	it("lists packs, lists slots, pins a fill, and materializes a byte-identical tree", async () => {
 		const cwd = fixtureProject()
 		const logs: string[] = []
 		const orig = console.log
@@ -107,7 +107,7 @@ describe("run / slots / fill / list-modules via engineRequest", () => {
 			logs.push(typeof msg === "string" ? msg : JSON.stringify(msg))
 		}
 		try {
-			await runListModulesCommand({ cwd, json: true })
+			await runListPacksCommand({ cwd, json: true })
 			expect(logs.at(-1)).toContain('"name": "hello"')
 
 			await runInspectCommand("hello/greet", { cwd, json: true })
@@ -170,7 +170,7 @@ describe("run / slots / fill / list-modules via engineRequest", () => {
 		}
 	})
 
-	it("`baka lock` pins the discovered modules in baka.lock.json", () => {
+	it("`baka lock` pins the discovered packs in baka.lock.json", () => {
 		const cwd = fixtureProject()
 		const logs: string[] = []
 		const orig = console.log
@@ -183,12 +183,12 @@ describe("run / slots / fill / list-modules via engineRequest", () => {
 			expect(printed.path).toBe(join(cwd, "baka.lock.json"))
 			const lock = JSON.parse(readFileSync(printed.path, "utf-8")) as {
 				lockfileVersion: number
-				modules: Record<string, { version: string; contentHash: string }>
+				packs: Record<string, { version: string; contentHash: string }>
 			}
 			expect(lock.lockfileVersion).toBe(1)
-			expect(Object.keys(lock.modules)).toEqual(["hello"])
-			expect(lock.modules.hello?.version).toBe("0.0.0")
-			expect(lock.modules.hello?.contentHash).toMatch(/^[0-9a-f]{64}$/)
+			expect(Object.keys(lock.packs)).toEqual(["hello"])
+			expect(lock.packs.hello?.version).toBe("0.0.0")
+			expect(lock.packs.hello?.contentHash).toMatch(/^[0-9a-f]{64}$/)
 		} finally {
 			console.log = orig
 		}

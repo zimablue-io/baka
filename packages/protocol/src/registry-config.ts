@@ -46,7 +46,7 @@ export type RegistryConfigMap = z.infer<typeof RegistryConfigMapSchema>
 // decision 9: "MCP has no install tool") so they never need the
 // publish-side fields — install is the CLI's job. The schemas below
 // are what the MCP tools `baka_registry_search`,
-// `baka_registry_get_module`, `baka_registry_get_preview` validate
+// `baka_registry_get_pack`, `baka_registry_get_preview` validate
 // against; every response shape they emit is guaranteed by these
 // (an MCP consumer can re-parse the served JSON to verify).
 //
@@ -67,10 +67,10 @@ export const REGISTRY_PREVIEW_STATES = ["rendered", "needs-llm"] as const
 export type RegistryPreviewState = (typeof REGISTRY_PREVIEW_STATES)[number]
 
 /**
- * One row of `GET /v1/modules` (the catalog list). Mirrors the
+ * One row of `GET /v1/packs` (the catalog list). Mirrors the
  * columns the registry serves today (`scope`, `name`, `tier`,
  * `visibility`, `description`, `latestVersion`, `latestStatus`).
- * The list endpoint returns `{ modules: RegistryCatalogEntry[] }`;
+ * The list endpoint returns `{ packs: RegistryCatalogEntry[] }`;
  * the per-entry schema below parses one item of that array.
  */
 export const RegistryCatalogEntrySchema = z.object({
@@ -85,11 +85,11 @@ export const RegistryCatalogEntrySchema = z.object({
 export type RegistryCatalogEntry = z.infer<typeof RegistryCatalogEntrySchema>
 
 export const RegistryCatalogResponseSchema = z.object({
-	modules: z.array(RegistryCatalogEntrySchema),
+	packs: z.array(RegistryCatalogEntrySchema),
 })
 
 /**
- * Module detail record from `GET /v1/modules/:scope/:name`. Adds
+ * Pack detail record from `GET /v1/packs/:scope/:name`. Adds
  * a per-version summary list (newest-first by createdAt desc) and
  * a `latestVersion` pinned to the highest-precedence `ready` tag
  * (semver order per architecture §8 decision 11).
@@ -101,7 +101,7 @@ export const RegistryVersionSummarySchema = z.object({
 })
 export type RegistryVersionSummary = z.infer<typeof RegistryVersionSummarySchema>
 
-export const RegistryModuleDetailSchema = z.object({
+export const RegistryPackDetailSchema = z.object({
 	scope: z.string().min(1),
 	name: z.string().min(1),
 	tier: z.enum(REGISTRY_TIERS),
@@ -110,15 +110,15 @@ export const RegistryModuleDetailSchema = z.object({
 	latestVersion: z.string().nullable(),
 	versions: z.array(RegistryVersionSummarySchema),
 })
-export type RegistryModuleDetail = z.infer<typeof RegistryModuleDetailSchema>
+export type RegistryPackDetail = z.infer<typeof RegistryPackDetailSchema>
 
 /**
- * Version detail record from `GET /v1/modules/:scope/:name/:version`.
- * `manifest` is the parsed baka `ModuleManifest` (the registry
- * re-runs `ModuleManifestSchema.parse` so schema-defaulted empty
+ * Version detail record from `GET /v1/packs/:scope/:name/:version`.
+ * `manifest` is the parsed baka `PackManifest` (the registry
+ * re-runs `PackManifestSchema.parse` so schema-defaulted empty
  * arrays like `filePatterns` are guaranteed present). `screening`
  * is the screening record payload or `null` when the version
- * was never screened (built-in modules, decision 31).
+ * was never screened (built-in packs, decision 31).
  *
  * The full JSON carries `artifacts` (kind/path/size/sha256) too;
  * we mirror that here so the wire surface stays field-for-field
@@ -161,17 +161,17 @@ export const RegistryVersionDetailSchema = z.object({
 export type RegistryVersionDetail = z.infer<typeof RegistryVersionDetailSchema>
 
 /**
- * Per-action preview record from
- * `GET /v1/modules/:scope/:name/:version/previews` (architecture
+ * Per-recipe preview record from
+ * `GET /v1/packs/:scope/:name/:version/previews` (architecture
  * §8 decision 31, VAL-SCAN-004 / 005 / 019).
  *
  * `state = "rendered"` carries a `files[]` list (path / size /
- * sha256) of every file the action wrote during dry-run. `state
- * = "needs-llm"` has no files — the action never ran because it
+ * sha256) of every file the recipe wrote during dry-run. `state
+ * = "needs-llm"` has no files — the recipe never ran because it
  * declares `requiresReasoning: true`.
  */
 export const RegistryPreviewEntrySchema = z.object({
-	actionId: z.string().min(1),
+	recipeId: z.string().min(1),
 	state: z.enum(REGISTRY_PREVIEW_STATES),
 	files: z
 		.array(
@@ -191,16 +191,16 @@ export const RegistryPreviewListResponseSchema = z.object({
 export type RegistryPreviewListResponse = z.infer<typeof RegistryPreviewListResponseSchema>
 
 /**
- * Per-action detail record from
- * `GET /v1/modules/:scope/:name/:version/previews/:actionId`.
+ * Per-recipe detail record from
+ * `GET /v1/packs/:scope/:name/:version/previews/:recipeId`.
  * `files[].content` carries the FILE BYTES for the rendered
  * state; for `needs-llm`, files is either absent (canonical
  * shape) or carries an optional sentinel render. `reason` is
- * the literal registry string naming why the action was not
+ * the literal registry string naming why the recipe was not
  * executed.
  */
-export const RegistryActionPreviewSchema = z.object({
-	actionId: z.string().min(1),
+export const RegistryRecipePreviewSchema = z.object({
+	recipeId: z.string().min(1),
 	state: z.enum(REGISTRY_PREVIEW_STATES),
 	reason: z.string().optional(),
 	files: z
@@ -214,7 +214,7 @@ export const RegistryActionPreviewSchema = z.object({
 		)
 		.optional(),
 })
-export type RegistryActionPreview = z.infer<typeof RegistryActionPreviewSchema>
+export type RegistryRecipePreview = z.infer<typeof RegistryRecipePreviewSchema>
 
 // ---------------------------------------------------------------------------
 // Registry URL resolution (architecture §8 decisions 4 + 27; shared by the

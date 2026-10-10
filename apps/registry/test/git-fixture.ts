@@ -36,7 +36,7 @@ export interface GitFixture {
 	workDir: string
 	/**
 	 * Commits `manifestSource` at the repo root (or under
-	 * `modulePath` when supplied) at the given `tag`. The
+	 * `packPath` when supplied) at the given `tag`. The
 	 * commit is the only content the publish endpoint will
 	 * see.
 	 */
@@ -45,7 +45,7 @@ export interface GitFixture {
 		version: string
 		description?: string
 		dependencies?: string[]
-		actions?: Array<{
+		recipes?: Array<{
 			id: string
 			description?: string
 			filePatterns?: string[]
@@ -53,13 +53,13 @@ export interface GitFixture {
 			validators?: string[]
 			toolchain?: "tsc"
 			/** When `true` (default), the fixture writes a loadable
-			 *  `action.ts` file. When `false`, the action's
-			 *  `action.ts` exists but has no WorkflowStep export —
+			 *  `recipe.ts` file. When `false`, the recipe's
+			 *  `recipe.ts` exists but has no WorkflowStep export —
 			 *  the loadability gate fails on the resolution-order
 			 *  check at the loader level (VAL-PUB-014 fixture,
 			 *  scrutiny-round-1 fix). */
 			loadable?: boolean
-			/** Optional source body for `<id>/action.ts`. When set,
+			/** Optional source body for `<id>/recipe.ts`. When set,
 			 *  the fixture writes this verbatim instead of the
 			 *  default loadable body. Used by the dry-run tests
 			 *  to drop fixture-specific source (canary escapes,
@@ -67,14 +67,14 @@ export interface GitFixture {
 			 *  every other consumer of `commitManifest`. */
 			body?: string
 		}>
-		moduleValidators?: string[]
-		modulePath?: string
+		packValidators?: string[]
+		packPath?: string
 		tag: string
 		manifestFormat?: "ts" | "json"
 		/**
-		 * Extra files written under the module root before commit.
-		 * Paths are relative to the module root (NOT the repo root)
-		 * when `modulePath` is set, matching the manifest layout the
+		 * Extra files written under the pack root before commit.
+		 * Paths are relative to the pack root (NOT the repo root)
+		 * when `packPath` is set, matching the manifest layout the
 		 * worker reads. Used by the screening tests to drop fixture
 		 * files that exercise specific AST detection rules.
 		 */
@@ -97,7 +97,7 @@ function manifestSource(opts: {
 	version: string
 	description?: string
 	dependencies?: string[]
-	actions?: Array<{
+	recipes?: Array<{
 		id: string
 		description?: string
 		filePatterns?: string[]
@@ -105,36 +105,36 @@ function manifestSource(opts: {
 		validators?: string[]
 		toolchain?: "tsc"
 	}>
-	moduleValidators?: string[]
+	packValidators?: string[]
 }): string {
-	const description = opts.description ?? `module ${opts.name}`
+	const description = opts.description ?? `pack ${opts.name}`
 	const dependencies = opts.dependencies ?? []
-	const actions = opts.actions ?? [
+	const recipes = opts.recipes ?? [
 		{
 			id: "noop",
-			description: "no-op action",
+			description: "no-op recipe",
 			filePatterns: [],
 			requiresReasoning: false,
 		},
 	]
-	const renderedActions = actions
+	const renderedRecipes = recipes
 		.map((a) => {
 			const toolchainField = a.toolchain ? `, toolchain: ${JSON.stringify(a.toolchain)}` : ""
 			return `    { id: ${JSON.stringify(a.id)}, description: ${JSON.stringify(a.description ?? "")}, params: [], requiresReasoning: ${a.requiresReasoning ? "true" : "false"}, filePatterns: ${JSON.stringify(a.filePatterns ?? [])}, validators: ${JSON.stringify(a.validators ?? [])}${toolchainField} }`
 		})
 		.join(",\n")
 	const renderedDeps = dependencies.map((d) => JSON.stringify(d)).join(", ")
-	const renderedModuleValidators = (opts.moduleValidators ?? []).map((v) => JSON.stringify(v)).join(", ")
+	const renderedPackValidators = (opts.packValidators ?? []).map((v) => JSON.stringify(v)).join(", ")
 	return `export default {
   name: ${JSON.stringify(opts.name)},
   version: ${JSON.stringify(opts.version)},
   description: ${JSON.stringify(description)},
   dependencies: [${renderedDeps}],
   conflictsWith: [],
-  actions: [
-${renderedActions}
+  recipes: [
+${renderedRecipes}
   ],
-  moduleValidators: [${renderedModuleValidators}],
+  packValidators: [${renderedPackValidators}],
 } satisfies never
 `
 }
@@ -170,8 +170,8 @@ export async function createGitFixture(): Promise<GitFixture> {
 		bareUrl: bareDir.startsWith("/") ? `file://${bareDir}` : `file:///${bareDir.replace(/\\/g, "/")}`,
 		workDir,
 		async commitManifest(opts) {
-			const modulePath = opts.modulePath ?? ""
-			const targetDir = modulePath.length > 0 ? join(workDir, modulePath) : workDir
+			const packPath = opts.packPath ?? ""
+			const targetDir = packPath.length > 0 ? join(workDir, packPath) : workDir
 			await mkdir(targetDir, { recursive: true })
 			const sourceExt = opts.manifestFormat ?? "ts"
 			const filename = sourceExt === "json" ? "manifest.json" : "manifest.ts"
@@ -179,49 +179,49 @@ export async function createGitFixture(): Promise<GitFixture> {
 				sourceExt === "json" ? `${JSON.stringify(manifestToJsonShape(opts), null, 2)}\n` : manifestSource(opts)
 			await writeFile(join(targetDir, filename), body, "utf8")
 
-			// Write a loadable action.ts for every declared action
+			// Write a loadable recipe.ts for every declared recipe
 			// (including the implicit default `noop`). The exported
 			// shape is the engine's WorkflowStep contract (execute +
 			// compensate functions); the loadability gate in the
-			// worker pins VAL-PUB-014 (an unloadable action fails the
+			// worker pins VAL-PUB-014 (an unloadable recipe fails the
 			// version with a diagnostic naming the id).
 			//
-			// When `loadable: false` is set on a specific action, the
-			// directory is created and the action.ts FILE is written,
+			// When `loadable: false` is set on a specific recipe, the
+			// directory is created and the recipe.ts FILE is written,
 			// but its export set is empty — the loadability gate
 			// fails on the resolution-order check at the loader level
 			// (the contract's stated intent: "the file exists in the
 			// repo; it fails to import"). This is the truthful failure
 			// mode for VAL-PUB-014; the previous "no file written"
 			// fixture tripped the pathExists check instead.
-			const declaredActions = opts.actions ?? [
-				{ id: "noop", description: "no-op action", filePatterns: [], requiresReasoning: false },
+			const declaredRecipes = opts.recipes ?? [
+				{ id: "noop", description: "no-op recipe", filePatterns: [], requiresReasoning: false },
 			]
-			for (const action of declaredActions) {
-				const loadable = action.loadable !== false
-				const actionDir = join(targetDir, action.id)
-				await mkdir(actionDir, { recursive: true })
-				if (action.body !== undefined) {
+			for (const recipe of declaredRecipes) {
+				const loadable = recipe.loadable !== false
+				const recipeDir = join(targetDir, recipe.id)
+				await mkdir(recipeDir, { recursive: true })
+				if (recipe.body !== undefined) {
 					// Custom body: drop the fixture author's source
 					// verbatim. Used by the dry-run tests (canary
 					// escapes, infinite loops, file writers). The
 					// `loadable` flag is irrelevant — a custom body
 					// is presumed loadable by its author.
-					await writeFile(join(actionDir, "action.ts"), action.body, "utf8")
+					await writeFile(join(recipeDir, "recipe.ts"), recipe.body, "utf8")
 				} else if (loadable) {
-					const actionSource = loadableActionSource(action.id)
-					await writeFile(join(actionDir, "action.ts"), actionSource, "utf8")
+					const recipeSource = loadableRecipeSource(recipe.id)
+					await writeFile(join(recipeDir, "recipe.ts"), recipeSource, "utf8")
 				} else {
 					// File EXISTS (so the pathExists check at the
 					// top of the loadability gate does NOT trip), but
 					// the export set is empty — none of the resolution-
 					// order candidates (camelCase(id), camelCase(id)+
-					// "Action", exact id, id+"Action", "default") is
+					// "Recipe", exact id, id+"Recipe", "default") is
 					// a WorkflowStep, so the gate's loader-resolution
 					// branch fails.
 					await writeFile(
-						join(actionDir, "action.ts"),
-						`// Intentionally unloadable: the file exists so the gate's\n// pathExists check passes, but the export set has no\n// WorkflowStep-shaped symbol — the loadability gate fails on\n// the resolution-order check, naming the action id.\nexport const somethingElse = "not-a-workflow-step";\n`,
+						join(recipeDir, "recipe.ts"),
+						`// Intentionally unloadable: the file exists so the gate's\n// pathExists check passes, but the export set has no\n// WorkflowStep-shaped symbol — the loadability gate fails on\n// the resolution-order check, naming the recipe id.\nexport const somethingElse = "not-a-workflow-step";\n`,
 						"utf8",
 					)
 				}
@@ -229,9 +229,9 @@ export async function createGitFixture(): Promise<GitFixture> {
 
 			// Optional extra files (screening tests use these to drop
 			// fixture content that exercises specific AST detection
-			// rules — e.g. a Handlebars template, a sub-action.ts
+			// rules — e.g. a Handlebars template, a sub-recipe.ts
 			// containing `fetch(`, etc.). Paths are relative to the
-			// module root when `modulePath` is set, matching the
+			// pack root when `packPath` is set, matching the
 			// manifest layout the worker reads. The `git add`
 			// step below turns each into a repo-root-relative path.
 			for (const extra of opts.extras ?? []) {
@@ -242,17 +242,17 @@ export async function createGitFixture(): Promise<GitFixture> {
 			}
 
 			// `git add` takes paths relative to the repo root.
-			// `manifest.ts` lives under `modulePath` when set, so
-			// the relative path is `${modulePath}/${filename}`. Each
-			// action dir is added the same way.
+			// `manifest.ts` lives under `packPath` when set, so
+			// the relative path is `${packPath}/${filename}`. Each
+			// recipe dir is added the same way.
 			const relativePaths: string[] = []
-			const manifestRel = modulePath.length > 0 ? `${modulePath}/${filename}` : filename
+			const manifestRel = packPath.length > 0 ? `${packPath}/${filename}` : filename
 			relativePaths.push(manifestRel)
-			for (const action of declaredActions) {
-				relativePaths.push(modulePath.length > 0 ? `${modulePath}/${action.id}` : action.id)
+			for (const recipe of declaredRecipes) {
+				relativePaths.push(packPath.length > 0 ? `${packPath}/${recipe.id}` : recipe.id)
 			}
 			for (const extra of opts.extras ?? []) {
-				relativePaths.push(modulePath.length > 0 ? `${modulePath}/${extra.path}` : extra.path)
+				relativePaths.push(packPath.length > 0 ? `${packPath}/${extra.path}` : extra.path)
 			}
 			exec({ cmd: "git", args: ["-C", workDir, "add", "--", ...relativePaths] })
 
@@ -274,7 +274,7 @@ function manifestToJsonShape(opts: {
 	version: string
 	description?: string
 	dependencies?: string[]
-	actions?: Array<{
+	recipes?: Array<{
 		id: string
 		description?: string
 		filePatterns?: string[]
@@ -282,9 +282,9 @@ function manifestToJsonShape(opts: {
 		validators?: string[]
 		toolchain?: "tsc"
 	}>
-	moduleValidators?: string[]
+	packValidators?: string[]
 }): Record<string, unknown> {
-	const renderedActions = (opts.actions ?? []).map((a) => ({
+	const renderedRecipes = (opts.recipes ?? []).map((a) => ({
 		id: a.id,
 		description: a.description ?? "",
 		params: [],
@@ -296,37 +296,37 @@ function manifestToJsonShape(opts: {
 	return {
 		name: opts.name,
 		version: opts.version,
-		description: opts.description ?? `module ${opts.name}`,
+		description: opts.description ?? `pack ${opts.name}`,
 		dependencies: opts.dependencies ?? [],
 		conflictsWith: [],
-		actions:
-			renderedActions.length > 0
-				? renderedActions
+		recipes:
+			renderedRecipes.length > 0
+				? renderedRecipes
 				: [
 						{
 							id: "noop",
-							description: "no-op action",
+							description: "no-op recipe",
 							params: [],
 							requiresReasoning: false,
 							filePatterns: [],
 							validators: [],
 						},
 					],
-		moduleValidators: opts.moduleValidators ?? [],
+		packValidators: opts.packValidators ?? [],
 	}
 }
 
 /**
  * Minimal but VALID WorkflowStep shape. The default export matches
  * the engine's resolution order (`default` is the last candidate;
- * a named export like `${camelCase}Action` would resolve earlier
+ * a named export like `${camelCase}Recipe` would resolve earlier
  * but the default is always honored). The execute / compensate
  * bodies are no-ops — the loadability gate only imports the file,
- * it does not invoke the actions.
+ * it does not invoke the recipes.
  */
-function loadableActionSource(actionId: string): string {
+function loadableRecipeSource(recipeId: string): string {
 	return `export default {
-  name: ${JSON.stringify(actionId)},
+  name: ${JSON.stringify(recipeId)},
   role: 1,
   async execute() {
     return { success: true, output: undefined, compensationData: undefined }

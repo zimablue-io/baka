@@ -3,13 +3,13 @@
 // reachable under tsx with a STATIC import).
 //
 // What it asserts:
-//   - The workflow barrel `workflows/module-management/src/index.ts` exposes
+//   - The workflow barrel `workflows/pack-management/src/index.ts` exposes
 //     `loadSession` (re-exported from `./design`) when consumed by another
 //     package via a STATIC `import` statement under tsx (the same way the
 //     CLI's TypeScript source is compiled and consumed).
 //
 // Failure mode it covers:
-//   - `workflows/module-management/src/index.ts` currently has
+//   - `workflows/pack-management/src/index.ts` currently has
 //     `export * from "./design"` (no `/index.ts` extension). Under
 //     tsx/Node ESM, this fails to resolve to a file: tsx looks for
 //     `./design.ts` (which does not exist) and the star re-export yields
@@ -38,12 +38,12 @@ const CLI_CWD = join(__dirname, "..")
 const PROBE_SOURCE = [
 	"// Probe script: static import of the workflow package via tsx.",
 	"// Mirrors how the CLI source statically imports workflow packages.",
-	'import * as m from "@repo/module-management-workflow"',
+	'import * as m from "@repo/pack-management-workflow"',
 	'console.log("loadSession=" + typeof m.loadSession)',
 	"",
 ].join("\n")
 
-describe("@repo/module-management-workflow barrel resolution (tsx, static import)", () => {
+describe("@repo/pack-management-workflow barrel resolution (tsx, static import)", () => {
 	beforeAll(() => {
 		if (!existsSync(PROBE_DIR)) mkdirSync(PROBE_DIR, { recursive: true })
 		writeFileSync(PROBE_PATH, PROBE_SOURCE, "utf-8")

@@ -3,7 +3,7 @@
 
 # baka
 
-Baka is a deterministic orchestration engine for LLM-assisted development. The LLM cannot invent code, files, or structure — it picks from a finite, declared action space (the module catalog). The same intent + the same modules always produce the same plan.
+Baka is a deterministic orchestration engine for LLM-assisted development. The LLM cannot invent code, files, or structure — it picks from a finite, declared set of recipes (the pack catalog). The same intent + the same packs always produce the same plan.
 
 ## Install
 
@@ -94,7 +94,7 @@ For a fresh config with no existing entries, the full file is:
 
 > **Do NOT touch `persistentPermissions`.** Factory uses that block to remember which MCP servers and tools you have approved. Modifying it (or losing it during a copy-paste) causes unexpected re-prompts and approval loss.
 
-That single `baka` entry is enough to make `baka_plan`, `baka_apply`, `baka_validate`, and `baka_list_actions` available in every coding-agent session, regardless of the working directory. The repo also ships a project-level `.mcp.json`, which MCP-aware hosts read automatically when you open the repo.
+That single `baka` entry is enough to make `baka_plan`, `baka_apply`, `baka_validate`, and `baka_list_recipes` available in every coding-agent session, regardless of the working directory. The repo also ships a project-level `.mcp.json`, which MCP-aware hosts read automatically when you open the repo.
 
 ## Quickstart
 
@@ -104,13 +104,13 @@ After install, the canonical first-run sequence is:
 # 1. Configure an LLM provider (interactive; runs once per machine).
 baka init
 
-# 2. Discover what is installed in the current project (empty until you add a module).
-baka list-modules --json
+# 2. Discover what is installed in the current project (empty until you add a pack).
+baka list-packs --json
 
-# 3. Run a named action from an installed module. Files are templates; gemma4:e4b fills named slots only.
-baka run <module>/<action> --json
-baka slots <module>/<action> --json
-baka fill  <module>/<action> --slot <id> --value "..." --json
+# 3. Run a named recipe from an installed pack. Files are templates; gemma4:e4b fills named slots only.
+baka run <pack>/<recipe> --json
+baka slots <pack>/<recipe> --json
+baka fill  <pack>/<recipe> --slot <id> --value "..." --json
 
 # Fuzzy catalog picker (demoted; not the product path):
 baka plan "scaffold a TypeScript project with biome + vitest"
@@ -120,7 +120,7 @@ Every command accepts `--json` and emits the same shape as the corresponding MCP
 
 ### Serving the engine over HTTP
 
-`baka serve` exposes the same engine the CLI and `baka-mcp` use (`GET /v1/modules`, `POST /v1/run`, `/v1/fill`, `/v1/validate`, ...) as JSON over HTTP, for a host that has the project's files on disk. It is a code-writing service, so it is closed by default:
+`baka serve` exposes the same engine the CLI and `baka-mcp` use (`GET /v1/packs`, `POST /v1/run`, `/v1/fill`, `/v1/validate`, ...) as JSON over HTTP, for a host that has the project's files on disk. It is a code-writing service, so it is closed by default:
 
 ```bash
 baka serve                                  # 127.0.0.1:4311, bound to this project (the cwd), no auth needed
@@ -129,7 +129,7 @@ BAKA_ENGINE_TOKEN=$(openssl rand -hex 24) baka serve --host 0.0.0.0   # reachabl
 
 - **Bearer token.** With `BAKA_ENGINE_TOKEN` (or `--token`, which shows up in `ps`; the env var is preferred) set, every request needs `Authorization: Bearer <token>` and gets `401` otherwise. The token must not contain whitespace. `baka serve` refuses to start on any bind address that is not loopback (`127.0.0.0/8`, `::1`, `localhost`) unless a token is set.
 - **Project paths.** A request may name a `project` (query string or body field) only when it is the directory the server was started in, or when the server was started with allowed roots: `--allow-root <dir>` (repeatable) or `BAKA_ENGINE_ALLOWED_ROOTS` (separated like `PATH`). A `project` must be an absolute path to an existing directory; symlinks are resolved before the check, so a link inside a root cannot lead out of it. Anything else is `403`, and nothing is read or written there.
-- The run, fill, and validate routes return the same JSON as `baka run|fill|validate --json` and the `baka_*` MCP tools; `/v1/run` takes `dryRun`, `slots`, `onExisting`, `includeContent`, and `validate` alongside `module`, `action`, and `params`.
+- The run, fill, and validate routes return the same JSON as `baka run|fill|validate --json` and the `baka_*` MCP tools; `/v1/run` takes `dryRun`, `slots`, `onExisting`, `includeContent`, and `validate` alongside `pack`, `recipe`, and `params`.
 
 ### Verifying determinism
 
@@ -189,7 +189,7 @@ baka --version    # works once PATH is fixed
 
 ### `baka plan` fails with "missing LLM config: worker role not configured"
 
-Run `baka init` to configure both LLM roles (worker + validator). The engine calls the worker-role model directly for plan / apply / module-design and the validator-role model for semantic validators; both blocks live in the same file at `${BAKA_HOME:-$HOME/.baka}/config.json`. Refuses to plan or apply until the worker role is configured. Quick check:
+Run `baka init` to configure both LLM roles (worker + validator). The engine calls the worker-role model directly for plan / apply / pack-design and the validator-role model for semantic validators; both blocks live in the same file at `${BAKA_HOME:-$HOME/.baka}/config.json`. Refuses to plan or apply until the worker role is configured. Quick check:
 
 ```bash
 baka roles             # shows every role's fields (apiKey masked as <set>)
@@ -201,10 +201,10 @@ For CI or headless environments, write `${BAKA_HOME:-$HOME/.baka}/config.json` w
 
 ### Broken barrel / import-time crash in one subcommand
 
-Baka's CLI lazy-loads every subcommand action via dynamic `import()`. A bad import in one subcommand (e.g. a typo in a barrel re-export) must NOT crash the others. If a sibling subcommand still crashes:
+Baka's CLI lazy-loads every subcommand recipe via dynamic `import()`. A bad import in one subcommand (e.g. a typo in a barrel re-export) must NOT crash the others. If a sibling subcommand still crashes:
 
-1. Identify the failing subcommand: run each sibling (`baka --help`, `baka list-modules --json`, `baka plan --help`, `baka roles`, `baka init --help`) and see which one errors.
-2. Open the failing barrel (usually `workflows/<name>/src/index.ts` or `apps/cli/src/commands/<name>/index.ts`) and check the re-exports. The canonical fix for the historic `workflows/module-management/src/index.ts` bug was adding the explicit `.ts` extension to the re-export target.
+1. Identify the failing subcommand: run each sibling (`baka --help`, `baka list-packs --json`, `baka plan --help`, `baka roles`, `baka init --help`) and see which one errors.
+2. Open the failing barrel (usually `workflows/<name>/src/index.ts` or `apps/cli/src/commands/<name>/index.ts`) and check the re-exports. The canonical fix for the historic `workflows/pack-management/src/index.ts` bug was adding the explicit `.ts` extension to the re-export target.
 3. Rebuild: `pnpm build`. The lazy-load invariant is preserved by `tsup` (dynamic imports survive bundling).
 4. If a subcommand still fails on import, report it as a regression — the engine should isolate the failure, not propagate it.
 
@@ -214,7 +214,7 @@ The CI smoke step (`pnpm --filter baka build` + `baka --version` + JSON-RPC `ini
 
 ### For coding agents (Claude Code, Cursor, Codex, Cline, Zed, etc.)
 
-The project ships an MCP config at `.mcp.json` that registers `baka-mcp` over stdio. MCP-aware hosts read it automatically on session start. To add or remove MCP servers for the team, edit that file and commit the change. The `baka-mcp` binary resolves its working directory from `process.cwd()` at startup, so opening a session anywhere in the repo will discover the project's modules and validators.
+The project ships an MCP config at `.mcp.json` that registers `baka-mcp` over stdio. MCP-aware hosts read it automatically on session start. To add or remove MCP servers for the team, edit that file and commit the change. The `baka-mcp` binary resolves its working directory from `process.cwd()` at startup, so opening a session anywhere in the repo will discover the project's packs and validators.
 
 For other MCP-aware hosts (Claude Code, Cursor, Codex, Zed, etc.) configure the server with:
 
@@ -222,7 +222,7 @@ For other MCP-aware hosts (Claude Code, Cursor, Codex, Zed, etc.) configure the 
 { "command": "baka-mcp" }
 ```
 
-Once connected, the agent sees one MCP tool per declared action plus `baka_plan`, `baka_apply`, `baka_validate`, and `baka_list_actions`. See `SKILL.md` at the repo root for the full contract.
+Once connected, the agent sees one MCP tool per declared recipe plus `baka_plan`, `baka_apply`, `baka_validate`, and `baka_list_recipes`. See `SKILL.md` at the repo root for the full contract.
 
 ### For humans and shell scripts
 
@@ -235,8 +235,8 @@ pnpm baka plan "<intent>"
 # Plan with machine-readable output (for piping into jq)
 pnpm baka plan "<intent>" --json
 
-# Scaffold a new module (chat-driven design flow)
-pnpm baka module create "<module_name>"
+# Scaffold a new pack (chat-driven design flow)
+pnpm baka pack create "<pack_name>"
 ```
 
 The CLI and the MCP server share the same engine: same workflows, same validators, same plan schema. `--json` flags on the CLI emit the same shape the MCP tools return.
@@ -248,10 +248,10 @@ Add this to your `.bashrc` or `.zshrc` for quick access:
 alias baka='pnpm --prefix . baka --'
 ```
 
-### Creating a Test Module
-To verify the engine, create a test module:
+### Creating a Test Pack
+To verify the engine, create a test pack:
 ```bash
-baka module create test-module
+baka pack create test-pack
 ```
 
 ## Technical Specifications
@@ -267,32 +267,32 @@ baka module create test-module
 │   ├── cli/                 # The baka binary (user-facing CLI)
 │   ├── mcp/                 # The baka-mcp binary (MCP server over stdio for coding agents)
 │   ├── api/                 # The marketplace catalog API (read routes over hand-maintained data)
-│   └── landing/             # The landing site (module catalog pages)
+│   └── landing/             # The landing site (pack catalog pages)
 ├── workflows/               # Engine orchestration for THIS project
-│   ├── feature-planning/    # Plan user intents into module actions
-│   └── module-management/   # Scaffold new modules
+│   ├── feature-planning/    # Plan user intents into pack recipes
+│   └── pack-management/   # Scaffold new packs
 ├── packages/                # Engine tools
 │   ├── protocol/            # SSOT: types, schemas, LLMProvider interface
 │   ├── agent-engine/        # The ONLY package that knows what an LLMProvider is
 │   ├── core/                # @baka/core: the published, embeddable library surface (no CLI, no ~/.baka)
-│   ├── ast-tooling/         # File/AST operations, ModuleRegistry (module discovery)
-│   ├── baka-sdk/            # The public boundary module authors import from
+│   ├── ast-tooling/         # File/AST operations, PackRegistry (pack discovery)
+│   ├── baka-sdk/            # The public boundary pack authors import from
 │   └── typescript-config/   # Shared TS presets
-├── modules/                 # Empty on purpose. Modules live in a project, not here.
+├── packs/                 # Empty on purpose. Packs live in a project, not here.
 ├── scripts/                 # pack.mjs, release.sh, setup.sh, unlink-global.sh
 ├── dist-tarballs/           # Output of `pnpm pack` (baka + baka-mcp tarballs)
 ├── SKILL.md                 # Declarative agent contract (Claude Code, Codex, Cursor, etc.)
-├── docs/                    # Philosophy, agent guide, module authoring, publishing
+├── docs/                    # Philosophy, agent guide, pack authoring, publishing
 ├── pnpm-workspace.yaml
 ├── turbo.json
 └── package.json
 ```
 
 ## Multi-Agent Architecture Specification (AGENTS.md)
-This document defines the roles, bounded actions, stream constraints, and validation boundaries of the intelligent routing plane. See `docs/PHILOSOPHY.md` for the locked-in design philosophy.
+This document defines the roles, bounded recipes, stream constraints, and validation boundaries of the intelligent routing plane. See `docs/PHILOSOPHY.md` for the locked-in design philosophy.
 
 ## Agent System Overview
-The system operates on an isolated, deterministic execution loop. Agents do not write free-form code into user workspaces. Instead, they act as state-transition functions that parse user intent, match it against static structural schemas inside the modules/ folder, and return precise, validated JSON execution blocks.
+The system operates on an isolated, deterministic execution loop. Agents do not write free-form code into user workspaces. Instead, they act as state-transition functions that parse user intent, match it against static structural schemas inside the packs/ folder, and return precise, validated JSON execution blocks.
 
 ## The Agent Topology
 ```
@@ -316,9 +316,9 @@ The system operates on an isolated, deterministic execution loop. Agents do not 
 ```
 
 ## Tier Rules
-1. **Orchestrator** (LLM) — high-reasoning planning. Receives user intent + the module manifest catalog. Emits a validated sequence of `{module, action, params}` steps. Cannot invent modules or actions; the catalog is the only allowed source.
-2. **Worker** (dumb automation by default) — executes one declared action. When the action's manifest sets `requiresReasoning: true`, a small-LLM assist is invoked using the action's `templates/*.hbs` rendered with the action's params. The output of the LLM assist is the body of an explicitly-typed file or block defined by the module.
-3. **Validator** (deterministic TypeScript) — runs the module's `validators/*.ts` and `_shared/validators/*.ts` functions against the resulting file tree. No LLM is involved. Returns `Pass` or `Fail(diff[])` with structured diagnostics.
+1. **Orchestrator** (LLM) — high-reasoning planning. Receives user intent + the pack manifest catalog. Emits a validated sequence of `{pack, recipe, params}` steps. Cannot invent packs or recipes; the catalog is the only allowed source.
+2. **Worker** (dumb automation by default) — executes one declared recipe. When the recipe's manifest sets `requiresReasoning: true`, a small-LLM assist is invoked using the recipe's `templates/*.hbs` rendered with the recipe's params. The output of the LLM assist is the body of an explicitly-typed file or block defined by the pack.
+3. **Validator** (deterministic TypeScript) — runs the pack's `validators/*.ts` and `_shared/validators/*.ts` functions against the resulting file tree. No LLM is involved. Returns `Pass` or `Fail(diff[])` with structured diagnostics.
 
 ## Provider Boundary
 All provider knowledge (HTTP clients, API keys, model names) is sealed inside `packages/agent-engine/`. Workflows, the CLI, and `ast-tooling` only ever import the `LLMProvider` interface from `packages/protocol/`. The user picks the provider (llama.cpp, Ollama, vLLM, OpenAI, anything speaking the OpenAI chat-completions API) via `baka init`; the engine never dictates it.

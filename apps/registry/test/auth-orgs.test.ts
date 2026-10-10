@@ -247,10 +247,10 @@ describe("VAL-AUTH-007 — org invitation flow", () => {
 })
 
 // ----------------------------------------------------------------------------
-// VAL-AUTH-008 — Role enforcement on privileged org actions
+// VAL-AUTH-008 — Role enforcement on privileged org recipes
 // ----------------------------------------------------------------------------
 
-describe("VAL-AUTH-008 — role enforcement on privileged org actions", () => {
+describe("VAL-AUTH-008 — role enforcement on privileged org recipes", () => {
 	let fx: OrgTestStack
 	let seeded: SeededUsers
 	beforeEach(async () => {

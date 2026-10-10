@@ -2,8 +2,8 @@ import { createHash } from "node:crypto"
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { createRegistry, describeModules, runAction } from "../src/index.js"
-import { cleanupTempDirs, tempDir, writeModule } from "./helpers.js"
+import { createRegistry, describePacks, runRecipe } from "../src/index.js"
+import { cleanupTempDirs, tempDir, writePack } from "./helpers.js"
 
 afterEach(cleanupTempDirs)
 
@@ -23,12 +23,12 @@ function setup(
 	templates: Record<string, string> = { "a.txt.hbs": "alpha\n", "b/c.txt.hbs": "beta\n" },
 ) {
 	const root = tempDir()
-	const modules = tempDir()
-	const script = join(modules, "fmt.mjs")
+	const packs = tempDir()
+	const script = join(packs, "fmt.mjs")
 	writeFileSync(script, FORMATTER)
-	writeModule(modules, {
+	writePack(packs, {
 		name: "f",
-		actions: [
+		recipes: [
 			{
 				id: "gen",
 				templates,
@@ -38,28 +38,28 @@ function setup(
 			},
 		],
 	})
-	return { root, modules, script, registry: createRegistry({ root, moduleDirs: [modules] }) }
+	return { root, packs, script, registry: createRegistry({ root, packDirs: [packs] }) }
 }
 
 const run = (registry: ReturnType<typeof setup>["registry"], extra: Record<string, unknown> = {}) =>
-	runAction({ registry, module: "f", action: "gen", params: {}, ...extra })
+	runRecipe({ registry, pack: "f", recipe: "gen", params: {}, ...extra })
 
 describe("post-generate formatting hook", () => {
-	it("never runs a module's command unless asked", async () => {
-		const { root, modules, registry } = setup({})
+	it("never runs a pack's command unless asked", async () => {
+		const { root, packs, registry } = setup({})
 		const result = await run(registry)
 		expect(result.ok).toBe(true)
-		expect(existsSync(join(modules, "argv.log"))).toBe(false)
+		expect(existsSync(join(packs, "argv.log"))).toBe(false)
 		expect(readFileSync(join(root, "a.txt"), "utf-8")).toBe("alpha\n")
 	})
 
 	it("with format: true runs it over the created files and the receipt holds the formatted hashes", async () => {
-		const { root, modules, registry } = setup({})
+		const { root, packs, registry } = setup({})
 		const result = await run(registry, { format: true })
 		expect(result.ok).toBe(true)
 		expect(readFileSync(join(root, "a.txt"), "utf-8")).toBe("ALPHA\n")
 		expect(readFileSync(join(root, "b", "c.txt"), "utf-8")).toBe("BETA\n")
-		expect(JSON.parse(readFileSync(join(modules, "argv.log"), "utf-8"))).toEqual(["a.txt", "b/c.txt"])
+		expect(JSON.parse(readFileSync(join(packs, "argv.log"), "utf-8"))).toEqual(["a.txt", "b/c.txt"])
 		expect(result.changeset).toEqual([
 			{ path: "a.txt", op: "create", contentHash: sha("ALPHA\n") },
 			{ path: "b/c.txt", op: "create", contentHash: sha("BETA\n") },
@@ -68,7 +68,7 @@ describe("post-generate formatting hook", () => {
 	})
 
 	it("passes only files the run created or updated, and appends them when the args have no {files}", async () => {
-		const { root, modules, registry, script } = setup({})
+		const { root, packs, registry, script } = setup({})
 		writeFileSync(join(root, "a.txt"), "alpha\n") // identical to its template: `unchanged`, not formatted
 		const first = await run(registry, { format: true })
 		expect(first.changeset.map((e) => e.op)).toEqual(["unchanged", "create"])
@@ -76,7 +76,7 @@ describe("post-generate formatting hook", () => {
 		expect(readFileSync(join(root, "b", "c.txt"), "utf-8")).toBe("BETA\n")
 		const appended = setup({ args: [script, "--flag"] })
 		await run(appended.registry, { format: true })
-		const calls = readFileSync(join(modules, "argv.log"), "utf-8")
+		const calls = readFileSync(join(packs, "argv.log"), "utf-8")
 			.trim()
 			.split("\n")
 			.map((l) => JSON.parse(l))
@@ -115,7 +115,7 @@ describe("post-generate formatting hook", () => {
 		expect(readdirSync(root).sort()).toEqual(["a.txt", "b"])
 	})
 
-	it("an action that declares no formatter is untouched by format: true", async () => {
+	it("a recipe that declares no formatter is untouched by format: true", async () => {
 		const { root, registry } = setup(null)
 		const result = await run(registry, { format: true })
 		expect(result.ok).toBe(true)
@@ -139,7 +139,7 @@ describe("post-generate formatting hook", () => {
 
 	it("is declared in the catalog, so a caller can run it itself", () => {
 		const { script, registry } = setup({})
-		const action = describeModules(registry).modules[0]?.actions[0]
-		expect(action?.format).toEqual({ command: process.execPath, args: [script, "{files}"] })
+		const recipe = describePacks(registry).packs[0]?.recipes[0]
+		expect(recipe?.format).toEqual({ command: process.execPath, args: [script, "{files}"] })
 	})
 })

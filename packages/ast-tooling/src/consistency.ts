@@ -11,30 +11,30 @@ import { join } from "node:path"
 // that the produced file tree, plan structure, and per-file SHA-256 hashes
 // are identical across runs.
 //
-// Why this matters: a module's contract is "if the LLM plans an action with
-// these params, the action will produce these files with these contents".
-// If the action's body has a non-deterministic bug, the LLM might plan it
+// Why this matters: a pack's contract is "if the LLM plans a recipe with
+// these params, the recipe will produce these files with these contents".
+// If the recipe's body has a non-deterministic bug, the LLM might plan it
 // successfully but the run can drift across invocations. We catch that
-// drift at module creation time so the user sees the problem while they
+// drift at pack creation time so the user sees the problem while they
 // still have context.
 // ---------------------------------------------------------------------------
 
 export interface ConsistencyOptions {
 	cwd: string
-	moduleName: string
-	actionId: string
+	packName: string
+	recipeId: string
 	intent: string
 	n: number
 	// Override the baka binary path (default: `baka` on PATH).
 	bakaBin?: string
-	// Override the path to a custom baka modules root (default: project root).
+	// Override the path to a custom baka packs root (default: project root).
 	projectRoot?: string
 }
 
 export interface PerRunResult {
 	runIndex: number
 	planSteps: number
-	planActions: string[]
+	planRecipes: string[]
 	planParams: Record<string, unknown>
 	files: string[]
 	fileHashes: Record<string, string>
@@ -45,8 +45,8 @@ export interface PerRunResult {
 
 export interface ConsistencyResult {
 	passed: boolean
-	moduleName: string
-	actionId: string
+	packName: string
+	recipeId: string
 	intent: string
 	n: number
 	perRun: PerRunResult[]
@@ -59,7 +59,7 @@ export interface ConsistencyResult {
 interface RunResult {
 	runIndex: number
 	planSteps: number
-	planActions: string[]
+	planRecipes: string[]
 	planParams: Record<string, unknown>
 	files: string[]
 	fileHashes: Record<string, string>
@@ -72,7 +72,7 @@ export async function runConsistencyTest(opts: ConsistencyOptions): Promise<Cons
 	const projectRoot = opts.projectRoot ?? opts.cwd
 	const bakaBin = opts.bakaBin ?? "baka"
 	const n = Math.max(1, opts.n)
-	const artifactDir = join(tmpdir(), `baka-consistency-${opts.moduleName}-${Date.now()}`)
+	const artifactDir = join(tmpdir(), `baka-consistency-${opts.packName}-${Date.now()}`)
 	mkdirSync(artifactDir, { recursive: true })
 
 	const perRun: RunResult[] = []
@@ -85,8 +85,8 @@ export async function runConsistencyTest(opts: ConsistencyOptions): Promise<Cons
 			runDir,
 			projectRoot,
 			bakaBin,
-			moduleName: opts.moduleName,
-			actionId: opts.actionId,
+			packName: opts.packName,
+			recipeId: opts.recipeId,
 			intent: opts.intent,
 		})
 		perRun.push({ ...result, durationMs: Date.now() - start })
@@ -95,8 +95,8 @@ export async function runConsistencyTest(opts: ConsistencyOptions): Promise<Cons
 	const divergences = computeDivergences(perRun)
 	const result: ConsistencyResult = {
 		passed: divergences.length === 0,
-		moduleName: opts.moduleName,
-		actionId: opts.actionId,
+		packName: opts.packName,
+		recipeId: opts.recipeId,
 		intent: opts.intent,
 		n,
 		perRun,
@@ -112,27 +112,26 @@ interface RunOnceArgs {
 	runDir: string
 	projectRoot: string
 	bakaBin: string
-	moduleName: string
-	actionId: string
+	packName: string
+	recipeId: string
 	intent: string
 }
 
 async function runOnce(args: RunOnceArgs): Promise<RunResult> {
-	const { runIndex, runDir, projectRoot, bakaBin, moduleName, actionId, intent } = args
+	const { runIndex, runDir, projectRoot, bakaBin, packName, recipeId, intent } = args
 
 	// 1. plan
 	const planJson = await runBakaPlan(bakaBin, projectRoot, intent, runDir)
 	let planSteps = 0
-	let planActions: string[] = []
+	let planRecipes: string[] = []
 	let planParams: Record<string, unknown> = {}
 	try {
 		const parsed = JSON.parse(planJson) as {
-			resolvedSteps?: Array<{ module?: string; action?: string; params?: Record<string, unknown> }>
+			resolvedSteps?: Array<{ pack?: string; recipe?: string; params?: Record<string, unknown> }>
 		}
 		planSteps = parsed.resolvedSteps?.length ?? 0
-		planActions = (parsed.resolvedSteps ?? []).map((s) => `${s.module ?? "?"}:${s.action ?? "?"}`)
-		planParams =
-			(parsed.resolvedSteps ?? []).find((s) => s.module === moduleName && s.action === actionId)?.params ?? {}
+		planRecipes = (parsed.resolvedSteps ?? []).map((s) => `${s.pack ?? "?"}:${s.recipe ?? "?"}`)
+		planParams = (parsed.resolvedSteps ?? []).find((s) => s.pack === packName && s.recipe === recipeId)?.params ?? {}
 	} catch {
 		/* leave defaults */
 	}
@@ -146,7 +145,7 @@ async function runOnce(args: RunOnceArgs): Promise<RunResult> {
 	return {
 		runIndex,
 		planSteps,
-		planActions,
+		planRecipes,
 		planParams,
 		files: files.sort(),
 		fileHashes: hashes,
@@ -218,7 +217,7 @@ function execWithStderr(
 function hashTree(root: string): { files: string[]; hashes: Record<string, string> } {
 	// Walk the runDir with `find` if available, else fall back to a minimal
 	// recursive walk. We exclude the plan.json file itself and the .baka
-	// scratch dir (it contains the plan, not the produced module artefacts).
+	// scratch dir (it contains the plan, not the produced pack artefacts).
 	const { spawnSync } = require("node:child_process") as typeof import("node:child_process")
 	const findRes = spawnSync("find", [root, "-type", "f", "!", "-path", "*/.baka/*", "!", "-name", "plan.json"], {
 		encoding: "utf-8",
@@ -250,12 +249,12 @@ export function computeDivergencesForTest(perRun: RunResult[]): string[] {
 	const divergences: string[] = []
 	const ref = perRun[0] as RunResult
 
-	// Plan actions
+	// Plan recipes
 	for (let i = 1; i < perRun.length; i++) {
 		const r = perRun[i] as RunResult
-		if (r.planActions.join("|") !== ref.planActions.join("|")) {
+		if (r.planRecipes.join("|") !== ref.planRecipes.join("|")) {
 			divergences.push(
-				`run ${i}: plan actions differ. ref=${JSON.stringify(ref.planActions)} got=${JSON.stringify(r.planActions)}`,
+				`run ${i}: plan recipes differ. ref=${JSON.stringify(ref.planRecipes)} got=${JSON.stringify(r.planRecipes)}`,
 			)
 		}
 		if (JSON.stringify(r.planParams) !== JSON.stringify(ref.planParams)) {
@@ -285,7 +284,7 @@ function writeConsistencyTrace(result: ConsistencyResult): void {
 export function renderConsistencyTraceForTest(result: ConsistencyResult): void {
 	const tracePath = join(result.artifactDir, "CONSISTENCY-TRACE.json")
 	const lines: string[] = [
-		`# Consistency trace for ${result.moduleName}:${result.actionId}`,
+		`# Consistency trace for ${result.packName}:${result.recipeId}`,
 		``,
 		`Intent: ${result.intent}`,
 		`Runs: ${result.n}`,
@@ -294,7 +293,7 @@ export function renderConsistencyTraceForTest(result: ConsistencyResult): void {
 	]
 	for (const r of result.perRun) {
 		lines.push(`## Run ${r.runIndex} (${r.durationMs}ms, apply exit ${r.applyExitCode})`)
-		lines.push(`- Plan actions: ${JSON.stringify(r.planActions)}`)
+		lines.push(`- Plan recipes: ${JSON.stringify(r.planRecipes)}`)
 		lines.push(`- Plan params:  ${JSON.stringify(r.planParams)}`)
 		lines.push(`- Files (${r.files.length}):`)
 		for (const f of r.files) {

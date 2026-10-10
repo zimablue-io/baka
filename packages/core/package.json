@@ -2,7 +2,7 @@
 	"name": "@baka/core",
 	"version": "0.1.0",
 	"license": "MIT",
-	"description": "Embeddable Baka engine: run declared module actions deterministically, with an injected LLM provider for named slots only. No CLI, no process-global config.",
+	"description": "Embeddable Baka engine: run declared pack recipes deterministically, with an injected LLM provider for named slots only. No CLI, no process-global config.",
 	"private": true,
 	"type": "module",
 	"main": "./dist/index.js",

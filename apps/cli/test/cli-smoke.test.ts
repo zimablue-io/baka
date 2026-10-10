@@ -13,9 +13,9 @@
 //   VAL-CLI-002  --version matches the package.json version field
 //   VAL-CLI-003  --help advertises --cwd
 //   VAL-CLI-004  init --help exits 0 without writing the user config file
-//   VAL-CLI-015  list-modules (no flag) prints the human listing
-//   VAL-CLI-016  list-modules --json emits the documented shape (3 modules)
-//   VAL-CLI-017  list-modules --json is cwd-scoped (3 modules in BAKA_REPO)
+//   VAL-CLI-015  list-packs (no flag) prints the human listing
+//   VAL-CLI-016  list-packs --json emits the documented shape (3 packs)
+//   VAL-CLI-017  list-packs --json is cwd-scoped (3 packs in BAKA_REPO)
 //   VAL-CLI-018  --cwd <nonexistent> exits 1 with a clear message
 //   VAL-CLI-031  install <bad-source> with unreachable registry exits 2 naming the registry
 //   VAL-CLI-034  list-packages empty case prints the user hint, exits 0
@@ -196,7 +196,7 @@ afterEach(() => {
 })
 
 // EMPTY_CWD is a constant-path tmp dir created in beforeAll so it can be
-// passed as `cwd:` to a spawned CLI without the CLI discovering modules.
+// passed as `cwd:` to a spawned CLI without the CLI discovering packs.
 // Remove it after the suite so a single suite run leaves zero tmp dirs
 // behind.
 afterAll(() => {
@@ -216,7 +216,7 @@ describe("VAL-CLI-001 baka --help", () => {
 		expect(code, `expected exit 0, got ${code}; stderr=${stderr}`).toBe(0)
 		expect(stderr).toBe("")
 		expect(stdout).toContain("Usage: baka")
-		for (const cmd of ["init", "list-modules", "plan", "apply", "validate", "marketplace", "search", "Commands:"]) {
+		for (const cmd of ["init", "list-packs", "plan", "apply", "validate", "marketplace", "search", "Commands:"]) {
 			expect(stdout, `expected stdout to mention "${cmd}"`).toContain(cmd)
 		}
 	})
@@ -290,7 +290,7 @@ describe("VAL-ROLE-005 baka --help does not mention `providers` or `config` subc
 	})
 })
 
-describe("list-modules against a project with fixture modules", () => {
+describe("list-packs against a project with fixture packs", () => {
 	function isolatedEnv(home: string) {
 		return { HOME: home, XDG_CONFIG_HOME: home, XDG_DATA_HOME: home }
 	}
@@ -300,42 +300,42 @@ describe("list-modules against a project with fixture modules", () => {
 		const project = trackDir(makeEmptyDir("baka-cli015-proj-"))
 		copyPlatformFixtures(project)
 		const { code, stdout, stderr } = await spawnCli({
-			argv: ["list-modules"],
+			argv: ["list-packs"],
 			cwd: project,
 			env: isolatedEnv(home),
 		})
 		expect(code, stderr).toBe(0)
-		expect(stdout).toMatch(/Found 2 module\(s\):/)
+		expect(stdout).toMatch(/Found 2 pack\(s\):/)
 		expect(stdout).toContain("honest-mod")
 		expect(stdout).toContain("slot-mod")
 	})
 
-	it("emits {modules, diagnostics} with name, version, description, actions, uri", async () => {
+	it("emits {packs, diagnostics} with name, version, description, recipes, uri", async () => {
 		const home = trackDir(makeEmptyDir("baka-cli016-home-"))
 		const project = trackDir(makeEmptyDir("baka-cli016-proj-"))
 		copyPlatformFixtures(project)
 		const { code, stdout, stderr } = await spawnCli({
-			argv: ["list-modules", "--json"],
+			argv: ["list-packs", "--json"],
 			cwd: project,
 			env: isolatedEnv(home),
 		})
 		expect(code, stderr).toBe(0)
 		const parsed = JSON.parse(stdout) as {
-			modules: Array<{
+			packs: Array<{
 				name: string
 				version: string
 				description: string
-				actions: Array<{ id: string; params: unknown[]; paramsSchema: { type: string; additionalProperties: boolean } }>
+				recipes: Array<{ id: string; params: unknown[]; paramsSchema: { type: string; additionalProperties: boolean } }>
 			}>
 			resultSchema: { properties: Record<string, unknown> }
 			diagnostics: unknown[]
 		}
-		expect(parsed.modules).toHaveLength(2)
+		expect(parsed.packs).toHaveLength(2)
 		expect(parsed.diagnostics).toEqual([])
-		for (const m of parsed.modules) {
-			expect(m.actions).toHaveLength(1)
-			// Every action carries its params as a JSON Schema generated from the manifest.
-			expect(m.actions[0]?.paramsSchema).toMatchObject({ type: "object", additionalProperties: false })
+		for (const m of parsed.packs) {
+			expect(m.recipes).toHaveLength(1)
+			// Every recipe carries its params as a JSON Schema generated from the manifest.
+			expect(m.recipes[0]?.paramsSchema).toMatchObject({ type: "object", additionalProperties: false })
 		}
 		expect(parsed.resultSchema.properties).toHaveProperty("outputTreeHash")
 	})
@@ -343,26 +343,26 @@ describe("list-modules against a project with fixture modules", () => {
 	it("is cwd-scoped: repo checkout is empty, fixture project is not, empty dir is not", async () => {
 		const home = trackDir(makeEmptyDir("baka-cli017-home-"))
 		const env = isolatedEnv(home)
-		const repoProbe = await spawnCli({ argv: ["list-modules", "--json"], env })
+		const repoProbe = await spawnCli({ argv: ["list-packs", "--json"], env })
 		expect(repoProbe.code, repoProbe.stderr).toBe(0)
-		expect(JSON.parse(repoProbe.stdout).modules).toEqual([])
+		expect(JSON.parse(repoProbe.stdout).packs).toEqual([])
 
 		const project = trackDir(makeEmptyDir("baka-cli017-proj-"))
 		copyPlatformFixtures(project)
-		const fxProbe = await spawnCli({ argv: ["list-modules", "--json"], cwd: project, env })
-		expect(JSON.parse(fxProbe.stdout).modules).toHaveLength(2)
+		const fxProbe = await spawnCli({ argv: ["list-packs", "--json"], cwd: project, env })
+		expect(JSON.parse(fxProbe.stdout).packs).toHaveLength(2)
 
-		const emptyProbe = await spawnCli({ argv: ["list-modules", "--json"], cwd: EMPTY_CWD, env })
+		const emptyProbe = await spawnCli({ argv: ["list-packs", "--json"], cwd: EMPTY_CWD, env })
 		expect(emptyProbe.code, emptyProbe.stderr).toBe(0)
 		const emptyParsed = JSON.parse(emptyProbe.stdout) as {
-			modules: unknown[]
+			packs: unknown[]
 			diagnostics: Array<{ rule: string }>
 		}
-		expect(emptyParsed.modules).toEqual([])
-		expect(emptyParsed.diagnostics[0]?.rule).toBe("no-modules")
+		expect(emptyParsed.packs).toEqual([])
+		expect(emptyParsed.diagnostics[0]?.rule).toBe("no-packs")
 
-		const cwdFlagProbe = await spawnCli({ argv: ["--cwd", EMPTY_CWD, "list-modules", "--json"], env })
-		expect(JSON.parse(cwdFlagProbe.stdout).modules).toEqual([])
+		const cwdFlagProbe = await spawnCli({ argv: ["--cwd", EMPTY_CWD, "list-packs", "--json"], env })
+		expect(JSON.parse(cwdFlagProbe.stdout).packs).toEqual([])
 	})
 })
 
@@ -374,7 +374,7 @@ describe("VAL-CLI-018 baka --cwd <nonexistent>", () => {
 	it("exits 1 and names the missing path on stderr (no Node stack frames)", async () => {
 		const missingPath = "/no/such/path/for/baka/cli/smoke"
 		const { code, stdout, stderr } = await spawnCli({
-			argv: ["--cwd", missingPath, "list-modules"],
+			argv: ["--cwd", missingPath, "list-packs"],
 		})
 		expect(code, `unexpected code; stderr=${stderr}`).toBe(1)
 		expect(stderr).toContain("cwd does not exist")
@@ -470,44 +470,44 @@ describe("VAL-CLI-040 exit code categories", () => {
 		expect(code, `unexpected code; stderr=${stderr}`).toBe(2)
 	})
 
-	it("validation error -> 4 (baka module validate reports structural defects)", async () => {
-		// The `baka module validate <name>` structural check fails (exits 4)
-		// when a module declares an action without an `action.ts` file.
-		// Build a scratch module with a missing action.ts and validate it.
+	it("validation error -> 4 (baka pack validate reports structural defects)", async () => {
+		// The `baka pack validate <name>` structural check fails (exits 4)
+		// when a pack declares a recipe without a `recipe.ts` file.
+		// Build a scratch pack with a missing recipe.ts and validate it.
 		const scratch = trackDir(makeEmptyDir("baka-cli-smoke-validation-"))
-		const moduleDir = join(scratch, "modules", "broken-mod")
-		mkdirSync(join(moduleDir, "missing-action"), { recursive: true })
+		const packDir = join(scratch, "packs", "broken-mod")
+		mkdirSync(join(packDir, "missing-recipe"), { recursive: true })
 		writeFileSync(
-			join(moduleDir, "manifest.ts"),
+			join(packDir, "manifest.ts"),
 			`export const Manifest = {
   name: "broken-mod",
   version: "0.1.0",
-  description: "deliberately broken module for the validation-error smoke test",
+  description: "deliberately broken pack for the validation-error smoke test",
   dependencies: [],
   conflictsWith: [],
-  actions: [
+  recipes: [
     {
-      id: "missing-action",
-      description: "declared action whose action.ts is intentionally absent",
+      id: "missing-recipe",
+      description: "declared recipe whose recipe.ts is intentionally absent",
       requiresReasoning: false,
       filePatterns: [],
       validators: [],
       params: [],
     },
   ],
-  moduleValidators: [],
+  packValidators: [],
 }
 `,
 			"utf-8",
 		)
 
 		const { code, stdout, stderr } = await spawnCli({
-			argv: ["module", "validate", "broken-mod"],
+			argv: ["pack", "validate", "broken-mod"],
 			cwd: scratch,
 		})
 		expect(code, `unexpected code; stdout=${stdout}; stderr=${stderr}`).toBe(4)
-		// The validation output should mention the missing action.
-		expect(stdout).toContain("missing-action")
+		// The validation output should mention the missing recipe.
+		expect(stdout).toContain("missing-recipe")
 	})
 })
 
@@ -622,7 +622,7 @@ describe("VAL-ROLE-004 baka role nonexistent", () => {
 
 // ---------------------------------------------------------------------------
 // VAL-CLI-038  Dist artifact is a single ESM file that boots without tsx
-// VAL-CLI-039  Dist does not leak dev-only modules
+// VAL-CLI-039  Dist does not leak dev-only packs
 // ---------------------------------------------------------------------------
 
 describe("VAL-CLI-038/039 dist artifact sanity", () => {
@@ -666,11 +666,11 @@ describe("VAL-CLI-038/039 dist artifact sanity", () => {
 		expect(stdout).toContain("Usage: baka")
 	})
 
-	it("neither dist file references a dev-only module (tsx, vitest, nodemon, playwright)", () => {
+	it("neither dist file references a dev-only pack (tsx, vitest, nodemon, playwright)", () => {
 		const devOnlyPattern = /(?:require|from)\s*['"](?:tsx|vitest|nodemon|playwright)/
 		for (const file of [DIST_INDEX, MCP_DIST_INDEX]) {
 			const src = readFileSync(file, "utf-8")
-			expect(devOnlyPattern.test(src), `${file} references a dev-only module`).toBe(false)
+			expect(devOnlyPattern.test(src), `${file} references a dev-only pack`).toBe(false)
 		}
 	})
 })

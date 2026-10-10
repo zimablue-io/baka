@@ -11,7 +11,7 @@ import pg from "pg"
  * node-pg and the in-process PGlite (verified: `maxConnections=10`,
  * poll-based pickup, no shared LISTEN/NOTIFY across the socket).
  *
- * This module is the only place `pg.Pool` is constructed at runtime in
+ * This pack is the only place `pg.Pool` is constructed at runtime in
  * the registry server. Every auth-side query that Better-Auth issues goes
  * through here. The app-side queries (Drizzle + the in-process PGlite)
  * continue to flow through `db/client.ts`; the two paths coexist against

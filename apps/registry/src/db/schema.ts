@@ -6,7 +6,7 @@ import { bigint, index, integer, jsonb, pgTable, text, timestamp, unique, uuid, 
  * This is the TypeScript view of the SQL migration in
  * `./migrations/0002_app_schema.sql`. The SQL is the source of truth for
  * the on-disk shape; this file is the Drizzle ORM binding so app code can
- * write `db.insert(modules).values(...)` instead of hand-rolled SQL. Both
+ * write `db.insert(packs).values(...)` instead of hand-rolled SQL. Both
  * MUST stay in lockstep — the migration runner applies the SQL and Drizzle
  * types/relations describe the resulting schema.
  *
@@ -17,11 +17,11 @@ import { bigint, index, integer, jsonb, pgTable, text, timestamp, unique, uuid, 
  */
 
 // ---------------------------------------------------------------------------
-// modules
+// packs
 // ---------------------------------------------------------------------------
 
-export const modules = pgTable(
-	"modules",
+export const packs = pgTable(
+	"packs",
 	{
 		id: uuid("id").primaryKey().defaultRandom(),
 		scope: varchar("scope", { length: 64 }).notNull(),
@@ -39,21 +39,21 @@ export const modules = pgTable(
 		removedAt: timestamp("removed_at", { withTimezone: true }),
 	},
 	(t) => ({
-		scopeNameUniq: unique("modules_scope_name_uniq").on(t.scope, t.name),
+		scopeNameUniq: unique("packs_scope_name_uniq").on(t.scope, t.name),
 	}),
 )
 
 // ---------------------------------------------------------------------------
-// module_versions
+// pack_versions
 // ---------------------------------------------------------------------------
 
-const moduleVersions = pgTable(
-	"module_versions",
+const packVersions = pgTable(
+	"pack_versions",
 	{
 		id: uuid("id").primaryKey().defaultRandom(),
-		moduleId: uuid("module_id")
+		packId: uuid("pack_id")
 			.notNull()
-			.references(() => modules.id, { onDelete: "cascade" }),
+			.references(() => packs.id, { onDelete: "cascade" }),
 		version: varchar("version", { length: 64 }).notNull(),
 		commitSha: varchar("commit_sha", { length: 64 }).notNull(),
 		contentHash: varchar("content_hash", { length: 64 }).notNull(),
@@ -64,8 +64,8 @@ const moduleVersions = pgTable(
 		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 	},
 	(t) => ({
-		moduleVersionUniq: unique("module_versions_module_id_version_uniq").on(t.moduleId, t.version),
-		contentHashIdx: index("module_versions_content_hash_idx").on(t.contentHash),
+		packVersionUniq: unique("pack_versions_pack_id_version_uniq").on(t.packId, t.version),
+		contentHashIdx: index("pack_versions_content_hash_idx").on(t.contentHash),
 	}),
 )
 
@@ -79,7 +79,7 @@ const artifacts = pgTable(
 		id: uuid("id").primaryKey().defaultRandom(),
 		versionId: uuid("version_id")
 			.notNull()
-			.references(() => moduleVersions.id, { onDelete: "cascade" }),
+			.references(() => packVersions.id, { onDelete: "cascade" }),
 		kind: varchar("kind", { length: 32 }).notNull(),
 		path: text("path").notNull(),
 		size: bigint("size", { mode: "number" }).notNull(),
@@ -101,7 +101,7 @@ const screeningResults = pgTable(
 		id: uuid("id").primaryKey().defaultRandom(),
 		versionId: uuid("version_id")
 			.notNull()
-			.references(() => moduleVersions.id, { onDelete: "cascade" }),
+			.references(() => packVersions.id, { onDelete: "cascade" }),
 		verdict: varchar("verdict", { length: 32 }).notNull(),
 		staticScan: jsonb("static_scan"),
 		dryRun: jsonb("dry_run"),
@@ -119,7 +119,7 @@ const screeningResults = pgTable(
 
 const planLimits = pgTable("plan_limits", {
 	plan: varchar("plan", { length: 32 }).primaryKey(),
-	maxPrivateModules: integer("max_private_modules").notNull(),
+	maxPrivatePacks: integer("max_private_packs").notNull(),
 	maxMembers: integer("max_members").notNull(),
 	maxRegistries: integer("max_registries").notNull(),
 })
@@ -128,11 +128,11 @@ const planLimits = pgTable("plan_limits", {
 // screening_previews (architecture §4.6 layer 2, dry-run)
 // ---------------------------------------------------------------------------
 //
-// One row per (version_id, action_id). Carries the per-action outcome
+// One row per (version_id, recipe_id). Carries the per-recipe outcome
 // of the sandboxed dry-run (rendered / needs-llm / failed / timed-out),
 // the preview file metadata (when state='rendered'), and the surface
 // error string (when state='failed' / 'timed-out'). UPSERT semantics
-// on (version_id, action_id) so a re-run overwrites the previous row
+// on (version_id, recipe_id) so a re-run overwrites the previous row
 // cleanly; the storage adapter is the source of truth for the preview
 // file bytes (this row stores the key, not the bytes).
 
@@ -142,8 +142,8 @@ const screeningPreviews = pgTable(
 		id: uuid("id").primaryKey().defaultRandom(),
 		versionId: uuid("version_id")
 			.notNull()
-			.references(() => moduleVersions.id, { onDelete: "cascade" }),
-		actionId: varchar("action_id", { length: 64 }).notNull(),
+			.references(() => packVersions.id, { onDelete: "cascade" }),
+		recipeId: varchar("recipe_id", { length: 64 }).notNull(),
 		state: varchar("state", { length: 16 }).notNull(),
 		files: jsonb("files"),
 		error: text("error"),
@@ -151,7 +151,7 @@ const screeningPreviews = pgTable(
 		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	},
 	(t) => ({
-		versionActionUniq: unique("screening_previews_version_action_uniq").on(t.versionId, t.actionId),
+		versionRecipeUniq: unique("screening_previews_version_recipe_uniq").on(t.versionId, t.recipeId),
 	}),
 )
 
@@ -170,8 +170,8 @@ const appMigrations = pgTable("app_migrations", {
 })
 
 export const schema = {
-	modules,
-	moduleVersions,
+	packs,
+	packVersions,
 	artifacts,
 	screeningResults,
 	screeningPreviews,

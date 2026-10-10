@@ -1,19 +1,19 @@
 import type { z } from "zod"
-import type { ACTION_ERROR_CODES } from "./constants"
+import type { RECIPE_ERROR_CODES } from "./constants"
 import type {
-	ActionCompensationSchema,
-	ActionResultSchema,
 	BakaLockSchema,
 	ChangeOpSchema,
 	ChangesetEntrySchema,
-	ModuleActionParam,
-	ModuleActionSchema,
-	ModuleManifestSchema,
-	ModulePinSchema,
 	OnExistingSchema,
 	OrchestrationStateSchema,
+	PackManifestSchema,
+	PackPinSchema,
+	PackRecipeParam,
+	PackRecipeSchema,
 	ParamFormat,
 	ParamTypeNode,
+	RecipeCompensationSchema,
+	RecipeResultSchema,
 	ResolvedPlanSchema,
 	SlotDeclSchema,
 	SlotModeSchema,
@@ -26,23 +26,23 @@ import type {
 // Inferred schemas (re-exported as types for ergonomic consumption)
 // ---------------------------------------------------------------------------
 
-export type ModuleAction = z.infer<typeof ModuleActionSchema>
-export type ModuleManifest = z.infer<typeof ModuleManifestSchema>
+export type PackRecipe = z.infer<typeof PackRecipeSchema>
+export type PackManifest = z.infer<typeof PackManifestSchema>
 export type OrchestrationState = z.infer<typeof OrchestrationStateSchema>
 export type ResolvedPlan = z.infer<typeof ResolvedPlanSchema>
 export type SlotDecl = z.infer<typeof SlotDeclSchema>
-export type { ModuleActionParam, ParamFormat, ParamTypeNode }
-export type ActionErrorCode = (typeof ACTION_ERROR_CODES)[number]
+export type { PackRecipeParam, ParamFormat, ParamTypeNode }
+export type RecipeErrorCode = (typeof RECIPE_ERROR_CODES)[number]
 export type ChangeOp = z.infer<typeof ChangeOpSchema>
 export type ChangesetEntry = z.infer<typeof ChangesetEntrySchema>
 export type SlotRecord = z.infer<typeof SlotRecordSchema>
 export type OnExisting = z.infer<typeof OnExistingSchema>
-export type ModulePin = z.infer<typeof ModulePinSchema>
+export type PackPin = z.infer<typeof PackPinSchema>
 export type BakaLock = z.infer<typeof BakaLockSchema>
 export type SlotMode = z.infer<typeof SlotModeSchema>
 export type SlotsInput = z.infer<typeof SlotsInputSchema>
-export type ActionCompensation = z.infer<typeof ActionCompensationSchema>
-export type ActionResult = z.infer<typeof ActionResultSchema>
+export type RecipeCompensation = z.infer<typeof RecipeCompensationSchema>
+export type RecipeResult = z.infer<typeof RecipeResultSchema>
 export type ValidatorRun = z.infer<typeof ValidatorRunSchema>
 
 // ---------------------------------------------------------------------------
@@ -64,7 +64,7 @@ export interface StepResponse<TOutput, TCompensationData> {
 
 export interface StepContext {
 	// The LLM provider the Worker can use to fill handlebars templates for
-	// actions that declare `requiresReasoning: true`. May be null in dry-runs
+	// recipes that declare `requiresReasoning: true`. May be null in dry-runs
 	// and tests; the Worker must throw if it tries to use a null provider.
 	llmProvider: LLMProvider | null
 }
@@ -81,11 +81,11 @@ export interface WorkflowStep<TInput, TOutput, TCompensationData> {
 }
 
 // ---------------------------------------------------------------------------
-// The `action.ts` contract
+// The `recipe.ts` contract
 // ---------------------------------------------------------------------------
 
-/** How a write through `ActionFiles` ended. `skip` and `unchanged` wrote nothing. */
-export interface ActionFileWrite {
+/** How a write through `RecipeFiles` ended. `skip` and `unchanged` wrote nothing. */
+export interface RecipeFileWrite {
 	/** The normalized project-relative path. */
 	path: string
 	op: "create" | "update" | "unchanged" | "skip"
@@ -93,7 +93,7 @@ export interface ActionFileWrite {
 	contentHash: string
 }
 
-export interface ActionWriteOptions {
+export interface RecipeWriteOptions {
 	/** Overrides the run's `onExisting` for this one file. */
 	onExisting?: OnExisting
 	/**
@@ -105,9 +105,9 @@ export interface ActionWriteOptions {
 }
 
 /**
- * The file API Baka hands to an `action.ts`. Every path is project-relative
+ * The file API Baka hands to a `recipe.ts`. Every path is project-relative
  * and POSIX (`packages/ui/package.json`) and is checked for containment
- * (see docs/MODULES.md, "Path containment"): an absolute path, a `..`
+ * (see docs/PACKS.md, "Path containment"): an absolute path, a `..`
  * segment, a path through `.git` or the root's `.baka/`, or one that
  * resolves outside the root through a symlink throws and writes nothing.
  *
@@ -116,7 +116,7 @@ export interface ActionWriteOptions {
  * rerun hashes the same), and are undone by the engine if the run fails. In
  * a dry run they go to a virtual tree: reads see them, the disk does not.
  */
-export interface ActionFiles {
+export interface RecipeFiles {
 	exists(path: string): boolean
 	/** The file's text (UTF-8). Throws if it does not exist. */
 	readText(path: string): string
@@ -126,11 +126,11 @@ export interface ActionFiles {
 	 * `overwrite` rewrites them (`update`), `fail` throws `target-exists`.
 	 * Identical bytes are always `unchanged`.
 	 */
-	write(path: string, content: string | Uint8Array, options?: ActionWriteOptions): ActionFileWrite
+	write(path: string, content: string | Uint8Array, options?: RecipeWriteOptions): RecipeFileWrite
 	/** Delete a file. Returns whether it existed. The old bytes are kept so the engine can restore them. */
 	remove(path: string): boolean
 	/**
-	 * Declare files this action produces by other means (a spawned tool, a
+	 * Declare files this recipe produces by other means (a spawned tool, a
 	 * direct `node:fs` write) so the receipt lists them even when they did not
 	 * change: `unchanged` on a rerun, which keeps `outputTreeHash` stable.
 	 */
@@ -138,47 +138,47 @@ export interface ActionFiles {
 }
 
 /**
- * What `execute` and `compensate` of an `action.ts` receive as their third
- * argument. Everything a side-effect action needs to honour reruns and dry
- * runs is here; see docs/MODULES.md, "The `action.ts` contract".
+ * What `execute` and `compensate` of a `recipe.ts` receive as their third
+ * argument. Everything a side-effect recipe needs to honour reruns and dry
+ * runs is here; see docs/PACKS.md, "The `recipe.ts` contract".
  */
-export interface ActionContext extends StepContext {
-	/** The module this action belongs to; `root` is its directory (read-only: never write into it). */
-	readonly module: { readonly name: string; readonly version: string; readonly root: string }
-	/** The project root actions write into (also `state.targetDirectory`). */
+export interface RecipeContext extends StepContext {
+	/** The pack this recipe belongs to; `root` is its directory (read-only: never write into it). */
+	readonly pack: { readonly name: string; readonly version: string; readonly root: string }
+	/** The project root recipes write into (also `state.targetDirectory`). */
 	readonly projectRoot: string
-	/** The run's `onExisting` policy. The default for `files.write`; an action that writes files by other means should honour it too. */
+	/** The run's `onExisting` policy. The default for `files.write`; a recipe that writes files by other means should honour it too. */
 	readonly onExisting: OnExisting
 	/**
-	 * True in a dry run. An action may only run in one if its manifest sets
+	 * True in a dry run. A recipe may only run in one if its manifest sets
 	 * `supportsDryRun`; it must then write only through `files` and must not
 	 * spawn processes or touch anything else (Baka verifies the tree is unchanged afterwards).
 	 */
 	readonly dryRun: boolean
-	readonly files: ActionFiles
+	readonly files: RecipeFiles
 	/**
-	 * The module's `data/*.json` files, read-only: `data/versions.json` is
-	 * `ctx.data.versions`. Empty when the module ships none.
+	 * The pack's `data/*.json` files, read-only: `data/versions.json` is
+	 * `ctx.data.versions`. Empty when the pack ships none.
 	 */
 	readonly data: Readonly<Record<string, unknown>>
 }
 
 /**
- * The shape of an `action.ts` export: `execute` does the work and returns a
+ * The shape of a `recipe.ts` export: `execute` does the work and returns a
  * `StepResponse`; `compensate` undoes whatever `execute` did by means the
  * engine cannot see (the files written through `ctx.files` and by templates
  * are undone by the engine itself). Unlike a `WorkflowStep` it has no
- * `role`, so a module needs no runtime import from `baka-sdk` at all: use
+ * `role`, so a pack needs no runtime import from `baka-sdk` at all: use
  * `import type`.
  */
-export interface ActionStep<TInput, TOutput, TCompensationData> {
+export interface RecipeStep<TInput, TOutput, TCompensationData> {
 	name?: string
 	execute: (
 		input: TInput,
 		state: OrchestrationState,
-		ctx: ActionContext,
+		ctx: RecipeContext,
 	) => Promise<StepResponse<TOutput, TCompensationData>>
-	compensate: (data: TCompensationData, state: OrchestrationState, ctx: ActionContext) => Promise<void>
+	compensate: (data: TCompensationData, state: OrchestrationState, ctx: RecipeContext) => Promise<void>
 }
 
 // ---------------------------------------------------------------------------
@@ -252,15 +252,15 @@ export interface ResolvedLLMConfig {
 
 export type ValidationDiagnostic = {
 	severity: "error" | "warning"
-	/** The validator's own rule id; for a failed run, an ActionErrorCode. */
+	/** The validator's own rule id; for a failed run, an RecipeErrorCode. */
 	rule: string
 	message: string
 	file?: string
 	hint?: string
-	/** `<module>:<id>` (module-level) or `<module>.<action>:<id>` (action-level) of the validator that produced it. */
+	/** `<pack>:<id>` (pack-level) or `<pack>.<recipe>:<id>` (recipe-level) of the validator that produced it. */
 	validator?: string
-	/** The module a discovery (structural) diagnostic is about. */
-	module?: string
+	/** The pack a discovery (structural) diagnostic is about. */
+	pack?: string
 }
 
 /** `kind` is `fail` when any diagnostic is an error. Warnings are reported whichever it is. */

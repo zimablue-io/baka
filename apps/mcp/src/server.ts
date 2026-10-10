@@ -15,26 +15,26 @@ import {
 import { OnExistingSchema, SlotsInputSchema as RunSlotsInputSchema } from "@repo/protocol"
 import { z } from "zod"
 import { createContext, type ServerContext } from "./context.js"
-import { DESIGN_MODULE_DESCRIPTION, DESIGN_MODULE_PROMPT_NAME, designModuleMessages } from "./prompts/design-module.js"
+import { DESIGN_PACK_DESCRIPTION, DESIGN_PACK_PROMPT_NAME, designPackMessages } from "./prompts/design-pack.js"
 import {
-	listModulesResource,
-	MODULE_MANIFEST_TEMPLATE_METADATA,
-	MODULE_MANIFEST_URI_TEMPLATE_STRING,
-	MODULES_RESOURCE_URI,
-	readModuleManifestResource,
-	readModulesResource,
-} from "./resources/modules.js"
+	listPacksResource,
+	PACK_MANIFEST_TEMPLATE_METADATA,
+	PACK_MANIFEST_URI_TEMPLATE_STRING,
+	PACKS_RESOURCE_URI,
+	readPackManifestResource,
+	readPacksResource,
+} from "./resources/packs.js"
 import {
 	ApplyInputSchema,
-	DesignModuleArgsShape,
-	ListActionsInputSchema,
+	DesignPackArgsShape,
+	ListRecipesInputSchema,
 	PlanInputSchema,
-	RegistryGetModuleInputSchema,
+	RegistryGetPackInputSchema,
 	RegistryGetPreviewInputSchema,
 	RegistrySearchInputSchema,
 	ValidateInputSchema,
 } from "./schemas.js"
-import { runRegistryGetModule, runRegistryGetPreview, runRegistrySearch } from "./tools/registry.js"
+import { runRegistryGetPack, runRegistryGetPreview, runRegistrySearch } from "./tools/registry.js"
 import { runApply, runPlan } from "./tools/workflow.js"
 
 const SERVER_NAME = "baka-mcp"
@@ -213,7 +213,7 @@ function registerWorkflowTools(server: McpServer, ctx: ServerContext): void {
 		"baka_plan",
 		{
 			description:
-				"Plan a feature intent into a Zod-validated sequence of {module, action, params} steps. This tool does not modify the project tree; it only returns the resolved plan. To execute the plan, persist it with save:true and then call baka_apply, or call baka_<module>_<action> tools directly.",
+				"Plan a feature intent into a Zod-validated sequence of {pack, recipe, params} steps. This tool does not modify the project tree; it only returns the resolved plan. To execute the plan, persist it with save:true and then call baka_apply, or call baka_<pack>_<recipe> tools directly.",
 			inputSchema: PlanInputSchema.shape,
 		},
 		async (raw) => {
@@ -230,7 +230,7 @@ function registerWorkflowTools(server: McpServer, ctx: ServerContext): void {
 		"baka_apply",
 		{
 			description:
-				"Apply a saved plan file. Loads the plan, runs the SAGA with SAGA compensation, and runs all module validators. Returns the per-step status, failure (if any), and validator diagnostics.",
+				"Apply a saved plan file. Loads the plan, runs the SAGA with SAGA compensation, and runs all pack validators. Returns the per-step status, failure (if any), and validator diagnostics.",
 			inputSchema: ApplyInputSchema.shape,
 		},
 		async (raw) => {
@@ -244,14 +244,14 @@ function registerWorkflowTools(server: McpServer, ctx: ServerContext): void {
 		"baka_validate",
 		{
 			description:
-				'Run all module validators (structural + module-level + action-level) against the current project tree. Returns { valid, modulesDiscovered, validation } with structured diagnostics. A failing validation (validation.kind === "fail") carries valid: false and the tool result is marked isError: true, so agent clients can branch on the failure without parsing free text.',
+				'Run all pack validators (structural + pack-level + recipe-level) against the current project tree. Returns { valid, packsDiscovered, validation } with structured diagnostics. A failing validation (validation.kind === "fail") carries valid: false and the tool result is marked isError: true, so agent clients can branch on the failure without parsing free text.',
 			inputSchema: ValidateInputSchema.shape,
 		},
 		async () => {
 			const { status, json } = await engineRequest(ctx.cwd, "/v1/validate", {
 				method: "POST",
 				body: {},
-				moduleDirs: ctx.moduleDirs,
+				packDirs: ctx.packDirs,
 			})
 			const result = json as { valid?: boolean; error?: string }
 			if (status >= 400) {
@@ -262,21 +262,21 @@ function registerWorkflowTools(server: McpServer, ctx: ServerContext): void {
 	)
 
 	server.registerTool(
-		"baka_list_actions",
+		"baka_list_recipes",
 		{
 			description:
-				"List the actions declared by a module, including each action's params, validators, and compensation pointer. The finite, declared action space baka constrains the LLM to is exactly this list.",
-			inputSchema: ListActionsInputSchema.shape,
+				"List the recipes declared by a pack, including each recipe's params, validators, and compensation pointer. The finite, declared set of recipes baka constrains the LLM to is exactly this list.",
+			inputSchema: ListRecipesInputSchema.shape,
 		},
 		async (raw) => {
-			const input = ListActionsInputSchema.parse(raw)
-			const { status, json } = await engineRequest(ctx.cwd, "/v1/modules", { moduleDirs: ctx.moduleDirs })
+			const input = ListRecipesInputSchema.parse(raw)
+			const { status, json } = await engineRequest(ctx.cwd, "/v1/packs", { packDirs: ctx.packDirs })
 			const body = json as {
-				modules?: Array<{
+				packs?: Array<{
 					name: string
 					version: string
 					description: string
-					actions: Array<{
+					recipes: Array<{
 						id: string
 						description: string
 						requiresReasoning: boolean
@@ -292,18 +292,18 @@ function registerWorkflowTools(server: McpServer, ctx: ServerContext): void {
 				}>
 			}
 			if (status >= 400) {
-				throw new Error("failed to list modules")
+				throw new Error("failed to list packs")
 			}
-			const m = (body.modules ?? []).find((x) => x.name === input.module)
+			const m = (body.packs ?? []).find((x) => x.name === input.pack)
 			if (!m) {
-				const known = (body.modules ?? []).map((x) => x.name).join(", ")
-				throw new Error(`module "${input.module}" not found. Discovered modules: ${known || "(none)"}`)
+				const known = (body.packs ?? []).map((x) => x.name).join(", ")
+				throw new Error(`pack "${input.pack}" not found. Discovered packs: ${known || "(none)"}`)
 			}
 			return jsonResult({
-				module: m.name,
+				pack: m.name,
 				version: m.version,
 				description: m.description,
-				actions: m.actions,
+				recipes: m.recipes,
 			})
 		},
 	)
@@ -314,9 +314,9 @@ function registerWorkflowTools(server: McpServer, ctx: ServerContext): void {
 // ---------------------------------------------------------------------------
 
 const RunInputSchema = z.object({
-	module: z.string().min(1).describe("Module name"),
-	action: z.string().min(1).describe("Action id"),
-	params: z.record(z.unknown()).optional().describe("Action params"),
+	pack: z.string().min(1).describe("Pack name"),
+	recipe: z.string().min(1).describe("Recipe id"),
+	params: z.record(z.unknown()).optional().describe("Recipe params"),
 	slots: RunSlotsInputSchema.optional().describe(
 		"Slot mode: live (cache, then model; default), record (always ask the model), or replay (only the supplied records; a missing slot is an error and no model call is made)",
 	),
@@ -325,20 +325,20 @@ const RunInputSchema = z.object({
 	),
 	dryRun: z.boolean().optional().describe("Compute the changeset and output tree hash without writing anything"),
 	includeContent: z.boolean().optional().describe("Attach each written file's text to its changeset entry"),
-	format: z.boolean().optional().describe("Run the formatter the action declares over the files the run wrote"),
+	format: z.boolean().optional().describe("Run the formatter the recipe declares over the files the run wrote"),
 })
 
 const SlotsInputSchema = z.object({
-	module: z.string().min(1).describe("Module name"),
-	action: z.string().min(1).describe("Action id"),
+	pack: z.string().min(1).describe("Pack name"),
+	recipe: z.string().min(1).describe("Recipe id"),
 })
 
 const FillInputSchema = z.object({
-	module: z.string().min(1).describe("Module name"),
-	action: z.string().min(1).describe("Action id"),
+	pack: z.string().min(1).describe("Pack name"),
+	recipe: z.string().min(1).describe("Recipe id"),
 	slot: z.string().min(1).describe("Slot id"),
 	value: z.unknown().describe("Fill value"),
-	params: z.record(z.unknown()).optional().describe("Action params (must match the later run)"),
+	params: z.record(z.unknown()).optional().describe("Recipe params (must match the later run)"),
 })
 
 function registerEngineTools(server: McpServer, ctx: ServerContext): void {
@@ -346,17 +346,17 @@ function registerEngineTools(server: McpServer, ctx: ServerContext): void {
 		"baka_run",
 		{
 			description:
-				"Materialize a named module/action. Templates are the output tree; the LLM fills named slots only. Returns the receipt: ok, diagnostics, changeset (path, op, contentHash), outputTreeHash, slots, compensation. Prefer `baka run <module>/<action> --json` in a shell. Same JSON as the CLI.",
+				"Materialize a named pack/recipe. Templates are the output tree; the LLM fills named slots only. Returns the receipt: ok, diagnostics, changeset (path, op, contentHash), outputTreeHash, slots, compensation. Prefer `baka run <pack>/<recipe> --json` in a shell. Same JSON as the CLI.",
 			inputSchema: RunInputSchema.shape,
 		},
 		async (raw) => {
 			const input = RunInputSchema.parse(raw)
 			const { status, json } = await engineRequest(ctx.cwd, "/v1/run", {
-				moduleDirs: ctx.moduleDirs,
+				packDirs: ctx.packDirs,
 				method: "POST",
 				body: {
-					module: input.module,
-					action: input.action,
+					pack: input.pack,
+					recipe: input.recipe,
 					params: input.params ?? {},
 					slots: input.slots,
 					onExisting: input.onExisting,
@@ -373,15 +373,15 @@ function registerEngineTools(server: McpServer, ctx: ServerContext): void {
 	server.registerTool(
 		"baka_slots",
 		{
-			description: "List named slots for a module/action. Same JSON as `baka slots <module>/<action> --json`.",
+			description: "List named slots for a pack/recipe. Same JSON as `baka slots <pack>/<recipe> --json`.",
 			inputSchema: SlotsInputSchema.shape,
 		},
 		async (raw) => {
 			const input = SlotsInputSchema.parse(raw)
 			const { status, json } = await engineRequest(
 				ctx.cwd,
-				`/v1/slots?module=${encodeURIComponent(input.module)}&action=${encodeURIComponent(input.action)}`,
-				{ moduleDirs: ctx.moduleDirs },
+				`/v1/slots?pack=${encodeURIComponent(input.pack)}&recipe=${encodeURIComponent(input.recipe)}`,
+				{ packDirs: ctx.packDirs },
 			)
 			return { ...jsonResult(json), ...(status >= 400 ? { isError: true } : {}) }
 		},
@@ -396,11 +396,11 @@ function registerEngineTools(server: McpServer, ctx: ServerContext): void {
 		async (raw) => {
 			const input = FillInputSchema.parse(raw)
 			const { status, json } = await engineRequest(ctx.cwd, "/v1/fill", {
-				moduleDirs: ctx.moduleDirs,
+				packDirs: ctx.packDirs,
 				method: "POST",
 				body: {
-					module: input.module,
-					action: input.action,
+					pack: input.pack,
+					recipe: input.recipe,
 					slot: input.slot,
 					value: input.value,
 					params: input.params ?? {},
@@ -415,11 +415,11 @@ function registerEngineTools(server: McpServer, ctx: ServerContext): void {
 // Registry discovery tools (milestone 5 mcp-registry-tools; VAL-DISC-024
 // / 025 / 026 / 027 / 028 / 029 / 044 / 045).
 //
-// Read-only discovery surface for a baka module registry. Three tools:
-//   - baka_registry_search       -> GET /v1/modules (per-source filtered)
-//   - baka_registry_get_module  -> GET /v1/modules/<scope>/<name>
+// Read-only discovery surface for a baka pack registry. Three tools:
+//   - baka_registry_search       -> GET /v1/packs (per-source filtered)
+//   - baka_registry_get_pack  -> GET /v1/packs/<scope>/<name>
 //                                   + .../<latestVersion> (combined detail)
-//   - baka_registry_get_preview -> GET .../previews + .../previews/<actionId>
+//   - baka_registry_get_preview -> GET .../previews + .../previews/<recipeId>
 //
 // Architecture §8 decision 9: there is NO install capability over MCP.
 // Tool descriptions explicitly say so and name the CLI handoff
@@ -439,7 +439,7 @@ function registerRegistryTools(server: McpServer, ctx: ServerContext): void {
 		"baka_registry_search",
 		{
 			description:
-				"Search modules across every configured baka registry (BAKA_REGISTRY_URL env > .baka/settings.json registries list > default http://localhost:4300). Returns structured hits (scope, name, tier, visibility, description, version, registry) with per-source attribution and per-source failure warnings. Does NOT modify the project. To install a discovered module, run `baka install @<scope>/<name>` at the terminal (the MCP has no install capability, by design).",
+				"Search packs across every configured baka registry (BAKA_REGISTRY_URL env > .baka/settings.json registries list > default http://localhost:4300). Returns structured hits (scope, name, tier, visibility, description, version, registry) with per-source attribution and per-source failure warnings. Does NOT modify the project. To install a discovered pack, run `baka install @<scope>/<name>` at the terminal (the MCP has no install capability, by design).",
 			inputSchema: RegistrySearchInputSchema.shape,
 		},
 		async (raw) => {
@@ -453,15 +453,15 @@ function registerRegistryTools(server: McpServer, ctx: ServerContext): void {
 	)
 
 	server.registerTool(
-		"baka_registry_get_module",
+		"baka_registry_get_pack",
 		{
 			description:
-				"Read a module's served manifest, versions list, tier badge, and screening verdict from the baka registry (mirrors `baka registry info @<scope>/<name>`). Does NOT modify the project. Structured result: scope, name, tier, visibility, description, latestVersion, versions[], manifest, screening. An unknown module returns isError:true naming the missing module. To install: `baka install @<scope>/<name>` at the terminal.",
-			inputSchema: RegistryGetModuleInputSchema.shape,
+				"Read a pack's served manifest, versions list, tier badge, and screening verdict from the baka registry (mirrors `baka registry info @<scope>/<name>`). Does NOT modify the project. Structured result: scope, name, tier, visibility, description, latestVersion, versions[], manifest, screening. An unknown pack returns isError:true naming the missing pack. To install: `baka install @<scope>/<name>` at the terminal.",
+			inputSchema: RegistryGetPackInputSchema.shape,
 		},
 		async (raw) => {
-			const input = RegistryGetModuleInputSchema.parse(raw)
-			const result = await runRegistryGetModule(ctx.cwd, input)
+			const input = RegistryGetPackInputSchema.parse(raw)
+			const result = await runRegistryGetPack(ctx.cwd, input)
 			if (!result.ok) {
 				return { ...jsonResult(result.payload), isError: true }
 			}
@@ -473,7 +473,7 @@ function registerRegistryTools(server: McpServer, ctx: ServerContext): void {
 		"baka_registry_get_preview",
 		{
 			description:
-				"Read the generated-code preview per action for a registry module version (mirrors `baka registry preview @<scope>/<name>[@<version>]`). Non-reasoning actions return rendered file CONTENTS; reasoning actions return an explicit `needs-llm` marker (NEVER fabricated code). Does NOT modify the project. An unknown module or version returns isError:true. To install and execute: `baka install @<scope>/<name>` at the terminal.",
+				"Read the generated-code preview per recipe for a registry pack version (mirrors `baka registry preview @<scope>/<name>[@<version>]`). Non-reasoning recipes return rendered file CONTENTS; reasoning recipes return an explicit `needs-llm` marker (NEVER fabricated code). Does NOT modify the project. An unknown pack or version returns isError:true. To install and execute: `baka install @<scope>/<name>` at the terminal.",
 			inputSchema: RegistryGetPreviewInputSchema.shape,
 		},
 		async (raw) => {
@@ -492,29 +492,29 @@ function registerRegistryTools(server: McpServer, ctx: ServerContext): void {
 // ---------------------------------------------------------------------------
 
 function registerResources(server: McpServer, ctx: ServerContext): void {
-	// baka://modules — directory of all modules
+	// baka://packs — directory of all packs
 	server.registerResource(
-		"baka-modules",
-		MODULES_RESOURCE_URI,
+		"baka-packs",
+		PACKS_RESOURCE_URI,
 		{
-			description: listModulesResource(ctx).description,
+			description: listPacksResource(ctx).description,
 			mimeType: "application/json",
 		},
 		async (uri): Promise<ReadResourceResult> => {
 			void uri
-			return readModulesResource(ctx)
+			return readPacksResource(ctx)
 		},
 	)
 
-	// baka://module/{name}/manifest — full manifest for one module
+	// baka://pack/{name}/manifest — full manifest for one pack
 	server.registerResource(
-		"baka-module-manifest",
-		new ResourceTemplate(MODULE_MANIFEST_URI_TEMPLATE_STRING, { list: undefined }),
+		"baka-pack-manifest",
+		new ResourceTemplate(PACK_MANIFEST_URI_TEMPLATE_STRING, { list: undefined }),
 		{
-			description: MODULE_MANIFEST_TEMPLATE_METADATA.description,
-			mimeType: MODULE_MANIFEST_TEMPLATE_METADATA.mimeType,
+			description: PACK_MANIFEST_TEMPLATE_METADATA.description,
+			mimeType: PACK_MANIFEST_TEMPLATE_METADATA.mimeType,
 		},
-		async (uri): Promise<ReadResourceResult> => readModuleManifestResource(ctx, uri.href),
+		async (uri): Promise<ReadResourceResult> => readPackManifestResource(ctx, uri.href),
 	)
 }
 
@@ -524,20 +524,20 @@ function registerResources(server: McpServer, ctx: ServerContext): void {
 
 function registerPrompts(server: McpServer): void {
 	server.registerPrompt(
-		DESIGN_MODULE_PROMPT_NAME,
+		DESIGN_PACK_PROMPT_NAME,
 		{
-			description: DESIGN_MODULE_DESCRIPTION,
-			argsSchema: DesignModuleArgsShape,
+			description: DESIGN_PACK_DESCRIPTION,
+			argsSchema: DesignPackArgsShape,
 		},
 		(args) => {
 			const parsed = z
 				.object({
-					name: DesignModuleArgsShape.name,
-					resume: DesignModuleArgsShape.resume,
+					name: DesignPackArgsShape.name,
+					resume: DesignPackArgsShape.resume,
 				})
 				.parse(args)
 			return {
-				messages: designModuleMessages(parsed),
+				messages: designPackMessages(parsed),
 			}
 		},
 	)

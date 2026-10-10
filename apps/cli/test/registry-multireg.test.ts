@@ -4,7 +4,7 @@
 // 035, 036, plus the cross-cutting VAL-CROSS-010).
 //
 // Unit tests for the registry-based rewrite of the search and
-// install commands. The CLI now talks to `GET /v1/modules` on every
+// install commands. The CLI now talks to `GET /v1/packs` on every
 // configured registry (per decision 4), with per-source attribution
 // and per-source failure isolation. The `search.test.ts` file pins
 // the JSON shape and the per-hit ordering; this file pins the
@@ -33,7 +33,7 @@ function makeFetchMock(handlers: Record<string, () => { status: number; body: un
 }
 
 const CATALOG_4300 = {
-	modules: [
+	packs: [
 		{
 			scope: "baka",
 			name: "alpha",
@@ -56,7 +56,7 @@ const CATALOG_4300 = {
 }
 
 const CATALOG_4310 = {
-	modules: [
+	packs: [
 		{
 			scope: "acme",
 			name: "widget",
@@ -70,7 +70,7 @@ const CATALOG_4310 = {
 }
 
 const CATALOG_OTHER = {
-	modules: [
+	packs: [
 		{
 			scope: "acme",
 			name: "widget",
@@ -84,9 +84,9 @@ const CATALOG_OTHER = {
 }
 
 const ALL_OFFLINE_BASES = [
-	"http://localhost:4300/v1/modules",
-	"http://localhost:4310/v1/modules",
-	"http://other:4320/v1/modules",
+	"http://localhost:4300/v1/packs",
+	"http://localhost:4310/v1/packs",
+	"http://other:4320/v1/packs",
 ]
 
 const REPO_ROOT_CWD = "/tmp/non-repo" // any path; tests inject registries directly
@@ -146,7 +146,7 @@ describe("runSearchCommand multi-registry", () => {
 		const log = vi.spyOn(console, "log").mockImplementation(() => {})
 		const fetchMock = ((input: string | URL | Request) => {
 			const url = typeof input === "string" ? input : input.toString()
-			if (url.endsWith("/v1/modules") && url.startsWith("http://localhost:4300")) {
+			if (url.endsWith("/v1/packs") && url.startsWith("http://localhost:4300")) {
 				return Promise.resolve(
 					new Response(JSON.stringify(CATALOG_4300), {
 						status: 200,
@@ -154,7 +154,7 @@ describe("runSearchCommand multi-registry", () => {
 					}),
 				)
 			}
-			if (url.endsWith("/v1/modules") && url.startsWith("http://other:4320")) {
+			if (url.endsWith("/v1/packs") && url.startsWith("http://other:4320")) {
 				return Promise.reject(new TypeError("fetch failed"))
 			}
 			return Promise.resolve(new Response(JSON.stringify({}), { status: 500 }))
@@ -199,8 +199,8 @@ describe("runSearchCommand multi-registry", () => {
 	})
 
 	// VAL-DISC-012 — empty result set is a clean exit 0 with a
-	// "no modules matching" style message, not an error.
-	it("returns a clean empty result set when no module matches the query", async () => {
+	// "no packs matching" style message, not an error.
+	it("returns a clean empty result set when no pack matches the query", async () => {
 		const log = vi.spyOn(console, "log").mockImplementation(() => {})
 		const fetchMock = makeFetchMock({
 			[`${ALL_OFFLINE_BASES[0]}`]: () => ({ status: 200, body: CATALOG_4300 }),
@@ -212,6 +212,6 @@ describe("runSearchCommand multi-registry", () => {
 			cwd: REPO_ROOT_CWD,
 		})
 		const out = log.mock.calls.map((c) => c[0]).join("\n")
-		expect(out).toContain('no modules matching "zzz-no-match-zzz"')
+		expect(out).toContain('no packs matching "zzz-no-match-zzz"')
 	})
 })

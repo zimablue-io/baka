@@ -79,9 +79,9 @@ async function seedOrg(slug: string, plan = "free"): Promise<string> {
 	return id
 }
 
-async function insertOrgModule(scope: string, name: string, visibility: "org" | "public"): Promise<void> {
+async function insertOrgPack(scope: string, name: string, visibility: "org" | "public"): Promise<void> {
 	await handle.pglite.query(
-		`INSERT INTO modules (scope, name, visibility, tier, description)
+		`INSERT INTO packs (scope, name, visibility, tier, description)
 		   VALUES ($1, $2, $3, 'community-unverified', '')`,
 		[scope, name, visibility],
 	)
@@ -96,24 +96,24 @@ describe("REGISTRY_SEED_PLANS boot hook (architecture §8 decision 3)", () => {
 
 	it("REGISTRY_SEED_PLANS upserts a plan that overrides the seeded defaults", async () => {
 		const seed = JSON.stringify([
-			{ plan: "free", max_private_modules: 1, max_members: 2, max_registries: 1 },
-			{ plan: "pro", max_private_modules: 50, max_members: 10, max_registries: 5 },
+			{ plan: "free", max_private_packs: 1, max_members: 2, max_registries: 1 },
+			{ plan: "pro", max_private_packs: 50, max_members: 10, max_registries: 5 },
 		])
 		await applySeedPlans(handle.pglite, seed)
-		const rows = await handle.pglite.query<{ plan: string; max_private_modules: number }>(
-			`SELECT plan, max_private_modules FROM plan_limits ORDER BY plan`,
+		const rows = await handle.pglite.query<{ plan: string; max_private_packs: number }>(
+			`SELECT plan, max_private_packs FROM plan_limits ORDER BY plan`,
 		)
 		expect(rows.rows).toEqual([
-			{ plan: "free", max_private_modules: 1 },
-			{ plan: "pro", max_private_modules: 50 },
+			{ plan: "free", max_private_packs: 1 },
+			{ plan: "pro", max_private_packs: 50 },
 		])
 	})
 
 	it("REGISTRY_SEED_PLANS adds a new plan not present in the seeded defaults", async () => {
 		const seed = JSON.stringify([
-			{ plan: "free", max_private_modules: 5, max_members: 3, max_registries: 1 },
-			{ plan: "pro", max_private_modules: 100, max_members: 25, max_registries: 10 },
-			{ plan: "enterprise", max_private_modules: 10000, max_members: 1000, max_registries: 100 },
+			{ plan: "free", max_private_packs: 5, max_members: 3, max_registries: 1 },
+			{ plan: "pro", max_private_packs: 100, max_members: 25, max_registries: 10 },
+			{ plan: "enterprise", max_private_packs: 10000, max_members: 1000, max_registries: 100 },
 		])
 		await applySeedPlans(handle.pglite, seed)
 		const rows = await handle.pglite.query<{ plan: string }>(`SELECT plan FROM plan_limits ORDER BY plan`)
@@ -126,13 +126,13 @@ describe("REGISTRY_SEED_PLANS boot hook (architecture §8 decision 3)", () => {
 
 	it("a REGISTRY_SEED_PLANS entry missing required fields throws naming the field", async () => {
 		const seed = JSON.stringify([{ plan: "free" }])
-		await expect(applySeedPlans(handle.pglite, seed)).rejects.toThrow(/max_private_modules/i)
+		await expect(applySeedPlans(handle.pglite, seed)).rejects.toThrow(/max_private_packs/i)
 	})
 
 	it("applying the same REGISTRY_SEED_PLANS twice is idempotent (no duplicate rows)", async () => {
 		const seed = JSON.stringify([
-			{ plan: "free", max_private_modules: 5, max_members: 3, max_registries: 1 },
-			{ plan: "pro", max_private_modules: 100, max_members: 25, max_registries: 10 },
+			{ plan: "free", max_private_packs: 5, max_members: 3, max_registries: 1 },
+			{ plan: "pro", max_private_packs: 100, max_members: 25, max_registries: 10 },
 		])
 		await applySeedPlans(handle.pglite, seed)
 		await applySeedPlans(handle.pglite, seed)
@@ -142,9 +142,9 @@ describe("REGISTRY_SEED_PLANS boot hook (architecture §8 decision 3)", () => {
 })
 
 describe("checkPlanLimit (monetization seam helper)", () => {
-	it("returns ok for an org with zero modules when the limit is positive", async () => {
+	it("returns ok for an org with zero packs when the limit is positive", async () => {
 		const orgId = await seedOrg("acme")
-		const verdict = await checkPlanLimit(handle.pglite, orgId, "max_private_modules")
+		const verdict = await checkPlanLimit(handle.pglite, orgId, "max_private_packs")
 		expect(verdict.ok).toBe(true)
 		if (verdict.ok) {
 			expect(verdict.limit).toBe(5) // free plan default from migration 0002
@@ -155,9 +155,9 @@ describe("checkPlanLimit (monetization seam helper)", () => {
 
 	it("returns ok when usage is strictly below the limit", async () => {
 		const orgId = await seedOrg("acme")
-		await insertOrgModule("acme", "alpha", "org")
-		await insertOrgModule("acme", "beta", "org")
-		const verdict = await checkPlanLimit(handle.pglite, orgId, "max_private_modules")
+		await insertOrgPack("acme", "alpha", "org")
+		await insertOrgPack("acme", "beta", "org")
+		const verdict = await checkPlanLimit(handle.pglite, orgId, "max_private_packs")
 		expect(verdict.ok).toBe(true)
 		if (verdict.ok) {
 			expect(verdict.usage).toBe(2)
@@ -168,40 +168,40 @@ describe("checkPlanLimit (monetization seam helper)", () => {
 	it("returns ok=false with limit and plan in the rejection when usage equals the limit", async () => {
 		const orgId = await seedOrg("acme")
 		for (let i = 0; i < 5; i++) {
-			await insertOrgModule("acme", `mod-${i}`, "org")
+			await insertOrgPack("acme", `mod-${i}`, "org")
 		}
-		const verdict = await checkPlanLimit(handle.pglite, orgId, "max_private_modules")
+		const verdict = await checkPlanLimit(handle.pglite, orgId, "max_private_packs")
 		expect(verdict.ok).toBe(false)
 		if (!verdict.ok) {
 			expect(verdict.plan).toBe("free")
 			expect(verdict.limit).toBe(5)
 			expect(verdict.usage).toBe(5)
-			expect(verdict.capability).toBe("max_private_modules")
+			expect(verdict.capability).toBe("max_private_packs")
 			expect(verdict.message).toContain("free")
-			expect(verdict.message).toContain("max_private_modules")
+			expect(verdict.message).toContain("max_private_packs")
 		}
 	})
 
-	it("counts only `org` visibility modules (public modules do not count toward max_private_modules)", async () => {
+	it("counts only `org` visibility packs (public packs do not count toward max_private_packs)", async () => {
 		const orgId = await seedOrg("acme")
-		await insertOrgModule("acme", "private-1", "org")
-		await insertOrgModule("acme", "private-2", "org")
-		await insertOrgModule("acme", "public-1", "public")
-		await insertOrgModule("acme", "public-2", "public")
-		const verdict = await checkPlanLimit(handle.pglite, orgId, "max_private_modules")
+		await insertOrgPack("acme", "private-1", "org")
+		await insertOrgPack("acme", "private-2", "org")
+		await insertOrgPack("acme", "public-1", "public")
+		await insertOrgPack("acme", "public-2", "public")
+		const verdict = await checkPlanLimit(handle.pglite, orgId, "max_private_packs")
 		expect(verdict.ok).toBe(true)
 		if (verdict.ok) expect(verdict.usage).toBe(2)
 	})
 
 	it("respects a custom limit seeded via REGISTRY_SEED_PLANS", async () => {
 		const seed = JSON.stringify([
-			{ plan: "free", max_private_modules: 1, max_members: 3, max_registries: 1 },
-			{ plan: "pro", max_private_modules: 100, max_members: 25, max_registries: 10 },
+			{ plan: "free", max_private_packs: 1, max_members: 3, max_registries: 1 },
+			{ plan: "pro", max_private_packs: 100, max_members: 25, max_registries: 10 },
 		])
 		await applySeedPlans(handle.pglite, seed)
 		const orgId = await seedOrg("acme")
-		await insertOrgModule("acme", "first", "org")
-		const verdict = await checkPlanLimit(handle.pglite, orgId, "max_private_modules")
+		await insertOrgPack("acme", "first", "org")
+		const verdict = await checkPlanLimit(handle.pglite, orgId, "max_private_packs")
 		expect(verdict.ok).toBe(false)
 		if (!verdict.ok) {
 			expect(verdict.limit).toBe(1)
@@ -247,7 +247,7 @@ describe("checkPlanLimit (monetization seam helper)", () => {
 
 	it("throws an honest error when the org does not exist", async () => {
 		await expect(
-			checkPlanLimit(handle.pglite, "00000000-0000-0000-0000-000000000000", "max_private_modules"),
+			checkPlanLimit(handle.pglite, "00000000-0000-0000-0000-000000000000", "max_private_packs"),
 		).rejects.toThrow(/organization/i)
 	})
 
@@ -260,7 +260,7 @@ describe("checkPlanLimit (monetization seam helper)", () => {
 		// Pins the PlanLimitVerdict discriminated union so a caller can
 		// branch on `verdict.ok` without further narrowing.
 		const orgId = await seedOrg("acme")
-		const okVerdict: PlanLimitVerdict = await checkPlanLimit(handle.pglite, orgId, "max_private_modules")
+		const okVerdict: PlanLimitVerdict = await checkPlanLimit(handle.pglite, orgId, "max_private_packs")
 		expect(okVerdict.ok).toBe(true)
 		if (okVerdict.ok) {
 			// narrow: okVerdict.usage / .limit / .plan exist
@@ -269,11 +269,11 @@ describe("checkPlanLimit (monetization seam helper)", () => {
 		}
 	})
 
-	it("PlanCapability is the closed set the helper accepts (max_private_modules, max_members, max_registries)", () => {
+	it("PlanCapability is the closed set the helper accepts (max_private_packs, max_members, max_registries)", () => {
 		// Compile-time pin: a typo in a caller is a TS error, not a
 		// runtime branch. Runtime: the closed set is also enforced by
 		// KNOWN_CAPABILITIES inside checkPlanLimit.
-		const capabilities: PlanCapability[] = ["max_private_modules", "max_members", "max_registries"]
+		const capabilities: PlanCapability[] = ["max_private_packs", "max_members", "max_registries"]
 		expect(capabilities).toHaveLength(3)
 	})
 })

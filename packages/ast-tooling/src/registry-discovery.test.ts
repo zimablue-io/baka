@@ -2,13 +2,13 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { ModuleRegistry } from "./registry.js"
+import { PackRegistry } from "./registry.js"
 
 // ---------------------------------------------------------------------------
-// Discovery-unification contract tests for ModuleRegistry.discover().
+// Discovery-unification contract tests for PackRegistry.discover().
 // Pins the single-implementation behaviors the plan/validate/list surfaces
 // rely on: four scopes, deterministic output, project-wins dedup, malformed
-// entries tolerated, cross-module action-id collision detection.
+// entries tolerated, cross-pack recipe-id collision detection.
 // ---------------------------------------------------------------------------
 
 const cleanup: string[] = []
@@ -37,94 +37,94 @@ beforeEach(() => {
 	process.env.HOME = makeTempDir("baka-disc-home-")
 })
 
-function manifestSource(name: string, opts: { description?: string; actionIds?: string[] } = {}): string {
+function manifestSource(name: string, opts: { description?: string; recipeIds?: string[] } = {}): string {
 	const description = opts.description ?? "fixture"
-	const actionIds = opts.actionIds ?? ["act"]
-	const actions = actionIds
+	const recipeIds = opts.recipeIds ?? ["act"]
+	const recipes = recipeIds
 		.map(
 			(id) =>
 				`{ id: "${id}", description: "${id}", params: [], requiresReasoning: false, filePatterns: [], validators: [] }`,
 		)
 		.join(", ")
-	return `import type { ModuleManifest } from "@repo/protocol"
-export const Manifest: ModuleManifest = {
+	return `import type { PackManifest } from "@repo/protocol"
+export const Manifest: PackManifest = {
 	name: "${name}",
 	version: "0.1.0",
 	description: "${description}",
 	dependencies: [],
 	conflictsWith: [],
-	actions: [${actions}],
-	moduleValidators: [],
+	recipes: [${recipes}],
+	packValidators: [],
 }
 `
 }
 
-/** Write a valid fixture module (manifest + action stubs) into `moduleDir`. */
-function writeFixtureModule(
-	moduleDir: string,
+/** Write a valid fixture pack (manifest + recipe stubs) into `packDir`. */
+function writeFixturePack(
+	packDir: string,
 	name: string,
-	opts: { description?: string; actionIds?: string[] } = {},
+	opts: { description?: string; recipeIds?: string[] } = {},
 ): void {
-	mkdirSync(moduleDir, { recursive: true })
-	writeFileSync(join(moduleDir, "manifest.ts"), manifestSource(name, opts))
-	for (const id of opts.actionIds ?? ["act"]) {
-		mkdirSync(join(moduleDir, id), { recursive: true })
-		writeFileSync(join(moduleDir, id, "action.ts"), "export const actAction = {}\n")
+	mkdirSync(packDir, { recursive: true })
+	writeFileSync(join(packDir, "manifest.ts"), manifestSource(name, opts))
+	for (const id of opts.recipeIds ?? ["act"]) {
+		mkdirSync(join(packDir, id), { recursive: true })
+		writeFileSync(join(packDir, id, "recipe.ts"), "export const actRecipe = {}\n")
 	}
 }
 
-describe("ModuleRegistry.discover — project scope wins over user scope", () => {
-	it("serves the project copy exactly once when the same module is in both scopes", () => {
+describe("PackRegistry.discover — project scope wins over user scope", () => {
+	it("serves the project copy exactly once when the same pack is in both scopes", () => {
 		const root = makeTempDir("baka-disc-dedup-root-")
 		const home = process.env.HOME as string
-		writeFixtureModule(join(home, ".baka", "modules", "dup-mod"), "dup-mod", { description: "USER VERSION" })
-		writeFixtureModule(join(root, ".baka", "modules", "dup-mod"), "dup-mod", { description: "PROJECT VERSION" })
+		writeFixturePack(join(home, ".baka", "packs", "dup-mod"), "dup-mod", { description: "USER VERSION" })
+		writeFixturePack(join(root, ".baka", "packs", "dup-mod"), "dup-mod", { description: "PROJECT VERSION" })
 
-		const first = new ModuleRegistry(root).discover()
-		const second = new ModuleRegistry(root).discover()
+		const first = new PackRegistry(root).discover()
+		const second = new PackRegistry(root).discover()
 
-		const matches = first.modules.filter((m) => m.name === "dup-mod")
+		const matches = first.packs.filter((m) => m.name === "dup-mod")
 		expect(matches).toHaveLength(1)
 		expect(matches[0].description).toBe("PROJECT VERSION")
-		expect(JSON.stringify(first.modules)).toBe(JSON.stringify(second.modules))
+		expect(JSON.stringify(first.packs)).toBe(JSON.stringify(second.packs))
 	})
 })
 
-describe("ModuleRegistry.discover — dedup across tree and project scopes", () => {
-	it("lists the module once, with the project copy winning", () => {
+describe("PackRegistry.discover — dedup across tree and project scopes", () => {
+	it("lists the pack once, with the project copy winning", () => {
 		const root = makeTempDir("baka-disc-treeproj-")
-		writeFixtureModule(join(root, "modules", "dup-mod"), "dup-mod", { description: "TREE VERSION" })
-		writeFixtureModule(join(root, ".baka", "modules", "dup-mod"), "dup-mod", { description: "PROJECT VERSION" })
+		writeFixturePack(join(root, "packs", "dup-mod"), "dup-mod", { description: "TREE VERSION" })
+		writeFixturePack(join(root, ".baka", "packs", "dup-mod"), "dup-mod", { description: "PROJECT VERSION" })
 
-		const { modules } = new ModuleRegistry(root).discover()
-		const matches = modules.filter((m) => m.name === "dup-mod")
+		const { packs } = new PackRegistry(root).discover()
+		const matches = packs.filter((m) => m.name === "dup-mod")
 		expect(matches).toHaveLength(1)
 		expect(matches[0].description).toBe("PROJECT VERSION")
 	})
 })
 
-describe("ModuleRegistry.discover — deterministic output", () => {
-	it("returns byte-identical, name-sorted module lists across runs", () => {
+describe("PackRegistry.discover — deterministic output", () => {
+	it("returns byte-identical, name-sorted pack lists across runs", () => {
 		const root = makeTempDir("baka-disc-order-")
-		writeFixtureModule(join(root, "modules", "zeta-mod"), "zeta-mod")
-		writeFixtureModule(join(root, "modules", "alpha-mod"), "alpha-mod")
-		writeFixtureModule(join(root, ".baka", "modules", "mid-mod"), "mid-mod")
+		writeFixturePack(join(root, "packs", "zeta-mod"), "zeta-mod")
+		writeFixturePack(join(root, "packs", "alpha-mod"), "alpha-mod")
+		writeFixturePack(join(root, ".baka", "packs", "mid-mod"), "mid-mod")
 
-		const first = new ModuleRegistry(root).discover()
-		const second = new ModuleRegistry(root).discover()
-		const third = new ModuleRegistry(root).discover()
+		const first = new PackRegistry(root).discover()
+		const second = new PackRegistry(root).discover()
+		const third = new PackRegistry(root).discover()
 
-		const names = first.modules.map((m) => m.name)
+		const names = first.packs.map((m) => m.name)
 		expect(names).toEqual(["alpha-mod", "mid-mod", "zeta-mod"])
-		expect(JSON.stringify(first.modules)).toBe(JSON.stringify(second.modules))
-		expect(JSON.stringify(second.modules)).toBe(JSON.stringify(third.modules))
+		expect(JSON.stringify(first.packs)).toBe(JSON.stringify(second.packs))
+		expect(JSON.stringify(second.packs)).toBe(JSON.stringify(third.packs))
 	})
 })
 
-describe("ModuleRegistry.discover — malformed entries never crash discovery", () => {
+describe("PackRegistry.discover — malformed entries never crash discovery", () => {
 	it("skips a syntactically invalid manifest, a dangling symlink, and an empty dir with diagnostics", () => {
 		const root = makeTempDir("baka-disc-malformed-")
-		const marketDir = join(root, ".baka", "modules")
+		const marketDir = join(root, ".baka", "packs")
 		mkdirSync(marketDir, { recursive: true })
 
 		// (a) syntactically invalid manifest.ts
@@ -138,12 +138,12 @@ describe("ModuleRegistry.discover — malformed entries never crash discovery", 
 		// (c) empty directory
 		mkdirSync(join(marketDir, "empty-dir"), { recursive: true })
 
-		// (d) one valid module alongside the broken entries
-		writeFixtureModule(join(marketDir, "good-mod"), "good-mod", { description: "the valid one" })
+		// (d) one valid pack alongside the broken entries
+		writeFixturePack(join(marketDir, "good-mod"), "good-mod", { description: "the valid one" })
 
-		const { modules, diagnostics } = new ModuleRegistry(root).discover()
+		const { packs, diagnostics } = new PackRegistry(root).discover()
 
-		expect(modules.map((m) => m.name)).toEqual(["good-mod"])
+		expect(packs.map((m) => m.name)).toEqual(["good-mod"])
 		for (const broken of ["broken-syntax", "dangling-link", "empty-dir"]) {
 			expect(
 				diagnostics.some((d) => d.message.includes(broken)),
@@ -152,81 +152,81 @@ describe("ModuleRegistry.discover — malformed entries never crash discovery", 
 		}
 	})
 
-	it("survives a modules scope path that is a file, not a directory", () => {
+	it("survives a packs scope path that is a file, not a directory", () => {
 		const root = makeTempDir("baka-disc-notdir-")
 		mkdirSync(join(root, ".baka"), { recursive: true })
-		writeFileSync(join(root, ".baka", "modules"), "not a directory\n")
-		writeFixtureModule(join(root, "modules", "tree-mod"), "tree-mod")
+		writeFileSync(join(root, ".baka", "packs"), "not a directory\n")
+		writeFixturePack(join(root, "packs", "tree-mod"), "tree-mod")
 
-		const { modules, diagnostics } = new ModuleRegistry(root).discover()
-		expect(modules.map((m) => m.name)).toContain("tree-mod")
+		const { packs, diagnostics } = new PackRegistry(root).discover()
+		expect(packs.map((m) => m.name)).toContain("tree-mod")
 		expect(diagnostics.some((d) => d.severity === "warning")).toBe(true)
 	})
 })
 
-describe("ModuleRegistry.discover — no leaked repo catalog", () => {
-	it("does not inject git-checkout modules into an unrelated project", () => {
+describe("PackRegistry.discover — no leaked repo catalog", () => {
+	it("does not inject git-checkout packs into an unrelated project", () => {
 		const root = makeTempDir("baka-disc-bundled-")
 		writeFileSync(join(root, "package.json"), JSON.stringify({ name: "fake-project", version: "0.0.0" }))
 
-		const { modules } = new ModuleRegistry(root).discover()
-		expect(modules.map((m) => m.name)).toEqual([])
+		const { packs } = new PackRegistry(root).discover()
+		expect(packs.map((m) => m.name)).toEqual([])
 	})
 
 	it("stays silent in a truly empty directory", () => {
 		const root = makeTempDir("baka-disc-empty-")
-		const { modules, diagnostics } = new ModuleRegistry(root).discover()
-		expect(modules).toEqual([])
-		expect(diagnostics.some((d) => d.rule === "no-modules")).toBe(true)
+		const { packs, diagnostics } = new PackRegistry(root).discover()
+		expect(packs).toEqual([])
+		expect(diagnostics.some((d) => d.rule === "no-packs")).toBe(true)
 	})
 
-	it("tree scope lists modules that actually live in the project", () => {
+	it("tree scope lists packs that actually live in the project", () => {
 		const root = makeTempDir("baka-disc-treewins-")
 		writeFileSync(join(root, "package.json"), JSON.stringify({ name: "fake-project", version: "0.0.0" }))
-		writeFixtureModule(join(root, "modules", "note-mod"), "note-mod", { description: "TREE VERSION" })
+		writeFixturePack(join(root, "packs", "note-mod"), "note-mod", { description: "TREE VERSION" })
 
-		const { modules } = new ModuleRegistry(root).discover()
-		const found = modules.find((m) => m.name === "note-mod")
+		const { packs } = new PackRegistry(root).discover()
+		const found = packs.find((m) => m.name === "note-mod")
 		expect(found?.description).toBe("TREE VERSION")
 	})
 })
 
-describe("ModuleRegistry.discover — user scope", () => {
-	it("discovers modules from the user marketplace", () => {
+describe("PackRegistry.discover — user scope", () => {
+	it("discovers packs from the user marketplace", () => {
 		const root = makeTempDir("baka-disc-user-root-")
 		const home = process.env.HOME as string
-		writeFixtureModule(join(home, ".baka", "modules", "user-mod"), "user-mod", { description: "user-scope module" })
+		writeFixturePack(join(home, ".baka", "packs", "user-mod"), "user-mod", { description: "user-scope pack" })
 
-		const { modules } = new ModuleRegistry(root).discover()
-		const found = modules.find((m) => m.name === "user-mod")
-		expect(found?.description).toBe("user-scope module")
+		const { packs } = new PackRegistry(root).discover()
+		const found = packs.find((m) => m.name === "user-mod")
+		expect(found?.description).toBe("user-scope pack")
 	})
 })
 
-describe("ModuleRegistry.actionIdCollisions", () => {
-	it("reports action ids exported by two different modules, naming both", () => {
+describe("PackRegistry.recipeIdCollisions", () => {
+	it("reports recipe ids exported by two different packs, naming both", () => {
 		const root = makeTempDir("baka-disc-collide-")
-		writeFixtureModule(join(root, "modules", "mod-a"), "mod-a", { actionIds: ["collide", "unique-a"] })
-		writeFixtureModule(join(root, "modules", "mod-b"), "mod-b", { actionIds: ["collide"] })
+		writeFixturePack(join(root, "packs", "mod-a"), "mod-a", { recipeIds: ["collide", "unique-a"] })
+		writeFixturePack(join(root, "packs", "mod-b"), "mod-b", { recipeIds: ["collide"] })
 
-		const registry = new ModuleRegistry(root)
-		const { modules } = registry.discover()
-		// Discovery itself succeeds: both modules are listed.
-		expect(modules.map((m) => m.name)).toEqual(["mod-a", "mod-b"])
+		const registry = new PackRegistry(root)
+		const { packs } = registry.discover()
+		// Discovery itself succeeds: both packs are listed.
+		expect(packs.map((m) => m.name)).toEqual(["mod-a", "mod-b"])
 
-		const collisions = registry.actionIdCollisions()
+		const collisions = registry.recipeIdCollisions()
 		expect(collisions.get("collide")).toEqual(["mod-a", "mod-b"])
 		expect(collisions.has("unique-a")).toBe(false)
 	})
 
-	it("does not flag an action id when the same module owns it across scopes", () => {
+	it("does not flag a recipe id when the same pack owns it across scopes", () => {
 		const root = makeTempDir("baka-disc-same-mod-")
 		const home = process.env.HOME as string
-		writeFixtureModule(join(home, ".baka", "modules", "dup-mod"), "dup-mod", { actionIds: ["act"] })
-		writeFixtureModule(join(root, ".baka", "modules", "dup-mod"), "dup-mod", { actionIds: ["act"] })
+		writeFixturePack(join(home, ".baka", "packs", "dup-mod"), "dup-mod", { recipeIds: ["act"] })
+		writeFixturePack(join(root, ".baka", "packs", "dup-mod"), "dup-mod", { recipeIds: ["act"] })
 
-		const registry = new ModuleRegistry(root)
+		const registry = new PackRegistry(root)
 		registry.discover()
-		expect(registry.actionIdCollisions().size).toBe(0)
+		expect(registry.recipeIdCollisions().size).toBe(0)
 	})
 })

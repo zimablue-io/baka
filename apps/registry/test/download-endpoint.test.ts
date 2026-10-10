@@ -7,9 +7,9 @@ import { buildIngestTestStack, type IngestTestStack } from "./ingest-worker-fixt
  * VAL-PUB-017 / VAL-AUTH-003).
  *
  * `GET /v1/download/:scope/:name/:version` serves the tarball
- * artifact recorded on a ready `module_versions` row. Visibility
- * rules match the detail endpoint exactly: public modules are
- * downloadable by anyone; org-visibility modules are downloadable
+ * artifact recorded on a ready `pack_versions` row. Visibility
+ * rules match the detail endpoint exactly: public packs are
+ * downloadable by anyone; org-visibility packs are downloadable
  * only by members of the owning org. The body's sha256 equals
  * the `content_hash` on the version row, and the artifact is the
  * exact blob the storage adapter wrote during ingest.
@@ -29,7 +29,7 @@ describe("tarball download endpoint (VAL-PUB-007 / VAL-PUB-017 / VAL-AUTH-003)",
 		await git.cleanup()
 	})
 
-	describe("public module download", () => {
+	describe("public pack download", () => {
 		it("serves the tarball body for a public-ready version with the recorded sha256", async () => {
 			await git.commitManifest({
 				name: "@acme/widget",
@@ -63,7 +63,7 @@ describe("tarball download endpoint (VAL-PUB-007 / VAL-PUB-017 / VAL-AUTH-003)",
 			expect(sha).toBe(terminal.contentHash)
 		})
 
-		it("anonymous download works for a public module (no credential)", async () => {
+		it("anonymous download works for a public pack (no credential)", async () => {
 			await git.commitManifest({
 				name: "@acme/widget",
 				version: "1.0.0",
@@ -90,7 +90,7 @@ describe("tarball download endpoint (VAL-PUB-007 / VAL-PUB-017 / VAL-AUTH-003)",
 			expect(body.length).toBeGreaterThan(0)
 		})
 
-		it("returns 404 with a JSON body for a missing version on a public module", async () => {
+		it("returns 404 with a JSON body for a missing version on a public pack", async () => {
 			const dl = await fx.app.request("/v1/download/acme/widget/9.9.9")
 			expect(dl.status).toBe(404)
 			expect(dl.headers.get("content-type")).toMatch(/application\/json/)
@@ -111,18 +111,18 @@ describe("tarball download endpoint (VAL-PUB-007 / VAL-PUB-017 / VAL-AUTH-003)",
 			})
 
 			const inserted = await fx.pglite.query<{ id: string }>(
-				`INSERT INTO modules (scope, name, visibility, tier, description)
+				`INSERT INTO packs (scope, name, visibility, tier, description)
 				 VALUES ('acme', 'pending-mod', 'public', 'community-unverified', '')
 				 ON CONFLICT (scope, name) DO UPDATE SET updated_at = NOW()
 				 RETURNING id`,
 			)
-			const moduleId = inserted.rows[0]?.id ?? ""
+			const packId = inserted.rows[0]?.id ?? ""
 			const placeholderSha = "0".repeat(40)
 			await fx.pglite.query(
-				`INSERT INTO module_versions (module_id, version, commit_sha, content_hash, manifest, status)
+				`INSERT INTO pack_versions (pack_id, version, commit_sha, content_hash, manifest, status)
 				 VALUES ($1, 'v0.0.1', $2, '', $3::jsonb, 'pending')`,
 				[
-					moduleId,
+					packId,
 					placeholderSha,
 					JSON.stringify({
 						name: "@acme/pending-mod",
@@ -130,7 +130,7 @@ describe("tarball download endpoint (VAL-PUB-007 / VAL-PUB-017 / VAL-AUTH-003)",
 						description: "pending",
 						dependencies: [],
 						conflictsWith: [],
-						actions: [
+						recipes: [
 							{
 								id: "noop",
 								description: "noop",
@@ -140,7 +140,7 @@ describe("tarball download endpoint (VAL-PUB-007 / VAL-PUB-017 / VAL-AUTH-003)",
 								validators: [],
 							},
 						],
-						moduleValidators: [],
+						packValidators: [],
 					}),
 				],
 			)
@@ -152,8 +152,8 @@ describe("tarball download endpoint (VAL-PUB-007 / VAL-PUB-017 / VAL-AUTH-003)",
 		})
 	})
 
-	describe("org-visibility module download (VAL-AUTH-003 / VAL-PUB-017)", () => {
-		it("anonymous caller receives 404 for an org-visibility module (existence is not leaked)", async () => {
+	describe("org-visibility pack download (VAL-AUTH-003 / VAL-PUB-017)", () => {
+		it("anonymous caller receives 404 for an org-visibility pack (existence is not leaked)", async () => {
 			await git.commitManifest({
 				name: "@acme/private-mod",
 				version: "1.0.0",
@@ -181,7 +181,7 @@ describe("tarball download endpoint (VAL-PUB-007 / VAL-PUB-017 / VAL-AUTH-003)",
 			expect(body.error?.toLowerCase()).toContain("not found")
 		})
 
-		it("outsider (authenticated, not a member) receives 404 for an org-visibility module", async () => {
+		it("outsider (authenticated, not a member) receives 404 for an org-visibility pack", async () => {
 			await git.commitManifest({
 				name: "@acme/private-mod",
 				version: "1.0.0",
@@ -270,7 +270,7 @@ describe("tarball download endpoint (VAL-PUB-007 / VAL-PUB-017 / VAL-AUTH-003)",
 			await git.commitManifest({
 				name: "@acme/private-mod",
 				version: "1.0.0",
-				actions: [{ id: "unloadable", description: "no action.ts", loadable: false }],
+				recipes: [{ id: "unloadable", description: "no recipe.ts", loadable: false }],
 				tag: "v1.0.0",
 			})
 
@@ -298,14 +298,14 @@ describe("tarball download endpoint (VAL-PUB-007 / VAL-PUB-017 / VAL-AUTH-003)",
 
 	describe("error shape consistency (VAL-PUB-019)", () => {
 		it("every 401/403/404 from the download endpoint returns a JSON envelope with `error`", async () => {
-			// 404 for missing version on a public module
+			// 404 for missing version on a public pack
 			const r404a = await fx.app.request("/v1/download/acme/missing/0.0.0")
 			expect(r404a.status).toBe(404)
 			expect(r404a.headers.get("content-type")).toMatch(/application\/json/)
 			const body404a = (await r404a.json()) as { error?: string }
 			expect(typeof body404a.error).toBe("string")
 
-			// 404 for org-visibility module without credential
+			// 404 for org-visibility pack without credential
 			await git.commitManifest({
 				name: "@acme/private-mod",
 				version: "1.0.0",

@@ -8,8 +8,8 @@ import {
 	type LLMMessage,
 	type LLMProvider,
 	type LLMRequest,
-	type ModuleManifest,
 	type OrchestrationState,
+	type PackManifest,
 	type ResolvedLLMConfig,
 	type ResolvedPlan,
 	type StepResponse,
@@ -24,7 +24,7 @@ import { isRoleName, type RoleName, readRoleConfig } from "./config/store.js"
 
 export interface PlanningInput {
 	intent: string
-	availableModules: ModuleManifest[]
+	availablePacks: PackManifest[]
 }
 
 export type PlanningOutput = ResolvedPlan
@@ -67,8 +67,8 @@ export interface LoadConfigOptions {
  * `${BAKA_HOME:-$HOME/.baka}/config.json`.
  *
  * Hard-fails when the role block is absent or missing required fields.
- * Callers should treat `role: "worker"` for plan/apply/module-design and
- * `role: "validator"` for any module validator that needs the
+ * Callers should treat `role: "worker"` for plan/apply/pack-design and
+ * `role: "validator"` for any pack validator that needs the
  * validator-role LLM.
  */
 export async function loadLLMConfig(opts: LoadConfigOptions): Promise<ResolvedLLMConfig> {
@@ -171,8 +171,8 @@ const PLANNING_OUTPUT_SCHEMA: z.ZodType<ResolvedPlan> = z.object({
 	resolvedSteps: z.array(
 		z.object({
 			id: z.string(),
-			module: z.string(),
-			action: z.string(),
+			pack: z.string(),
+			recipe: z.string(),
 			params: z.record(z.any()),
 		}),
 	),
@@ -197,15 +197,15 @@ export function createOrchestratePlanningStep(
 						role: "system",
 						content:
 							"You are the baka Orchestrator. You decompose a user intent into a sequence of steps. " +
-							"You may only use modules and actions that appear in the provided module catalog. " +
-							"Each step is {id, module, action, params} where params is a flat object whose keys are the exact param names declared in the catalog. " +
+							"You may only use packs and recipes that appear in the provided pack catalog. " +
+							"Each step is {id, pack, recipe, params} where params is a flat object whose keys are the exact param names declared in the catalog. " +
 							"Param values are JSON primitives (string, number, boolean) or arrays of strings. " +
 							'Do not wrap values in extra objects (e.g. {"name": {"value": "x"}} is wrong; {"name": "x"} is right). ' +
 							"Respond with a single JSON object matching the schema; do not include any prose, markdown fences, or commentary.",
 					},
 					{
 						role: "user",
-						content: buildPlanningPrompt(input.intent, input.availableModules),
+						content: buildPlanningPrompt(input.intent, input.availablePacks),
 					},
 				]
 
@@ -243,10 +243,10 @@ export function createOrchestratePlanningStep(
 	}
 }
 
-function buildPlanningPrompt(intent: string, modules: ModuleManifest[]): string {
-	const catalog = modules
+function buildPlanningPrompt(intent: string, packs: PackManifest[]): string {
+	const catalog = packs
 		.map((m) => {
-			const actions = m.actions
+			const recipes = m.recipes
 				.map((a) => {
 					const paramList = a.params
 						.map((p) => {
@@ -257,7 +257,7 @@ function buildPlanningPrompt(intent: string, modules: ModuleManifest[]): string 
 						.join("\n")
 					const paramsBlock = a.params.length > 0 ? `\n      params:\n${paramList}` : "\n      params: (none)"
 					return (
-						`    - action: ${a.id}` +
+						`    - recipe: ${a.id}` +
 						`\n      description: ${a.description}` +
 						(a.requiresReasoning ? "\n      requiresReasoning: true" : "") +
 						(a.compensatesWith ? `\n      compensatesWith: ${a.compensatesWith}` : "") +
@@ -265,42 +265,42 @@ function buildPlanningPrompt(intent: string, modules: ModuleManifest[]): string 
 					)
 				})
 				.join("\n")
-			return `  module: ${m.name} v${m.version}\n    description: ${m.description || "(no description)"}\n    actions:\n${actions}`
+			return `  pack: ${m.name} v${m.version}\n    description: ${m.description || "(no description)"}\n    recipes:\n${recipes}`
 		})
 		.join("\n\n")
 
-	const prefs = loadModulePreferences(modules)
-	return `Intent: ${intent}\n\nModule catalog (use only these modules and actions):\n\n${catalog || "  (empty - no modules are installed)"}\n\n${prefs}`
+	const prefs = loadPackPreferences(packs)
+	return `Intent: ${intent}\n\nPack catalog (use only these packs and recipes):\n\n${catalog || "  (empty - no packs are installed)"}\n\n${prefs}`
 }
 
 /**
- * Loads PREFERENCES.md for any module in the catalog that has one, and
+ * Loads PREFERENCES.md for any pack in the catalog that has one, and
  * returns a section to append to the planning prompt. This is what makes
  * the user's design choices sticky across all agent sessions.
  */
-function loadModulePreferences(modules: ModuleManifest[]): string {
+function loadPackPreferences(packs: PackManifest[]): string {
 	const lines: string[] = []
-	for (const m of modules) {
+	for (const m of packs) {
 		// Try the cwd first (caller is responsible for setting it), then the
 		// user marketplace. We can't always know the project root from here
 		// (the orchestrator step is provider-agnostic), so we look in the
 		// current working directory and the baka user dir.
 		const candidates = [
-			join(process.cwd(), "modules", m.name, "PREFERENCES.md"),
-			join(process.cwd(), BAKA_PROJECT_PATHS.ROOT, "modules", m.name, "PREFERENCES.md"),
-			join(bakaHomeDir(), "modules", m.name, "PREFERENCES.md"),
+			join(process.cwd(), "packs", m.name, "PREFERENCES.md"),
+			join(process.cwd(), BAKA_PROJECT_PATHS.ROOT, "packs", m.name, "PREFERENCES.md"),
+			join(bakaHomeDir(), "packs", m.name, "PREFERENCES.md"),
 		]
 		for (const path of candidates) {
 			if (existsSync(path)) {
 				const body = readFileSync(path, "utf-8")
-				lines.push(`### Module-specific preferences for \`${m.name}\` (from ${path})`)
+				lines.push(`### Pack-specific preferences for \`${m.name}\` (from ${path})`)
 				lines.push("")
 				lines.push(body.trim())
 				lines.push("")
 				lines.push(
-					`When you plan an action from module \`${m.name}\`, you MUST honor these preferences: ` +
+					`When you plan a recipe from pack \`${m.name}\`, you MUST honor these preferences: ` +
 						`use the conventions, respect the anti-patterns, and follow the examples. ` +
-						`If a plan you produce would violate them, choose a different action or param.`,
+						`If a plan you produce would violate them, choose a different recipe or param.`,
 				)
 				lines.push("")
 				break
@@ -308,7 +308,7 @@ function loadModulePreferences(modules: ModuleManifest[]): string {
 		}
 	}
 	if (lines.length === 0) return ""
-	return `## Module-specific preferences\n\n${lines.join("\n")}`
+	return `## Pack-specific preferences\n\n${lines.join("\n")}`
 }
 
 /**
@@ -322,8 +322,8 @@ function normalizePlan(plan: ResolvedPlan): ResolvedPlan {
 	return {
 		resolvedSteps: plan.resolvedSteps.map((step) => ({
 			id: step.id,
-			module: step.module,
-			action: step.action,
+			pack: step.pack,
+			recipe: step.recipe,
 			params: normalizeParams(step.params as Record<string, unknown>),
 		})),
 	}

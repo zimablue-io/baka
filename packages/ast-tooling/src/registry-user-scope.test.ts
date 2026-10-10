@@ -2,19 +2,19 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { ModuleRegistry } from "./registry.js"
+import { PackRegistry } from "./registry.js"
 
 // ---------------------------------------------------------------------------
-// Battle-test: ModuleRegistry.discover() must find user-scope modules at
-// the NEW marketplace path ~/.baka/modules/<name>/, not the retired
-// ~/.local/share/baka/modules/ path.
+// Battle-test: PackRegistry.discover() must find user-scope packs at
+// the NEW marketplace path ~/.baka/packs/<name>/, not the retired
+// ~/.local/share/baka/packs/ path.
 //
-// Commit 0b5331d migrated package-manager.ts userModulesDir() to
-// ~/.baka/modules (where marketplace installs now land) but did NOT update
-// registry.ts, which still searches ~/.local/share/baka/modules. So a
-// module installed via `baka install --scope user` is never found by the
-// validator/registry. This test fails for the RIGHT reason: the module is
-// materialised at ~/.baka/modules but the registry looks elsewhere.
+// Commit 0b5331d migrated package-manager.ts userPacksDir() to
+// ~/.baka/packs (where marketplace installs now land) but did NOT update
+// registry.ts, which still searches ~/.local/share/baka/packs. So a
+// pack installed via `baka install --scope user` is never found by the
+// validator/registry. This test fails for the RIGHT reason: the pack is
+// materialised at ~/.baka/packs but the registry looks elsewhere.
 // ---------------------------------------------------------------------------
 
 const cleanup: string[] = []
@@ -31,43 +31,43 @@ afterEach(() => {
 	}
 })
 
-describe("ModuleRegistry user-scope path (battle)", () => {
-	it("discovers a user-scope module installed at ~/.baka/modules/<name>/", () => {
+describe("PackRegistry user-scope path (battle)", () => {
+	it("discovers a user-scope pack installed at ~/.baka/packs/<name>/", () => {
 		const fakeHome = mkdtempSync(join(tmpdir(), "baka-reg-home-"))
 		cleanup.push(fakeHome)
 		process.env.HOME = fakeHome
 
-		// An empty project cwd (no tree modules, no package.json so bundled
-		// scope is skipped). The only module lives in the user scope.
+		// An empty project cwd (no tree packs, no package.json so bundled
+		// scope is skipped). The only pack lives in the user scope.
 		const projectCwd = mkdtempSync(join(tmpdir(), "baka-reg-cwd-"))
 		cleanup.push(projectCwd)
 
-		// Materialise a marketplace module at the NEW path ~/.baka/modules.
-		const modDir = join(fakeHome, ".baka", "modules", "battle-user-mod")
-		const actionDir = join(modDir, "act")
-		mkdirSync(actionDir, { recursive: true })
+		// Materialise a marketplace pack at the NEW path ~/.baka/packs.
+		const modDir = join(fakeHome, ".baka", "packs", "battle-user-mod")
+		const recipeDir = join(modDir, "act")
+		mkdirSync(recipeDir, { recursive: true })
 		writeFileSync(
 			join(modDir, "manifest.ts"),
-			`import type { ModuleManifest } from "@repo/protocol"
-export const Manifest: ModuleManifest = {
+			`import type { PackManifest } from "@repo/protocol"
+export const Manifest: PackManifest = {
 	name: "battle-user-mod",
 	version: "0.1.0",
 	description: "battle user scope",
 	dependencies: [],
 	conflictsWith: [],
-	actions: [{ id: "act", description: "Act", params: [], requiresReasoning: false, filePatterns: [], validators: [] }],
-	moduleValidators: [],
+	recipes: [{ id: "act", description: "Act", params: [], requiresReasoning: false, filePatterns: [], validators: [] }],
+	packValidators: [],
 }
 `,
 		)
-		writeFileSync(join(actionDir, "action.ts"), "export const actAction = {}\n")
+		writeFileSync(join(recipeDir, "recipe.ts"), "export const actRecipe = {}\n")
 
 		// Do NOT create anything under ~/.local/share/baka (the stale path).
 
-		const reg = new ModuleRegistry(projectCwd)
-		const { modules } = reg.discover()
+		const reg = new PackRegistry(projectCwd)
+		const { packs } = reg.discover()
 
-		// If registry read the correct user-scope path, the module is found.
-		expect(modules.map((m) => m.name)).toContain("battle-user-mod")
+		// If registry read the correct user-scope path, the pack is found.
+		expect(packs.map((m) => m.name)).toContain("battle-user-mod")
 	})
 })

@@ -1,6 +1,6 @@
 // Contract tests for the protocol constants. These values are part of the
 // public surface: the CLI maps engine outcomes onto BAKA_EXIT_CODE, docs and
-// error messages reference MODULE_CATEGORY, and the engine state machine is
+// error messages reference PACK_CATEGORY, and the engine state machine is
 // ENGINE_STATUS. The tests pin the documented values so a silent renumber
 // or rename is caught here, not by a user reading an exit code.
 
@@ -11,7 +11,7 @@ import {
 	BAKA_PROJECT_PATHS,
 	BAKA_USER_DIR,
 	ENGINE_STATUS,
-	MODULE_CATEGORY,
+	PACK_CATEGORY,
 } from "./constants"
 
 describe("BAKA_EXIT_CODE", () => {
@@ -56,8 +56,8 @@ describe("path constants", () => {
 	})
 })
 
-describe("MODULE_CATEGORY", () => {
+describe("PACK_CATEGORY", () => {
 	it("reserves the documented category vocabulary", () => {
-		expect(Object.values(MODULE_CATEGORY).sort()).toEqual(["auth", "base", "data", "framework", "pattern", "ui"].sort())
+		expect(Object.values(PACK_CATEGORY).sort()).toEqual(["auth", "base", "data", "framework", "pattern", "ui"].sort())
 	})
 })

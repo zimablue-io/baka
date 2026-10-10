@@ -1,5 +1,5 @@
-// Boundary tests for the baka-sdk public surface. Module authors import only
-// from this package, so these tests exercise exactly what a module sees:
+// Boundary tests for the baka-sdk public surface. Pack authors import only
+// from this package, so these tests exercise exactly what a pack sees:
 //   - the WorkflowStep contract (execute/compensate) as the engine drives it
 //   - callLLMAsValidator, the one-shot validator-role LLM helper, against a
 //     real local HTTP server (no mocks): config load, wire shape, schema
@@ -139,7 +139,7 @@ function startFakeLLM(content: unknown): Promise<{ url: string; requests: Captur
 // WorkflowStep contract
 // ---------------------------------------------------------------------------
 
-describe("WorkflowStep boundary (the module author contract)", () => {
+describe("WorkflowStep boundary (the pack author contract)", () => {
 	interface WriteFileInput {
 		relativePath: string
 		content: string

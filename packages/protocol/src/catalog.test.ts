@@ -1,13 +1,13 @@
 // Contract tests for the catalog schemas and the built-in catalog.
-// Production BUILT_IN_CATALOG is empty until a module is productized.
+// Production BUILT_IN_CATALOG is empty until a pack is productized.
 
 import { describe, expect, it } from "vitest"
 import { BUILT_IN_CATALOG } from "./built-in-catalog"
 import {
 	AggregateRequestSchema,
-	ApiModuleEntrySchema,
+	ApiPackEntrySchema,
 	CatalogSchema,
-	ModuleEntrySchema,
+	PackEntrySchema,
 	TIER_VALUES,
 	type Tier,
 } from "./catalog"
@@ -19,7 +19,7 @@ const validManifest = {
 	description: "Acme-flavored Better-Auth setup",
 	dependencies: [],
 	conflictsWith: [],
-	actions: [
+	recipes: [
 		{
 			id: "install",
 			description: "Install Better-Auth with Acme defaults",
@@ -29,14 +29,14 @@ const validManifest = {
 			validators: [],
 		},
 	],
-	moduleValidators: [],
+	packValidators: [],
 }
 
 const validOwner = { name: "Acme" }
 
-describe("ModuleEntrySchema", () => {
-	it("accepts a valid module entry", () => {
-		const result = ModuleEntrySchema.safeParse({
+describe("PackEntrySchema", () => {
+	it("accepts a valid pack entry", () => {
+		const result = PackEntrySchema.safeParse({
 			...validManifest,
 			source: "git:github.com/acme/baka-acme-auth@v1.0.0",
 		})
@@ -44,21 +44,21 @@ describe("ModuleEntrySchema", () => {
 	})
 
 	it("rejects an entry without a source", () => {
-		const result = ModuleEntrySchema.safeParse({ ...validManifest })
+		const result = PackEntrySchema.safeParse({ ...validManifest })
 		expect(result.success).toBe(false)
 	})
 
-	it("rejects an entry with empty actions", () => {
-		const result = ModuleEntrySchema.safeParse({
+	it("rejects an entry with empty recipes", () => {
+		const result = PackEntrySchema.safeParse({
 			...validManifest,
-			actions: [],
+			recipes: [],
 			source: "git:github.com/acme/baka-acme-auth",
 		})
 		expect(result.success).toBe(false)
 	})
 
 	it("accepts an entry with valid visual metadata", () => {
-		const result = ModuleEntrySchema.safeParse({
+		const result = PackEntrySchema.safeParse({
 			...validManifest,
 			source: "git:github.com/acme/baka-acme-auth",
 			icon: "https://acme.com/icon.svg",
@@ -68,7 +68,7 @@ describe("ModuleEntrySchema", () => {
 	})
 
 	it("rejects an entry with an invalid accent color", () => {
-		const result = ModuleEntrySchema.safeParse({
+		const result = PackEntrySchema.safeParse({
 			...validManifest,
 			source: "git:github.com/acme/baka-acme-auth",
 			accent: "yellow", // not a hex color
@@ -78,7 +78,7 @@ describe("ModuleEntrySchema", () => {
 
 	it("accepts short and long hex accent colors", () => {
 		for (const accent of ["#F5E6A8", "#FFF", "#F5E6A880"]) {
-			const result = ModuleEntrySchema.safeParse({
+			const result = PackEntrySchema.safeParse({
 				...validManifest,
 				source: "git:github.com/acme/baka-acme-auth",
 				accent,
@@ -93,10 +93,10 @@ describe("CatalogSchema", () => {
 		$schema: "https://baka.foo/schemas/catalog.v1.json",
 		name: "acme-catalog",
 		version: "1.0.0",
-		description: "Acme's baka modules",
+		description: "Acme's baka packs",
 		owner: validOwner,
 		homepage: "https://github.com/acme/baka-catalog",
-		modules: [
+		packs: [
 			{
 				...validManifest,
 				source: "git:github.com/acme/baka-acme-auth@v1.0.0",
@@ -122,15 +122,15 @@ describe("CatalogSchema", () => {
 		void owner // silence unused
 	})
 
-	it("accepts a catalog with an empty modules array (publish a shell first)", () => {
-		const result = CatalogSchema.safeParse({ ...validCatalog, modules: [] })
+	it("accepts a catalog with an empty packs array (publish a shell first)", () => {
+		const result = CatalogSchema.safeParse({ ...validCatalog, packs: [] })
 		expect(result.success).toBe(true)
 	})
 
-	it("rejects a module with malformed marketplace fields", () => {
+	it("rejects a pack with malformed marketplace fields", () => {
 		const result = CatalogSchema.safeParse({
 			...validCatalog,
-			modules: [
+			packs: [
 				{
 					...validManifest,
 					source: "git:github.com/acme/baka-acme-auth",
@@ -142,9 +142,9 @@ describe("CatalogSchema", () => {
 	})
 })
 
-describe("ApiModuleEntrySchema", () => {
-	it("attaches a tier to a valid module entry", () => {
-		const result = ApiModuleEntrySchema.safeParse({
+describe("ApiPackEntrySchema", () => {
+	it("attaches a tier to a valid pack entry", () => {
+		const result = ApiPackEntrySchema.safeParse({
 			...validManifest,
 			source: "git:github.com/acme/baka-acme-auth",
 			tier: "verified",
@@ -156,7 +156,7 @@ describe("ApiModuleEntrySchema", () => {
 	})
 
 	it("rejects an entry without a tier", () => {
-		const result = ApiModuleEntrySchema.safeParse({
+		const result = ApiPackEntrySchema.safeParse({
 			...validManifest,
 			source: "git:github.com/acme/baka-acme-auth",
 		})
@@ -164,7 +164,7 @@ describe("ApiModuleEntrySchema", () => {
 	})
 
 	it("rejects an entry with an unknown tier", () => {
-		const result = ApiModuleEntrySchema.safeParse({
+		const result = ApiPackEntrySchema.safeParse({
 			...validManifest,
 			source: "git:github.com/acme/baka-acme-auth",
 			tier: "official", // not in TIER_VALUES
@@ -204,7 +204,7 @@ describe("AggregateRequestSchema", () => {
 })
 
 describe("BUILT_IN_CATALOG", () => {
-	it("does not ship example modules as the product catalog", () => {
-		expect(BUILT_IN_CATALOG.modules).toEqual([])
+	it("does not ship example packs as the product catalog", () => {
+		expect(BUILT_IN_CATALOG.packs).toEqual([])
 	})
 })

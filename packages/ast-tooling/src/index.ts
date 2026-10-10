@@ -8,24 +8,22 @@
 // `allowImportingTsExtensions` would allow `.ts`, but the runtime consumers
 // (jiti, vitest, tsup) all resolve `.js` against the on-disk `.ts` source.
 
-export type { ActionValidatorFn, LoadedAction, ModuleValidatorFn } from "./action-loader.js"
-export { loadAction, loadActionValidator, loadModuleValidator } from "./action-loader.js"
 export type { ConsistencyOptions, ConsistencyResult, PerRunResult } from "./consistency.js"
 export { cleanupConsistency, runConsistencyTest } from "./consistency.js"
-export type { Catalog, CatalogAction, CatalogModule, ValidateResult } from "./describe-modules.js"
-export { describeModules, ModuleNotFoundError, validateProject } from "./describe-modules.js"
-export { ActionError } from "./errors.js"
-export { createLock, lockfilePath, pinModule, readLockfile, verifyPin, writeLockfile } from "./lock.js"
+export type { Catalog, CatalogPack, CatalogRecipe, ValidateResult } from "./describe-packs.js"
+export { describePacks, PackNotFoundError, validateProject } from "./describe-packs.js"
+export { RecipeError } from "./errors.js"
+export { createLock, lockfilePath, pinPack, readLockfile, verifyPin, writeLockfile } from "./lock.js"
 export type { PlannedFile, PlanTemplatesOptions, TemplatePlan } from "./materialize.js"
 export { applyPlan, fillSlot, planTemplates, revertFiles } from "./materialize.js"
 export {
-	MODULE_DIRS_ENV,
-	MODULE_DIRS_SETTING,
-	ModuleDirsError,
-	moduleDirsFromEnv,
-	moduleDirsFromSettings,
-	resolveModuleDirs,
-} from "./module-dirs.js"
+	PACK_DIRS_ENV,
+	PACK_DIRS_SETTING,
+	PackDirsError,
+	packDirsFromEnv,
+	packDirsFromSettings,
+	resolvePackDirs,
+} from "./pack-dirs.js"
 export type {
 	BakaSettings,
 	InstallOptions,
@@ -39,25 +37,27 @@ export {
 	installSource,
 	listInstalledPackages,
 	parseSource,
-	projectModulesDir,
+	projectPacksDir,
 	projectSettingsPath,
 	readProjectSettings,
 	readUserSettings,
 	removeSource,
-	userModulesDir,
+	userPacksDir,
 	userSettingsPath,
 	verifyTarballIntegrity,
 } from "./package-manager.js"
 export type { SavedPlan } from "./plan-io.js"
 export { listPlans, loadPlan, plansDir, savePlan } from "./plan-io.js"
-export type { ModuleRegistryOptions } from "./registry.js"
-export { ModuleRegistry, validatorFilename } from "./registry.js"
-export type { CompensateActionInput, RunActionInput } from "./run-action.js"
-export { compensateAction, listActionSlots, previewAction, resolveAction, runAction } from "./run-action.js"
+export type { LoadedRecipe, PackValidatorFn, RecipeValidatorFn } from "./recipe-loader.js"
+export { loadPackValidator, loadRecipe, loadRecipeValidator } from "./recipe-loader.js"
+export type { PackRegistryOptions } from "./registry.js"
+export { PackRegistry, validatorFilename } from "./registry.js"
+export type { CompensateRecipeInput, RunRecipeInput } from "./run-recipe.js"
+export { compensateRecipe, listRecipeSlots, previewRecipe, resolveRecipe, runRecipe } from "./run-recipe.js"
 export type { CompletedStep, SagaResult, SagaStep } from "./saga.js"
-export { ranActions, runSaga } from "./saga.js"
+export { ranRecipes, runSaga } from "./saga.js"
 export type { SdkImportFinding } from "./sdk-imports.js"
-export { findModuleSdkImports, findRuntimeSdkImports } from "./sdk-imports.js"
+export { findPackSdkImports, findRuntimeSdkImports } from "./sdk-imports.js"
 export type { SlotCacheRecord, SlotStore } from "./slot-cache.js"
 export {
 	createDiskSlotStore,
@@ -70,7 +70,7 @@ export {
 export {
 	canonicalJson,
 	hashBytes,
-	parseActionTemplates,
+	parseRecipeTemplates,
 	parseSlots,
 	renderTemplate,
 	SlotTemplateError,
@@ -80,8 +80,8 @@ export {
 } from "./slots.js"
 export type { LogEntry, LogLevel } from "./structured-log.js"
 export { StructuredLog } from "./structured-log.js"
-export { compareUtf8, diffSnapshots, moduleContentHash, outputTreeHash, sha256Hex, snapshotTree } from "./tree-hash.js"
-export type { RanAction, ValidationScope } from "./validator.js"
+export { compareUtf8, diffSnapshots, outputTreeHash, packContentHash, sha256Hex, snapshotTree } from "./tree-hash.js"
+export type { RanRecipe, ValidationScope } from "./validator.js"
 export { runValidators } from "./validator.js"
 export type { WorkerInput, WorkerRollbackData } from "./worker.js"
 export { executeWorkerStep } from "./worker.js"

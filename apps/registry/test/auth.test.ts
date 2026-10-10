@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { type AuthTestStack, buildAuthTestStack, seedModule } from "./auth-helper"
+import { type AuthTestStack, buildAuthTestStack, seedPack } from "./auth-helper"
 
 /**
  * Auth feature integration tests (architecture §4.4, validation contract
@@ -102,39 +102,39 @@ describe("VAL-AUTH-003 — unauthenticated reads follow visibility rules", () =>
 	let stack: AuthTestStack
 	beforeEach(async () => {
 		stack = await buildAuthTestStack()
-		await seedModule(stack, {
+		await seedPack(stack, {
 			scope: "acme",
 			name: "public-widget",
 			visibility: "public",
-			description: "a public module",
+			description: "a public pack",
 		})
-		await seedModule(stack, {
+		await seedPack(stack, {
 			scope: "acme",
 			name: "private-widget",
 			visibility: "org",
-			description: "an org-only module",
+			description: "an org-only pack",
 		})
 	})
 	afterEach(async () => {
 		await stack.close()
 	})
 
-	it("GET /v1/modules/:scope/:name on a public module returns 200 without credentials", async () => {
-		const res = await stack.app.request("/v1/modules/acme/public-widget")
+	it("GET /v1/packs/:scope/:name on a public pack returns 200 without credentials", async () => {
+		const res = await stack.app.request("/v1/packs/acme/public-widget")
 		expect(res.status).toBe(200)
 		const body = (await res.json()) as { visibility?: string }
 		expect(body.visibility).toBe("public")
 	})
 
-	it("GET /v1/modules/:scope/:name on an org-visibility module returns 404 without credentials (no existence leak)", async () => {
-		const res = await stack.app.request("/v1/modules/acme/private-widget")
+	it("GET /v1/packs/:scope/:name on an org-visibility pack returns 404 without credentials (no existence leak)", async () => {
+		const res = await stack.app.request("/v1/packs/acme/private-widget")
 		expect(res.status).toBe(404)
 		const body = (await res.json()) as { error?: string }
 		expect(typeof body.error).toBe("string")
 	})
 
-	it("GET /v1/modules/:scope/:name on a missing module returns 404 (same shape as the hidden-private case)", async () => {
-		const res = await stack.app.request("/v1/modules/acme/does-not-exist")
+	it("GET /v1/packs/:scope/:name on a missing pack returns 404 (same shape as the hidden-private case)", async () => {
+		const res = await stack.app.request("/v1/packs/acme/does-not-exist")
 		expect(res.status).toBe(404)
 	})
 })

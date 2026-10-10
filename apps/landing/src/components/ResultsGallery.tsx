@@ -73,7 +73,7 @@ export function ResultsGallery() {
 	if (rows.length === 0) {
 		return (
 			<section className="mx-auto max-w-6xl px-6 py-16" data-testid="results-empty">
-				<p className="text-neutral-400">No published modules yet. Publish with `baka publish`.</p>
+				<p className="text-neutral-400">No published packs yet. Publish with `baka publish`.</p>
 			</section>
 		)
 	}
@@ -88,7 +88,7 @@ export function ResultsGallery() {
 			<ul className="mt-8 space-y-6">
 				{rows.map((row) => (
 					<li key={`${row.scope}/${row.name}`} className="rounded-lg border border-neutral-800 p-4">
-						<a className="font-mono text-neutral-100" href={`/modules/${row.scope}/${row.name}`}>
+						<a className="font-mono text-neutral-100" href={`/packs/${row.scope}/${row.name}`}>
 							@{row.scope}/{row.name}@{row.version}
 						</a>
 						<ul className="mt-3 space-y-1 text-sm text-neutral-400">
@@ -96,8 +96,8 @@ export function ResultsGallery() {
 								<li>no preview available</li>
 							) : (
 								row.previews.map((p) => (
-									<li key={p.actionId}>
-										<span className="font-mono text-neutral-300">{p.actionId}</span>
+									<li key={p.recipeId}>
+										<span className="font-mono text-neutral-300">{p.recipeId}</span>
 										{p.state === "needs-llm" ? (
 											<span> — LLM slots are labeled holes (fill on gemma4:e4b)</span>
 										) : (

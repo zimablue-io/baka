@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs"
 import {
 	listInstalledPackages,
-	projectModulesDir,
+	projectPacksDir,
 	projectSettingsPath,
 	removeSource,
-	userModulesDir,
+	userPacksDir,
 	userSettingsPath,
 } from "@repo/ast-tooling"
 import { BAKA_EXIT_CODE } from "@repo/protocol"
@@ -22,7 +22,7 @@ import { BAKA_EXIT_CODE } from "@repo/protocol"
  * (decision 4).
  *
  * Removal flow: `baka remove <source>` strips the project or user
- * scope entry plus its materialized module dir.
+ * scope entry plus its materialized pack dir.
  */
 
 function die(code: number, msg: string): never {
@@ -32,13 +32,13 @@ function die(code: number, msg: string): never {
 
 /**
  * `baka remove <source>` — strips the project or user scope entry
- * plus its materialized module dir.
+ * plus its materialized pack dir.
  */
 export function runRemoveCommand(source: string, opts: { cwd: string; scope: "project" | "user" }): void {
 	if (!source) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka remove <source>")
 	const settingsPath = opts.scope === "project" ? projectSettingsPath(opts.cwd) : userSettingsPath()
-	const modulesDir = opts.scope === "project" ? projectModulesDir(opts.cwd) : userModulesDir()
-	const result = removeSource(source, { settingsPath, modulesDir })
+	const packsDir = opts.scope === "project" ? projectPacksDir(opts.cwd) : userPacksDir()
+	const result = removeSource(source, { settingsPath, packsDir })
 	if (!result.removed) {
 		die(BAKA_EXIT_CODE.USER_ERROR, `source not in ${opts.scope} settings: ${source}`)
 	}
@@ -56,10 +56,10 @@ export function runListPackagesCommand(cwd: string): void {
 	}
 	console.log(`\n${pkgs.length} package(s):\n`)
 	for (const p of pkgs) {
-		const exists = existsSync(p.modulePath)
-		console.log(`  [${p.scope}] ${p.moduleName}`)
+		const exists = existsSync(p.packPath)
+		console.log(`  [${p.scope}] ${p.packName}`)
 		console.log(`    source: ${p.source}`)
-		console.log(`    path:   ${p.modulePath}${exists ? "" : " (not materialized)"}`)
+		console.log(`    path:   ${p.packPath}${exists ? "" : " (not materialized)"}`)
 	}
 	console.log("")
 }

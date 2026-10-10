@@ -54,24 +54,24 @@ describe("stale ingesting sweep (VAL-PUB-028)", () => {
 
 	async function pinRow(status: string, updatedAtSql: string, version: string = "v1.0.0"): Promise<string> {
 		const modRes = await pglite.query<{ id: string }>(
-			`INSERT INTO modules (scope, name, visibility, tier, description)
+			`INSERT INTO packs (scope, name, visibility, tier, description)
 			   VALUES ('acme', 'sweep-mod', 'org', 'community-unverified', '')
 			 ON CONFLICT (scope, name) DO UPDATE SET updated_at = NOW()
 			 RETURNING id`,
 		)
-		const moduleId = modRes.rows[0]?.id ?? ""
+		const packId = modRes.rows[0]?.id ?? ""
 		const vRes = await pglite.query<{ id: string }>(
-			`INSERT INTO module_versions (module_id, version, commit_sha, content_hash, manifest, status, error, created_at, updated_at)
+			`INSERT INTO pack_versions (pack_id, version, commit_sha, content_hash, manifest, status, error, created_at, updated_at)
 			   VALUES ($1, $4, 'abc', '', $2::jsonb, $3, NULL, ${updatedAtSql}, ${updatedAtSql})
 			 RETURNING id`,
 			[
-				moduleId,
+				packId,
 				JSON.stringify({
 					name: "@acme/sweep-mod",
 					version: "1.0.0",
 					description: "x",
-					actions: [],
-					moduleValidators: [],
+					recipes: [],
+					packValidators: [],
 				}),
 				status,
 				version,
@@ -88,9 +88,7 @@ describe("stale ingesting sweep (VAL-PUB-028)", () => {
 			const result = await bootSweepIngestingRows(pglite)
 			expect(result.rowsReset).toBe(1)
 
-			const row = await pglite.query<{ status: string }>(`SELECT status FROM module_versions WHERE id = $1`, [
-				versionId,
-			])
+			const row = await pglite.query<{ status: string }>(`SELECT status FROM pack_versions WHERE id = $1`, [versionId])
 			expect(row.rows[0]?.status).toBe("pending")
 		})
 
@@ -103,7 +101,7 @@ describe("stale ingesting sweep (VAL-PUB-028)", () => {
 			expect(result.rowsReset).toBe(3)
 
 			const rows = await pglite.query<{ id: string; status: string }>(
-				`SELECT id, status FROM module_versions WHERE id = ANY($1::uuid[])`,
+				`SELECT id, status FROM pack_versions WHERE id = ANY($1::uuid[])`,
 				[[fresh, recent, stale]],
 			)
 			for (const row of rows.rows) {
@@ -114,7 +112,7 @@ describe("stale ingesting sweep (VAL-PUB-028)", () => {
 		it("does NOT touch `pending` rows (the boot sweep only recovers orphans, not new work)", async () => {
 			const pending = await pinRow("pending", "NOW()", "v1.0.0")
 			await bootSweepIngestingRows(pglite)
-			const row = await pglite.query<{ status: string }>(`SELECT status FROM module_versions WHERE id = $1`, [pending])
+			const row = await pglite.query<{ status: string }>(`SELECT status FROM pack_versions WHERE id = $1`, [pending])
 			expect(row.rows[0]?.status).toBe("pending")
 		})
 
@@ -123,7 +121,7 @@ describe("stale ingesting sweep (VAL-PUB-028)", () => {
 			const failed = await pinRow("failed", "NOW()", "v1.0.1")
 			await bootSweepIngestingRows(pglite)
 			const rows = await pglite.query<{ id: string; status: string }>(
-				`SELECT id, status FROM module_versions WHERE id = ANY($1::uuid[])`,
+				`SELECT id, status FROM pack_versions WHERE id = ANY($1::uuid[])`,
 				[[ready, failed]],
 			)
 			for (const row of rows.rows) {
@@ -146,9 +144,7 @@ describe("stale ingesting sweep (VAL-PUB-028)", () => {
 			const result = await sweepStaleIngestingRows(pglite)
 			expect(result.staleThresholdMs).toBeLessThanOrEqual(120_000)
 			expect(result.rowsReset).toBe(1)
-			const row = await pglite.query<{ status: string }>(`SELECT status FROM module_versions WHERE id = $1`, [
-				versionId,
-			])
+			const row = await pglite.query<{ status: string }>(`SELECT status FROM pack_versions WHERE id = $1`, [versionId])
 			expect(row.rows[0]?.status).toBe("pending")
 		})
 
@@ -168,9 +164,7 @@ describe("stale ingesting sweep (VAL-PUB-028)", () => {
 			const result = await sweepStaleIngestingRows(pglite)
 			expect(result.staleThresholdMs).toBe(1_000)
 			expect(result.rowsReset).toBe(1)
-			const row = await pglite.query<{ status: string }>(`SELECT status FROM module_versions WHERE id = $1`, [
-				versionId,
-			])
+			const row = await pglite.query<{ status: string }>(`SELECT status FROM pack_versions WHERE id = $1`, [versionId])
 			expect(row.rows[0]?.status).toBe("pending")
 		})
 
@@ -191,9 +185,7 @@ describe("stale ingesting sweep (VAL-PUB-028)", () => {
 			const result = await sweepStaleIngestingRows(pglite)
 			expect(result.staleThresholdMs).toBeLessThanOrEqual(120_000)
 			expect(result.rowsReset).toBe(1)
-			const row = await pglite.query<{ status: string }>(`SELECT status FROM module_versions WHERE id = $1`, [
-				versionId,
-			])
+			const row = await pglite.query<{ status: string }>(`SELECT status FROM pack_versions WHERE id = $1`, [versionId])
 			expect(row.rows[0]?.status).toBe("pending")
 		})
 	})

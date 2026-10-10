@@ -1,5 +1,5 @@
-// MCP server against project-local fixture modules (honest-mod, slot-mod).
-// No shipped catalog. No per-action tools.
+// MCP server against project-local fixture packs (honest-mod, slot-mod).
+// No shipped catalog. No per-recipe tools.
 
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -40,13 +40,13 @@ describe("baka-mcp: tools/list", () => {
 		expect(names).toContain("baka_plan")
 		expect(names).toContain("baka_apply")
 		expect(names).toContain("baka_validate")
-		expect(names).toContain("baka_list_actions")
+		expect(names).toContain("baka_list_recipes")
 		expect(names).toContain("baka_run")
 		expect(names).toContain("baka_slots")
 		expect(names).toContain("baka_fill")
 	})
 
-	test("does not expose per-action tools", async () => {
+	test("does not expose per-recipe tools", async () => {
 		const { tools } = await client.listTools()
 		const names = tools.map((t) => t.name)
 		expect(names.filter((n) => n.startsWith("baka_honest_mod_"))).toEqual([])
@@ -56,68 +56,68 @@ describe("baka-mcp: tools/list", () => {
 })
 
 describe("baka-mcp: resources", () => {
-	test("advertises baka://modules and the module-manifest template", async () => {
+	test("advertises baka://packs and the pack-manifest template", async () => {
 		const { resources } = await client.listResources()
-		expect(resources.map((r) => r.uri)).toContain("baka://modules")
+		expect(resources.map((r) => r.uri)).toContain("baka://packs")
 		const { resourceTemplates } = await client.listResourceTemplates()
-		expect(resourceTemplates.map((t) => t.uriTemplate)).toContain("baka://module/{name}/manifest")
+		expect(resourceTemplates.map((t) => t.uriTemplate)).toContain("baka://pack/{name}/manifest")
 	})
 
-	test("baka://modules lists the fixture modules", async () => {
-		const result = await client.readResource({ uri: "baka://modules" })
+	test("baka://packs lists the fixture packs", async () => {
+		const result = await client.readResource({ uri: "baka://packs" })
 		const parsed = JSON.parse(result.contents[0]?.text ?? "") as {
-			modules: Array<{ name: string; actions: Array<{ id: string; paramsSchema: { type: string } }> }>
+			packs: Array<{ name: string; recipes: Array<{ id: string; paramsSchema: { type: string } }> }>
 			resultSchema: { properties: Record<string, unknown> }
 		}
-		const listed = parsed.modules.find((m) => m.name === "honest-mod")
-		expect(listed?.actions.length).toBeGreaterThan(0)
-		expect(listed?.actions[0]?.paramsSchema.type).toBe("object")
+		const listed = parsed.packs.find((m) => m.name === "honest-mod")
+		expect(listed?.recipes.length).toBeGreaterThan(0)
+		expect(listed?.recipes[0]?.paramsSchema.type).toBe("object")
 		expect(parsed.resultSchema.properties).toHaveProperty("changeset")
 	})
 
-	test("baka://module/honest-mod/manifest returns the write action", async () => {
-		const result = await client.readResource({ uri: "baka://module/honest-mod/manifest" })
+	test("baka://pack/honest-mod/manifest returns the write recipe", async () => {
+		const result = await client.readResource({ uri: "baka://pack/honest-mod/manifest" })
 		const manifest = JSON.parse(result.contents[0]?.text ?? "") as {
 			name: string
-			actions: Array<{ id: string }>
+			recipes: Array<{ id: string }>
 		}
 		expect(manifest.name).toBe("honest-mod")
-		expect(manifest.actions.map((a) => a.id)).toContain("write")
+		expect(manifest.recipes.map((a) => a.id)).toContain("write")
 	})
 })
 
 describe("baka-mcp: tools/call", () => {
-	test("baka_list_actions returns honest-mod/write", async () => {
-		const result = await client.callTool({ name: "baka_list_actions", arguments: { module: "honest-mod" } })
+	test("baka_list_recipes returns honest-mod/write", async () => {
+		const result = await client.callTool({ name: "baka_list_recipes", arguments: { pack: "honest-mod" } })
 		const parsed = JSON.parse((result.content[0] as { text: string }).text) as {
-			module: string
-			actions: Array<{ id: string }>
+			pack: string
+			recipes: Array<{ id: string }>
 		}
-		expect(parsed.module).toBe("honest-mod")
-		expect(parsed.actions.some((a) => a.id === "write")).toBe(true)
+		expect(parsed.pack).toBe("honest-mod")
+		expect(parsed.recipes.some((a) => a.id === "write")).toBe(true)
 	})
 
-	test("baka_list_actions is an error for an unknown module", async () => {
-		const result = await client.callTool({ name: "baka_list_actions", arguments: { module: "does-not-exist" } })
+	test("baka_list_recipes is an error for an unknown pack", async () => {
+		const result = await client.callTool({ name: "baka_list_recipes", arguments: { pack: "does-not-exist" } })
 		expect(result.isError).toBe(true)
-		expect((result.content[0] as { text: string }).text).toMatch(/module "does-not-exist" not found/)
+		expect((result.content[0] as { text: string }).text).toMatch(/pack "does-not-exist" not found/)
 	})
 
 	test("baka_validate returns a pass/fail payload", async () => {
 		const result = await client.callTool({ name: "baka_validate", arguments: {} })
 		const parsed = JSON.parse((result.content[0] as { text: string }).text) as {
-			modulesDiscovered: number
+			packsDiscovered: number
 			validation: { kind: "pass" | "fail" }
 		}
-		expect(parsed.modulesDiscovered).toBeGreaterThan(0)
+		expect(parsed.packsDiscovered).toBeGreaterThan(0)
 		expect(["pass", "fail"]).toContain(parsed.validation.kind)
 	})
 })
 
 describe("baka-mcp: prompts/list", () => {
-	test("advertises baka_design_module", async () => {
+	test("advertises baka_design_pack", async () => {
 		const { prompts } = await client.listPrompts()
-		expect(prompts.map((p) => p.name)).toContain("baka_design_module")
+		expect(prompts.map((p) => p.name)).toContain("baka_design_pack")
 	})
 })
 

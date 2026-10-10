@@ -30,7 +30,7 @@ import {
  * map. The CLI writes it via `writeRegistryCredential`; the MCP
  * reads it verbatim. A missing or corrupt config degrades to "no
  * credentials stored" — anonymous registry reads for `public`
- * modules still succeed (decision 23: previews of public modules
+ * packs still succeed (decision 23: previews of public packs
  * are served without authentication), and `org`-visibility reads
  * fail honestly with the registry's 401/404 instead of crashing
  * the server.

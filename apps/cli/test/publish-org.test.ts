@@ -10,14 +10,14 @@
 //
 // Coverage map (per `validation-contract.md`):
 //
-//   VAL-DISC-006  publish a public module end-to-end: status polling prints
+//   VAL-DISC-006  publish a public pack end-to-end: status polling prints
 //                  the terminal state with the pinned commit sha
 //   VAL-DISC-007  publish without credentials refuses before any network
-//                  mutation; no new module_versions row appears
+//                  mutation; no new pack_versions row appears
 //   VAL-DISC-008  publish with insufficient org role (member, not owner)
 //                  exits non-zero with the 403 surfaced honestly
-//   VAL-DISC-009  publish of an unloadable action reaches `failed` with the
-//                  loadability diagnostic naming the failing action
+//   VAL-DISC-009  publish of an unloadable recipe reaches `failed` with the
+//                  loadability diagnostic naming the failing recipe
 //   VAL-DISC-014  org create / list / invite round-trip + honest duplicate-
 //                  slug + unknown-invitee failures
 //   VAL-CROSS-003 org create via documented CLI flow lands a slug the API
@@ -231,8 +231,8 @@ async function fixtureOkRepo(): Promise<GitFixture> {
 	await fx.commitManifest({
 		name: "@acme/widget",
 		version: "1.0.0",
-		description: "an ok module for the publish-org tests",
-		actions: [
+		description: "an ok pack for the publish-org tests",
+		recipes: [
 			{
 				id: "noop",
 				description: "no-op",
@@ -251,11 +251,11 @@ async function fixtureUnloadableRepo(): Promise<GitFixture> {
 	await fx.commitManifest({
 		name: "@acme/unloadable",
 		version: "1.0.0",
-		description: "an unloadable module (loadable:false on the action)",
-		actions: [
+		description: "an unloadable pack (loadable:false on the recipe)",
+		recipes: [
 			{
 				id: "broken",
-				description: "broken action",
+				description: "broken recipe",
 				filePatterns: [],
 				requiresReasoning: false,
 				loadable: false,
@@ -272,7 +272,7 @@ async function fixtureUnloadableRepo(): Promise<GitFixture> {
 // ---------------------------------------------------------------------------
 
 describe("VAL-DISC-007 publish without credentials refuses before any network mutation", () => {
-	it("exits 1 with an honest re-login message; no module_versions row appears", async () => {
+	it("exits 1 with an honest re-login message; no pack_versions row appears", async () => {
 		const bakaHome = makeIsolatedHome("baka-puborg-nocred-")
 		const cwd = makeIsolatedHome("baka-puborg-nocred-proj-")
 		const env = { BAKA_HOME: bakaHome }
@@ -288,16 +288,13 @@ describe("VAL-DISC-007 publish without credentials refuses before any network mu
 		expect(res.stderr).toContain("baka registry login")
 		expect(res.stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
 
-		// No module_versions row was created: the catalog list does
+		// No pack_versions row was created: the catalog list does
 		// not contain `@acme/widget`. The CLI never reached the
 		// publish endpoint at all (no network mutation).
-		const catalogRes = await fetch(`${creds.baseUrl}/v1/modules`)
-		const catalog = (await catalogRes.json()) as { modules: Array<{ scope: string; name: string }> }
-		const found = catalog.modules.find((m) => m.scope === "acme" && m.name === "widget")
-		expect(
-			found,
-			"the published module must not appear in the catalog when no credential is configured",
-		).toBeUndefined()
+		const catalogRes = await fetch(`${creds.baseUrl}/v1/packs`)
+		const catalog = (await catalogRes.json()) as { packs: Array<{ scope: string; name: string }> }
+		const found = catalog.packs.find((m) => m.scope === "acme" && m.name === "widget")
+		expect(found, "the published pack must not appear in the catalog when no credential is configured").toBeUndefined()
 	}, 90_000)
 })
 
@@ -328,11 +325,11 @@ describe("VAL-DISC-008 publish with insufficient org role refuses truthfully", (
 })
 
 // ---------------------------------------------------------------------------
-// VAL-DISC-009 — unloadable action reaches `failed` with diagnostics
+// VAL-DISC-009 — unloadable recipe reaches `failed` with diagnostics
 // ---------------------------------------------------------------------------
 
-describe("VAL-DISC-009 publish of an unloadable action reports `failed` with the diagnostic naming the failing action", () => {
-	it("exits non-zero with the ingest worker error naming the unloadable action id", async () => {
+describe("VAL-DISC-009 publish of an unloadable recipe reports `failed` with the diagnostic naming the failing recipe", () => {
+	it("exits non-zero with the ingest worker error naming the unloadable recipe id", async () => {
 		const bakaHome = makeIsolatedHome("baka-puborg-unload-")
 		const cwd = makeIsolatedHome("baka-puborg-unload-proj-")
 		const env = { BAKA_HOME: bakaHome }
@@ -347,18 +344,18 @@ describe("VAL-DISC-009 publish of an unloadable action reports `failed` with the
 		expect(res.code, `unloadable publish: stdout=${res.stdout}; stderr=${res.stderr}`).not.toBe(0)
 		// The CLI prints the terminal status (failed) and the ingest
 		// diagnostic. The exact error string comes from the worker;
-		// the contract requires the failing action id to appear.
+		// the contract requires the failing recipe id to appear.
 		const combined = `${res.stdout}\n${res.stderr}`
 		expect(combined).toMatch(/failed/i)
-		// The loadability gate names the action id `broken` — the
-		// unloadable action declared in the fixture manifest.
+		// The loadability gate names the recipe id `broken` — the
+		// unloadable recipe declared in the fixture manifest.
 		expect(combined).toMatch(/broken|loadab/i)
 
 		// The DB row reached `failed`; no `ready` installable
-		// pointer exists for the module. Query with the owner key so
+		// pointer exists for the pack. Query with the owner key so
 		// the org-visibility filter does not turn the read into a
 		// uniform 404 (VAL-AUTH-003 / VAL-PUB-016).
-		const versionsRes = await fetch(`${creds.baseUrl}/v1/modules/acme/unloadable/versions`, {
+		const versionsRes = await fetch(`${creds.baseUrl}/v1/packs/acme/unloadable/versions`, {
 			headers: { "x-api-key": creds.ownerKey },
 		})
 		const versions = (await versionsRes.json()) as { versions?: Array<{ version: string; status: string }> }
@@ -406,19 +403,19 @@ describe("VAL-DISC-006 publish round-trip polls status and prints the terminal `
 		expect(typeof payload.contentHash).toBe("string")
 		expect(payload.contentHash?.length).toBeGreaterThan(0)
 
-		// The module is now visible in the catalog. We authenticate
-		// the GET because the published module is `visibility=org`
+		// The pack is now visible in the catalog. We authenticate
+		// the GET because the published pack is `visibility=org`
 		// (the default per architecture §8 decision 30) — the
-		// anonymous catalog list excludes org-visibility modules per
+		// anonymous catalog list excludes org-visibility packs per
 		// VAL-AUTH-003 / VAL-PUB-016.
-		const catalogRes = await fetch(`${creds.baseUrl}/v1/modules`, {
+		const catalogRes = await fetch(`${creds.baseUrl}/v1/packs`, {
 			headers: { "x-api-key": creds.ownerKey },
 		})
 		const catalog = (await catalogRes.json()) as {
-			modules: Array<{ scope: string; name: string; latestVersion: string | null }>
+			packs: Array<{ scope: string; name: string; latestVersion: string | null }>
 		}
-		const found = catalog.modules.find((m) => m.scope === "acme" && m.name === "widget")
-		expect(found, "the published module must appear in the catalog list after a successful publish").toBeDefined()
+		const found = catalog.packs.find((m) => m.scope === "acme" && m.name === "widget")
+		expect(found, "the published pack must appear in the catalog list after a successful publish").toBeDefined()
 		expect(found?.latestVersion).toBe("v1.0.0")
 	}, 120_000)
 })

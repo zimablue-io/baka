@@ -3,7 +3,7 @@
 //
 // Prove @baka/core is installable OUTSIDE the workspace: pack it, install the
 // tarball into a fresh scratch project with npm (so nothing resolves through
-// this repo's node_modules), then import it, run a module from a catalog
+// this repo's node_modules), then import it, run a pack from a catalog
 // directory, and type-check a consumer file against its .d.ts.
 //
 //   pnpm build --filter @baka/core && node scripts/verify-core-pack.mjs
@@ -35,7 +35,7 @@ try {
 	writeFileSync(join(project, "package.json"), JSON.stringify({ name: "core-consumer", private: true, type: "module" }))
 	run("npm", ["install", "--no-audit", "--no-fund", join(packDir, tarball), "typescript@5", "@types/node@22"], project)
 
-	// A module in a catalog directory, run against a separate project directory.
+	// A pack in a catalog directory, run against a separate project directory.
 	const catalog = join(project, "catalog")
 	const out = join(project, "out")
 	mkdirSync(join(catalog, "hello", "greet", "templates"), { recursive: true })
@@ -43,19 +43,19 @@ try {
 	writeFileSync(
 		join(catalog, "hello", "manifest.ts"),
 		`export const Manifest = { name: "hello", version: "0.1.0", description: "x", dependencies: [], conflictsWith: [],
-  actions: [{ id: "greet", description: "x", requiresReasoning: false, filePatterns: [], validators: [],
-    params: [{ name: "name", type: "string", required: true, description: "n", format: "slug" }] }], moduleValidators: [] }\n`,
+  recipes: [{ id: "greet", description: "x", requiresReasoning: false, filePatterns: [], validators: [],
+    params: [{ name: "name", type: "string", required: true, description: "n", format: "slug" }] }], packValidators: [] }\n`,
 	)
 	writeFileSync(join(catalog, "hello", "greet", "templates", "{{name}}.md.hbs"), "hello {{name}}\n")
 	writeFileSync(
 		join(project, "smoke.mjs"),
-		`import { createRegistry, describeModules, runAction } from "@baka/core"
-const registry = createRegistry({ root: ${JSON.stringify(out)}, moduleDirs: [${JSON.stringify(catalog)}] })
-const catalog = describeModules(registry)
-if (catalog.modules.length !== 1) throw new Error("catalog not discovered")
-const ok = await runAction({ registry, module: "hello", action: "greet", params: { name: "ada" } })
+		`import { createRegistry, describePacks, runRecipe } from "@baka/core"
+const registry = createRegistry({ root: ${JSON.stringify(out)}, packDirs: [${JSON.stringify(catalog)}] })
+const catalog = describePacks(registry)
+if (catalog.packs.length !== 1) throw new Error("catalog not discovered")
+const ok = await runRecipe({ registry, pack: "hello", recipe: "greet", params: { name: "ada" } })
 if (!ok.ok || ok.changeset[0]?.path !== "ada.md") throw new Error("run failed: " + JSON.stringify(ok.diagnostics))
-const escaped = await runAction({ registry, module: "hello", action: "greet", params: { name: "../../x" } })
+const escaped = await runRecipe({ registry, pack: "hello", recipe: "greet", params: { name: "../../x" } })
 if (escaped.ok) throw new Error("a traversal name was accepted")
 console.log("runtime ok:", ok.outputTreeHash)
 `,
@@ -64,11 +64,11 @@ console.log("runtime ok:", ok.outputTreeHash)
 
 	writeFileSync(
 		join(project, "consumer.ts"),
-		`import { type ActionContext, type ActionResult, type ActionStep, createRegistry, runAction } from "@baka/core"
-export const registry = createRegistry({ root: ".", moduleDirs: [] })
-export const run: Promise<ActionResult> = runAction({ registry, module: "a", action: "b", params: {} })
-export type Step = ActionStep<{ name: string }, null, null>
-export type Ctx = ActionContext
+		`import { type RecipeContext, type RecipeResult, type RecipeStep, createRegistry, runRecipe } from "@baka/core"
+export const registry = createRegistry({ root: ".", packDirs: [] })
+export const run: Promise<RecipeResult> = runRecipe({ registry, pack: "a", recipe: "b", params: {} })
+export type Step = RecipeStep<{ name: string }, null, null>
+export type Ctx = RecipeContext
 `,
 	)
 	run(

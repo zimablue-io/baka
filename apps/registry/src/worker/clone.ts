@@ -10,7 +10,7 @@ import { promisify } from "node:util"
  *
  * The publish endpoint has its own narrow clone (publish-time name
  * and version check). The worker re-clones because it needs the full
- * module tree (manifest, action sources, templates) for the
+ * pack tree (manifest, recipe sources, templates) for the
  * loadability gate, the content hash, and the tarball pack.
  *
  * The clone is bounded by `INGEST_CLONE_TIMEOUT_MS` (default 120_000,

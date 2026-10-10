@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
-import { listModuleFiles } from "./manifest"
+import { listPackFiles } from "./manifest"
 
 /**
  * Tarball pack + content hash (architecture §4.5 step 5).
  *
- * The tarball is a deterministic gzip stream over the module's
+ * The tarball is a deterministic gzip stream over the pack's
  * files in canonical order. The content hash is computed
  * incrementally over the SAME bytes that go into the tarball, so
  * two versions of the same tree produce identical hashes and
@@ -20,8 +20,8 @@ import { listModuleFiles } from "./manifest"
  *   - 1024-byte zero blocks at EOF (POSIX requirement)
  *
  * The manifest file (`manifest.ts` or `manifest.json`) is
- * EXCLUDED from the tarball — it is metadata, not module content.
- * Two publishes of the same ACTION TREE at different tags
+ * EXCLUDED from the tarball — it is metadata, not pack content.
+ * Two publishes of the same RECIPE TREE at different tags
  * (manifest version bumps) produce identical tarballs and dedupe
  * to one artifact blob on disk. The manifest is still validated
  * against the tag by the publish endpoint (decision 11).
@@ -38,10 +38,10 @@ import { listModuleFiles } from "./manifest"
  * path was bleeding into the mode/uid/gid fields before the explicit
  * mode write stomped it). For paths longer than 100 bytes we use
  * the POSIX.1-1988 (ustar) `prefix` field at offset 345 with a
- * 155-byte capacity — splits "packages/something/deep/nested/<id>/action.ts"
- * into prefix="packages/something/deep/nested" + name="<id>/action.ts",
+ * 155-byte capacity — splits "packages/something/deep/nested/<id>/recipe.ts"
+ * into prefix="packages/something/deep/nested" + name="<id>/recipe.ts",
  * or, for paths that exceed 100 bytes WITHOUT a split-able directory
- * boundary (the rare case for a very long action id), we fail
+ * boundary (the rare case for a very long recipe id), we fail
  * loudly rather than corrupt the tarball silently.
  */
 
@@ -55,23 +55,23 @@ const USTAR_NAME_MAX = 100
 const USTAR_PREFIX_MAX = 155
 
 /**
- * Packs the module's tree at `moduleDir` into a deterministic tar
+ * Packs the pack's tree at `packDir` into a deterministic tar
  * archive. Returns the bytes + sha256 hash + size. The hash is
  * computed over the SAME bytes that go into the archive, so two
  * packs of the same tree produce identical hashes.
  *
  * The implementation streams the pack into a memory buffer rather
- * than a temp file (modules are small — a few KB at most — and the
+ * than a temp file (packs are small — a few KB at most — and the
  * tarball must be content-addressed for dedup). The Buffer is the
  * single source of truth for both the storage adapter's `put()`
  * input and the sha256.
  */
-export async function packTarball(moduleDir: string): Promise<PackResult> {
-	const files = await listModuleFiles(moduleDir)
+export async function packTarball(packDir: string): Promise<PackResult> {
+	const files = await listPackFiles(packDir)
 	const blocks: Buffer[] = []
 
 	for (const relativePath of files) {
-		const fullPath = join(moduleDir, relativePath)
+		const fullPath = join(packDir, relativePath)
 		const content = await readFile(fullPath)
 		const header = buildTarHeader(relativePath, content.byteLength)
 		blocks.push(header)

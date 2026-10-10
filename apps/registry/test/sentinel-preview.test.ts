@@ -13,18 +13,18 @@ import { buildIngestTestStack, type IngestTestStack } from "./ingest-worker-fixt
  * Sentinel semantics mirror the engine's `NO_LLM_SENTINEL` definition
  * (`packages/ast-tooling/src/worker.ts:24`,
  *  `/\{\{!--\s*no-llm\s*--\}\}/`). When a `.hbs` file under
- * `<moduleRoot>/<actionId>/templates/` carries the sentinel, the
+ * `<packRoot>/<recipeId>/templates/` carries the sentinel, the
  * registry's dry-run renders it with Handlebars inside the same
- * `node --permission` sandbox used for non-reasoning actions and
- * records the rendered bytes as the action's preview files. The
- * state stays `needs-llm` because the action still requires LLM
+ * `node --permission` sandbox used for non-reasoning recipes and
+ * records the rendered bytes as the recipe's preview files. The
+ * state stays `needs-llm` because the recipe still requires LLM
  * reasoning at apply time — the sentinel path only previews what a
- * non-LLM render produces. Reasoning actions whose templates do
+ * non-LLM render produces. Reasoning recipes whose templates do
  * NOT carry the sentinel (or that ship no templates) keep the
  * pre-existing `needs-llm` shape: `state` + `reason`, no `files`.
  *
  * VAL-SCAN-008 requires the tier field to appear IDENTICALLY on all
- * three read surfaces (catalog list, module detail, version detail).
+ * three read surfaces (catalog list, pack detail, version detail).
  * The first two have always served the tier; the version-detail
  * endpoint served only the verdict via the `screening` field. The
  * fix adds a `tier` field on the version-detail payload so the
@@ -52,9 +52,9 @@ function sha256Hex(content: string): string {
 	return createHash("sha256").update(content).digest("hex")
 }
 
-/** Locates one preview record by actionId. */
-function findPreview<T extends { actionId: string }>(previews: T[], actionId: string): T | undefined {
-	return previews.find((p) => p.actionId === actionId)
+/** Locates one preview record by recipeId. */
+function findPreview<T extends { recipeId: string }>(previews: T[], recipeId: string): T | undefined {
+	return previews.find((p) => p.recipeId === recipeId)
 }
 
 describe("{{!-- no-llm --}} sentinel preview render (VAL-SCAN-005)", () => {
@@ -73,13 +73,13 @@ describe("{{!-- no-llm --}} sentinel preview render (VAL-SCAN-005)", () => {
 		await teardownStack(stack)
 	})
 
-	it("a reasoning action WITH a sentinel template produces state=needs-llm plus the rendered content", async () => {
+	it("a reasoning recipe WITH a sentinel template produces state=needs-llm plus the rendered content", async () => {
 		// Template body declares the sentinel at the top of the
 		// file so the dry-run picks it up; the body references a
 		// {{name}} Handlebars parameter we render against an empty
 		// context. The rendered content (the only file the
-		// action produces via the sentinel path) surfaces on the
-		// per-action detail endpoint with `state: "needs-llm"`.
+		// recipe produces via the sentinel path) surfaces on the
+		// per-recipe detail endpoint with `state: "needs-llm"`.
 		const templateBody = `{{!-- no-llm --}}Hello {{name}} from a sentinel template.\n`
 		const reasoningBody = `
 export default {
@@ -96,11 +96,11 @@ export default {
 			name: "@acme/sentinel",
 			version: "1.0.0",
 			tag: "v1.0.0",
-			modulePath: "sentinel",
-			actions: [
+			packPath: "sentinel",
+			recipes: [
 				{
 					id: "reason",
-					description: "reasoning action with sentinel template",
+					description: "reasoning recipe with sentinel template",
 					filePatterns: [],
 					requiresReasoning: true,
 					body: reasoningBody,
@@ -117,7 +117,7 @@ export default {
 				tag: "v1.0.0",
 				org: "acme",
 				visibility: "public",
-				modulePath: "sentinel",
+				packPath: "sentinel",
 			}),
 		})
 		expect(res.status).toBe(202)
@@ -125,16 +125,16 @@ export default {
 		const terminal = await stack.fx.waitForTerminal(versionId)
 		expect(terminal.status).toBe("ready")
 
-		// List endpoint — the reasoning action surfaces with state
+		// List endpoint — the reasoning recipe surfaces with state
 		// `needs-llm` AND a non-empty `files` array (the rendered
 		// template). The files array is present iff a sentinel
 		// render produced content.
-		const listRes = await stack.fx.app.request("/v1/modules/acme/sentinel/v1.0.0/previews", {
+		const listRes = await stack.fx.app.request("/v1/packs/acme/sentinel/v1.0.0/previews", {
 			headers: { "x-api-key": stack.fx.keys.owner },
 		})
 		const listBody = (await listRes.json()) as {
 			previews: Array<{
-				actionId: string
+				recipeId: string
 				state: string
 				files?: Array<{ path: string; size: number; sha256: string }>
 			}>
@@ -146,7 +146,7 @@ export default {
 		expect(listEntry?.files?.length).toBe(1)
 		// Path = templates/greeting.hbs, with `.hbs` stripped and
 		// the `templates/` prefix removed (relative path under the
-		// action's templates dir, mirroring the engine's `key`).
+		// recipe's templates dir, mirroring the engine's `key`).
 		expect(listEntry?.files?.[0]?.path).toBe("greeting")
 		// Size is the RENDERED content size, not the template
 		// size — Handlebars strips the {{!-- ... --}} sentinel
@@ -155,21 +155,21 @@ export default {
 		const expectedRendered = Handlebars.compile(templateBody)({})
 		expect(listEntry?.files?.[0]?.size).toBe(Buffer.byteLength(expectedRendered, "utf8"))
 
-		// Per-action detail endpoint — state=needs-llm, reason
+		// Per-recipe detail endpoint — state=needs-llm, reason
 		// verbatim, files array present with rendered bytes.
-		const detailRes = await stack.fx.app.request("/v1/modules/acme/sentinel/v1.0.0/previews/reason", {
+		const detailRes = await stack.fx.app.request("/v1/packs/acme/sentinel/v1.0.0/previews/reason", {
 			headers: { "x-api-key": stack.fx.keys.owner },
 		})
 		expect(detailRes.status).toBe(200)
 		const detail = (await detailRes.json()) as {
-			actionId: string
+			recipeId: string
 			state: "needs-llm" | "rendered"
 			reason?: string
 			files?: Array<{ path: string; content: string; size: number; sha256: string }>
 		}
-		expect(detail.actionId).toBe("reason")
+		expect(detail.recipeId).toBe("reason")
 		expect(detail.state).toBe("needs-llm")
-		expect(detail.reason).toBe("action skipped because it requires LLM reasoning")
+		expect(detail.reason).toBe("recipe skipped because it requires LLM reasoning")
 		expect(detail.files).toBeDefined()
 		expect(detail.files?.length).toBe(1)
 		expect(detail.files?.[0]?.path).toBe("greeting")
@@ -181,7 +181,7 @@ export default {
 		expect(detail.files?.[0]?.sha256).toBe(sha256Hex(local))
 	})
 
-	it("a reasoning action WITH multiple sentinel templates produces one preview file per template (mirroring engine key)", async () => {
+	it("a reasoning recipe WITH multiple sentinel templates produces one preview file per template (mirroring engine key)", async () => {
 		// Three sentinel-marked templates under nested directories
 		// — the registry must surface one preview file per
 		// template, with paths matching the engine's `key` (path
@@ -194,8 +194,8 @@ export default {
 			name: "@acme/multi-sentinel",
 			version: "1.0.0",
 			tag: "v1.0.0",
-			modulePath: "multi",
-			actions: [
+			packPath: "multi",
+			recipes: [
 				{
 					id: "reason",
 					description: "reasoning with multiple sentinel templates",
@@ -219,13 +219,13 @@ export default {
 				tag: "v1.0.0",
 				org: "acme",
 				visibility: "public",
-				modulePath: "multi",
+				packPath: "multi",
 			}),
 		})
 		const { versionId } = (await res.json()) as { versionId: string }
 		await stack.fx.waitForTerminal(versionId)
 
-		const detailRes = await stack.fx.app.request("/v1/modules/acme/multi-sentinel/v1.0.0/previews/reason", {
+		const detailRes = await stack.fx.app.request("/v1/packs/acme/multi-sentinel/v1.0.0/previews/reason", {
 			headers: { "x-api-key": stack.fx.keys.owner },
 		})
 		const detail = (await detailRes.json()) as {
@@ -243,8 +243,8 @@ export default {
 		expect(byPath.get("nested/hello")?.content).toBe(Handlebars.compile(nested)({}))
 	})
 
-	it("a reasoning action WITHOUT a sentinel template keeps the needs-llm-with-no-files shape", async () => {
-		// Reasoning action ships NO templates dir at all — the
+	it("a reasoning recipe WITHOUT a sentinel template keeps the needs-llm-with-no-files shape", async () => {
+		// Reasoning recipe ships NO templates dir at all — the
 		// dry-run must keep the pre-existing behavior: record
 		// `needs-llm` with the verbatim reason and NO files
 		// carrier. This guards the no-sentinel branch from
@@ -263,8 +263,8 @@ export default {
 			name: "@acme/no-sentinel",
 			version: "1.0.0",
 			tag: "v1.0.0",
-			modulePath: "nosentinel",
-			actions: [
+			packPath: "nosentinel",
+			recipes: [
 				{
 					id: "reason",
 					description: "reasoning with NO templates",
@@ -283,7 +283,7 @@ export default {
 				tag: "v1.0.0",
 				org: "acme",
 				visibility: "public",
-				modulePath: "nosentinel",
+				packPath: "nosentinel",
 			}),
 		})
 		const { versionId } = (await res.json()) as { versionId: string }
@@ -291,11 +291,11 @@ export default {
 		expect(terminal.status).toBe("ready")
 
 		// List endpoint — needs-llm with NO files carrier.
-		const listRes = await stack.fx.app.request("/v1/modules/acme/no-sentinel/v1.0.0/previews", {
+		const listRes = await stack.fx.app.request("/v1/packs/acme/no-sentinel/v1.0.0/previews", {
 			headers: { "x-api-key": stack.fx.keys.owner },
 		})
 		const listBody = (await listRes.json()) as {
-			previews: Array<{ actionId: string; state: string; files?: unknown[] }>
+			previews: Array<{ recipeId: string; state: string; files?: unknown[] }>
 		}
 		expect(listBody.previews.length).toBe(1)
 		const entry = findPreview(listBody.previews, "reason")
@@ -303,22 +303,22 @@ export default {
 		expect(entry?.files).toBeUndefined()
 
 		// Detail endpoint — needs-llm with NO files carrier.
-		const detailRes = await stack.fx.app.request("/v1/modules/acme/no-sentinel/v1.0.0/previews/reason", {
+		const detailRes = await stack.fx.app.request("/v1/packs/acme/no-sentinel/v1.0.0/previews/reason", {
 			headers: { "x-api-key": stack.fx.keys.owner },
 		})
 		const detail = (await detailRes.json()) as {
-			actionId: string
+			recipeId: string
 			state: string
 			reason?: string
 			files?: unknown[]
 		}
-		expect(detail.actionId).toBe("reason")
+		expect(detail.recipeId).toBe("reason")
 		expect(detail.state).toBe("needs-llm")
-		expect(detail.reason).toBe("action skipped because it requires LLM reasoning")
+		expect(detail.reason).toBe("recipe skipped because it requires LLM reasoning")
 		expect(detail.files).toBeUndefined()
 	})
 
-	it("a reasoning action WITH a non-sentinel template does NOT render (non-sentinel templates stay LLM-only)", async () => {
+	it("a reasoning recipe WITH a non-sentinel template does NOT render (non-sentinel templates stay LLM-only)", async () => {
 		// Sentinel detection is exact: only `.hbs` files carrying
 		// the `{{!-- no-llm --}}` comment are rendered. A
 		// template WITHOUT the sentinel stays an LLM-only path —
@@ -330,8 +330,8 @@ export default {
 			name: "@acme/llm-only-template",
 			version: "1.0.0",
 			tag: "v1.0.0",
-			modulePath: "llm-only",
-			actions: [
+			packPath: "llm-only",
+			recipes: [
 				{
 					id: "reason",
 					description: "reasoning with non-sentinel template",
@@ -351,13 +351,13 @@ export default {
 				tag: "v1.0.0",
 				org: "acme",
 				visibility: "public",
-				modulePath: "llm-only",
+				packPath: "llm-only",
 			}),
 		})
 		const { versionId } = (await res.json()) as { versionId: string }
 		await stack.fx.waitForTerminal(versionId)
 
-		const detailRes = await stack.fx.app.request("/v1/modules/acme/llm-only-template/v1.0.0/previews/reason", {
+		const detailRes = await stack.fx.app.request("/v1/packs/acme/llm-only-template/v1.0.0/previews/reason", {
 			headers: { "x-api-key": stack.fx.keys.owner },
 		})
 		const detail = (await detailRes.json()) as { state: string; files?: unknown[] }
@@ -384,8 +384,8 @@ export default {
 			name: "@acme/sentinel-no-leak",
 			version: "1.0.0",
 			tag: "v1.0.0",
-			modulePath: "no-leak",
-			actions: [
+			packPath: "no-leak",
+			recipes: [
 				{
 					id: "reason",
 					description: "reasoning with sentinel template that references the canary",
@@ -405,13 +405,13 @@ export default {
 				tag: "v1.0.0",
 				org: "acme",
 				visibility: "public",
-				modulePath: "no-leak",
+				packPath: "no-leak",
 			}),
 		})
 		const { versionId } = (await res.json()) as { versionId: string }
 		await stack.fx.waitForTerminal(versionId)
 
-		const detailRes = await stack.fx.app.request("/v1/modules/acme/sentinel-no-leak/v1.0.0/previews/reason", {
+		const detailRes = await stack.fx.app.request("/v1/packs/acme/sentinel-no-leak/v1.0.0/previews/reason", {
 			headers: { "x-api-key": stack.fx.keys.owner },
 		})
 		const detail = (await detailRes.json()) as { state: string; files?: Array<{ content: string }> }
@@ -442,31 +442,31 @@ describe("version-detail tier parity (VAL-SCAN-008)", () => {
 		scope: string
 		name: string
 		version: string
-	}): Promise<{ listTier: string; moduleTier: string; versionTier: string | undefined }> {
-		const [listRes, moduleRes, versionRes] = await Promise.all([
-			stack.fx.app.request("/v1/modules", { headers: { "x-api-key": stack.fx.keys.owner } }),
-			stack.fx.app.request(`/v1/modules/${opts.scope}/${opts.name}`, {
+	}): Promise<{ listTier: string; packTier: string; versionTier: string | undefined }> {
+		const [listRes, packRes, versionRes] = await Promise.all([
+			stack.fx.app.request("/v1/packs", { headers: { "x-api-key": stack.fx.keys.owner } }),
+			stack.fx.app.request(`/v1/packs/${opts.scope}/${opts.name}`, {
 				headers: { "x-api-key": stack.fx.keys.owner },
 			}),
-			stack.fx.app.request(`/v1/modules/${opts.scope}/${opts.name}/${opts.version}`, {
+			stack.fx.app.request(`/v1/packs/${opts.scope}/${opts.name}/${opts.version}`, {
 				headers: { "x-api-key": stack.fx.keys.owner },
 			}),
 		])
-		const list = (await listRes.json()) as { modules: Array<{ tier: string; scope: string; name: string }> }
-		const listEntry = list.modules.find((m) => m.scope === opts.scope && m.name === opts.name)
-		const moduleBody = (await moduleRes.json()) as { tier: string }
+		const list = (await listRes.json()) as { packs: Array<{ tier: string; scope: string; name: string }> }
+		const listEntry = list.packs.find((m) => m.scope === opts.scope && m.name === opts.name)
+		const packBody = (await packRes.json()) as { tier: string }
 		const versionBody = (await versionRes.json()) as { tier?: string }
 		return {
 			listTier: listEntry?.tier ?? "",
-			moduleTier: moduleBody.tier,
+			packTier: packBody.tier,
 			versionTier: versionBody.tier,
 		}
 	}
 
-	it("a screened module's tier appears identically across catalog list, module detail, and version detail (VAL-SCAN-008)", async () => {
-		// Reasoning action with a clean (non-dangerous) sentinel
+	it("a screened pack's tier appears identically across catalog list, pack detail, and version detail (VAL-SCAN-008)", async () => {
+		// Reasoning recipe with a clean (non-dangerous) sentinel
 		// template → static scan passes, dry-run ok, layer 3
-		// (no screened non-reasoning actions to validate) ok →
+		// (no screened non-reasoning recipes to validate) ok →
 		// verdict `screened` → tier `community-screened`. The same
 		// tier must appear on all three read surfaces.
 		const templateBody = `{{!-- no-llm --}}hi {{name}}\n`
@@ -474,11 +474,11 @@ describe("version-detail tier parity (VAL-SCAN-008)", () => {
 			name: "@acme/parity-screened",
 			version: "1.0.0",
 			tag: "v1.0.0",
-			modulePath: "parity-screened",
-			actions: [
+			packPath: "parity-screened",
+			recipes: [
 				{
 					id: "reason",
-					description: "screened via sentinel-only module",
+					description: "screened via sentinel-only pack",
 					filePatterns: [],
 					requiresReasoning: true,
 					body: `export default { name: "reason", role: 1, async execute() { return { success: true, output: undefined, compensationData: undefined } }, async compensate() {} }`,
@@ -495,29 +495,29 @@ describe("version-detail tier parity (VAL-SCAN-008)", () => {
 				tag: "v1.0.0",
 				org: "acme",
 				visibility: "public",
-				modulePath: "parity-screened",
+				packPath: "parity-screened",
 			}),
 		})
 		const { versionId } = (await res.json()) as { versionId: string }
 		const terminal = await stack.fx.waitForTerminal(versionId)
 		expect(terminal.status).toBe("ready")
 
-		const { listTier, moduleTier, versionTier } = await fetchTiersAcrossAllThreeReadSurfaces({
+		const { listTier, packTier, versionTier } = await fetchTiersAcrossAllThreeReadSurfaces({
 			scope: "acme",
 			name: "parity-screened",
 			version: "v1.0.0",
 		})
 		expect(listTier).toBe("community-screened")
-		expect(moduleTier).toBe("community-screened")
+		expect(packTier).toBe("community-screened")
 		// Version detail MUST carry a tier field with the same
 		// value — VAL-SCAN-008 parity.
 		expect(versionTier).toBe("community-screened")
 		expect(versionTier).toBe(listTier)
-		expect(versionTier).toBe(moduleTier)
+		expect(versionTier).toBe(packTier)
 	})
 
-	it("an unverified module's tier appears identically across catalog list, module detail, and version detail (VAL-SCAN-008)", async () => {
-		// A module's action body uses `fetch` (network), which the
+	it("an unverified pack's tier appears identically across catalog list, pack detail, and version detail (VAL-SCAN-008)", async () => {
+		// A pack's recipe body uses `fetch` (network), which the
 		// static capability scan (layer 1) reliably detects and
 		// flags — verdict `failed`, tier `community-unverified`.
 		// The same tier must appear on all three read surfaces.
@@ -525,11 +525,11 @@ describe("version-detail tier parity (VAL-SCAN-008)", () => {
 			name: "@acme/parity-unverified",
 			version: "1.0.0",
 			tag: "v1.0.0",
-			modulePath: "parity-unverified",
-			actions: [
+			packPath: "parity-unverified",
+			recipes: [
 				{
 					id: "reason",
-					description: "screening fails (action body uses fetch)",
+					description: "screening fails (recipe body uses fetch)",
 					filePatterns: [],
 					requiresReasoning: true,
 					body: `export default {
@@ -553,24 +553,24 @@ describe("version-detail tier parity (VAL-SCAN-008)", () => {
 				tag: "v1.0.0",
 				org: "acme",
 				visibility: "public",
-				modulePath: "parity-unverified",
+				packPath: "parity-unverified",
 			}),
 		})
 		const { versionId } = (await res.json()) as { versionId: string }
 		const terminal = await stack.fx.waitForTerminal(versionId)
 		expect(terminal.status).toBe("failed")
 
-		const { listTier, moduleTier, versionTier } = await fetchTiersAcrossAllThreeReadSurfaces({
+		const { listTier, packTier, versionTier } = await fetchTiersAcrossAllThreeReadSurfaces({
 			scope: "acme",
 			name: "parity-unverified",
 			version: "v1.0.0",
 		})
 		expect(listTier).toBe("community-unverified")
-		expect(moduleTier).toBe("community-unverified")
+		expect(packTier).toBe("community-unverified")
 		// Version detail MUST carry a tier field with the same
 		// value — VAL-SCAN-008 parity, failure path.
 		expect(versionTier).toBe("community-unverified")
 		expect(versionTier).toBe(listTier)
-		expect(versionTier).toBe(moduleTier)
+		expect(versionTier).toBe(packTier)
 	})
 })

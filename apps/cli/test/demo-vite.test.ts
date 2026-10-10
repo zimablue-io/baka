@@ -1,4 +1,4 @@
-// Consumer-project e2e: the demo Vite modules write a real app tree.
+// Consumer-project e2e: the demo Vite packs write a real app tree.
 // Discovers, inspects templates, fills slots, writes, repeats identically.
 
 import { type ChildProcess, spawn } from "node:child_process"
@@ -10,7 +10,7 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest"
 
 const BAKA_REPO = join(__dirname, "..", "..", "..")
 const DIST_INDEX = join(BAKA_REPO, "apps", "cli", "dist", "index.js")
-const DEMO_MODULES = join(BAKA_REPO, "demo", "modules")
+const DEMO_PACKS = join(BAKA_REPO, "demo", "packs")
 
 const createdDirs: string[] = []
 function trackDir(path: string): string {
@@ -71,25 +71,25 @@ function sha256(text: string): string {
 	return createHash("sha256").update(text).digest("hex")
 }
 
-function copyDemoModules(projectRoot: string): void {
-	mkdirSync(join(projectRoot, "modules"), { recursive: true })
+function copyDemoPacks(projectRoot: string): void {
+	mkdirSync(join(projectRoot, "packs"), { recursive: true })
 	for (const name of ["vite-app", "vite-theme", "vite-page"] as const) {
-		cpSync(join(DEMO_MODULES, name), join(projectRoot, "modules", name), { recursive: true })
+		cpSync(join(DEMO_PACKS, name), join(projectRoot, "packs", name), { recursive: true })
 	}
 }
 
-describe("demo Vite modules write a real app", () => {
+describe("demo Vite packs write a real app", () => {
 	it("lists, inspects, fills, writes package.json + TS, and repeats the same bytes", async () => {
 		const home = trackDir(mkdtempSync(join(tmpdir(), "baka-demo-home-")))
 		mkdirSync(join(home, ".baka"), { recursive: true })
 		const project = trackDir(mkdtempSync(join(tmpdir(), "baka-demo-proj-")))
-		copyDemoModules(project)
+		copyDemoPacks(project)
 		const env = isolatedEnv(home)
 
-		const listed = await spawnCli(["list-modules", "--json"], project, env)
+		const listed = await spawnCli(["list-packs", "--json"], project, env)
 		expect(listed.code, listed.stderr).toBe(0)
-		const listPayload = JSON.parse(listed.stdout) as { modules: Array<{ name: string }> }
-		expect(listPayload.modules.map((m) => m.name).sort()).toEqual(["vite-app", "vite-page", "vite-theme"])
+		const listPayload = JSON.parse(listed.stdout) as { packs: Array<{ name: string }> }
+		expect(listPayload.packs.map((m) => m.name).sort()).toEqual(["vite-app", "vite-page", "vite-theme"])
 
 		const inspected = await spawnCli(["inspect", "vite-app/write", "--json"], project, env)
 		expect(inspected.code, inspected.stderr).toBe(0)

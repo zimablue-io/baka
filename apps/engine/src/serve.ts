@@ -1,6 +1,6 @@
 import { delimiter, resolve } from "node:path"
 import { serve } from "@hono/node-server"
-import { moduleDirsFromEnv } from "@repo/ast-tooling"
+import { packDirsFromEnv } from "@repo/ast-tooling"
 import { createEngineApp } from "./app.js"
 
 /** Env var carrying the bearer token (the `--token` flag wins over it). */
@@ -25,8 +25,8 @@ export interface ServeFlags {
 	host?: string
 	token?: string
 	allowRoots?: readonly string[]
-	/** Module directories (see `EngineAppOptions.moduleDirs`); they beat `BAKA_MODULE_DIRS`. */
-	moduleDirs?: readonly string[]
+	/** Pack directories (see `EngineAppOptions.packDirs`); they beat `BAKA_PACK_DIRS`. */
+	packDirs?: readonly string[]
 }
 
 export interface ServeConfig {
@@ -34,7 +34,7 @@ export interface ServeConfig {
 	host: string
 	token?: string
 	allowedRoots: string[]
-	moduleDirs?: string[]
+	packDirs?: string[]
 }
 
 /**
@@ -60,10 +60,8 @@ export function resolveServeConfig(flags: ServeFlags, env: NodeJS.ProcessEnv, cw
 				`Set ${ENGINE_TOKEN_ENV} or pass --token, or bind to 127.0.0.1.`,
 		)
 	}
-	const moduleDirs = flags.moduleDirs?.length
-		? flags.moduleDirs.map((dir) => resolve(cwd, dir))
-		: moduleDirsFromEnv(env)
-	return { port: flags.port ?? DEFAULT_ENGINE_PORT, host, token, allowedRoots, moduleDirs }
+	const packDirs = flags.packDirs?.length ? flags.packDirs.map((dir) => resolve(cwd, dir)) : packDirsFromEnv(env)
+	return { port: flags.port ?? DEFAULT_ENGINE_PORT, host, token, allowedRoots, packDirs }
 }
 
 export interface RunningEngine {
@@ -78,7 +76,7 @@ export function serveEngine(cwd: string, config: ServeConfig): Promise<RunningEn
 		cwd,
 		token: config.token,
 		allowedRoots: config.allowedRoots,
-		moduleDirs: config.moduleDirs,
+		packDirs: config.packDirs,
 	})
 	return new Promise((resolveStart, reject) => {
 		const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {

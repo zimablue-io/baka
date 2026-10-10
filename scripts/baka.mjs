@@ -5,7 +5,7 @@
 //
 // It runs the CLI from source (tsx) from the INVOKER's directory, so the CLI's
 // own defaults (`--cwd` is the current directory; relative `--cwd` and
-// `--modules-dir` resolve against it) mean what the caller expects, whichever
+// `--packs-dir` resolve against it) mean what the caller expects, whichever
 // repo the caller is in. No pnpm workspace is involved: the old wrapper ran
 // `pnpm --filter baka exec`, which only finds the project inside the Baka repo.
 //

@@ -12,36 +12,36 @@ Baka fixes this by stripping the LLM of the ability to invent anything. Files ar
 
 ## The invariant
 
-> The LLM cannot invent code, files, or structure. It picks from a finite, declared action space.
+> The LLM cannot invent code, files, or structure. It picks from a finite, declared set of recipes.
 
 This invariant is enforced by architecture, not by prompting:
 
-1. **The Orchestrator** receives the user intent and the full module manifest catalog. It may only emit `{module, action, params}` steps that reference declared module/action ids. Plans are validated against a Zod schema; an action that does not exist in the catalog is a hard error.
-2. **The Worker** materializes `templates/` to disk. Params interpolate. Named `{{#slot}}` holes are the only LLM surface (constrained JSON, temperature 0, cached). `action.ts` is optional side effects. `gemma4:e4b` is the intelligence floor.
-3. **The Validator** is deterministic TypeScript. It runs the module's `validators/*.ts` and `_shared/validators/*.ts` functions against the resulting file tree. No LLM is involved.
+1. **The Orchestrator** receives the user intent and the full pack manifest catalog. It may only emit `{pack, recipe, params}` steps that reference declared pack/recipe ids. Plans are validated against a Zod schema; a recipe that does not exist in the catalog is a hard error.
+2. **The Worker** materializes `templates/` to disk. Params interpolate. Named `{{#slot}}` holes are the only LLM surface (constrained JSON, temperature 0, cached). `recipe.ts` is optional side effects. `gemma4:e4b` is the intelligence floor.
+3. **The Validator** is deterministic TypeScript. It runs the pack's `validators/*.ts` and `_shared/validators/*.ts` functions against the resulting file tree. No LLM is involved.
 
-If any tier is tempted to invent, the tier boundary refuses to cooperate. The Validator would flag the result. The Worker would reject a non-declared action. The Orchestrator's schema would reject a non-catalog reference.
+If any tier is tempted to invent, the tier boundary refuses to cooperate. The Validator would flag the result. The Worker would reject a non-declared recipe. The Orchestrator's schema would reject a non-catalog reference.
 
 ## The tier rules
 
 ### Orchestrator (LLM, high reasoning)
-- **Input:** user intent + the full module manifest catalog
-- **Output:** `ResolvedPlan` (array of `{module, action, params}`), validated against a Zod schema
+- **Input:** user intent + the full pack manifest catalog
+- **Output:** `ResolvedPlan` (array of `{pack, recipe, params}`), validated against a Zod schema
 - **Authority:** the catalog. Anything not in the catalog is a hard error.
 - **Compensation:** none (read-only role)
 
 ### Worker (calls the worker-role model directly, no LLM assist on top)
-- **Input:** one `{module, action, params}` step
-- **Default mode:** materialize `templates/` (params + named slots). Load `action.ts` only when it exists (side effects).
-- **Slots** (when a template has `{{#slot}}`): one constrained JSON call per empty slot at temperature 0. Cache key = templateHash + slotId + paramsHash + model. Asking the model again is explicit: slot mode `record` (`--slot-mode record`) skips the cache and writes a new fill, and slot mode `replay` never calls the model at all (see docs/MODULES.md, "Slot records and replay").
+- **Input:** one `{pack, recipe, params}` step
+- **Default mode:** materialize `templates/` (params + named slots). Load `recipe.ts` only when it exists (side effects).
+- **Slots** (when a template has `{{#slot}}`): one constrained JSON call per empty slot at temperature 0. Cache key = templateHash + slotId + paramsHash + model. Asking the model again is explicit: slot mode `record` (`--slot-mode record`) skips the cache and writes a new fill, and slot mode `replay` never calls the model at all (see docs/PACKS.md, "Slot records and replay").
 - **Forbidden:** whole-file `{ content: string }` generation. The model never authors headings, paths, or file lists.
-- **Compensation:** calls the action referenced in `compensatesWith` (the inverse action), with bounded retries (3 attempts, exponential backoff).
+- **Compensation:** calls the recipe referenced in `compensatesWith` (the inverse recipe), with bounded retries (3 attempts, exponential backoff).
 
-### Validator (deterministic TypeScript by default, validator-role LLM available per module)
-- **Input:** the post-execution file tree + the module's `filePatterns` and `moduleValidators`
+### Validator (deterministic TypeScript by default, validator-role LLM available per pack)
+- **Input:** the post-execution file tree + the pack's `filePatterns` and `packValidators`
 - **Output:** `Pass` or `Fail(diff[])` with structured diagnostics (`{severity, rule, message, file, hint}`)
 - **Default mode:** deterministic TypeScript. Every structural check (file existence, placeholder detection, heading presence) runs without the LLM.
-- **Optional validator-role LLM:** a validator MAY call `baka-sdk.callLLMAsValidator(...)` (the module then owns its `baka-sdk` install; see docs/MODULES.md, "Public boundary") to ask the validator-role model for a semantic review (e.g. "is this spec coherent?"). The structural checks still run first; the LLM call is for additional context. Hard-fail if the validator role is not configured; absorb transient LLM errors as warnings.
+- **Optional validator-role LLM:** a validator MAY call `baka-sdk.callLLMAsValidator(...)` (the pack then owns its `baka-sdk` install; see docs/PACKS.md, "Public boundary") to ask the validator-role model for a semantic review (e.g. "is this spec coherent?"). The structural checks still run first; the LLM call is for additional context. Hard-fail if the validator role is not configured; absorb transient LLM errors as warnings.
 - **Compensation:** none (read-only role)
 
 ## The provider boundary
@@ -62,7 +62,7 @@ must return zero matches. If it doesn't, the boundary is leaking and the provide
 
 ## Config is role-keyed
 
-Users configure two roles in `${BAKA_HOME:-$HOME/.baka}/config.json` via the CLI. Every LLM call picks one role's model: the **worker** role drives plan / apply / module-design; the **validator** role drives module validators that need a semantic review. Each role is its own choice — a small validator model and a large planner model are both fine.
+Users configure two roles in `${BAKA_HOME:-$HOME/.baka}/config.json` via the CLI. Every LLM call picks one role's model: the **worker** role drives plan / apply / pack-design; the **validator** role drives pack validators that need a semantic review. Each role is its own choice — a small validator model and a large planner model are both fine.
 
 ```bash
 baka init                              # interactive first-time setup (writes both roles)
@@ -77,22 +77,22 @@ The CLI stores the role-keyed config at `${BAKA_HOME:-$HOME/.baka}/config.json`.
 
 If a role is not configured, the corresponding call hard-fails with `missing LLM config: <role> role not configured` and `code: BAKA_CONFIG_MISSING`. There is no fall-back; there is no alias.
 
-## Module authoring is action-centric
+## Pack authoring is recipe-centric
 
 ```
-modules/<name>/
+packs/<name>/
 |-- manifest.ts              # CONTRACT
-|-- <action-id>/
-|   |-- action.ts            # dumb or LLM-assisted
+|-- <recipe-id>/
+|   |-- recipe.ts            # dumb or LLM-assisted
 |   |-- templates/           # Handlebars (only if requiresReasoning)
-|   `-- validators/          # action-specific checks
+|   `-- validators/          # recipe-specific checks
 `-- _shared/                 # optional cross-cutting
     |-- templates/
     |-- validators/
     `-- helpers/
 ```
 
-Adding or removing an action is one directory operation. Each action is a self-contained unit. The manifest is the source of truth; everything else is referenced by the manifest. The CLI drives authoring (`baka module create/validate/test/list-actions`); users do not hand-write manifests.
+Adding or removing a recipe is one directory operation. Each recipe is a self-contained unit. The manifest is the source of truth; everything else is referenced by the manifest. The CLI drives authoring (`baka pack create/validate/test/list-recipes`); users do not hand-write manifests.
 
 ## Why "baka"
 

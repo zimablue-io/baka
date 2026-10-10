@@ -11,16 +11,16 @@ import { type CommunityFixtureResult, seedCommunityScreenedFixture } from "./see
  *
  * Contract (this test pins every assertion the seed publishes):
  *
- *   1. A vanilla boot yields at least one public community module
+ *   1. A vanilla boot yields at least one public community pack
  *      version that passed through the real screening pipeline
  *      (static scan + sandboxed dry-run + output validation),
- *      with a rendered preview for >=1 action AND a needs-llm
- *      record with sentinel-rendered files for >=1 action.
+ *      with a rendered preview for >=1 recipe AND a needs-llm
+ *      record with sentinel-rendered files for >=1 recipe.
  *   2. The catalog list surfaces the fixture at the expected tier
  *      (community-screened).
  *   3. The download endpoint returns a REAL tarball blob (no 404,
  *      no "missing from storage" 500) for the ready version.
- *   4. Production built-in catalog stays empty (no official modules
+ *   4. Production built-in catalog stays empty (no official packs
  *      invented by community publish).
  *   5. Re-invoking the seed against the same DB is idempotent —
  *      the fixture is not re-published and no second `pending`
@@ -50,7 +50,7 @@ describe("seedCommunityScreenedFixture (the boot-time publish)", () => {
 		await git.cleanup()
 	})
 
-	it("publishes a public community module version that ends in status=ready after passing screening", async () => {
+	it("publishes a public community pack version that ends in status=ready after passing screening", async () => {
 		const result: CommunityFixtureResult = await seedCommunityScreenedFixture({
 			app: fx.app,
 			pglite: fx.pglite,
@@ -75,18 +75,18 @@ describe("seedCommunityScreenedFixture (the boot-time publish)", () => {
 			git,
 		})
 
-		const listRes = await fx.app.request(`/v1/modules/${result.scope}/${result.name}/${result.version}/previews`)
+		const listRes = await fx.app.request(`/v1/packs/${result.scope}/${result.name}/${result.version}/previews`)
 		expect(listRes.status).toBe(200)
 		const listBody = (await listRes.json()) as {
-			previews: Array<{ actionId: string; state: string; files?: Array<{ path: string }> }>
+			previews: Array<{ recipeId: string; state: string; files?: Array<{ path: string }> }>
 		}
 
-		// Both declared actions must appear on the preview list.
+		// Both declared recipes must appear on the preview list.
 		expect(listBody.previews).toHaveLength(2)
 
 		// greet: non-reasoning, runs through sandbox, produces a
 		// rendered preview.
-		const rendered = listBody.previews.find((p) => p.actionId === "greet")
+		const rendered = listBody.previews.find((p) => p.recipeId === "greet")
 		expect(rendered).toBeDefined()
 		expect(rendered?.state).toBe("rendered")
 		expect(rendered?.files).toBeDefined()
@@ -96,14 +96,14 @@ describe("seedCommunityScreenedFixture (the boot-time publish)", () => {
 		// template. The state stays needs-llm (LLM reasoning is
 		// still required at apply time), but the rendered sentinel
 		// bytes are surfaced as the file carrier.
-		const needsLlm = listBody.previews.find((p) => p.actionId === "plan-feature")
+		const needsLlm = listBody.previews.find((p) => p.recipeId === "plan-feature")
 		expect(needsLlm).toBeDefined()
 		expect(needsLlm?.state).toBe("needs-llm")
 		expect(needsLlm?.files).toBeDefined()
 		expect((needsLlm?.files ?? []).length).toBeGreaterThan(0)
 	})
 
-	it("the per-action preview endpoint serves the rendered content for both preview states", async () => {
+	it("the per-recipe preview endpoint serves the rendered content for both preview states", async () => {
 		const result = await seedCommunityScreenedFixture({
 			app: fx.app,
 			pglite: fx.pglite,
@@ -114,14 +114,14 @@ describe("seedCommunityScreenedFixture (the boot-time publish)", () => {
 
 		// Rendered preview: greet's file content is fetched from
 		// storage and served verbatim.
-		const greetRes = await fx.app.request(`/v1/modules/${result.scope}/${result.name}/${result.version}/previews/greet`)
+		const greetRes = await fx.app.request(`/v1/packs/${result.scope}/${result.name}/${result.version}/previews/greet`)
 		expect(greetRes.status).toBe(200)
 		const greetBody = (await greetRes.json()) as {
-			actionId: string
+			recipeId: string
 			state: string
 			files: Array<{ path: string; content: string }>
 		}
-		expect(greetBody.actionId).toBe("greet")
+		expect(greetBody.recipeId).toBe("greet")
 		expect(greetBody.state).toBe("rendered")
 		expect(greetBody.files.length).toBeGreaterThan(0)
 		expect(greetBody.files[0]?.content).toContain("Hello from the baka community fixture")
@@ -130,18 +130,18 @@ describe("seedCommunityScreenedFixture (the boot-time publish)", () => {
 		// template was rendered through Handlebars and surfaced
 		// alongside the state.
 		const planRes = await fx.app.request(
-			`/v1/modules/${result.scope}/${result.name}/${result.version}/previews/plan-feature`,
+			`/v1/packs/${result.scope}/${result.name}/${result.version}/previews/plan-feature`,
 		)
 		expect(planRes.status).toBe(200)
 		const planBody = (await planRes.json()) as {
-			actionId: string
+			recipeId: string
 			state: string
 			reason: string
 			files: Array<{ path: string; content: string }>
 		}
-		expect(planBody.actionId).toBe("plan-feature")
+		expect(planBody.recipeId).toBe("plan-feature")
 		expect(planBody.state).toBe("needs-llm")
-		expect(planBody.reason).toBe("action skipped because it requires LLM reasoning")
+		expect(planBody.reason).toBe("recipe skipped because it requires LLM reasoning")
 		expect(planBody.files.length).toBeGreaterThan(0)
 		expect(planBody.files[0]?.content).toContain("Welcome")
 	})
@@ -155,13 +155,13 @@ describe("seedCommunityScreenedFixture (the boot-time publish)", () => {
 			git,
 		})
 
-		const catalogRes = await fx.app.request("/v1/modules")
+		const catalogRes = await fx.app.request("/v1/packs")
 		expect(catalogRes.status).toBe(200)
 		const catalog = (await catalogRes.json()) as {
-			modules: Array<{ scope: string; name: string; tier: string; latestVersion: string | null }>
+			packs: Array<{ scope: string; name: string; tier: string; latestVersion: string | null }>
 		}
 
-		const entry = catalog.modules.find((m) => m.scope === result.scope && m.name === result.name)
+		const entry = catalog.packs.find((m) => m.scope === result.scope && m.name === result.name)
 		expect(entry).toBeDefined()
 		expect(entry?.tier).toBe("community-screened")
 		expect(entry?.latestVersion).toBe("v1.0.0")
@@ -176,7 +176,7 @@ describe("seedCommunityScreenedFixture (the boot-time publish)", () => {
 			git,
 		})
 
-		// Public module + ready version → the tarball blob is
+		// Public pack + ready version → the tarball blob is
 		// served directly. The response must NOT be the catalog's
 		// 404 envelope and must NOT be the 500 "missing from
 		// storage" envelope — the worker packed the tarball and
@@ -189,7 +189,7 @@ describe("seedCommunityScreenedFixture (the boot-time publish)", () => {
 
 		// Tarball content sanity: a tar archive starts with a
 		// 512-byte header per file; the first entry's path field
-		// must contain the action's executable content. We don't
+		// must contain the recipe's executable content. We don't
 		// try to parse the tar fully — the size + content-type
 		// + content-disposition checks above are the contract.
 		expect(dlRes.headers.get("content-disposition")).toContain("attachment")
@@ -204,10 +204,10 @@ describe("seedCommunityScreenedFixture (the boot-time publish)", () => {
 			git,
 		})
 
-		const official = await fx.app.request("/v1/modules?tier=official")
+		const official = await fx.app.request("/v1/packs?tier=official")
 		expect(official.status).toBe(200)
-		const body = (await official.json()) as { modules?: unknown[] }
-		expect(body.modules).toEqual([])
+		const body = (await official.json()) as { packs?: unknown[] }
+		expect(body.packs).toEqual([])
 	})
 
 	it("is idempotent: re-invoking against the same DB does not publish a second version row", async () => {
@@ -230,9 +230,9 @@ describe("seedCommunityScreenedFixture (the boot-time publish)", () => {
 		expect(second.skipped).toBe(true)
 		expect(second.versionId).toBe(first.versionId)
 
-		// Exactly one module_versions row for the fixture's tag.
+		// Exactly one pack_versions row for the fixture's tag.
 		const rows = await fx.pglite.query<{ count: string }>(
-			`SELECT COUNT(*)::text AS count FROM module_versions WHERE id = $1`,
+			`SELECT COUNT(*)::text AS count FROM pack_versions WHERE id = $1`,
 			[first.versionId],
 		)
 		expect(Number(rows.rows[0]?.count ?? 0)).toBe(1)

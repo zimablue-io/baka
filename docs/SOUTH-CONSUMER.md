@@ -14,20 +14,20 @@ Stable operations (CLI `--json` and MCP must stay aligned):
 
 | Op | Input | Output |
 |----|--------|--------|
-| list modules | cwd | name, version, description, actions |
-| list actions | cwd, module | action ids + params schema |
-| plan | cwd, intent | steps `{ id, module, action, params }` + status |
+| list packs | cwd | name, version, description, recipes |
+| list recipes | cwd, pack | recipe ids + params schema |
+| plan | cwd, intent | steps `{ id, pack, recipe, params }` + status |
 | apply | cwd, plan | completed/failed + validation |
 | validate | cwd | pass/fail diagnostics |
 
-Every durable step pin: **`moduleId + version + action + params`**.
+Every durable step pin: **`packId + version + recipe + params`**.
 
-## Module community model
+## Pack community model
 
-- Modules are versioned (semver on manifest).
-- Users **fork** a module to change HOW without mutating the original.
-- Fork metadata keeps a clear link to the **source** module (id + version + source URL).
-- South stores pins only; module bodies stay on disk/git/marketplace.
+- Packs are versioned (semver on manifest).
+- Users **fork** a pack to change HOW without mutating the original.
+- Fork metadata keeps a clear link to the **source** pack (id + version + source URL).
+- South stores pins only; pack bodies stay on disk/git/marketplace.
 
 ## Transport
 

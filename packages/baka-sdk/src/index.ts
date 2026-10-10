@@ -1,31 +1,31 @@
-// The baka SDK is the only boundary module authors should import from.
+// The baka SDK is the only boundary pack authors should import from.
 //
 // This file re-exports the small, stable set of types and runtime helpers a
-// module author needs: the workflow-step contract, the agent role enum, the
+// pack author needs: the workflow-step contract, the agent role enum, the
 // orchestration state shape, the manifest schema, the LLM client surface
-// (for module validators that need the validator role's LLM), and a couple
+// (for pack validators that need the validator role's LLM), and a couple
 // of exit-code constants. Everything else stays inside the engine.
 //
-// Modules should `import { WorkflowStep, AgentRole, callLLMAsValidator } from "baka-sdk"`,
+// Packs should `import { WorkflowStep, AgentRole, callLLMAsValidator } from "baka-sdk"`,
 // never reach into `@repo/protocol` or the engine internals.
 
 export type { RoleConfig, RoleName } from "@repo/agent-engine"
 export { createLLMProvider, loadLLMConfig, OpenAICompatibleProvider, SUPPORTED_ROLES } from "@repo/agent-engine"
 export type {
-	ActionContext,
-	ActionFiles,
-	ActionFileWrite,
-	ActionStep,
-	ActionWriteOptions,
 	ChangesetEntry,
 	LLMMessage,
 	LLMProvider,
 	LLMRequest,
 	LLMResponse,
-	ModuleAction,
-	ModuleActionParam,
-	ModuleManifest,
 	OrchestrationState,
+	PackManifest,
+	PackRecipe,
+	PackRecipeParam,
+	RecipeContext,
+	RecipeFiles,
+	RecipeFileWrite,
+	RecipeStep,
+	RecipeWriteOptions,
 	ResolvedLLMConfig,
 	ResolvedPlan,
 	StepContext,
@@ -39,13 +39,13 @@ export {
 	AgentRole,
 	BAKA_EXIT_CODE,
 	BAKA_USER_DIR,
-	ModuleActionParamSchema,
-	ModuleActionSchema,
-	ModuleManifestSchema,
+	PackManifestSchema,
+	PackRecipeParamSchema,
+	PackRecipeSchema,
 } from "@repo/protocol"
 
 // ---------------------------------------------------------------------------
-// Validator-role LLM helper (for module validators)
+// Validator-role LLM helper (for pack validators)
 //
 // The baka philosophy keeps validators deterministic TS in the hot path.
 // Some validators, however, assess semantic content (coherence of a
@@ -76,10 +76,10 @@ import type { z } from "zod"
 /**
  * Returns an LLM provider for the validator role, configured from
  * `~/.baka/config.json`. Throws `BAKA_CONFIG_MISSING` if the validator
- * role block is absent. Modules call this once per validator invocation;
+ * role block is absent. Packs call this once per validator invocation;
  * the provider is short-lived (one HTTP call).
  *
- * Exposed primarily so module validators that need to send multiple
+ * Exposed primarily so pack validators that need to send multiple
  * requests can reuse a provider instance. Most validators should prefer
  * `callLLMAsValidator`, which composes load+create+chat for one-shot use.
  */

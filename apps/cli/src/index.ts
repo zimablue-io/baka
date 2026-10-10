@@ -2,14 +2,14 @@
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { ModuleDirsError, moduleDirsFromEnv, resolveModuleDirs } from "@repo/ast-tooling"
+import { PackDirsError, packDirsFromEnv, resolvePackDirs } from "@repo/ast-tooling"
 import { BAKA_EXIT_CODE } from "@repo/protocol"
 import { Command } from "commander"
 import { runInit } from "./commands/init"
 import { InstallCommandError, runInstallCommand, runUninstallCommand } from "./commands/install"
 import { runListPackagesCommand, runRemoveCommand } from "./commands/marketplace"
-import { runModuleEdit, runModuleListActions, runModuleTest, runModuleValidate } from "./commands/module"
 import { runOrgCreateCommand, runOrgInviteCommand, runOrgListCommand } from "./commands/org"
+import { runPackEdit, runPackListRecipes, runPackTest, runPackValidate } from "./commands/pack"
 import { runApplyCommand, runListPlans, runPlanCommand, runValidateCommand } from "./commands/plan"
 import { runPublishCommand } from "./commands/publish"
 import {
@@ -25,7 +25,7 @@ import { runRoles } from "./commands/roles"
 import {
 	runFillCommand,
 	runInspectCommand,
-	runListModulesCommand,
+	runListPacksCommand,
 	runLockCommand,
 	runRunCommand,
 	runServeCommand,
@@ -50,7 +50,7 @@ const program = new Command()
 
 program
 	.name("baka")
-	.description("Baka CLI: enforce your patterns by routing LLM intent through declared module actions")
+	.description("Baka CLI: enforce your patterns by routing LLM intent through declared pack recipes")
 	.version(cliPkg.version)
 
 // A relative --cwd is resolved here, once, so every command sees an absolute project root.
@@ -60,49 +60,49 @@ program.option(
 	(value: string) => resolve(value),
 	process.cwd(),
 )
-// The project root and the module scope are separate: --modules-dir (or BAKA_MODULE_DIRS, or the project's
-// `.baka/settings.json` `moduleDirs`) names the directories modules are drawn from, so a catalog elsewhere can
+// The project root and the pack scope are separate: --packs-dir (or BAKA_PACK_DIRS, or the project's
+// `.baka/settings.json` `packDirs`) names the directories packs are drawn from, so a catalog elsewhere can
 // serve any project without symlinks and without being written to.
 program.option(
-	"--modules-dir <path>",
-	"directory containing <module>/manifest.ts entries; repeatable, highest precedence first. When given (or BAKA_MODULE_DIRS is set, or .baka/settings.json lists moduleDirs) ONLY these are searched, instead of the project's modules/, .baka/modules, and the user marketplace. Precedence: this flag, BAKA_MODULE_DIRS, settings moduleDirs",
+	"--packs-dir <path>",
+	"directory containing <pack>/manifest.ts entries; repeatable, highest precedence first. When given (or BAKA_PACK_DIRS is set, or .baka/settings.json lists packDirs) ONLY these are searched, instead of the project's packs/, .baka/packs, and the user marketplace. Precedence: this flag, BAKA_PACK_DIRS, settings packDirs",
 	(value: string, prior: string[]) => [...prior, resolve(value)],
 	[] as string[],
 )
 
-/** The project root, for commands that never read modules (and so never fail on a module-directory setting). */
+/** The project root, for commands that never read packs (and so never fail on a pack-directory setting). */
 function projectCwd(): string {
 	return program.opts<{ cwd?: string }>().cwd ?? process.cwd()
 }
 
-/** `--modules-dir`, then `BAKA_MODULE_DIRS`: what the caller named; the project's settings are not consulted. */
-function explicitModuleDirs(): string[] | undefined {
-	const flag = program.opts<{ modulesDir?: string[] }>().modulesDir
-	return flag?.length ? flag : moduleDirsFromEnv(process.env)
+/** `--packs-dir`, then `BAKA_PACK_DIRS`: what the caller named; the project's settings are not consulted. */
+function explicitPackDirs(): string[] | undefined {
+	const flag = program.opts<{ packsDir?: string[] }>().packsDir
+	return flag?.length ? flag : packDirsFromEnv(process.env)
 }
 
 /**
- * The project root and module directories every module-reading command works with: the flag, then
- * BAKA_MODULE_DIRS, then `moduleDirs` of `<cwd>/.baka/settings.json`, else undefined (default discovery).
+ * The project root and pack directories every pack-reading command works with: the flag, then
+ * BAKA_PACK_DIRS, then `packDirs` of `<cwd>/.baka/settings.json`, else undefined (default discovery).
  * A setting that cannot be honoured ends the command as a usage error naming the file and the entry.
  */
-function globals(): { cwd: string; moduleDirs?: string[] } {
+function globals(): { cwd: string; packDirs?: string[] } {
 	const cwd = projectCwd()
 	try {
 		return {
 			cwd,
-			moduleDirs: resolveModuleDirs({ root: cwd, flag: program.opts<{ modulesDir?: string[] }>().modulesDir }),
+			packDirs: resolvePackDirs({ root: cwd, flag: program.opts<{ packsDir?: string[] }>().packsDir }),
 		}
 	} catch (err) {
-		if (err instanceof ModuleDirsError) die(BAKA_EXIT_CODE.USER_ERROR, err.message)
+		if (err instanceof PackDirsError) die(BAKA_EXIT_CODE.USER_ERROR, err.message)
 		throw err
 	}
 }
 
 // Validate --cwd up front: a non-existent path is a USER_ERROR (the user
 // gave us a bad path), not a silent no-op that returns zero results.
-// `preAction` fires before every subcommand action handler; --help /
-// --version don't fire actions so they remain unaffected.
+// `preAction` fires before every subcommand recipe handler; --help /
+// --version don't fire recipes so they remain unaffected.
 program.hook("preAction", () => {
 	const opts = program.opts<{ cwd?: string }>()
 	const cwd = opts.cwd ?? process.cwd()
@@ -171,21 +171,21 @@ program
 		}
 	})
 
-// `baka module *` -------------------------------------------------------------
+// `baka pack *` -------------------------------------------------------------
 
-const moduleCmd = program.command("module").description("Author, validate, and test modules")
+const packCmd = program.command("pack").description("Author, validate, and test packs")
 
-moduleCmd
+packCmd
 	.command("create <name>")
 	.description(
-		"Design a new module through a chat-driven double-diamond flow (Discover -> Define -> Develop -> Deliver). Re-run to resume.",
+		"Design a new pack through a chat-driven double-diamond flow (Discover -> Define -> Develop -> Deliver). Re-run to resume.",
 	)
 	.action(async (name) => {
 		const cwd = projectCwd()
-		// Lazy-load: a broken module-design barrel must not kill sibling subcommands.
-		const { runModuleDesign } = await import("./commands/module-design/index.js")
+		// Lazy-load: a broken pack-design barrel must not kill sibling subcommands.
+		const { runPackDesign } = await import("./commands/pack-design/index.js")
 		try {
-			await runModuleDesign(name, { cwd })
+			await runPackDesign(name, { cwd })
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
 			if (message.includes("User force closed")) return
@@ -193,20 +193,20 @@ moduleCmd
 		}
 	})
 
-moduleCmd
+packCmd
 	.command("consistency <name>")
-	.description("Run the 5x consistency test on a designed module")
-	.option("-a, --action <id>", "the action id to test (default: first action)")
-	.option("-i, --intent <text>", "the user intent to plan against (default: action's testIntent)")
+	.description("Run the 5x consistency test on a designed pack")
+	.option("-a, --recipe <id>", "the recipe id to test (default: first recipe)")
+	.option("-i, --intent <text>", "the user intent to plan against (default: recipe's testIntent)")
 	.option("-n, --n <count>", "number of runs (default: 5)", "5")
 	.action(async (name, opts) => {
 		const cwd = projectCwd()
-		// Lazy-load: a broken module-design barrel must not kill sibling subcommands.
-		const { runModuleConsistency } = await import("./commands/module-design/index.js")
+		// Lazy-load: a broken pack-design barrel must not kill sibling subcommands.
+		const { runPackConsistency } = await import("./commands/pack-design/index.js")
 		try {
-			await runModuleConsistency(name, {
+			await runPackConsistency(name, {
 				cwd,
-				actionId: opts.action,
+				recipeId: opts.recipe,
 				intent: opts.intent,
 				n: Number(opts.n ?? 5),
 			})
@@ -216,37 +216,37 @@ moduleCmd
 		}
 	})
 
-moduleCmd
+packCmd
 	.command("validate <name>")
-	.description("Check a module's manifest and layout")
+	.description("Check a pack's manifest and layout")
 	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp manifest resource)")
 	.action((name, opts) => {
-		runModuleValidate(name, { ...globals(), json: opts.json })
+		runPackValidate(name, { ...globals(), json: opts.json })
 	})
-moduleCmd
-	.command("list-actions <name>")
-	.description("Show a module's actions")
-	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp `baka_list_actions` tool)")
+packCmd
+	.command("list-recipes <name>")
+	.description("Show a pack's recipes")
+	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp `baka_list_recipes` tool)")
 	.action((name, opts) => {
-		runModuleListActions(name, { ...globals(), json: opts.json })
+		runPackListRecipes(name, { ...globals(), json: opts.json })
 	})
 
-moduleCmd
+packCmd
 	.command("test <name>")
-	.description("Run a single action in an isolated temp dir")
-	.option("-a, --action <id>", "the action id to run (required)")
-	.option("-i, --input <json>", "JSON input for the action", "{}")
+	.description("Run a single recipe in an isolated temp dir")
+	.option("-a, --recipe <id>", "the recipe id to run (required)")
+	.option("-i, --input <json>", "JSON input for the recipe", "{}")
 	.action(async (name, opts) => {
-		if (!opts.action) die(BAKA_EXIT_CODE.USER_ERROR, "--action <id> is required")
-		await runModuleTest(name, opts.action, opts.input ?? "{}", globals())
+		if (!opts.recipe) die(BAKA_EXIT_CODE.USER_ERROR, "--recipe <id> is required")
+		await runPackTest(name, opts.recipe, opts.input ?? "{}", globals())
 	})
 
-moduleCmd
+packCmd
 	.command("edit <name>")
-	.description("Open the module's manifest in $EDITOR, then re-validate")
+	.description("Open the pack's manifest in $EDITOR, then re-validate")
 	.action(async (name) => {
 		try {
-			await runModuleEdit(name, globals())
+			await runPackEdit(name, globals())
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
 			if (message.includes("User force closed")) return
@@ -254,15 +254,15 @@ moduleCmd
 		}
 	})
 
-// `baka list-modules` ---------------------------------------------------------
+// `baka list-packs` ---------------------------------------------------------
 
 program
-	.command("list-modules")
-	.description("List modules discovered in this project (tree, project marketplace, user marketplace)")
-	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp `baka://modules` resource)")
+	.command("list-packs")
+	.description("List packs discovered in this project (tree, project marketplace, user marketplace)")
+	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp `baka://packs` resource)")
 	.action(async (opts) => {
 		try {
-			await runListModulesCommand({ ...globals(), json: opts.json })
+			await runListPacksCommand({ ...globals(), json: opts.json })
 		} catch (err) {
 			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
 		}
@@ -272,9 +272,9 @@ program
 
 program
 	.command("run")
-	.description("Materialize a named module/action (templates + named slots). Product path; prefer this over plan.")
-	.argument("<target>", "module/action (e.g. hello/greet)")
-	.option("--params <json>", "JSON object of action params")
+	.description("Materialize a named pack/recipe (templates + named slots). Product path; prefer this over plan.")
+	.argument("<target>", "pack/recipe (e.g. hello/greet)")
+	.option("--params <json>", "JSON object of recipe params")
 	.option("--dry-run", "compute the changeset and output tree hash without writing anything")
 	.option(
 		"--slot-mode <mode>",
@@ -286,9 +286,9 @@ program
 		"what to do with a template target that already exists: skip (default), overwrite, or fail",
 	)
 	.option("--include-content", "attach each written file's text to its changeset entry")
-	.option("--no-validate", "skip the validators (by default a run validates exactly as runAction does)")
-	.option("--format", "run the formatter the action declares over the files the run wrote, before validating")
-	.option("--json", "emit machine-readable JSON to stdout (the ActionResult receipt)")
+	.option("--no-validate", "skip the validators (by default a run validates exactly as runRecipe does)")
+	.option("--format", "run the formatter the recipe declares over the files the run wrote, before validating")
+	.option("--json", "emit machine-readable JSON to stdout (the RecipeResult receipt)")
 	.allowUnknownOption()
 	.allowExcessArguments(true)
 	.action(async (target, opts) => {
@@ -314,13 +314,13 @@ program
 program
 	.command("lock")
 	.description(
-		"Pin modules to their current version and content hash in baka.lock.json; `baka run` then verifies against it",
+		"Pin packs to their current version and content hash in baka.lock.json; `baka run` then verifies against it",
 	)
-	.argument("[modules...]", "module names to pin (default: every discovered module)")
+	.argument("[packs...]", "pack names to pin (default: every discovered pack)")
 	.option("--json", "emit machine-readable JSON to stdout")
-	.action((modules: string[], opts) => {
+	.action((packs: string[], opts) => {
 		try {
-			runLockCommand({ ...globals(), json: opts.json, modules })
+			runLockCommand({ ...globals(), json: opts.json, packs })
 		} catch (err) {
 			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
 		}
@@ -328,8 +328,8 @@ program
 
 program
 	.command("slots")
-	.description("List named slots for a module/action")
-	.argument("<target>", "module/action")
+	.description("List named slots for a pack/recipe")
+	.argument("<target>", "pack/recipe")
 	.option("--json", "emit machine-readable JSON to stdout")
 	.action(async (target, opts) => {
 		try {
@@ -342,11 +342,11 @@ program
 program
 	.command("fill")
 	.description("Pin a slot fill (writes the project slot cache; model=manual)")
-	.argument("<target>", "module/action")
+	.argument("<target>", "pack/recipe")
 	.option("--slot <id>", "slot id")
 	.option("--value <text>", "fill value (string)")
 	.option("--file <path>", "read the fill from a file")
-	.option("--params <json>", "JSON object of action params (must match the later run)")
+	.option("--params <json>", "JSON object of recipe params (must match the later run)")
 	.option("--json", "emit machine-readable JSON to stdout")
 	.allowUnknownOption()
 	.allowExcessArguments(true)
@@ -368,8 +368,8 @@ program
 
 program
 	.command("inspect")
-	.description("Show params, named slots, and template source for a module/action")
-	.argument("<target>", "module/action")
+	.description("Show params, named slots, and template source for a pack/recipe")
+	.argument("<target>", "pack/recipe")
 	.option("--json", "emit machine-readable JSON to stdout")
 	.action(async (target, opts) => {
 		try {
@@ -400,7 +400,7 @@ program
 		// The server answers for several projects, so each one's own settings decide when nothing was named.
 		await runServeCommand({
 			cwd: projectCwd(),
-			moduleDirs: explicitModuleDirs(),
+			packDirs: explicitPackDirs(),
 			port: Number(opts.port),
 			host: opts.host,
 			token: opts.token,
@@ -458,15 +458,15 @@ program
 
 program
 	.command("validate")
-	.description("Run all module validators against the current project")
+	.description("Run all pack validators against the current project")
 	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp `baka_validate` tool)")
 	.option(
-		"-m, --module <name>",
-		"run validators for a single module only; exits BAKA_EXIT_CODE.USER_ERROR (1) if the module is not found",
+		"-m, --pack <name>",
+		"run validators for a single pack only; exits BAKA_EXIT_CODE.USER_ERROR (1) if the pack is not found",
 	)
 	.action(async (opts) => {
 		try {
-			await runValidateCommand(globals(), { json: opts.json, module: opts.module })
+			await runValidateCommand(globals(), { json: opts.json, pack: opts.pack })
 		} catch (err) {
 			die(BAKA_EXIT_CODE.VALIDATION_ERROR, err instanceof Error ? err.message : String(err))
 		}
@@ -476,28 +476,28 @@ program
 //
 // Architecture §5.1 cli-install: resolves `@scope/name[@version]`
 // through the configured registries, downloads + verifies the
-// tarball (VAL-DISC-041), extracts into `.baka/modules/`, and
+// tarball (VAL-DISC-041), extracts into `.baka/packs/`, and
 // registers the source. Also accepts the legacy `npm:...`,
 // `git:...`, local path, and https URL shapes (unchanged from the
 // pre-registry installer). `--user` flips the scope to the user
-// marketplace (`${BAKA_HOME:-$HOME/.baka}/modules`, architecture §8
+// marketplace (`${BAKA_HOME:-$HOME/.baka}/packs`, architecture §8
 // decisions 32 + 33).
 
 program
 	.command("install <spec>")
 	.description(
-		"Install a module package. Accepts npm:..., git:..., local paths, https URLs, or registry specs (@<scope>/<name>[@<version>] or <name>[@<version>]).",
+		"Install a pack package. Accepts npm:..., git:..., local paths, https URLs, or registry specs (@<scope>/<name>[@<version>] or <name>[@<version>]).",
 	)
 	.option("-l, --local", "install to the project scope (default) vs. user scope")
 	// biome-ignore lint/suspicious/noTemplateCurlyInString: help text shows shell variable expansion syntax
-	.option("-u, --user", "install to the user scope (${BAKA_HOME:-$HOME/.baka}/modules/)")
+	.option("-u, --user", "install to the user scope (${BAKA_HOME:-$HOME/.baka}/packs/)")
 	.option(
 		"-r, --registry <url>",
 		"registry base URL for scoped/bare-name resolution (overrides BAKA_REGISTRY_URL and .baka/settings.json)",
 	)
 	.option(
 		"--json",
-		"emit machine-readable JSON to stdout (status, scope, name, version, previousVersion, registry, modulePath)",
+		"emit machine-readable JSON to stdout (status, scope, name, version, previousVersion, registry, packPath)",
 	)
 	.action(async (spec, opts) => {
 		const cwd = projectCwd()
@@ -521,9 +521,9 @@ program
 
 program
 	.command("uninstall <spec>")
-	.description("Uninstall a registry-sourced module (removes the registration and the materialized module dir)")
+	.description("Uninstall a registry-sourced pack (removes the registration and the materialized pack dir)")
 	.option("-u, --user", "uninstall from the user scope")
-	.option("--json", "emit machine-readable JSON to stdout (status, scope, name, modulePath, settingsPath)")
+	.option("--json", "emit machine-readable JSON to stdout (status, scope, name, packPath, settingsPath)")
 	.action(async (spec, opts) => {
 		const cwd = projectCwd()
 		const scope = opts.user ? "user" : "project"
@@ -539,7 +539,7 @@ program
 
 // `baka remove <source>` -----------------------------------------------------
 //
-// Legacy non-registry remove path. Registry-sourced modules go
+// Legacy non-registry remove path. Registry-sourced packs go
 // through `baka uninstall` (which carries the same-name collision
 // logic + the user-vs-project scope decision). `baka remove`
 // strips the raw source string from settings verbatim — it does
@@ -564,7 +564,7 @@ program
 
 program
 	.command("list-packages")
-	.description("List installed module packages (project + user scopes; project wins on dedup)")
+	.description("List installed pack packages (project + user scopes; project wins on dedup)")
 	.action(() => {
 		const cwd = projectCwd()
 		runListPackagesCommand(cwd)
@@ -575,7 +575,7 @@ program
 program
 	.command("search <query>")
 	.description(
-		"Search modules across every configured registry (--registry > BAKA_REGISTRY_URL > .baka/settings.json registries list > default localhost:4300). Each hit carries its source `registry` attribution field.",
+		"Search packs across every configured registry (--registry > BAKA_REGISTRY_URL > .baka/settings.json registries list > default localhost:4300). Each hit carries its source `registry` attribution field.",
 	)
 	.option("-r, --registry <url>", "query a single registry (overrides BAKA_REGISTRY_URL and .baka/settings.json)")
 	.option(
@@ -597,11 +597,11 @@ program
 
 // `baka registry *` -------------------------------------------------------
 //
-// Login / logout / whoami for a baka module registry. Credentials are
+// Login / logout / whoami for a baka pack registry. Credentials are
 // stored per-registry in `${BAKA_HOME:-$HOME/.baka}/config.json` under
 // the `registries` section (architecture §8 decisions 4 and 33).
 
-const registryCmd = program.command("registry").description("Authenticate against a baka module registry")
+const registryCmd = program.command("registry").description("Authenticate against a baka pack registry")
 
 registryCmd
 	.command("login")
@@ -654,7 +654,7 @@ registryCmd
 registryCmd
 	.command("info <spec>")
 	.description(
-		"Show a module's served manifest, versions, and screening verdict BEFORE install (field-for-field equal to GET /v1/modules/<scope>/<name> + .../<latestVersion>)",
+		"Show a pack's served manifest, versions, and screening verdict BEFORE install (field-for-field equal to GET /v1/packs/<scope>/<name> + .../<latestVersion>)",
 	)
 	.option("-r, --registry <url>", "registry base URL (default: BAKA_REGISTRY_URL or http://localhost:4300)")
 	.option(
@@ -672,9 +672,9 @@ registryCmd
 registryCmd
 	.command("preview <spec>")
 	.description(
-		"Show the generated-code preview per action BEFORE install; `needs-llm` shown honestly for requiresReasoning actions; explicit 'no preview available' line when the module has no preview artifacts",
+		"Show the generated-code preview per recipe BEFORE install; `needs-llm` shown honestly for requiresReasoning recipes; explicit 'no preview available' line when the pack has no preview artifacts",
 	)
-	.option("-a, --action <id>", "show only one action's preview (byte-equal to GET .../previews/<actionId>)")
+	.option("-a, --recipe <id>", "show only one recipe's preview (byte-equal to GET .../previews/<recipeId>)")
 	.option("-r, --registry <url>", "registry base URL (default: BAKA_REGISTRY_URL or http://localhost:4300)")
 	.option(
 		"--json",
@@ -684,7 +684,7 @@ registryCmd
 		try {
 			await runRegistryPreview(spec, {
 				registry: opts.registry,
-				action: opts.action,
+				recipe: opts.recipe,
 				json: opts.json,
 			})
 		} catch (err) {
@@ -704,8 +704,8 @@ program
 	.command("publish <spec>")
 	.description("Publish a repo@tag to a registry (polls status, prints the screening verdict)")
 	.option("--org <slug>", "target org slug (the registry namespace to publish into; required)")
-	.option("--path <dir>", "subdirectory inside the repo containing the module manifest")
-	.option("--visibility <vis>", "module visibility on the registry: 'org' (private, default) or 'public'")
+	.option("--path <dir>", "subdirectory inside the repo containing the pack manifest")
+	.option("--visibility <vis>", "pack visibility on the registry: 'org' (private, default) or 'public'")
 	.option("-r, --registry <url>", "registry base URL (default: BAKA_REGISTRY_URL or http://localhost:4300)")
 	.option(
 		"--json",

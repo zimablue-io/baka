@@ -44,9 +44,9 @@ function stepFails(name: string, message: string): WorkflowStep<unknown, unknown
 	}
 }
 
-function planWith(steps: Array<{ id: string; module: string; action: string }>): ResolvedPlan {
+function planWith(steps: Array<{ id: string; pack: string; recipe: string }>): ResolvedPlan {
 	return {
-		resolvedSteps: steps.map((s) => ({ id: s.id, module: s.module, action: s.action, params: {} })),
+		resolvedSteps: steps.map((s) => ({ id: s.id, pack: s.pack, recipe: s.recipe, params: {} })),
 	}
 }
 
@@ -63,7 +63,7 @@ describe("runSaga", () => {
 		const state = freshState()
 		const steps = new Map<string, WorkflowStep<unknown, unknown, unknown>>()
 		steps.set("m:a", stepOk("m:a"))
-		const result = await runSaga(planWith([{ id: "1", module: "m", action: "a" }]), state, { llmProvider: null }, steps)
+		const result = await runSaga(planWith([{ id: "1", pack: "m", recipe: "a" }]), state, { llmProvider: null }, steps)
 		expect(result.state.status).toBe(ENGINE_STATUS.SUCCESS)
 		expect(result.completed).toHaveLength(1)
 	})
@@ -75,8 +75,8 @@ describe("runSaga", () => {
 		steps.set("m:b", stepFails("m:b", "boom"))
 		const result = await runSaga(
 			planWith([
-				{ id: "1", module: "m", action: "a" },
-				{ id: "2", module: "m", action: "b" },
+				{ id: "1", pack: "m", recipe: "a" },
+				{ id: "2", pack: "m", recipe: "b" },
 			]),
 			state,
 			{ llmProvider: null },
@@ -93,7 +93,7 @@ describe("runSaga", () => {
 	it("fails fast if a step is missing from the registry", async () => {
 		const state = freshState()
 		const result = await runSaga(
-			planWith([{ id: "1", module: "missing", action: "x" }]),
+			planWith([{ id: "1", pack: "missing", recipe: "x" }]),
 			state,
 			{ llmProvider: null },
 			new Map(),
@@ -114,7 +114,7 @@ describe("runSaga", () => {
 			compensate: async () => {},
 		})
 		const result = await runSaga(
-			planWith([{ id: "1", module: "m", action: "throw" }]),
+			planWith([{ id: "1", pack: "m", recipe: "throw" }]),
 			state,
 			{ llmProvider: null },
 			steps,
@@ -123,7 +123,7 @@ describe("runSaga", () => {
 		expect(result.failed?.error).toContain("kaboom")
 	})
 
-	it("captures the step's rich output on every completed step (rich-action-output-propagation)", async () => {
+	it("captures the step's rich output on every completed step (rich-recipe-output-propagation)", async () => {
 		const state = freshState()
 		const steps = new Map<string, WorkflowStep<unknown, unknown, unknown>>()
 		steps.set("m:rich", {
@@ -137,7 +137,7 @@ describe("runSaga", () => {
 			compensate: async () => {},
 		})
 		const result = await runSaga(
-			planWith([{ id: "1", module: "m", action: "rich" }]),
+			planWith([{ id: "1", pack: "m", recipe: "rich" }]),
 			state,
 			{ llmProvider: null },
 			steps,
@@ -145,7 +145,7 @@ describe("runSaga", () => {
 
 		expect(result.state.status).toBe(ENGINE_STATUS.SUCCESS)
 		expect(result.completed).toHaveLength(1)
-		// The saga contract must carry the action's output through so the
+		// The saga contract must carry the recipe's output through so the
 		// apply surfaces (CLI + MCP) can serialize it. Without this, every
 		// rich payload collapses to the boolean success flag.
 		expect(result.completed[0]?.output).toEqual({

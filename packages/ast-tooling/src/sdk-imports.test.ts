@@ -2,17 +2,17 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { findModuleSdkImports, findRuntimeSdkImports } from "./sdk-imports.js"
+import { findPackSdkImports, findRuntimeSdkImports } from "./sdk-imports.js"
 
 describe("findRuntimeSdkImports", () => {
 	it.each([
-		'import type { ActionStep } from "baka-sdk"',
-		"import type { ActionStep } from 'baka-sdk'",
-		'import { type ActionStep } from "baka-sdk"',
+		'import type { RecipeStep } from "baka-sdk"',
+		"import type { RecipeStep } from 'baka-sdk'",
+		'import { type RecipeStep } from "baka-sdk"',
 		'import { type A, type B } from "baka-sdk"',
 		'import type * as sdk from "baka-sdk"',
 		'import type Default from "baka-sdk"',
-		'export type { ActionStep } from "baka-sdk"',
+		'export type { RecipeStep } from "baka-sdk"',
 		'import type {\n\tA,\n\tB,\n} from "baka-sdk"',
 		'import { type A,\n type B } from "baka-sdk"',
 		'import type { X } from "baka-sdk/sub"',
@@ -26,7 +26,7 @@ describe("findRuntimeSdkImports", () => {
 
 	it.each([
 		['import { AgentRole } from "baka-sdk"', 1],
-		['import { AgentRole, type ActionStep } from "baka-sdk"', 1],
+		['import { AgentRole, type RecipeStep } from "baka-sdk"', 1],
 		['import * as sdk from "baka-sdk"', 1],
 		['import sdk from "baka-sdk"', 1],
 		['import sdk, { type A } from "baka-sdk"', 1],
@@ -45,13 +45,13 @@ describe("findRuntimeSdkImports", () => {
 	})
 })
 
-describe("findModuleSdkImports", () => {
+describe("findPackSdkImports", () => {
 	const dirs: string[] = []
 	afterEach(() => {
 		for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 	})
 
-	it("scans module code, skips tests, declaration files, and node_modules", () => {
+	it("scans pack code, skips tests, declaration files, and node_modules", () => {
 		const root = mkdtempSync(join(tmpdir(), "baka-sdk-imports-"))
 		dirs.push(root)
 		const put = (rel: string, content: string) => {
@@ -59,8 +59,8 @@ describe("findModuleSdkImports", () => {
 			writeFileSync(join(root, rel), content)
 		}
 		const bad = 'import { AgentRole } from "baka-sdk"\n'
-		put("manifest.ts", 'import type { ModuleManifest } from "baka-sdk"\n')
-		put("scaffold/action.ts", bad)
+		put("manifest.ts", 'import type { PackManifest } from "baka-sdk"\n')
+		put("scaffold/recipe.ts", bad)
 		put("scaffold/validators/check.ts", bad)
 		put("_shared/helpers/x.ts", bad)
 		put("tests/a.test.ts", bad)
@@ -68,9 +68,9 @@ describe("findModuleSdkImports", () => {
 		put("scaffold/x.test.ts", bad)
 		put("types/baka-sdk.d.ts", bad)
 		put("node_modules/pkg/index.ts", bad)
-		expect(findModuleSdkImports(root).map((f) => `${f.file}:${f.line}`)).toEqual([
+		expect(findPackSdkImports(root).map((f) => `${f.file}:${f.line}`)).toEqual([
 			"_shared/helpers/x.ts:1",
-			"scaffold/action.ts:1",
+			"scaffold/recipe.ts:1",
 			"scaffold/validators/check.ts:1",
 		])
 	})

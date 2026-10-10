@@ -26,24 +26,24 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("Worker reasoning integration — fillReasoningTemplates end-to-end", () => {
-	it("calls the LLM, passes renderedTemplates to the action, and writes generated content", async () => {
+	it("calls the LLM, passes renderedTemplates to the recipe, and writes generated content", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "baka-worker-reasoning-"))
 		cleanup.push(dir)
 
-		// -- Build a fake project with a requiresReasoning action --
+		// -- Build a fake project with a requiresReasoning recipe --
 
-		const moduleRoot = join(dir, "modules", "test-mod")
-		const actionDir = join(moduleRoot, "renderThing")
-		const templatesDir = join(actionDir, "templates")
+		const packRoot = join(dir, "packs", "test-mod")
+		const recipeDir = join(packRoot, "renderThing")
+		const templatesDir = join(recipeDir, "templates")
 		mkdirSync(templatesDir, { recursive: true })
 
-		// manifest.ts — action declares requiresReasoning: true
+		// manifest.ts — recipe declares requiresReasoning: true
 		writeFileSync(
-			join(moduleRoot, "manifest.ts"),
-			`import type { ModuleManifest } from "@repo/protocol"
-export const Manifest: ModuleManifest = {
+			join(packRoot, "manifest.ts"),
+			`import type { PackManifest } from "@repo/protocol"
+export const Manifest: PackManifest = {
 	name: "test-mod", version: "0.1.0", description: "fake", dependencies: [], conflictsWith: [],
-	actions: [{
+	recipes: [{
 		id: "renderThing",
 		description: "renders a thing",
 		params: [{ name: "name", type: "string", required: true, description: "name" }],
@@ -51,7 +51,7 @@ export const Manifest: ModuleManifest = {
 		filePatterns: [],
 		validators: [],
 	}],
-	moduleValidators: [],
+	packValidators: [],
 }
 `,
 		)
@@ -62,7 +62,7 @@ export const Manifest: ModuleManifest = {
 			'# {{name}}\n{{#slot "body" kind="prose" max=80}}one sentence{{/slot}}\n',
 		)
 
-		// action.ts is omitted: templates/ is the output tree.
+		// recipe.ts is omitted: templates/ is the output tree.
 
 		// -- Fake LLM provider that tracks calls --
 		let callCount = 0
@@ -90,7 +90,7 @@ export const Manifest: ModuleManifest = {
 
 		// -- Execute the worker step --
 		const result = await executeWorkerStep.execute(
-			{ moduleName: "test-mod", actionName: "renderThing", parameters: { name: "test" } },
+			{ packName: "test-mod", recipeName: "renderThing", parameters: { name: "test" } },
 			state,
 			{ llmProvider: fakeProvider },
 		)
@@ -110,17 +110,17 @@ export const Manifest: ModuleManifest = {
 		const dir = mkdtempSync(join(tmpdir(), "baka-worker-reasoning-hint-"))
 		cleanup.push(dir)
 
-		const moduleRoot = join(dir, "modules", "reasoning-hint-mod")
-		const actionDir = join(moduleRoot, "render-thing")
-		const templatesDir = join(actionDir, "templates")
+		const packRoot = join(dir, "packs", "reasoning-hint-mod")
+		const recipeDir = join(packRoot, "render-thing")
+		const templatesDir = join(recipeDir, "templates")
 		mkdirSync(templatesDir, { recursive: true })
 
 		writeFileSync(
-			join(moduleRoot, "manifest.ts"),
-			`import type { ModuleManifest } from "@repo/protocol"
-export const Manifest: ModuleManifest = {
+			join(packRoot, "manifest.ts"),
+			`import type { PackManifest } from "@repo/protocol"
+export const Manifest: PackManifest = {
   name: "reasoning-hint-mod", version: "0.1.0", description: "fake", dependencies: [], conflictsWith: [],
-  actions: [{
+  recipes: [{
     id: "render-thing",
     description: "renders a thing",
     params: [],
@@ -128,16 +128,16 @@ export const Manifest: ModuleManifest = {
     filePatterns: [],
     validators: [],
   }],
-  moduleValidators: [],
+  packValidators: [],
 }
 `,
 		)
 		writeFileSync(join(templatesDir, "thing.md.hbs"), '{{#slot "body" kind="prose"}}one sentence{{/slot}}\n')
 
 		writeFileSync(
-			join(actionDir, "action.ts"),
+			join(recipeDir, "recipe.ts"),
 			`import { AgentRole, type StepResponse, type WorkflowStep } from "@repo/protocol"
-export const renderThingAction: WorkflowStep<unknown, boolean, unknown> = {
+export const renderThingRecipe: WorkflowStep<unknown, boolean, unknown> = {
   name: "render-thing",
   role: AgentRole.WORKER,
   execute: async (): Promise<StepResponse<boolean, unknown>> => ({ success: true, output: true, compensationData: null }),
@@ -156,7 +156,7 @@ export const renderThingAction: WorkflowStep<unknown, boolean, unknown> = {
 		}
 
 		const result = await executeWorkerStep.execute(
-			{ moduleName: "reasoning-hint-mod", actionName: "render-thing", parameters: {} },
+			{ packName: "reasoning-hint-mod", recipeName: "render-thing", parameters: {} },
 			state,
 			{ llmProvider: null },
 		)

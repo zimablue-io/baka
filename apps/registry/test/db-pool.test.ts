@@ -106,7 +106,7 @@ describe("pglite-socket connection pool", () => {
 		const port = await pickEphemeralPort()
 		const handle = await createDatabase({ dataDir: pgliteDir, socketPort: port, startSocket: true })
 		try {
-			await handle.db.insert(handle.schema.modules).values({
+			await handle.db.insert(handle.schema.packs).values({
 				scope: "acme",
 				name: "via-socket",
 				visibility: "org",
@@ -123,7 +123,7 @@ describe("pglite-socket connection pool", () => {
 			})
 			await client.connect()
 			try {
-				const result = await client.query(`SELECT name, visibility, tier FROM modules WHERE scope = $1`, ["acme"])
+				const result = await client.query(`SELECT name, visibility, tier FROM packs WHERE scope = $1`, ["acme"])
 				expect(result.rows).toEqual([{ name: "via-socket", visibility: "org", tier: "community-unverified" }])
 			} finally {
 				await client.end().catch(() => {})
@@ -159,7 +159,7 @@ describe("pglite-socket connection pool", () => {
 			expect(handle.socket).toBeNull()
 			// In-process Drizzle is fully usable.
 			const inserted = await handle.db
-				.insert(handle.schema.modules)
+				.insert(handle.schema.packs)
 				.values({
 					scope: "acme",
 					name: "in-proc",
@@ -167,7 +167,7 @@ describe("pglite-socket connection pool", () => {
 					tier: "community-unverified",
 					description: "x",
 				})
-				.returning({ id: handle.schema.modules.id })
+				.returning({ id: handle.schema.packs.id })
 			expect(inserted[0]?.id).toBeTruthy()
 		} finally {
 			await handle.close()

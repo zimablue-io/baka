@@ -11,7 +11,7 @@ const SLOT_BLOCK = /\{\{#slot\s+"([^"]+)"([^}]*)\}\}([\s\S]*?)\{\{\/slot\}\}/g
 
 /** Stands in for a literal `{{` (written `\{{` in a template) while the template is checked and compiled. */
 const LITERAL_BRACES = "\uE000BAKA-LBRACE\uE001"
-/** The only helpers a template may call, each with exactly one param; see `json` and `jsonEscape` in docs/MODULES.md. */
+/** The only helpers a template may call, each with exactly one param; see `json` and `jsonEscape` in docs/PACKS.md. */
 const VALUE_HELPERS = new Set(["json", "jsonEscape"])
 const BLOCK_HELPERS = new Set(["if", "each", "slot"])
 const SLOT_HASH_KEYS = new Set(["kind", "max", "item", "schema"])
@@ -249,7 +249,7 @@ export function formatSlotValue(slot: SlotDecl, value: unknown): string {
 
 /**
  * Substitute filled slots, then interpolate params / if / each. `context` is
- * what the template can see: the action's params plus `data`, the module's
+ * what the template can see: the recipe's params plus `data`, the pack's
  * data files. Slot bodies are inserted as text, never as template source, so
  * a fill cannot inject Handlebars; a `{{` in a fill comes out literally, as
  * does a `\{{` in the template.
@@ -402,7 +402,7 @@ interface TemplateFile {
 	directive: TemplateDirective
 }
 
-export function parseActionTemplates(templatesDir: string): {
+export function parseRecipeTemplates(templatesDir: string): {
 	files: TemplateFile[]
 	slots: SlotDecl[]
 } {

@@ -21,7 +21,9 @@
     },
 
     "apps/mcp": {
-      "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"]
+      "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"],
+      // The bundled engine loads packs through jiti, which tsup keeps external.
+      "ignoreDependencies": ["jiti"]
     },
 
     "apps/engine": {
@@ -69,7 +71,7 @@
       "project": ["src/**/*.{ts,tsx}"]
     },
 
-    "workflows/module-management": {
+    "workflows/pack-management": {
       "project": ["src/**/*.{ts,tsx}"]
     }
   },

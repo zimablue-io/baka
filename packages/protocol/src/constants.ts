@@ -18,10 +18,10 @@ export const BAKA_EXIT_CODE = {
 	VALIDATION_ERROR: 4,
 } as const
 
-// Reserved module categories used in docs and error messages. The set of installed
-// modules is discovered at runtime from modules/*/manifest.ts; these constants
+// Reserved pack categories used in docs and error messages. The set of installed
+// packs is discovered at runtime from packs/*/manifest.ts; these constants
 // exist only for documentation and example prompts, never for enforcement.
-export const MODULE_CATEGORY = {
+export const PACK_CATEGORY = {
 	BASE: "base",
 	FRAMEWORK: "framework",
 	AUTH: "auth",
@@ -50,14 +50,14 @@ export const BAKA_DEFAULT_WORKER_MODEL = "gemma4:e4b" as const
 // The directory name used under the user's home directory for config and data.
 export const BAKA_USER_DIR = "baka" as const
 
-// Typed failure codes of `runAction`. A failed run carries one error
+// Typed failure codes of `runRecipe`. A failed run carries one error
 // diagnostic whose `rule` is one of these, so callers branch on a stable
 // string instead of parsing a message.
-export const ACTION_ERROR_CODES = [
-	"module-not-found",
-	"module-invalid",
-	"action-not-found",
-	"action-empty",
+export const RECIPE_ERROR_CODES = [
+	"pack-not-found",
+	"pack-invalid",
+	"recipe-not-found",
+	"recipe-empty",
 	"invalid-params",
 	"lock-mismatch",
 	"lock-unlisted",
@@ -72,9 +72,9 @@ export const ACTION_ERROR_CODES = [
 	"dry-run-unsupported",
 	"dry-run-violation",
 	"format-failed",
-	"action-failed",
+	"recipe-failed",
 	"unexpected",
 ] as const
 
-// Where a project records the module versions it is pinned to; see docs/MODULES.md.
+// Where a project records the pack versions it is pinned to; see docs/PACKS.md.
 export const BAKA_LOCKFILE_NAME = "baka.lock.json"

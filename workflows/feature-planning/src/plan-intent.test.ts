@@ -7,10 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { featurePlanningWorkflow } from "./plan-intent"
 
 // ---------------------------------------------------------------------------
-// featurePlanningWorkflow tests against REAL on-disk fixture modules (no
+// featurePlanningWorkflow tests against REAL on-disk fixture packs (no
 // discovery mocks): the workflow must see exactly what the engine's single
 // discovery implementation sees, and must refuse plans that reference an
-// action id exported by two different modules (architecture decision 12).
+// recipe id exported by two different packs (architecture decision 12).
 // ---------------------------------------------------------------------------
 
 const cleanup: string[] = []
@@ -38,32 +38,32 @@ beforeEach(() => {
 	process.env.HOME = makeTempDir("baka-plan-home-")
 })
 
-function writeFixtureModule(root: string, name: string, actionIds: string[]): void {
-	const moduleDir = join(root, "modules", name)
-	mkdirSync(moduleDir, { recursive: true })
-	const actions = actionIds
+function writeFixturePack(root: string, name: string, recipeIds: string[]): void {
+	const packDir = join(root, "packs", name)
+	mkdirSync(packDir, { recursive: true })
+	const recipes = recipeIds
 		.map(
 			(id) =>
 				`{ id: "${id}", description: "${id}", params: [], requiresReasoning: false, filePatterns: [], validators: [] }`,
 		)
 		.join(", ")
 	writeFileSync(
-		join(moduleDir, "manifest.ts"),
-		`import type { ModuleManifest } from "@repo/protocol"
-export const Manifest: ModuleManifest = {
+		join(packDir, "manifest.ts"),
+		`import type { PackManifest } from "@repo/protocol"
+export const Manifest: PackManifest = {
 	name: "${name}",
 	version: "0.1.0",
 	description: "fixture ${name}",
 	dependencies: [],
 	conflictsWith: [],
-	actions: [${actions}],
-	moduleValidators: [],
+	recipes: [${recipes}],
+	packValidators: [],
 }
 `,
 	)
-	for (const id of actionIds) {
-		mkdirSync(join(moduleDir, id), { recursive: true })
-		writeFileSync(join(moduleDir, id, "action.ts"), "export const actAction = {}\n")
+	for (const id of recipeIds) {
+		mkdirSync(join(packDir, id), { recursive: true })
+		writeFileSync(join(packDir, id, "recipe.ts"), "export const actRecipe = {}\n")
 	}
 }
 
@@ -81,11 +81,11 @@ function fakeProviderReturning(plan: ResolvedPlan): LLMProvider {
 }
 
 describe("featurePlanningWorkflow", () => {
-	it("resolves a plan and returns SUCCESS when at least one module is available", async () => {
+	it("resolves a plan and returns SUCCESS when at least one pack is available", async () => {
 		const root = makeTempDir("baka-plan-ok-")
-		writeFixtureModule(root, "test-mod", ["scaffold"])
+		writeFixturePack(root, "test-mod", ["scaffold"])
 		const provider = fakeProviderReturning({
-			resolvedSteps: [{ id: "step-1", module: "test-mod", action: "scaffold", params: {} }],
+			resolvedSteps: [{ id: "step-1", pack: "test-mod", recipe: "scaffold", params: {} }],
 		})
 
 		const result = await featurePlanningWorkflow("scaffold auth", root, provider)
@@ -95,71 +95,71 @@ describe("featurePlanningWorkflow", () => {
 		expect(result.logs.some((l) => l.startsWith("[plan]"))).toBe(true)
 	})
 
-	it("sees modules installed in the project marketplace scope (<root>/.baka/modules)", async () => {
+	it("sees packs installed in the project marketplace scope (<root>/.baka/packs)", async () => {
 		const root = makeTempDir("baka-plan-project-scope-")
 		// Same fixture shape as the tree scope but under the project marketplace.
-		const moduleDir = join(root, ".baka", "modules", "market-mod")
-		mkdirSync(join(moduleDir, "act"), { recursive: true })
+		const packDir = join(root, ".baka", "packs", "market-mod")
+		mkdirSync(join(packDir, "act"), { recursive: true })
 		writeFileSync(
-			join(moduleDir, "manifest.ts"),
-			`import type { ModuleManifest } from "@repo/protocol"
-export const Manifest: ModuleManifest = {
+			join(packDir, "manifest.ts"),
+			`import type { PackManifest } from "@repo/protocol"
+export const Manifest: PackManifest = {
 	name: "market-mod",
 	version: "0.1.0",
 	description: "project marketplace fixture",
 	dependencies: [],
 	conflictsWith: [],
-	actions: [{ id: "act", description: "act", params: [], requiresReasoning: false, filePatterns: [], validators: [] }],
-	moduleValidators: [],
+	recipes: [{ id: "act", description: "act", params: [], requiresReasoning: false, filePatterns: [], validators: [] }],
+	packValidators: [],
 }
 `,
 		)
-		writeFileSync(join(moduleDir, "act", "action.ts"), "export const actAction = {}\n")
+		writeFileSync(join(packDir, "act", "recipe.ts"), "export const actRecipe = {}\n")
 		const provider = fakeProviderReturning({
-			resolvedSteps: [{ id: "step-1", module: "market-mod", action: "act", params: {} }],
+			resolvedSteps: [{ id: "step-1", pack: "market-mod", recipe: "act", params: {} }],
 		})
 
-		const result = await featurePlanningWorkflow("use the marketplace module", root, provider)
+		const result = await featurePlanningWorkflow("use the marketplace pack", root, provider)
 
 		expect(result.status).toBe(ENGINE_STATUS.SUCCESS)
-		expect(result.executionPlan.steps[0].module).toBe("market-mod")
+		expect(result.executionPlan.steps[0].pack).toBe("market-mod")
 	})
 
-	it("returns FAILED with a clear diagnostic when no modules are discovered", async () => {
+	it("returns FAILED with a clear diagnostic when no packs are discovered", async () => {
 		const root = makeTempDir("baka-plan-empty-")
 		const provider = fakeProviderReturning({ resolvedSteps: [] })
 
 		const result = await featurePlanningWorkflow("scaffold auth", root, provider)
 
 		expect(result.status).toBe(ENGINE_STATUS.FAILED)
-		expect(result.logs.some((l) => /no modules were discovered/i.test(l))).toBe(true)
+		expect(result.logs.some((l) => /no packs were discovered/i.test(l))).toBe(true)
 		expect(result.executionPlan.steps).toEqual([])
 	})
 
-	it("refuses a plan that references an action id exported by two different modules", async () => {
+	it("refuses a plan that references a recipe id exported by two different packs", async () => {
 		const root = makeTempDir("baka-plan-collide-")
-		writeFixtureModule(root, "mod-a", ["collide"])
-		writeFixtureModule(root, "mod-b", ["collide"])
+		writeFixturePack(root, "mod-a", ["collide"])
+		writeFixturePack(root, "mod-b", ["collide"])
 		const provider = fakeProviderReturning({
-			resolvedSteps: [{ id: "step-1", module: "mod-a", action: "collide", params: {} }],
+			resolvedSteps: [{ id: "step-1", pack: "mod-a", recipe: "collide", params: {} }],
 		})
 
-		const result = await featurePlanningWorkflow("run the colliding action", root, provider)
+		const result = await featurePlanningWorkflow("run the colliding recipe", root, provider)
 
 		expect(result.status).toBe(ENGINE_STATUS.FAILED)
 		const refusal = result.logs.find((l) => /collide/.test(l) && /mod-a/.test(l) && /mod-b/.test(l))
 		expect(refusal, "expected a refusal log naming both mod-a and mod-b").toBeDefined()
 	})
 
-	it("does not refuse a plan that avoids the ambiguous action id", async () => {
+	it("does not refuse a plan that avoids the ambiguous recipe id", async () => {
 		const root = makeTempDir("baka-plan-no-collide-")
-		writeFixtureModule(root, "mod-a", ["collide", "unique-a"])
-		writeFixtureModule(root, "mod-b", ["collide"])
+		writeFixturePack(root, "mod-a", ["collide", "unique-a"])
+		writeFixturePack(root, "mod-b", ["collide"])
 		const provider = fakeProviderReturning({
-			resolvedSteps: [{ id: "step-1", module: "mod-a", action: "unique-a", params: {} }],
+			resolvedSteps: [{ id: "step-1", pack: "mod-a", recipe: "unique-a", params: {} }],
 		})
 
-		const result = await featurePlanningWorkflow("run the unique action", root, provider)
+		const result = await featurePlanningWorkflow("run the unique recipe", root, provider)
 
 		expect(result.status).toBe(ENGINE_STATUS.SUCCESS)
 		expect(result.executionPlan.steps).toHaveLength(1)

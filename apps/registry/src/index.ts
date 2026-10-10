@@ -24,7 +24,7 @@ import type { StorageAdapter } from "./storage"
  *   - /api/auth/*     (Better-Auth handler: GitHub OAuth, session
  *                      cookies, get-session, organization + api-key
  *                      plugin endpoints).
- *   - /v1/modules*, /v1/modules/:scope/:name[/...]
+ *   - /v1/packs*, /v1/packs/:scope/:name[/...]
  *                      (catalog read paths, DB-backed, seeded from
  *                      BUILT_IN_CATALOG — feature: registry-catalog-read-paths;
  *                      list endpoint filters by visibility).
@@ -60,9 +60,9 @@ export interface AppDeps {
 	/**
 	 * Optional enqueue seam for the ingest worker (architecture §4.5).
 	 * The publish endpoint calls this with the freshly-created
-	 * `module_versions.id`. With the polling-loop worker the seam is
+	 * `pack_versions.id`. With the polling-loop worker the seam is
 	 * purely a hint — the worker discovers rows by polling
-	 * `module_versions.status='pending'` regardless (decision 35);
+	 * `pack_versions.status='pending'` regardless (decision 35);
 	 * the call exists so tests can observe "publish signaled a new
 	 * row" through a simple counter.
 	 */
@@ -100,13 +100,13 @@ export function buildApp(deps: AppDeps): Hono {
 	app.route("/", authApp)
 
 	// Catalog read paths (DB-backed, seeded from BUILT_IN_CATALOG):
-	//   GET  /v1/modules[?tier=...]
-	//   GET  /v1/modules/:scope/:name
-	//   GET  /v1/modules/:scope/:name/versions
-	//   GET  /v1/modules/:scope/:name/:version
+	//   GET  /v1/packs[?tier=...]
+	//   GET  /v1/packs/:scope/:name
+	//   GET  /v1/packs/:scope/:name/versions
+	//   GET  /v1/packs/:scope/:name/:version
 	// All responses carry Cache-Control: no-store (decision 25).
 	// The list endpoint applies a visibility WHERE clause so
-	// org-visibility modules are hidden from callers without
+	// org-visibility packs are hidden from callers without
 	// proven org membership (VAL-AUTH-003, VAL-PUB-016).
 	const catalogRoutes = createCatalogRoutes({
 		auth: deps.auth,

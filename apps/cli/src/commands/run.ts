@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs"
 import { engineRequest } from "@baka/engine"
-import { createLock, ModuleRegistry, writeLockfile } from "@repo/ast-tooling"
+import { createLock, PackRegistry, writeLockfile } from "@repo/ast-tooling"
 import { BAKA_EXIT_CODE, BAKA_LOCKFILE_NAME } from "@repo/protocol"
 
 function die(code: number, msg: string): never {
@@ -8,12 +8,12 @@ function die(code: number, msg: string): never {
 	process.exit(code)
 }
 
-export function parseModuleAction(target: string): { module: string; action: string } {
+export function parsePackRecipe(target: string): { pack: string; recipe: string } {
 	const idx = target.indexOf("/")
 	if (idx <= 0 || idx === target.length - 1) {
-		die(BAKA_EXIT_CODE.USER_ERROR, `expected <module>/<action>, got "${target}"`)
+		die(BAKA_EXIT_CODE.USER_ERROR, `expected <pack>/<recipe>, got "${target}"`)
 	}
-	return { module: target.slice(0, idx), action: target.slice(idx + 1) }
+	return { pack: target.slice(0, idx), recipe: target.slice(idx + 1) }
 }
 
 export function parseParamFlags(raw: string[] | undefined, paramsJson?: string): Record<string, unknown> {
@@ -49,14 +49,14 @@ export function parseParamFlags(raw: string[] | undefined, paramsJson?: string):
 			key === "file" ||
 			key === "value" ||
 			key === "cwd" ||
-			key === "modules-dir" ||
+			key === "packs-dir" ||
 			key === "port" ||
 			key === "help" ||
 			key === "version"
 		) {
 			if (
 				key === "cwd" ||
-				key === "modules-dir" ||
+				key === "packs-dir" ||
 				key === "params" ||
 				key === "slot" ||
 				key === "file" ||
@@ -89,13 +89,13 @@ export async function runRunCommand(
 	target: string,
 	opts: {
 		cwd: string
-		moduleDirs?: string[]
+		packDirs?: string[]
 		json?: boolean
 		dryRun?: boolean
 		includeContent?: boolean
-		/** `false` skips the validators (`--no-validate`); anything else validates, as `runAction` does. */
+		/** `false` skips the validators (`--no-validate`); anything else validates, as `runRecipe` does. */
 		validate?: boolean
-		/** Run the formatter the action declares over the files the run wrote (`--format`). */
+		/** Run the formatter the recipe declares over the files the run wrote (`--format`). */
 		format?: boolean
 		slotMode?: string
 		slotRecords?: string
@@ -104,18 +104,18 @@ export async function runRunCommand(
 		extra?: string[]
 	},
 ): Promise<void> {
-	const { module, action } = parseModuleAction(target)
+	const { pack, recipe } = parsePackRecipe(target)
 	const params = parseParamFlags(opts.extra, opts.params)
 	const slots = parseSlotsFlags(opts.slotMode, opts.slotRecords)
 	if (opts.onExisting !== undefined && !["skip", "overwrite", "fail"].includes(opts.onExisting)) {
 		die(BAKA_EXIT_CODE.USER_ERROR, `--on-existing must be skip, overwrite, or fail; got "${opts.onExisting}"`)
 	}
 	const { status, json } = await engineRequest(opts.cwd, "/v1/run", {
-		moduleDirs: opts.moduleDirs,
+		packDirs: opts.packDirs,
 		method: "POST",
 		body: {
-			module,
-			action,
+			pack,
+			recipe,
 			params,
 			slots,
 			onExisting: opts.onExisting,
@@ -129,7 +129,7 @@ export async function runRunCommand(
 	if (opts.json) {
 		printJson(json)
 	} else {
-		printRunSummary(`${module}/${action}`, body)
+		printRunSummary(`${pack}/${recipe}`, body)
 	}
 	if (status >= 400 || body.ok === false) {
 		process.exit(BAKA_EXIT_CODE.ENGINE_ERROR)
@@ -193,13 +193,13 @@ function printRunSummary(target: string, body: RunBody): void {
 
 export async function runSlotsCommand(
 	target: string,
-	opts: { cwd: string; moduleDirs?: string[]; json?: boolean },
+	opts: { cwd: string; packDirs?: string[]; json?: boolean },
 ): Promise<void> {
-	const { module, action } = parseModuleAction(target)
+	const { pack, recipe } = parsePackRecipe(target)
 	const { status, json } = await engineRequest(
 		opts.cwd,
-		`/v1/slots?module=${encodeURIComponent(module)}&action=${encodeURIComponent(action)}`,
-		{ moduleDirs: opts.moduleDirs },
+		`/v1/slots?pack=${encodeURIComponent(pack)}&recipe=${encodeURIComponent(recipe)}`,
+		{ packDirs: opts.packDirs },
 	)
 	if (opts.json) printJson(json)
 	else {
@@ -214,13 +214,13 @@ export async function runSlotsCommand(
 
 export async function runInspectCommand(
 	target: string,
-	opts: { cwd: string; moduleDirs?: string[]; json?: boolean },
+	opts: { cwd: string; packDirs?: string[]; json?: boolean },
 ): Promise<void> {
-	const { module, action } = parseModuleAction(target)
+	const { pack, recipe } = parsePackRecipe(target)
 	const { status, json } = await engineRequest(
 		opts.cwd,
-		`/v1/preview?module=${encodeURIComponent(module)}&action=${encodeURIComponent(action)}`,
-		{ moduleDirs: opts.moduleDirs },
+		`/v1/preview?pack=${encodeURIComponent(pack)}&recipe=${encodeURIComponent(recipe)}`,
+		{ packDirs: opts.packDirs },
 	)
 	const body = json as {
 		error?: string
@@ -232,7 +232,7 @@ export async function runInspectCommand(
 	if (opts.json) printJson(json)
 	else if (body.error) die(BAKA_EXIT_CODE.USER_ERROR, body.error)
 	else {
-		console.log(`${module}/${action}`)
+		console.log(`${pack}/${recipe}`)
 		if (body.description) console.log(body.description)
 		for (const p of body.params ?? []) {
 			console.log(`  param ${p.name}${p.required ? "" : "?"} (${p.type}): ${p.description}`)
@@ -252,7 +252,7 @@ export async function runFillCommand(
 	target: string,
 	opts: {
 		cwd: string
-		moduleDirs?: string[]
+		packDirs?: string[]
 		json?: boolean
 		slot?: string
 		file?: string
@@ -261,7 +261,7 @@ export async function runFillCommand(
 		extra?: string[]
 	},
 ): Promise<void> {
-	const { module, action } = parseModuleAction(target)
+	const { pack, recipe } = parsePackRecipe(target)
 	if (!opts.slot) die(BAKA_EXIT_CODE.USER_ERROR, "--slot <id> is required")
 	let value: unknown = opts.value
 	if (opts.file) {
@@ -270,9 +270,9 @@ export async function runFillCommand(
 	if (value === undefined) die(BAKA_EXIT_CODE.USER_ERROR, "--value or --file is required")
 	const params = parseParamFlags(opts.extra, opts.params)
 	const { status, json } = await engineRequest(opts.cwd, "/v1/fill", {
-		moduleDirs: opts.moduleDirs,
+		packDirs: opts.packDirs,
 		method: "POST",
-		body: { module, action, slot: opts.slot, value, params },
+		body: { pack, recipe, slot: opts.slot, value, params },
 	})
 	if (opts.json) printJson(json)
 	else {
@@ -283,64 +283,60 @@ export async function runFillCommand(
 	if (status >= 400) process.exit(BAKA_EXIT_CODE.ENGINE_ERROR)
 }
 
-export async function runListModulesCommand(opts: {
-	cwd: string
-	moduleDirs?: string[]
-	json?: boolean
-}): Promise<void> {
-	const { status, json } = await engineRequest(opts.cwd, "/v1/modules", { moduleDirs: opts.moduleDirs })
+export async function runListPacksCommand(opts: { cwd: string; packDirs?: string[]; json?: boolean }): Promise<void> {
+	const { status, json } = await engineRequest(opts.cwd, "/v1/packs", { packDirs: opts.packDirs })
 	const body = json as {
-		modules?: Array<{ name: string; version: string; description: string; actions: unknown[] }>
+		packs?: Array<{ name: string; version: string; description: string; recipes: unknown[] }>
 		diagnostics?: Array<{ severity: string; message: string }>
 		error?: string
 	}
 	if (status >= 400) {
-		die(BAKA_EXIT_CODE.ENGINE_ERROR, body.error ?? "list-modules failed")
+		die(BAKA_EXIT_CODE.ENGINE_ERROR, body.error ?? "list-packs failed")
 	}
 	if (opts.json) {
-		// The catalog verbatim: the same document as GET /v1/modules, the baka://modules
-		// MCP resource, and describeModules() in @baka/core (params, JSON Schemas, resultSchema).
+		// The catalog verbatim: the same document as GET /v1/packs, the baka://packs
+		// MCP resource, and describePacks() in @baka/core (params, JSON Schemas, resultSchema).
 		printJson(json)
 		return
 	}
-	const modules = body.modules ?? []
-	console.log(`\nFound ${modules.length} module(s):\n`)
-	if (modules.length === 0) {
+	const packs = body.packs ?? []
+	console.log(`\nFound ${packs.length} pack(s):\n`)
+	if (packs.length === 0) {
 		for (const d of body.diagnostics ?? []) console.log(`  (${d.severity}) ${d.message}`)
 	} else {
-		for (const m of modules) {
+		for (const m of packs) {
 			console.log(`  - ${m.name.padEnd(20)} v${m.version}`)
-			console.log(`    Actions: ${m.actions.length}`)
+			console.log(`    Recipes: ${m.recipes.length}`)
 		}
 	}
 	console.log("")
 }
 
 /**
- * `baka lock [modules...]`: pin every discovered module (or just the named
+ * `baka lock [packs...]`: pin every discovered pack (or just the named
  * ones) to its current version and content hash in `<cwd>/baka.lock.json`.
- * From then on `baka run` refuses a module that no longer matches.
+ * From then on `baka run` refuses a pack that no longer matches.
  */
-export function runLockCommand(opts: { cwd: string; moduleDirs?: string[]; json?: boolean; modules?: string[] }): void {
-	const registry = new ModuleRegistry(opts.cwd, { moduleDirs: opts.moduleDirs })
-	const { modules } = registry.discover(false)
-	for (const name of opts.modules ?? []) {
-		if (!modules.some((m) => m.name === name)) die(BAKA_EXIT_CODE.USER_ERROR, `module "${name}" not found`)
+export function runLockCommand(opts: { cwd: string; packDirs?: string[]; json?: boolean; packs?: string[] }): void {
+	const registry = new PackRegistry(opts.cwd, { packDirs: opts.packDirs })
+	const { packs } = registry.discover(false)
+	for (const name of opts.packs ?? []) {
+		if (!packs.some((m) => m.name === name)) die(BAKA_EXIT_CODE.USER_ERROR, `pack "${name}" not found`)
 	}
-	const lock = createLock(registry, opts.modules?.length ? opts.modules : undefined)
+	const lock = createLock(registry, opts.packs?.length ? opts.packs : undefined)
 	const path = writeLockfile(opts.cwd, lock)
 	if (opts.json) {
 		printJson({ path, lock })
 		return
 	}
-	const names = Object.keys(lock.modules)
-	console.log(`locked ${names.length} module(s) in ${BAKA_LOCKFILE_NAME}`)
-	for (const name of names) console.log(`  ${name}@${lock.modules[name]?.version}`)
+	const names = Object.keys(lock.packs)
+	console.log(`locked ${names.length} pack(s) in ${BAKA_LOCKFILE_NAME}`)
+	for (const name of names) console.log(`  ${name}@${lock.packs[name]?.version}`)
 }
 
 export async function runServeCommand(opts: {
 	cwd: string
-	moduleDirs?: string[]
+	packDirs?: string[]
 	port: number
 	host?: string
 	token?: string
@@ -350,7 +346,7 @@ export async function runServeCommand(opts: {
 	let config: ReturnType<typeof resolveServeConfig>
 	try {
 		config = resolveServeConfig(
-			{ port: opts.port, host: opts.host, token: opts.token, allowRoots: opts.allowRoots, moduleDirs: opts.moduleDirs },
+			{ port: opts.port, host: opts.host, token: opts.token, allowRoots: opts.allowRoots, packDirs: opts.packDirs },
 			process.env,
 			opts.cwd,
 		)

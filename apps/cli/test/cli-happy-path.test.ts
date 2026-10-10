@@ -1,4 +1,4 @@
-// CLI happy-path e2e: discover a well-formed fixture module, inspect
+// CLI happy-path e2e: discover a well-formed fixture pack, inspect
 // templates, fill a slot, write, validate, write again with the same bytes.
 // One test among many — not a special product surface.
 
@@ -72,7 +72,7 @@ function sha256(text: string): string {
 	return createHash("sha256").update(text).digest("hex")
 }
 
-describe("CLI happy path against a fixture module", () => {
+describe("CLI happy path against a fixture pack", () => {
 	it("lists, inspects templates, fills, writes, validates, and repeats identically", async () => {
 		const home = trackDir(mkdtempSync(join(tmpdir(), "baka-cli-hp-home-")))
 		mkdirSync(join(home, ".baka"), { recursive: true })
@@ -82,14 +82,14 @@ describe("CLI happy path against a fixture module", () => {
 
 		const env = isolatedEnv(home)
 
-		const listed = await spawnCli(["list-modules", "--json"], project, env)
+		const listed = await spawnCli(["list-packs", "--json"], project, env)
 		expect(listed.code, listed.stderr).toBe(0)
-		const listPayload = JSON.parse(listed.stdout) as { modules: Array<{ name: string }> }
-		expect(listPayload.modules.map((m) => m.name).sort()).toEqual(["honest-mod", "slot-mod"])
+		const listPayload = JSON.parse(listed.stdout) as { packs: Array<{ name: string }> }
+		expect(listPayload.packs.map((m) => m.name).sort()).toEqual(["honest-mod", "slot-mod"])
 
-		const actions = await spawnCli(["module", "list-actions", "slot-mod", "--json"], project, env)
-		expect(actions.code, actions.stderr).toBe(0)
-		expect(actions.stdout).toContain('"id": "write"')
+		const recipes = await spawnCli(["pack", "list-recipes", "slot-mod", "--json"], project, env)
+		expect(recipes.code, recipes.stderr).toBe(0)
+		expect(recipes.stdout).toContain('"id": "write"')
 
 		const inspected = await spawnCli(["inspect", "slot-mod/write", "--json"], project, env)
 		expect(inspected.code, inspected.stderr).toBe(0)
@@ -125,7 +125,7 @@ describe("CLI happy path against a fixture module", () => {
 		expect(sha256(readFileSync(notePath, "utf-8"))).toBe(firstHash)
 	})
 
-	it("writes a param-only module with no LLM and repeats the same bytes", async () => {
+	it("writes a param-only pack with no LLM and repeats the same bytes", async () => {
 		const home = trackDir(mkdtempSync(join(tmpdir(), "baka-cli-hp-home-")))
 		mkdirSync(join(home, ".baka"), { recursive: true })
 		const project = trackDir(mkdtempSync(join(tmpdir(), "baka-cli-hp-proj-")))

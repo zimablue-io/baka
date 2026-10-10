@@ -6,7 +6,7 @@ import { createDatabase } from "../src/db/client"
 import { CURRENT_SCHEMA_VERSION } from "../src/schema-version"
 
 /**
- * Architecture §4.3: the registry app tables (modules, module_versions,
+ * Architecture §4.3: the registry app tables (packs, pack_versions,
  * artifacts, screening_results, plan_limits) must exist with the documented
  * columns, NOT NULL, UNIQUE, FK, and CHECK constraints after migrations run.
  *
@@ -76,18 +76,18 @@ describe("registry app schema (architecture §4.3)", () => {
 			)
 			const names = result.rows.map((r) => r.table_name)
 			expect(names).toEqual(
-				expect.arrayContaining(["modules", "module_versions", "artifacts", "screening_results", "plan_limits"]),
+				expect.arrayContaining(["packs", "pack_versions", "artifacts", "screening_results", "plan_limits"]),
 			)
 		} finally {
 			await handle.close()
 		}
 	})
 
-	describe("modules table", () => {
+	describe("packs table", () => {
 		it("has the documented columns with correct nullability", async () => {
 			const handle = await createDatabase({ dataDir: pgliteDir, startSocket: false })
 			try {
-				const cols = await listColumns(handle.pglite, "modules")
+				const cols = await listColumns(handle.pglite, "packs")
 				const byName = new Map(cols.map((c) => [c.column_name, c]))
 				expect(byName.get("id")?.data_type).toBe("uuid")
 				expect(byName.get("id")?.is_nullable).toBe("NO")
@@ -111,15 +111,15 @@ describe("registry app schema (architecture §4.3)", () => {
 			const handle = await createDatabase({ dataDir: pgliteDir, startSocket: false })
 			try {
 				await handle.pglite.query(
-					`INSERT INTO modules (scope, name, visibility, tier, description)
+					`INSERT INTO packs (scope, name, visibility, tier, description)
 					 VALUES ('acme', 'foo', 'org', 'community-unverified', 'first')`,
 				)
 				await expect(
 					handle.pglite.query(
-						`INSERT INTO modules (scope, name, visibility, tier, description)
+						`INSERT INTO packs (scope, name, visibility, tier, description)
 						 VALUES ('acme', 'foo', 'org', 'community-unverified', 'dup')`,
 					),
-				).rejects.toThrow(/modules_scope_name_uniq|duplicate key|unique constraint/i)
+				).rejects.toThrow(/packs_scope_name_uniq|duplicate key|unique constraint/i)
 			} finally {
 				await handle.close()
 			}
@@ -130,10 +130,10 @@ describe("registry app schema (architecture §4.3)", () => {
 			try {
 				await expect(
 					handle.pglite.query(
-						`INSERT INTO modules (scope, name, visibility, tier, description)
+						`INSERT INTO packs (scope, name, visibility, tier, description)
 						 VALUES ('acme', 'foo', 'private', 'community-unverified', 'bad visibility')`,
 					),
-				).rejects.toThrow(/modules_visibility_check|check constraint/i)
+				).rejects.toThrow(/packs_visibility_check|check constraint/i)
 			} finally {
 				await handle.close()
 			}
@@ -144,23 +144,23 @@ describe("registry app schema (architecture §4.3)", () => {
 			try {
 				await expect(
 					handle.pglite.query(
-						`INSERT INTO modules (scope, name, visibility, tier, description)
+						`INSERT INTO packs (scope, name, visibility, tier, description)
 						 VALUES ('acme', 'foo', 'org', 'bogus-tier', 'bad tier')`,
 					),
-				).rejects.toThrow(/modules_tier_check|check constraint/i)
+				).rejects.toThrow(/packs_tier_check|check constraint/i)
 			} finally {
 				await handle.close()
 			}
 		})
 	})
 
-	describe("module_versions table", () => {
-		it("has the documented columns with FK to modules", async () => {
+	describe("pack_versions table", () => {
+		it("has the documented columns with FK to packs", async () => {
 			const handle = await createDatabase({ dataDir: pgliteDir, startSocket: false })
 			try {
-				const cols = await listColumns(handle.pglite, "module_versions")
+				const cols = await listColumns(handle.pglite, "pack_versions")
 				const byName = new Map(cols.map((c) => [c.column_name, c]))
-				expect(byName.get("module_id")?.is_nullable).toBe("NO")
+				expect(byName.get("pack_id")?.is_nullable).toBe("NO")
 				expect(byName.get("version")?.is_nullable).toBe("NO")
 				expect(byName.get("commit_sha")?.is_nullable).toBe("NO")
 				expect(byName.get("content_hash")?.is_nullable).toBe("NO")
@@ -168,7 +168,7 @@ describe("registry app schema (architecture §4.3)", () => {
 				expect(byName.get("manifest")?.is_nullable).toBe("NO")
 				expect(byName.get("status")?.is_nullable).toBe("NO")
 
-				const constraints = await listConstraints(handle.pglite, "module_versions")
+				const constraints = await listConstraints(handle.pglite, "pack_versions")
 				const fks = constraints.filter((c) => c.constraint_type === "FOREIGN KEY")
 				expect(fks.length).toBeGreaterThan(0)
 			} finally {
@@ -176,28 +176,28 @@ describe("registry app schema (architecture §4.3)", () => {
 			}
 		})
 
-		it("enforces the (module_id, version) UNIQUE constraint", async () => {
+		it("enforces the (pack_id, version) UNIQUE constraint", async () => {
 			const handle = await createDatabase({ dataDir: pgliteDir, startSocket: false })
 			try {
 				const mod = await handle.pglite.query<{ id: string }>(
-					`INSERT INTO modules (scope, name, visibility, tier, description)
+					`INSERT INTO packs (scope, name, visibility, tier, description)
 					 VALUES ('acme', 'foo', 'org', 'community-unverified', 'desc')
 					 RETURNING id`,
 				)
-				const moduleId = mod.rows[0]?.id
-				expect(moduleId).toBeTruthy()
+				const packId = mod.rows[0]?.id
+				expect(packId).toBeTruthy()
 				await handle.pglite.query(
-					`INSERT INTO module_versions (module_id, version, commit_sha, content_hash, manifest, status)
+					`INSERT INTO pack_versions (pack_id, version, commit_sha, content_hash, manifest, status)
 					 VALUES ($1, '1.0.0', 'abc', 'h1', '{}'::jsonb, 'pending')`,
-					[moduleId],
+					[packId],
 				)
 				await expect(
 					handle.pglite.query(
-						`INSERT INTO module_versions (module_id, version, commit_sha, content_hash, manifest, status)
+						`INSERT INTO pack_versions (pack_id, version, commit_sha, content_hash, manifest, status)
 						 VALUES ($1, '1.0.0', 'def', 'h2', '{}'::jsonb, 'pending')`,
-						[moduleId],
+						[packId],
 					),
-				).rejects.toThrow(/module_versions_module_id_version_uniq|duplicate key|unique constraint/i)
+				).rejects.toThrow(/pack_versions_pack_id_version_uniq|duplicate key|unique constraint/i)
 			} finally {
 				await handle.close()
 			}
@@ -207,17 +207,17 @@ describe("registry app schema (architecture §4.3)", () => {
 			const handle = await createDatabase({ dataDir: pgliteDir, startSocket: false })
 			try {
 				const mod = await handle.pglite.query<{ id: string }>(
-					`INSERT INTO modules (scope, name, visibility, tier, description)
+					`INSERT INTO packs (scope, name, visibility, tier, description)
 					 VALUES ('acme', 'foo', 'org', 'community-unverified', 'desc')
 					 RETURNING id`,
 				)
 				await expect(
 					handle.pglite.query(
-						`INSERT INTO module_versions (module_id, version, commit_sha, content_hash, manifest, status)
+						`INSERT INTO pack_versions (pack_id, version, commit_sha, content_hash, manifest, status)
 						 VALUES ($1, '1.0.0', 'abc', 'h1', '{}'::jsonb, 'bogus')`,
 						[mod.rows[0]?.id],
 					),
-				).rejects.toThrow(/module_versions_status_check|check constraint/i)
+				).rejects.toThrow(/pack_versions_status_check|check constraint/i)
 			} finally {
 				await handle.close()
 			}
@@ -225,7 +225,7 @@ describe("registry app schema (architecture §4.3)", () => {
 	})
 
 	describe("artifacts table", () => {
-		it("has the documented columns with FK to module_versions", async () => {
+		it("has the documented columns with FK to pack_versions", async () => {
 			const handle = await createDatabase({ dataDir: pgliteDir, startSocket: false })
 			try {
 				const cols = await listColumns(handle.pglite, "artifacts")
@@ -296,7 +296,7 @@ describe("registry app schema (architecture §4.3)", () => {
 				const cols = await listColumns(handle.pglite, "plan_limits")
 				const byName = new Map(cols.map((c) => [c.column_name, c]))
 				expect(byName.get("plan")?.is_nullable).toBe("NO")
-				expect(byName.get("max_private_modules")?.is_nullable).toBe("NO")
+				expect(byName.get("max_private_packs")?.is_nullable).toBe("NO")
 				expect(byName.get("max_members")?.is_nullable).toBe("NO")
 				expect(byName.get("max_registries")?.is_nullable).toBe("NO")
 				const constraints = await listConstraints(handle.pglite, "plan_limits")
@@ -322,7 +322,7 @@ describe("registry app schema (architecture §4.3)", () => {
 			const handle = await createDatabase({ dataDir: pgliteDir, startSocket: false })
 			try {
 				const inserted = await handle.db
-					.insert(handle.schema.modules)
+					.insert(handle.schema.packs)
 					.values({
 						scope: "acme",
 						name: "via-drizzle",
@@ -330,10 +330,10 @@ describe("registry app schema (architecture §4.3)", () => {
 						tier: "community-unverified",
 						description: "round-trip",
 					})
-					.returning({ id: handle.schema.modules.id })
+					.returning({ id: handle.schema.packs.id })
 				expect(inserted[0]?.id).toBeTruthy()
 
-				const fetched = await handle.db.query.modules.findFirst({
+				const fetched = await handle.db.query.packs.findFirst({
 					where: (m, { eq }) => eq(m.id, inserted[0]?.id),
 				})
 				expect(fetched?.scope).toBe("acme")

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { ensureDirectory, normalizeRelativePath, removeCreatedDirectories, resolveContained } from "./contain.js"
-import { ActionError } from "./errors.js"
+import { RecipeError } from "./errors.js"
 import { revertFiles } from "./materialize.js"
 
 const cleanup: string[] = []
@@ -21,7 +21,7 @@ function escapeCode(fn: () => unknown): string | undefined {
 	try {
 		fn()
 	} catch (err) {
-		return err instanceof ActionError ? err.code : "other"
+		return err instanceof RecipeError ? err.code : "other"
 	}
 	return undefined
 }
@@ -46,7 +46,7 @@ describe("normalizeRelativePath", () => {
 		["./", "the root itself"],
 		[".git/hooks/pre-commit", ".git"],
 		["pkg/.git/config", "nested .git"],
-		[".baka/modules/evil/manifest.ts", ".baka at the root"],
+		[".baka/packs/evil/manifest.ts", ".baka at the root"],
 	])("rejects %j (%s)", (path) => {
 		expect(escapeCode(() => normalizeRelativePath(path))).toBe("path-escape")
 	})

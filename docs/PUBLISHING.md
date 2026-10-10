@@ -6,7 +6,7 @@ The contract:
 
 - `scripts/release.sh <version>` produces the tarballs and prints the install command.
 - `scripts/release.sh` never calls `pnpm publish`.
-- `docs/PUBLISHING.md` documents the publish step. Following this runbook is a maintainer action, not part of CI.
+- `docs/PUBLISHING.md` documents the publish step. Following this runbook is a maintainer recipe, not part of CI.
 - The repo's `.github/workflows/ci.yml` has zero `pnpm publish` invocations. CI cannot accidentally publish.
 
 ## Preflight
@@ -20,7 +20,7 @@ Before publishing anything, walk this list. If any step fails, stop and fix the 
    jq -r .version package.json apps/cli/package.json apps/mcp/package.json packages/core/package.json
    ```
    The output must be four lines, all identical.
-4. **CI green.** `gh pr checks --watch` (or the Actions tab) shows lint, type-check, test, build, pack, and the smoke step all green on the release commit. The PR template and `CONTRIBUTING.md` agree that failing CI blocks merge; do not publish over a red build.
+4. **CI green.** `gh pr checks --watch` (or the Recipes tab) shows lint, type-check, test, build, pack, and the smoke step all green on the release commit. The PR template and `CONTRIBUTING.md` agree that failing CI blocks merge; do not publish over a red build.
 5. **Tarball review.** `dist-tarballs/` contains `baka-<version>.tgz`, `baka-mcp-server-<version>.tgz`, and `baka-core-<version>.tgz` (the embeddable library; it also lists `package/dist/index.d.ts`). Inspect all three:
    ```bash
    tar -tzf dist-tarballs/baka-<version>.tgz | head -40
@@ -28,7 +28,7 @@ Before publishing anything, walk this list. If any step fails, stop and fix the 
    tar -tzf dist-tarballs/baka-core-<version>.tgz | head -40
    ```
    Each lists `package/`, `package/package.json`, `package/dist/index.js`, `package/README.md`, `package/LICENSE`. None of them lists `package/.env*`, `package/.git`, `package/node_modules`, `package/coverage`, `package/test`, or `package/src`. If anything leaks, fix `package.json` `files` field or `.npmignore` and rebuild the tarball.
-6. **Core tarball outside the workspace.** `node scripts/verify-core-pack.mjs` (`pnpm run verify:core`) packs `@baka/core`, installs the tarball with npm into a scratch project, runs a module from a catalog against another directory, and type-checks a consumer. It must print `types ok`.
+6. **Core tarball outside the workspace.** `node scripts/verify-core-pack.mjs` (`pnpm run verify:core`) packs `@baka/core`, installs the tarball with npm into a scratch project, runs a pack from a catalog against another directory, and type-checks a consumer. It must print `types ok`.
 7. **Local install smoke.** Install both tarballs into a fresh `mktemp -d` and run the documented smoke sequence:
    ```bash
    SCRATCH=$(mktemp -d)
@@ -37,7 +37,7 @@ Before publishing anything, walk this list. If any step fails, stop and fix the 
    pnpm install -g /abs/path/to/baka-mcp-server-<version>.tgz
    which baka; which baka-mcp
    baka --version
-   baka list-modules --json | jq '.modules | length'   # expect 3
+   baka list-packs --json | jq '.packs | length'   # expect 3
    ```
    If `baka --version` does not print `<version>`, stop. The tarball was built wrong.
 
@@ -101,7 +101,7 @@ Watch the output for any non-zero exit code or unexpected warning. A successful 
    cd "$SCRATCH"
    npm install -g baka@<version>
    npm install -g @baka/mcp-server@<version>
-   npm install @baka/core@<version>   # library; import { runAction } from "@baka/core"
+   npm install @baka/core@<version>   # library; import { runRecipe } from "@baka/core"
    which baka; which baka-mcp
    baka --version
    ```

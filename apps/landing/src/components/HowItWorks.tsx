@@ -4,19 +4,19 @@ const TIERS = [
 	{
 		name: "Orchestrator",
 		role: "LLM (high reasoning)",
-		body: "Receives the user intent and the full module manifest catalog. Emits a validated sequence of {module, action, params} steps. The catalog is the only allowed source — anything not declared is a hard error.",
+		body: "Receives the user intent and the full pack manifest catalog. Emits a validated sequence of {pack, recipe, params} steps. The catalog is the only allowed source — anything not declared is a hard error.",
 		accent: "text-amber-300",
 	},
 	{
 		name: "Worker",
 		role: "Dumb automation (+ optional small-LLM assist)",
-		body: "Dispatches one declared action to a deterministic TypeScript handler. When requiresReasoning is true, a small LLM fills the body of a template the module controls. The file path, exports, and surrounding code are dictated by the template — never invented.",
+		body: "Dispatches one declared recipe to a deterministic TypeScript handler. When requiresReasoning is true, a small LLM fills the body of a template the pack controls. The file path, exports, and surrounding code are dictated by the template — never invented.",
 		accent: "text-emerald-300",
 	},
 	{
 		name: "Validator",
 		role: "Deterministic TypeScript",
-		body: "Runs the module's _shared/validators/*.ts and action validators/*.ts against the resulting file tree. No LLM in the hot path. Returns Pass or Fail(diff[]) with structured diagnostics.",
+		body: "Runs the pack's _shared/validators/*.ts and recipe validators/*.ts against the resulting file tree. No LLM in the hot path. Returns Pass or Fail(diff[]) with structured diagnostics.",
 		accent: "text-sky-300",
 	},
 ] as const

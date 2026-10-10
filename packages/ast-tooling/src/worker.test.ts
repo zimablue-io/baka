@@ -25,40 +25,40 @@ afterEach(() => {
 })
 
 /**
- * Builds a fake project that contains a single `mod` module with a single
- * `do-thing` action. The action writes a file and returns its path as
+ * Builds a fake project that contains a single `mod` pack with a single
+ * `do-thing` recipe. The recipe writes a file and returns its path as
  * compensation data. The SAGA test below exercises the full Worker pipeline
  * without the rest of the baka CLI in the loop.
  */
-function makeProject(): { root: string; moduleName: string; actionId: string } {
+function makeProject(): { root: string; packName: string; recipeId: string } {
 	const root = mkdtempSync(join(tmpdir(), "baka-worker-"))
 	cleanup.push(root)
-	const moduleName = "mod"
-	// Action id must produce a valid TS identifier when concatenated with "Action"
-	// (the baka convention: exported symbol is `${actionId}Action`).
-	const actionId = "doThing"
-	const moduleRoot = join(root, "modules", moduleName, actionId)
-	mkdirSync(moduleRoot, { recursive: true })
+	const packName = "mod"
+	// Recipe id must produce a valid TS identifier when concatenated with "Recipe"
+	// (the baka convention: exported symbol is `${recipeId}Recipe`).
+	const recipeId = "doThing"
+	const packRoot = join(root, "packs", packName, recipeId)
+	mkdirSync(packRoot, { recursive: true })
 	writeFileSync(
-		join(root, "modules", moduleName, "manifest.ts"),
-		`import type { ModuleManifest } from "@repo/protocol"
-export const Manifest: ModuleManifest = {
-	name: "${moduleName}", version: "0.1.0", description: "fake", dependencies: [], conflictsWith: [],
-	actions: [{ id: "${actionId}", description: "writes a file", params: [], requiresReasoning: false, filePatterns: [], validators: [] }],
-	moduleValidators: [],
+		join(root, "packs", packName, "manifest.ts"),
+		`import type { PackManifest } from "@repo/protocol"
+export const Manifest: PackManifest = {
+	name: "${packName}", version: "0.1.0", description: "fake", dependencies: [], conflictsWith: [],
+	recipes: [{ id: "${recipeId}", description: "writes a file", params: [], requiresReasoning: false, filePatterns: [], validators: [] }],
+	packValidators: [],
 }
 `,
 	)
 	writeFileSync(
-		join(moduleRoot, "action.ts"),
+		join(packRoot, "recipe.ts"),
 		`import { writeFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { AgentRole, type StepResponse, type WorkflowStep } from "@repo/protocol"
 
-export interface Input { moduleName: string; actionName: string; parameters: { name: string } }
+export interface Input { packName: string; recipeName: string; parameters: { name: string } }
 export interface Data { path: string }
 
-export const doThingAction: WorkflowStep<Input, boolean, Data> = {
+export const doThingRecipe: WorkflowStep<Input, boolean, Data> = {
 	name: "do-thing",
 	role: AgentRole.WORKER,
 	execute: async (input, state): Promise<StepResponse<boolean, Data>> => {
@@ -79,11 +79,11 @@ export const doThingAction: WorkflowStep<Input, boolean, Data> = {
 }
 `,
 	)
-	return { root, moduleName, actionId }
+	return { root, packName, recipeId }
 }
 
 function planWith(
-	steps: Array<{ id: string; module: string; action: string; params: Record<string, unknown> }>,
+	steps: Array<{ id: string; pack: string; recipe: string; params: Record<string, unknown> }>,
 ): ResolvedPlan {
 	return { resolvedSteps: steps }
 }
@@ -94,24 +94,24 @@ const fakeProvider: LLMProvider = {
 	validateConfig: () => {},
 }
 
-/** Loads the action.ts file via jiti and returns a WorkflowStep. */
-async function loadActionViaJiti(projectRoot: string, moduleName: string, actionId: string) {
+/** Loads the recipe.ts file via jiti and returns a WorkflowStep. */
+async function loadRecipeViaJiti(projectRoot: string, packName: string, recipeId: string) {
 	const { createJiti } = await import("jiti")
 	const jiti = createJiti(projectRoot, { interopDefault: true })
-	const path = join(projectRoot, "modules", moduleName, actionId, "action.ts")
+	const path = join(projectRoot, "packs", packName, recipeId, "recipe.ts")
 	const mod = jiti(path) as Record<string, unknown>
-	const expected = `${actionId}Action`
+	const expected = `${recipeId}Recipe`
 	const step = (mod[expected] ?? mod.default) as WorkflowStep<unknown, unknown, unknown> | undefined
 	if (!step) throw new Error(`expected ${expected} in ${path}`)
 	return step
 }
 
 describe("Worker end-to-end (jiti + SAGA)", () => {
-	it("loads a real action, runs it via the SAGA, and produces the file", async () => {
-		const { root, moduleName, actionId } = makeProject()
-		const step = await loadActionViaJiti(root, moduleName, actionId)
+	it("loads a real recipe, runs it via the SAGA, and produces the file", async () => {
+		const { root, packName, recipeId } = makeProject()
+		const step = await loadRecipeViaJiti(root, packName, recipeId)
 		const stepsByKey = new Map<string, WorkflowStep<unknown, unknown, unknown>>()
-		stepsByKey.set(`${moduleName}:${actionId}`, step)
+		stepsByKey.set(`${packName}:${recipeId}`, step)
 
 		const state: OrchestrationState = {
 			userIntent: "test",
@@ -121,7 +121,7 @@ describe("Worker end-to-end (jiti + SAGA)", () => {
 			logs: [],
 			artifacts: {},
 		}
-		const plan = planWith([{ id: "1", module: moduleName, action: actionId, params: { name: "hello" } }])
+		const plan = planWith([{ id: "1", pack: packName, recipe: recipeId, params: { name: "hello" } }])
 		const result = await runSaga(plan, state, { llmProvider: fakeProvider }, stepsByKey)
 		expect(result.state.status).toBe(ENGINE_STATUS.SUCCESS)
 		expect(existsSync(join(root, "hello.txt"))).toBe(true)
@@ -129,10 +129,10 @@ describe("Worker end-to-end (jiti + SAGA)", () => {
 	})
 
 	it("rolls back the produced file when a later step fails", async () => {
-		const { root, moduleName, actionId } = makeProject()
-		const step = await loadActionViaJiti(root, moduleName, actionId)
+		const { root, packName, recipeId } = makeProject()
+		const step = await loadRecipeViaJiti(root, packName, recipeId)
 		const stepsByKey = new Map<string, WorkflowStep<unknown, unknown, unknown>>()
-		stepsByKey.set(`${moduleName}:${actionId}`, step)
+		stepsByKey.set(`${packName}:${recipeId}`, step)
 		// Inject a synthetic failing step under a different key.
 		stepsByKey.set("other:fail", {
 			name: "fail",
@@ -155,8 +155,8 @@ describe("Worker end-to-end (jiti + SAGA)", () => {
 			artifacts: {},
 		}
 		const plan = planWith([
-			{ id: "1", module: moduleName, action: actionId, params: { name: "alpha" } },
-			{ id: "2", module: "other", action: "fail", params: {} },
+			{ id: "1", pack: packName, recipe: recipeId, params: { name: "alpha" } },
+			{ id: "2", pack: "other", recipe: "fail", params: {} },
 		])
 		const result = await runSaga(plan, state, { llmProvider: fakeProvider }, stepsByKey)
 		expect(result.state.status).toBe(ENGINE_STATUS.FAILED)
@@ -166,44 +166,44 @@ describe("Worker end-to-end (jiti + SAGA)", () => {
 })
 
 // ---------------------------------------------------------------------------
-// Rich-output propagation (rich-action-output-propagation)
+// Rich-output propagation (rich-recipe-output-propagation)
 //
-// The Worker wraps every action's response. It must surface the action's
+// The Worker wraps every recipe's response. It must surface the recipe's
 // own `output` payload unchanged (e.g. lint's LintReport), not the
-// boolean success flag. The MCP per-action tool and the SAGA/apply
+// boolean success flag. The MCP per-recipe tool and the SAGA/apply
 // surfaces consume `result.output` directly; collapsing it to a boolean
 // hides every rich payload from MCP agents and from `baka apply --json`.
 // ---------------------------------------------------------------------------
 
 describe("Worker rich-output propagation", () => {
-	function makeRichOutputProject(): { root: string; moduleName: string; actionId: string } {
+	function makeRichOutputProject(): { root: string; packName: string; recipeId: string } {
 		const root = mkdtempSync(join(tmpdir(), "baka-worker-rich-"))
 		cleanup.push(root)
-		const moduleName = "rich-mod"
-		const actionId = "report"
-		const moduleRoot = join(root, "modules", moduleName)
-		const actionDir = join(moduleRoot, actionId)
-		mkdirSync(actionDir, { recursive: true })
+		const packName = "rich-mod"
+		const recipeId = "report"
+		const packRoot = join(root, "packs", packName)
+		const recipeDir = join(packRoot, recipeId)
+		mkdirSync(recipeDir, { recursive: true })
 
 		writeFileSync(
-			join(moduleRoot, "manifest.ts"),
-			`import type { ModuleManifest } from "@repo/protocol"
-export const Manifest: ModuleManifest = {
-	name: "${moduleName}", version: "0.1.0", description: "fake", dependencies: [], conflictsWith: [],
-	actions: [{
-		id: "${actionId}",
+			join(packRoot, "manifest.ts"),
+			`import type { PackManifest } from "@repo/protocol"
+export const Manifest: PackManifest = {
+	name: "${packName}", version: "0.1.0", description: "fake", dependencies: [], conflictsWith: [],
+	recipes: [{
+		id: "${recipeId}",
 		description: "returns a rich payload",
 		params: [],
 		requiresReasoning: false,
 		filePatterns: [],
 		validators: [],
 	}],
-	moduleValidators: [],
+	packValidators: [],
 }
 `,
 		)
 		writeFileSync(
-			join(actionDir, "action.ts"),
+			join(recipeDir, "recipe.ts"),
 			`import { AgentRole, type StepResponse, type WorkflowStep } from "@repo/protocol"
 
 export interface Report {
@@ -213,7 +213,7 @@ export interface Report {
 	diagnostics: Array<{ rule: string; file: string }>
 }
 
-export const reportAction: WorkflowStep<unknown, Report, unknown> = {
+export const reportRecipe: WorkflowStep<unknown, Report, unknown> = {
 	name: "report",
 	role: AgentRole.WORKER,
 	execute: async (): Promise<StepResponse<Report, unknown>> => ({
@@ -230,11 +230,11 @@ export const reportAction: WorkflowStep<unknown, Report, unknown> = {
 }
 `,
 		)
-		return { root, moduleName, actionId }
+		return { root, packName, recipeId }
 	}
 
-	it("propagates the action's rich payload through executeWorkerStep.execute", async () => {
-		const { root, moduleName, actionId } = makeRichOutputProject()
+	it("propagates the recipe's rich payload through executeWorkerStep.execute", async () => {
+		const { root, packName, recipeId } = makeRichOutputProject()
 		const state: OrchestrationState = {
 			userIntent: "test",
 			targetDirectory: root,
@@ -244,7 +244,7 @@ export const reportAction: WorkflowStep<unknown, Report, unknown> = {
 			artifacts: {},
 		}
 
-		const result = await executeWorkerStep.execute({ moduleName, actionName: actionId, parameters: {} }, state, {
+		const result = await executeWorkerStep.execute({ packName, recipeName: recipeId, parameters: {} }, state, {
 			llmProvider: null,
 		})
 
@@ -263,9 +263,9 @@ export const reportAction: WorkflowStep<unknown, Report, unknown> = {
 	})
 
 	it("propagates the rich payload when the step is invoked through runSaga (production wiring)", async () => {
-		const { root, moduleName, actionId } = makeRichOutputProject()
+		const { root, packName, recipeId } = makeRichOutputProject()
 		const stepsByKey = new Map<string, WorkflowStep<unknown, unknown, unknown>>()
-		stepsByKey.set(`${moduleName}:${actionId}`, executeWorkerStep as unknown as WorkflowStep<unknown, unknown, unknown>)
+		stepsByKey.set(`${packName}:${recipeId}`, executeWorkerStep as unknown as WorkflowStep<unknown, unknown, unknown>)
 
 		const state: OrchestrationState = {
 			userIntent: "test",
@@ -275,7 +275,7 @@ export const reportAction: WorkflowStep<unknown, Report, unknown> = {
 			logs: [],
 			artifacts: {},
 		}
-		const plan = planWith([{ id: "1", module: moduleName, action: actionId, params: {} }])
+		const plan = planWith([{ id: "1", pack: packName, recipe: recipeId, params: {} }])
 		const result = await runSaga(plan, state, { llmProvider: null }, stepsByKey)
 
 		expect(result.state.status).toBe(ENGINE_STATUS.SUCCESS)
@@ -293,10 +293,10 @@ export const reportAction: WorkflowStep<unknown, Report, unknown> = {
 		})
 	})
 
-	it("surfaces null (not false) when the worker itself throws before the action runs", async () => {
+	it("surfaces null (not false) when the worker itself throws before the recipe runs", async () => {
 		const root = mkdtempSync(join(tmpdir(), "baka-worker-throws-"))
 		cleanup.push(root)
-		// No modules dir — executeWorkerStep throws resolving the module,
+		// No packs dir — executeWorkerStep throws resolving the pack,
 		// exercising the catch branch.
 		const state: OrchestrationState = {
 			userIntent: "test",
@@ -307,7 +307,7 @@ export const reportAction: WorkflowStep<unknown, Report, unknown> = {
 			artifacts: {},
 		}
 		const result = await executeWorkerStep.execute(
-			{ moduleName: "missing-mod", actionName: "missing", parameters: {} },
+			{ packName: "missing-mod", recipeName: "missing", parameters: {} },
 			state,
 			{ llmProvider: null },
 		)
@@ -326,23 +326,23 @@ export const reportAction: WorkflowStep<unknown, Report, unknown> = {
 // new error text so the writer cannot regress the user-facing message.
 // ---------------------------------------------------------------------------
 
-describe("Worker error message — `baka init` hint when no LLM is injected for a requiresReasoning action", () => {
+describe("Worker error message — `baka init` hint when no LLM is injected for a requiresReasoning recipe", () => {
 	it("emits the `baka init` error message when requiresReasoning is true and the LLMProvider is null", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "baka-worker-init-hint-"))
 		cleanup.push(dir)
 
-		const moduleRoot = join(dir, "modules", "init-hint-mod")
-		const actionDir = join(moduleRoot, "render-thing")
-		const templatesDir = join(actionDir, "templates")
+		const packRoot = join(dir, "packs", "init-hint-mod")
+		const recipeDir = join(packRoot, "render-thing")
+		const templatesDir = join(recipeDir, "templates")
 		mkdirSync(templatesDir, { recursive: true })
 
-		// manifest with a requiresReasoning action
+		// manifest with a requiresReasoning recipe
 		writeFileSync(
-			join(moduleRoot, "manifest.ts"),
-			`import type { ModuleManifest } from "@repo/protocol"
-export const Manifest: ModuleManifest = {
+			join(packRoot, "manifest.ts"),
+			`import type { PackManifest } from "@repo/protocol"
+export const Manifest: PackManifest = {
   name: "init-hint-mod", version: "0.1.0", description: "fake", dependencies: [], conflictsWith: [],
-  actions: [{
+  recipes: [{
     id: "render-thing",
     description: "renders a thing",
     params: [],
@@ -350,7 +350,7 @@ export const Manifest: ModuleManifest = {
     filePatterns: [],
     validators: [],
   }],
-  moduleValidators: [],
+  packValidators: [],
 }
 `,
 		)
@@ -358,9 +358,9 @@ export const Manifest: ModuleManifest = {
 		writeFileSync(join(templatesDir, "thing.md.hbs"), '{{#slot "body" kind="prose"}}one sentence{{/slot}}\n')
 
 		writeFileSync(
-			join(actionDir, "action.ts"),
+			join(recipeDir, "recipe.ts"),
 			`import { AgentRole, type StepResponse, type WorkflowStep } from "@repo/protocol"
-export const renderThingAction: WorkflowStep<unknown, boolean, unknown> = {
+export const renderThingRecipe: WorkflowStep<unknown, boolean, unknown> = {
   name: "render-thing",
   role: AgentRole.WORKER,
   execute: async (): Promise<StepResponse<boolean, unknown>> => ({ success: true, output: true, compensationData: null }),
@@ -379,7 +379,7 @@ export const renderThingAction: WorkflowStep<unknown, boolean, unknown> = {
 		}
 
 		const result = await executeWorkerStep.execute(
-			{ moduleName: "init-hint-mod", actionName: "render-thing", parameters: {} },
+			{ packName: "init-hint-mod", recipeName: "render-thing", parameters: {} },
 			state,
 			{ llmProvider: null },
 		)

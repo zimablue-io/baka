@@ -1,15 +1,15 @@
 import type {
-	RegistryActionPreview,
 	RegistryCatalogEntry,
-	RegistryModuleDetail,
+	RegistryPackDetail,
 	RegistryPreviewEntry,
+	RegistryRecipePreview,
 	RegistryVersionDetail,
 } from "@repo/protocol"
 import {
-	getActionPreview,
 	getCatalog,
-	getModuleDetail,
-	getModulePreviews,
+	getPackDetail,
+	getPackPreviews,
+	getRecipePreview,
 	getVersionDetail,
 	RegistryHttpError,
 	RegistryTransportError,
@@ -67,10 +67,10 @@ function matchesQuery(entry: RegistryCatalogEntry, q: string): boolean {
 	return false
 }
 
-function buildHits(results: Array<{ baseUrl: string; modules: RegistryCatalogEntry[] }>, query: string): SearchHit[] {
+function buildHits(results: Array<{ baseUrl: string; packs: RegistryCatalogEntry[] }>, query: string): SearchHit[] {
 	const hits: SearchHit[] = []
 	for (const src of results) {
-		for (const entry of src.modules) {
+		for (const entry of src.packs) {
 			if (!matchesQuery(entry, query)) continue
 			hits.push({
 				scope: entry.scope,
@@ -116,25 +116,25 @@ export async function runRegistrySearch(cwd: string, input: SearchInput): Promis
 		registries.map(async (base) => {
 			const apiKey = readMcpRegistryApiKey(base)
 			try {
-				const modules = await getCatalog({ baseUrl: base, apiKey })
-				return { baseUrl: base, modules, warning: null }
+				const packs = await getCatalog({ baseUrl: base, apiKey })
+				return { baseUrl: base, packs, warning: null }
 			} catch (err) {
 				return {
 					baseUrl: base,
-					modules: null,
-					warning: transportErrorMessage(err, base, "/v1/modules"),
+					packs: null,
+					warning: transportErrorMessage(err, base, "/v1/packs"),
 				}
 			}
 		}),
 	)
-	const sources: Array<{ baseUrl: string; modules: RegistryCatalogEntry[] }> = []
+	const sources: Array<{ baseUrl: string; packs: RegistryCatalogEntry[] }> = []
 	const warnings: Array<{ source: string; error: string }> = []
 	for (const r of fetched) {
-		if (r.modules === null) {
+		if (r.packs === null) {
 			warnings.push({ source: r.baseUrl, error: r.warning ?? "unknown failure" })
 			continue
 		}
-		sources.push({ baseUrl: r.baseUrl, modules: r.modules })
+		sources.push({ baseUrl: r.baseUrl, packs: r.packs })
 	}
 
 	const hits = buildHits(sources, input.query)
@@ -160,22 +160,22 @@ export async function runRegistrySearch(cwd: string, input: SearchInput): Promis
 }
 
 // ---------------------------------------------------------------------------
-// baka_registry_get_module (VAL-DISC-024 / 026 / 028).
+// baka_registry_get_pack (VAL-DISC-024 / 026 / 028).
 //
-// Combines module-detail + version-detail (latest ready) into one
+// Combines pack-detail + version-detail (latest ready) into one
 // payload — mirrors the CLI's `baka registry info` so the MCP wire
 // shape is field-for-field consistent across both surfaces. A 404
 // (missing / private / tombstoned) becomes an `isError: true` with a
 // named "not found" message (VAL-DISC-026).
 // ---------------------------------------------------------------------------
 
-interface GetModuleInput {
+interface GetPackInput {
 	scope: string
 	name: string
 	version?: string
 }
 
-interface GetModuleResult {
+interface GetPackResult {
 	ok: boolean
 	payload:
 		| {
@@ -185,7 +185,7 @@ interface GetModuleResult {
 				visibility: string
 				description: string
 				latestVersion: string | null
-				versions: RegistryModuleDetail["versions"]
+				versions: RegistryPackDetail["versions"]
 				manifest: RegistryVersionDetail["manifest"] | null
 				screening: RegistryVersionDetail["screening"]
 				resolvedVersion: string | null
@@ -194,7 +194,7 @@ interface GetModuleResult {
 		| { error: { message: string; status?: number } }
 }
 
-export async function runRegistryGetModule(cwd: string, input: GetModuleInput): Promise<GetModuleResult> {
+export async function runRegistryGetPack(cwd: string, input: GetPackInput): Promise<GetPackResult> {
 	const registries = resolveMcpRegistryUrls(cwd)
 	if (registries.length === 0) {
 		return {
@@ -208,15 +208,15 @@ export async function runRegistryGetModule(cwd: string, input: GetModuleInput): 
 	// (`baka_registry_search`).
 	const baseUrl = registries[0] as string
 	const apiKey = readMcpRegistryApiKey(baseUrl)
-	let detail: RegistryModuleDetail | null
+	let detail: RegistryPackDetail | null
 	try {
-		detail = await getModuleDetail({ baseUrl, scope: input.scope, name: input.name, apiKey })
+		detail = await getPackDetail({ baseUrl, scope: input.scope, name: input.name, apiKey })
 	} catch (err) {
 		return {
 			ok: false,
 			payload: {
 				error: {
-					message: transportErrorMessage(err, baseUrl, `/v1/modules/${input.scope}/${input.name}`),
+					message: transportErrorMessage(err, baseUrl, `/v1/packs/${input.scope}/${input.name}`),
 					status: err instanceof RegistryHttpError ? err.status : undefined,
 				},
 			},
@@ -225,7 +225,7 @@ export async function runRegistryGetModule(cwd: string, input: GetModuleInput): 
 	if (detail === null) {
 		return {
 			ok: false,
-			payload: { error: { message: `module '${input.scope}/${input.name}' was not found on registry ${baseUrl}` } },
+			payload: { error: { message: `pack '${input.scope}/${input.name}' was not found on registry ${baseUrl}` } },
 		}
 	}
 
@@ -247,7 +247,7 @@ export async function runRegistryGetModule(cwd: string, input: GetModuleInput): 
 				ok: false,
 				payload: {
 					error: {
-						message: transportErrorMessage(err, baseUrl, `/v1/modules/${input.scope}/${input.name}/${resolvedVersion}`),
+						message: transportErrorMessage(err, baseUrl, `/v1/packs/${input.scope}/${input.name}/${resolvedVersion}`),
 						status: err instanceof RegistryHttpError ? err.status : undefined,
 					},
 				},
@@ -280,13 +280,13 @@ export async function runRegistryGetModule(cwd: string, input: GetModuleInput): 
 // ---------------------------------------------------------------------------
 // baka_registry_get_preview (VAL-DISC-024 / 027 / 028).
 //
-// Combines the previews LIST endpoint with per-action DETAIL fetches
+// Combines the previews LIST endpoint with per-recipe DETAIL fetches
 // so the payload is byte-equal to the CLI's `baka registry preview
 // --json` output. `rendered` carries the file CONTENTS; `needs-llm`
 // carries the reason verbatim from the registry — fabricated code
-// for reasoning actions is a contract violation. Unknown modules /
+// for reasoning recipes is a contract violation. Unknown packs /
 // versions become a tool-level `isError: true` so the agent client
-// can distinguish "registry unreachable" from "module not found"
+// can distinguish "registry unreachable" from "pack not found"
 // (VAL-DISC-028).
 // ---------------------------------------------------------------------------
 
@@ -297,7 +297,7 @@ interface GetPreviewInput {
 }
 
 interface PreviewEntryPayload {
-	actionId: string
+	recipeId: string
 	state: "rendered" | "needs-llm"
 	reason?: string
 	files: Array<{ path: string; content: string; size: number; sha256: string }>
@@ -327,15 +327,15 @@ export async function runRegistryGetPreview(cwd: string, input: GetPreviewInput)
 	const baseUrl = registries[0] as string
 	const apiKey = readMcpRegistryApiKey(baseUrl)
 
-	let detail: RegistryModuleDetail | null
+	let detail: RegistryPackDetail | null
 	try {
-		detail = await getModuleDetail({ baseUrl, scope: input.scope, name: input.name, apiKey })
+		detail = await getPackDetail({ baseUrl, scope: input.scope, name: input.name, apiKey })
 	} catch (err) {
 		return {
 			ok: false,
 			payload: {
 				error: {
-					message: transportErrorMessage(err, baseUrl, `/v1/modules/${input.scope}/${input.name}`),
+					message: transportErrorMessage(err, baseUrl, `/v1/packs/${input.scope}/${input.name}`),
 					status: err instanceof RegistryHttpError ? err.status : undefined,
 				},
 			},
@@ -344,7 +344,7 @@ export async function runRegistryGetPreview(cwd: string, input: GetPreviewInput)
 	if (detail === null) {
 		return {
 			ok: false,
-			payload: { error: { message: `module '${input.scope}/${input.name}' was not found on registry ${baseUrl}` } },
+			payload: { error: { message: `pack '${input.scope}/${input.name}' was not found on registry ${baseUrl}` } },
 		}
 	}
 
@@ -360,7 +360,7 @@ export async function runRegistryGetPreview(cwd: string, input: GetPreviewInput)
 
 	let previews: Array<RegistryPreviewEntry>
 	try {
-		const list = await getModulePreviews({
+		const list = await getPackPreviews({
 			baseUrl,
 			scope: input.scope,
 			name: input.name,
@@ -376,7 +376,7 @@ export async function runRegistryGetPreview(cwd: string, input: GetPreviewInput)
 					message: transportErrorMessage(
 						err,
 						baseUrl,
-						`/v1/modules/${input.scope}/${input.name}/${resolvedVersion}/previews`,
+						`/v1/packs/${input.scope}/${input.name}/${resolvedVersion}/previews`,
 					),
 					status: err instanceof RegistryHttpError ? err.status : undefined,
 				},
@@ -386,14 +386,14 @@ export async function runRegistryGetPreview(cwd: string, input: GetPreviewInput)
 
 	const detailed: PreviewEntryPayload[] = []
 	for (const p of previews) {
-		let actionPreview: RegistryActionPreview | null
+		let recipePreview: RegistryRecipePreview | null
 		try {
-			actionPreview = await getActionPreview({
+			recipePreview = await getRecipePreview({
 				baseUrl,
 				scope: input.scope,
 				name: input.name,
 				version: resolvedVersion,
-				actionId: p.actionId,
+				recipeId: p.recipeId,
 				apiKey,
 			})
 		} catch (err) {
@@ -404,26 +404,26 @@ export async function runRegistryGetPreview(cwd: string, input: GetPreviewInput)
 						message: transportErrorMessage(
 							err,
 							baseUrl,
-							`/v1/modules/${input.scope}/${input.name}/${resolvedVersion}/previews/${p.actionId}`,
+							`/v1/packs/${input.scope}/${input.name}/${resolvedVersion}/previews/${p.recipeId}`,
 						),
 						status: err instanceof RegistryHttpError ? err.status : undefined,
 					},
 				},
 			}
 		}
-		if (actionPreview === null) continue
-		if (actionPreview.state === "rendered") {
+		if (recipePreview === null) continue
+		if (recipePreview.state === "rendered") {
 			detailed.push({
-				actionId: actionPreview.actionId,
+				recipeId: recipePreview.recipeId,
 				state: "rendered",
-				files: actionPreview.files ?? [],
+				files: recipePreview.files ?? [],
 			})
 		} else {
 			detailed.push({
-				actionId: actionPreview.actionId,
+				recipeId: recipePreview.recipeId,
 				state: "needs-llm",
-				reason: actionPreview.reason ?? "action skipped because it requires LLM reasoning",
-				files: actionPreview.files ?? [],
+				reason: recipePreview.reason ?? "recipe skipped because it requires LLM reasoning",
+				files: recipePreview.files ?? [],
 			})
 		}
 	}

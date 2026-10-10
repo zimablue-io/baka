@@ -15,7 +15,7 @@ const STEPS = [
 	},
 	{
 		title: "Plan your first feature",
-		body: "Pass an intent; the orchestrator returns a {module, action, params} plan. Dry-run first, then apply.",
+		body: "Pass an intent; the orchestrator returns a {pack, recipe, params} plan. Dry-run first, then apply.",
 		command: `pnpm ${BRAND} plan "add a Better-Auth setup with Google login"`,
 	},
 ] as const

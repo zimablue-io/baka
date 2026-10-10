@@ -1,26 +1,26 @@
 import {
 	type ChangesetEntry,
 	ENGINE_STATUS,
-	type ModuleManifest,
 	type OrchestrationState,
+	type PackManifest,
 	type ValidationDiagnostic,
 	type ValidationResult,
 	type ValidatorRun,
 } from "@repo/protocol"
-import { loadActionValidator, loadModuleValidator } from "./action-loader.js"
 import { matchGlobs } from "./glob.js"
-import type { ModuleRegistry } from "./registry.js"
+import { loadPackValidator, loadRecipeValidator } from "./recipe-loader.js"
+import type { PackRegistry } from "./registry.js"
 import { listProjectFiles } from "./tree-hash.js"
 
-/** One action that ran in this invocation, as validators see it in `state.run`. */
-export interface RanAction {
-	module: string
-	action: string
-	/** The params the action ran with (normalized). */
+/** One recipe that ran in this invocation, as validators see it in `state.run`. */
+export interface RanRecipe {
+	pack: string
+	recipe: string
+	/** The params the recipe ran with (normalized). */
 	params: Record<string, unknown>
-	/** What the action's `execute` returned as compensation data (template-only actions: `{ written }`). */
+	/** What the recipe's `execute` returned as compensation data (template-only recipes: `{ written }`). */
 	compensationData: unknown
-	/** What the action's `execute` returned as output, else null. */
+	/** What the recipe's `execute` returned as output, else null. */
 	output: unknown
 	changeset: ChangesetEntry[]
 }
@@ -28,17 +28,17 @@ export interface RanAction {
 /**
  * What to validate.
  *
- * - `actions`: the actions that ran in this invocation (a `runAction`, or the
- *   steps of an apply). Each ran action's own validators run with its
- *   `state.run`; the module-level validators of each of those modules run
- *   once, with `state.run` describing the last action of that module that
- *   ran. Nothing else is validated: a module that did not run is not touched.
- * - `project`: `baka validate`. Module-level validators run (for one module,
- *   or all) with no `state.run`; an action's validators run only when the
- *   action declares a `marker` and a file in the project matches it, with
+ * - `recipes`: the recipes that ran in this invocation (a `runRecipe`, or the
+ *   steps of an apply). Each ran recipe's own validators run with its
+ *   `state.run`; the pack-level validators of each of those packs run
+ *   once, with `state.run` describing the last recipe of that pack that
+ *   ran. Nothing else is validated: a pack that did not run is not touched.
+ * - `project`: `baka validate`. Pack-level validators run (for one pack,
+ *   or all) with no `state.run`; a recipe's validators run only when the
+ *   recipe declares a `marker` and a file in the project matches it, with
  *   `state.run.ran === false` and `state.run.detected` listing the matches.
  */
-export type ValidationScope = { mode: "actions"; ran: readonly RanAction[] } | { mode: "project"; module?: string }
+export type ValidationScope = { mode: "recipes"; ran: readonly RanRecipe[] } | { mode: "project"; pack?: string }
 
 /**
  * Run the validators selected by `scope` and return every diagnostic they
@@ -47,17 +47,17 @@ export type ValidationScope = { mode: "actions"; ran: readonly RanAction[] } | {
  *
  * Each validator diagnostic keeps the validator's own `rule` (the validator's
  * id stands in when it set none) and gains `validator`, the namespaced id
- * `module:id` (module-level) or `module.action:id` (action-level). A
+ * `pack:id` (pack-level) or `pack.recipe:id` (recipe-level). A
  * validator that throws becomes an error with rule `validator-error`.
  *
- * Discovery's structural diagnostics are limited to the modules in scope: a
- * sibling module's broken layout never fails an unrelated module's run.
+ * Discovery's structural diagnostics are limited to the packs in scope: a
+ * sibling pack's broken layout never fails an unrelated pack's run.
  *
- * A requested module that is not in the registry yields one `module-not-found`
+ * A requested pack that is not in the registry yields one `pack-not-found`
  * error; callers that need a user-error exit for that check first.
  */
 export async function runValidators(
-	registry: ModuleRegistry,
+	registry: PackRegistry,
 	state: OrchestrationState,
 	scope: ValidationScope,
 ): Promise<ValidationResult> {
@@ -67,32 +67,32 @@ export async function runValidators(
 	const all = registry.all()
 
 	const wanted: string[] | null =
-		scope.mode === "actions"
-			? [...new Set(scope.ran.map((r) => r.module))]
-			: scope.module !== undefined
-				? [scope.module]
+		scope.mode === "recipes"
+			? [...new Set(scope.ran.map((r) => r.pack))]
+			: scope.pack !== undefined
+				? [scope.pack]
 				: null
 	const targets = wanted ? all.filter((m) => wanted.includes(m.name)) : all
 
 	const diagnostics: ValidationDiagnostic[] = structural.filter(
-		(d) => wanted === null || (d.module !== undefined && wanted.includes(d.module)),
+		(d) => wanted === null || (d.pack !== undefined && wanted.includes(d.pack)),
 	)
 	for (const name of wanted ?? []) {
 		if (all.some((m) => m.name === name)) continue
 		diagnostics.push({
 			severity: "error",
-			rule: "module-not-found",
-			message: `module "${name}" not found; available modules: ${all.map((m) => m.name).join(", ") || "(none)"}`,
+			rule: "pack-not-found",
+			message: `pack "${name}" not found; available packs: ${all.map((m) => m.name).join(", ") || "(none)"}`,
 		})
 	}
 
-	state.logs.push(`[validate] ${scope.mode} scope over ${targets.length} module(s)`)
+	state.logs.push(`[validate] ${scope.mode} scope over ${targets.length} pack(s)`)
 
 	let projectFiles: string[] | null = null
-	const detect = (action: ModuleManifest["actions"][number]): string[] => {
-		if (!action.marker || action.marker.length === 0) return []
+	const detect = (recipe: PackManifest["recipes"][number]): string[] => {
+		if (!recipe.marker || recipe.marker.length === 0) return []
 		projectFiles ??= listProjectFiles(targetDirectory)
-		return matchGlobs(projectFiles, action.marker)
+		return matchGlobs(projectFiles, recipe.marker)
 	}
 
 	const attempt = async (validator: string, id: string, call: () => Promise<ValidationDiagnostic[]>): Promise<void> => {
@@ -111,35 +111,35 @@ export async function runValidators(
 	}
 
 	for (const m of targets) {
-		// The registry's tracked moduleRoot, so modules that live outside <root>/modules/ load correctly.
-		const moduleRoot = registry.moduleRootFor(m.name) ?? `${targetDirectory}/modules/${m.name}`
-		const ranHere = scope.mode === "actions" ? scope.ran.filter((r) => r.module === m.name) : []
+		// The registry's tracked packRoot, so packs that live outside <root>/packs/ load correctly.
+		const packRoot = registry.packRootFor(m.name) ?? `${targetDirectory}/packs/${m.name}`
+		const ranHere = scope.mode === "recipes" ? scope.ran.filter((r) => r.pack === m.name) : []
 		const lastRan = ranHere.at(-1)
-		const moduleState: OrchestrationState = { ...state, run: lastRan ? toRun(lastRan) : undefined }
+		const packState: OrchestrationState = { ...state, run: lastRan ? toRun(lastRan) : undefined }
 
-		for (const ruleId of m.moduleValidators) {
+		for (const ruleId of m.packValidators) {
 			await attempt(`${m.name}:${ruleId}`, ruleId, async () =>
-				loadModuleValidator(targetDirectory, moduleRoot, ruleId)(moduleState),
+				loadPackValidator(targetDirectory, packRoot, ruleId)(packState),
 			)
 		}
 
-		const invocations: Array<{ action: ModuleManifest["actions"][number]; run: ValidatorRun }> = []
-		if (scope.mode === "actions") {
+		const invocations: Array<{ recipe: PackManifest["recipes"][number]; run: ValidatorRun }> = []
+		if (scope.mode === "recipes") {
 			for (const ran of ranHere) {
-				const action = m.actions.find((a) => a.id === ran.action)
-				if (action) invocations.push({ action, run: toRun(ran) })
+				const recipe = m.recipes.find((a) => a.id === ran.recipe)
+				if (recipe) invocations.push({ recipe, run: toRun(ran) })
 			}
 		} else {
-			for (const action of m.actions) {
-				const detected = detect(action)
-				if (detected.length > 0) invocations.push({ action, run: detectedRun(m.name, action.id, detected) })
+			for (const recipe of m.recipes) {
+				const detected = detect(recipe)
+				if (detected.length > 0) invocations.push({ recipe, run: detectedRun(m.name, recipe.id, detected) })
 			}
 		}
-		for (const { action, run } of invocations) {
-			const actionState: OrchestrationState = { ...state, run }
-			for (const ruleId of action.validators ?? []) {
-				await attempt(`${m.name}.${action.id}:${ruleId}`, ruleId, async () =>
-					loadActionValidator(targetDirectory, moduleRoot, action.id, ruleId)(actionState),
+		for (const { recipe, run } of invocations) {
+			const recipeState: OrchestrationState = { ...state, run }
+			for (const ruleId of recipe.validators ?? []) {
+				await attempt(`${m.name}.${recipe.id}:${ruleId}`, ruleId, async () =>
+					loadRecipeValidator(targetDirectory, packRoot, recipe.id, ruleId)(recipeState),
 				)
 			}
 		}
@@ -148,10 +148,10 @@ export async function runValidators(
 	return { kind: diagnostics.some((d) => d.severity === "error") ? "fail" : "pass", diagnostics }
 }
 
-function toRun(ran: RanAction): ValidatorRun {
+function toRun(ran: RanRecipe): ValidatorRun {
 	return {
-		module: ran.module,
-		action: ran.action,
+		pack: ran.pack,
+		recipe: ran.recipe,
 		ran: true,
 		params: ran.params,
 		compensationData: ran.compensationData,
@@ -160,6 +160,6 @@ function toRun(ran: RanAction): ValidatorRun {
 	}
 }
 
-function detectedRun(module: string, action: string, detected: string[]): ValidatorRun {
-	return { module, action, ran: false, params: {}, compensationData: null, output: null, changeset: [], detected }
+function detectedRun(pack: string, recipe: string, detected: string[]): ValidatorRun {
+	return { pack, recipe, ran: false, params: {}, compensationData: null, output: null, changeset: [], detected }
 }

@@ -18,10 +18,10 @@ import { createFilesystemStorage, type StorageAdapter } from "../src/storage"
  * VAL-AUTH-003, VAL-PUB-016).
  *
  * Background: registry-core scrutiny surfaced a latent gap in
- * `GET /v1/modules` — the list endpoint had no visibility WHERE
+ * `GET /v1/packs` — the list endpoint had no visibility WHERE
  * clause. It was invisible only because the seed catalog was all
  * `public`. Once `POST /v1/publish` (the publish-endpoint feature)
- * can create `org`-visibility modules, the list MUST filter them
+ * can create `org`-visibility packs, the list MUST filter them
  * out for callers who cannot prove org membership, matching the
  * detail endpoint's 404 semantics (existence is not leaked).
  *
@@ -168,7 +168,7 @@ function extractBetterAuthCookie(setCookie: string): string {
 }
 
 /**
- * Seeds two modules under a freshly-created `acme` org: one with
+ * Seeds two packs under a freshly-created `acme` org: one with
  * `visibility: 'public'` and one with `visibility: 'org'`. Returns
  * the org id so tests can confirm membership state. Idempotent so
  * a re-run against the same data dir leaves the seeded rows alone
@@ -187,17 +187,17 @@ async function seedOrgVisibilityFixture(fx: Stack): Promise<{ acmeOrgId: string 
 	if (!acmeOrgId) throw new Error("seedOrgVisibilityFixture: failed to insert acme org")
 
 	await fx.pglite.query(
-		`INSERT INTO modules (scope, name, visibility, tier, description)
-		   VALUES ('acme', 'public-mod', 'public', 'community-screened', 'a public community module'),
-		          ('acme', 'private-mod', 'org', 'community-unverified', 'an org-only module')
+		`INSERT INTO packs (scope, name, visibility, tier, description)
+		   VALUES ('acme', 'public-mod', 'public', 'community-screened', 'a public community pack'),
+		          ('acme', 'private-mod', 'org', 'community-unverified', 'an org-only pack')
 		 ON CONFLICT (scope, name) DO NOTHING`,
 	)
 	await fx.pglite.query(
-		`INSERT INTO module_versions (module_id, version, commit_sha, content_hash, manifest, status)
+		`INSERT INTO pack_versions (pack_id, version, commit_sha, content_hash, manifest, status)
 		   SELECT id, '1.0.0', repeat('0', 40), repeat('a', 64),
-		          '{"name":"placeholder","version":"1.0.0","description":"","dependencies":[],"conflictsWith":[],"actions":[{"id":"x","description":"","params":[]}],"moduleValidators":[]}'::jsonb,
+		          '{"name":"placeholder","version":"1.0.0","description":"","dependencies":[],"conflictsWith":[],"recipes":[{"id":"x","description":"","params":[]}],"packValidators":[]}'::jsonb,
 		          'ready'
-		     FROM modules WHERE scope = 'acme'
+		     FROM packs WHERE scope = 'acme'
 		   ON CONFLICT DO NOTHING`,
 	)
 
@@ -213,7 +213,7 @@ async function addMember(fx: Stack, userId: string, orgId: string, role: string)
 	)
 }
 
-describe("GET /v1/modules — visibility filter (registry-core scrutiny regression)", () => {
+describe("GET /v1/packs — visibility filter (registry-core scrutiny regression)", () => {
 	let fx: Stack
 	beforeEach(async () => {
 		fx = await buildStack()
@@ -223,32 +223,32 @@ describe("GET /v1/modules — visibility filter (registry-core scrutiny regressi
 		await fx.close()
 	})
 
-	it("anonymous callers see only public modules (acme/private-mod is hidden)", async () => {
-		const res = await fx.app.request("/v1/modules")
+	it("anonymous callers see only public packs (acme/private-mod is hidden)", async () => {
+		const res = await fx.app.request("/v1/packs")
 		expect(res.status).toBe(200)
 		const body = (await res.json()) as {
-			modules: Array<{ scope: string; name: string; visibility: string }>
+			packs: Array<{ scope: string; name: string; visibility: string }>
 		}
-		const names = body.modules.map((m) => `${m.scope}/${m.name}`).sort()
+		const names = body.packs.map((m) => `${m.scope}/${m.name}`).sort()
 		expect(names).toEqual(["acme/public-mod"])
 	})
 
-	it("an authenticated non-member sees only public modules (the org-private one is hidden)", async () => {
+	it("an authenticated non-member sees only public packs (the org-private one is hidden)", async () => {
 		const outsider = await signUp(fx, "outsider@example.com", "password-12345")
 		const outsiderKey = await createApiKey(fx, outsider.sessionCookie, "outsider-key")
 
-		const res = await fx.app.request("/v1/modules", {
+		const res = await fx.app.request("/v1/packs", {
 			headers: { "x-api-key": outsiderKey.key },
 		})
 		expect(res.status).toBe(200)
 		const body = (await res.json()) as {
-			modules: Array<{ scope: string; name: string; visibility: string }>
+			packs: Array<{ scope: string; name: string; visibility: string }>
 		}
-		const names = body.modules.map((m) => `${m.scope}/${m.name}`).sort()
+		const names = body.packs.map((m) => `${m.scope}/${m.name}`).sort()
 		expect(names).toEqual(["acme/public-mod"])
 	})
 
-	it("an authenticated member of the org sees their org-private modules too", async () => {
+	it("an authenticated member of the org sees their org-private packs too", async () => {
 		const member = await signUp(fx, "member@example.com", "password-12345")
 		const acmeOrgId = (await fx.pglite.query<{ id: string }>(`SELECT id FROM "organization" WHERE slug = 'acme'`))
 			.rows[0]?.id
@@ -256,31 +256,31 @@ describe("GET /v1/modules — visibility filter (registry-core scrutiny regressi
 		await addMember(fx, member.userId, acmeOrgId, "member")
 		const memberKey = await createApiKey(fx, member.sessionCookie, "member-key")
 
-		const res = await fx.app.request("/v1/modules", {
+		const res = await fx.app.request("/v1/packs", {
 			headers: { "x-api-key": memberKey.key },
 		})
 		expect(res.status).toBe(200)
 		const body = (await res.json()) as {
-			modules: Array<{ scope: string; name: string; visibility: string }>
+			packs: Array<{ scope: string; name: string; visibility: string }>
 		}
-		const names = body.modules.map((m) => `${m.scope}/${m.name}`).sort()
+		const names = body.packs.map((m) => `${m.scope}/${m.name}`).sort()
 		expect(names).toEqual(["acme/private-mod", "acme/public-mod"])
 	})
 
 	it("the visibility filter on the LIST endpoint matches the 404 semantics on the DETAIL endpoint", async () => {
 		// anonymous — same exclusion rule applies to both routes.
-		const list = await fx.app.request("/v1/modules")
-		const listBody = (await list.json()) as { modules: Array<{ scope: string; name: string }> }
-		const listHasPrivate = listBody.modules.some((m) => m.scope === "acme" && m.name === "private-mod")
+		const list = await fx.app.request("/v1/packs")
+		const listBody = (await list.json()) as { packs: Array<{ scope: string; name: string }> }
+		const listHasPrivate = listBody.packs.some((m) => m.scope === "acme" && m.name === "private-mod")
 		expect(listHasPrivate).toBe(false)
 
-		const detail = await fx.app.request("/v1/modules/acme/private-mod")
+		const detail = await fx.app.request("/v1/packs/acme/private-mod")
 		expect(detail.status).toBe(404)
 		const detailBody = (await detail.json()) as { error?: string }
 		expect(detailBody.error).toContain("acme/private-mod")
 	})
 
-	it("an org admin's membership also reveals org-private modules (any role counts, not just owner)", async () => {
+	it("an org admin's membership also reveals org-private packs (any role counts, not just owner)", async () => {
 		const admin = await signUp(fx, "admin@example.com", "password-12345")
 		const acmeOrgId = (await fx.pglite.query<{ id: string }>(`SELECT id FROM "organization" WHERE slug = 'acme'`))
 			.rows[0]?.id
@@ -288,28 +288,28 @@ describe("GET /v1/modules — visibility filter (registry-core scrutiny regressi
 		await addMember(fx, admin.userId, acmeOrgId, "admin")
 		const adminKey = await createApiKey(fx, admin.sessionCookie, "admin-key")
 
-		const res = await fx.app.request("/v1/modules", {
+		const res = await fx.app.request("/v1/packs", {
 			headers: { "x-api-key": adminKey.key },
 		})
 		const body = (await res.json()) as {
-			modules: Array<{ scope: string; name: string; visibility: string }>
+			packs: Array<{ scope: string; name: string; visibility: string }>
 		}
-		const names = body.modules.map((m) => `${m.scope}/${m.name}`).sort()
+		const names = body.packs.map((m) => `${m.scope}/${m.name}`).sort()
 		expect(names).toEqual(["acme/private-mod", "acme/public-mod"])
 	})
 
-	it("?tier= filter composes with the visibility filter — a public module at the requested tier is shown, a private one is not", async () => {
-		const res = await fx.app.request("/v1/modules?tier=community-screened")
+	it("?tier= filter composes with the visibility filter — a public pack at the requested tier is shown, a private one is not", async () => {
+		const res = await fx.app.request("/v1/packs?tier=community-screened")
 		expect(res.status).toBe(200)
 		const body = (await res.json()) as {
-			modules: Array<{ scope: string; name: string; tier: string }>
+			packs: Array<{ scope: string; name: string; tier: string }>
 		}
-		const names = body.modules.map((m) => `${m.scope}/${m.name}`).sort()
+		const names = body.packs.map((m) => `${m.scope}/${m.name}`).sort()
 		expect(names).toEqual(["acme/public-mod"])
 	})
 
 	it("Cache-Control: no-store is preserved on the visibility-filtered response", async () => {
-		const res = await fx.app.request("/v1/modules")
+		const res = await fx.app.request("/v1/packs")
 		expect(res.headers.get("cache-control")).toBe("no-store")
 	})
 })

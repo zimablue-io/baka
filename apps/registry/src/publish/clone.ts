@@ -8,7 +8,7 @@ import { promisify } from "node:util"
  * Shallow git clone at a specific tag (architecture §4.5 / §6).
  *
  * The publish endpoint uses a shallow clone to validate the
- * module manifest at publish time so the bare-name rule
+ * pack manifest at publish time so the bare-name rule
  * (VAL-PUB-010) and the manifest/tag version match (VAL-PUB-024)
  * can be checked BEFORE the row is created. The worker
  * (next milestone) re-clones the repo for the full ingest

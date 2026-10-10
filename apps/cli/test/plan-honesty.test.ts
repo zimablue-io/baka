@@ -8,7 +8,7 @@
 // execution path. Additional coverage makes every failure mode honest and
 // side-effect free: empty catalog, missing config, unreachable LLM, malformed
 // output, hung LLM, unloadable plan files, and plans referencing uninstalled
-// modules. A deterministic-planner test path proves byte-identical plan output.
+// packs. A deterministic-planner test path proves byte-identical plan output.
 //
 // Coverage map (validation-contract.md):
 //   VAL-FOUND-001  `baka plan` never mutates the project tree
@@ -23,7 +23,7 @@
 //   VAL-FOUND-053  Hung LLM fails in bounded time
 //   VAL-FOUND-057  Deterministic planner yields byte-identical plans
 //   VAL-FOUND-059  `baka apply` rejects unloadable plan files
-//   VAL-FOUND-060  `baka apply` rejects uninstalled modules without partial writes
+//   VAL-FOUND-060  `baka apply` rejects uninstalled packs without partial writes
 // ---------------------------------------------------------------------------
 
 import { type ChildProcess, spawn } from "node:child_process"
@@ -40,22 +40,22 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 
 const BAKA_REPO = join(__dirname, "..", "..", "..")
 const DIST_INDEX = join(BAKA_REPO, "apps", "cli", "dist", "index.js")
-// Inline fixture: minimal manifest + a single non-reasoning `write` action.
+// Inline fixture: minimal manifest + a single non-reasoning `write` recipe.
 // Built into the scratch tree (no symlink to a separate fixture dir, no
-// `baka-sdk` import path required) so the loader sees the module just like
-// any other on-disk module.
+// `baka-sdk` import path required) so the loader sees the pack just like
+// any other on-disk pack.
 const HONEST_MOD_NAME = "honest-mod"
 const HONEST_MOD_MANIFEST = `// Inline fixture: see apps/cli/test/plan-honesty.test.ts
 // for why this is inlined instead of loaded from a separate fixture file.
-import type { ModuleManifest } from "baka-sdk"
+import type { PackManifest } from "baka-sdk"
 
-export const Manifest: ModuleManifest = {
+export const Manifest: PackManifest = {
 \tname: "${HONEST_MOD_NAME}",
 \tversion: "0.0.0",
 \tdescription: "Inline non-reasoning fixture used by plan-honesty tests.",
 \tdependencies: [],
 \tconflictsWith: [],
-\tactions: [
+\trecipes: [
 \t\t{
 \t\t\tid: "write",
 \t\t\tdescription: "Write a marker file to the project root.",
@@ -65,14 +65,14 @@ export const Manifest: ModuleManifest = {
 \t\t\tparams: [],
 \t\t},
 \t],
-\tmoduleValidators: [],
+\tpackValidators: [],
 }
 `
-const HONEST_MOD_ACTION = `import { rmSync, writeFileSync } from "node:fs"
+const HONEST_MOD_RECIPE = `import { rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { AgentRole, type StepResponse, type WorkflowStep } from "baka-sdk"
 
-export const writeAction: WorkflowStep<Record<string, never>, boolean, { targetDirectory: string }> = {
+export const writeRecipe: WorkflowStep<Record<string, never>, boolean, { targetDirectory: string }> = {
 \tname: "${HONEST_MOD_NAME}.write",
 \trole: AgentRole.WORKER,
 
@@ -201,7 +201,7 @@ function startFakeLLMBehavior(behavior: FakeLLMBehavior): Promise<FakeLLMHandle>
 			if (behavior.invalidJson) {
 				messageContent = behavior.content ?? "not valid json {"
 			} else if (behavior.schemaInvalid) {
-				messageContent = JSON.stringify({ resolvedSteps: [{ module: 123, action: true, params: "wrong" }] })
+				messageContent = JSON.stringify({ resolvedSteps: [{ pack: 123, recipe: true, params: "wrong" }] })
 			} else {
 				messageContent = behavior.content ?? "{}"
 			}
@@ -260,8 +260,8 @@ function planResponse(): string {
 		resolvedSteps: [
 			{
 				id: "step-1",
-				module: "honest-mod",
-				action: "write",
+				pack: "honest-mod",
+				recipe: "write",
 				params: {},
 			},
 		],
@@ -346,10 +346,10 @@ function spawnOutsideCli(
 
 function prepareScratchWithFixture(prefix: string): string {
 	const scratch = trackDir(makeEmptyDir(prefix))
-	const modDir = join(scratch, "modules", HONEST_MOD_NAME)
+	const modDir = join(scratch, "packs", HONEST_MOD_NAME)
 	mkdirSync(join(modDir, "write"), { recursive: true })
 	writeFileSync(join(modDir, "manifest.ts"), HONEST_MOD_MANIFEST, "utf-8")
-	writeFileSync(join(modDir, "write", "action.ts"), HONEST_MOD_ACTION, "utf-8")
+	writeFileSync(join(modDir, "write", "recipe.ts"), HONEST_MOD_RECIPE, "utf-8")
 	return scratch
 }
 
@@ -550,15 +550,15 @@ describe("VAL-FOUND-007 apply executes a saved plan", () => {
 			expect(apply.code, `unexpected apply exit ${apply.code}; stderr=${apply.stderr}`).toBe(0)
 			const parsed = JSON.parse(apply.stdout) as {
 				status: string
-				completedSteps: Array<{ module: string; action: string; output?: unknown }>
+				completedSteps: Array<{ pack: string; recipe: string; output?: unknown }>
 			}
 			expect(parsed.status).toBe("SUCCESS")
 			expect(parsed.completedSteps.length).toBeGreaterThan(0)
-			expect(parsed.completedSteps[0]).toMatchObject({ module: "honest-mod", action: "write" })
-			// Rich-output propagation: every completed step carries the action's
+			expect(parsed.completedSteps[0]).toMatchObject({ pack: "honest-mod", recipe: "write" })
+			// Rich-output propagation: every completed step carries the recipe's
 			// output payload (the worker propagates `result.output`, not the
-			// boolean `result.success`). honest-mod's write action returns the
-			// boolean `true`; real actions (e.g. lint) return LintReport objects.
+			// boolean `result.success`). honest-mod's write recipe returns the
+			// boolean `true`; real recipes (e.g. lint) return LintReport objects.
 			expect(parsed.completedSteps[0]).toHaveProperty("output")
 			expect(parsed.completedSteps[0]?.output).toBe(true)
 			expect(existsSync(join(scratch, "marker.txt"))).toBe(true)
@@ -601,7 +601,7 @@ describe("VAL-FOUND-010 no dead --execute branch in baka plan", () => {
 // ---------------------------------------------------------------------------
 
 describe("VAL-FOUND-009 empty-catalog plan fails honestly", () => {
-	it("exits non-zero with a no-modules message and changes nothing when the CLI is outside the repo tree", async () => {
+	it("exits non-zero with a no-packs message and changes nothing when the CLI is outside the repo tree", async () => {
 		expect(outsideCliDist, "outside CLI was not prepared in beforeAll").toBeTruthy()
 
 		const project = trackDir(makeEmptyDir("baka-empty-catalog-project-"))
@@ -622,7 +622,7 @@ describe("VAL-FOUND-009 empty-catalog plan fails honestly", () => {
 		const parsed = JSON.parse(stdout) as { status: string; steps: unknown[]; logs: string[] }
 		expect(parsed.status).toBe("FAILED")
 		expect(parsed.steps).toEqual([])
-		expect(parsed.logs.some((line) => /no modules were discovered/i.test(line))).toBe(true)
+		expect(parsed.logs.some((line) => /no packs were discovered/i.test(line))).toBe(true)
 		expect(stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
 		expect(existsSync(join(project, ".baka", "plans"))).toBe(false)
 
@@ -887,11 +887,11 @@ describe("VAL-FOUND-059 baka apply rejects unloadable plan files", () => {
 })
 
 // ---------------------------------------------------------------------------
-// VAL-FOUND-060  apply rejects uninstalled modules without partial writes
+// VAL-FOUND-060  apply rejects uninstalled packs without partial writes
 // ---------------------------------------------------------------------------
 
-describe("VAL-FOUND-060 baka apply rejects a plan referencing an uninstalled module", () => {
-	it("fails on the unresolved module and leaves the tree byte-identical", async () => {
+describe("VAL-FOUND-060 baka apply rejects a plan referencing an uninstalled pack", () => {
+	it("fails on the unresolved pack and leaves the tree byte-identical", async () => {
 		const scratch = prepareScratchWithFixture("baka-apply-uninstalled-")
 		const home = trackDir(makeEmptyDir("baka-apply-uninstalled-home-"))
 		seedRoleConfig(home, { baseUrl: "http://127.0.0.1:31999/v1", model: "fake" })
@@ -901,10 +901,10 @@ describe("VAL-FOUND-060 baka apply rejects a plan referencing an uninstalled mod
 			planFile,
 			JSON.stringify({
 				resolvedSteps: [
-					{ id: "step-1", module: "ghost-mod", action: "scaffold", params: {} },
-					{ id: "step-2", module: "honest-mod", action: "write", params: {} },
+					{ id: "step-1", pack: "ghost-mod", recipe: "scaffold", params: {} },
+					{ id: "step-2", pack: "honest-mod", recipe: "write", params: {} },
 				],
-				meta: { intent: "use a ghost module", savedAt: new Date().toISOString() },
+				meta: { intent: "use a ghost pack", savedAt: new Date().toISOString() },
 			}),
 			"utf-8",
 		)

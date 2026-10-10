@@ -25,19 +25,19 @@ import { readRegistryCredential } from "../lib/registry-credentials"
  *      never send a request without auth (the registry would 401 the
  *      request AND leak nothing about org existence; the CLI matches
  *      that surface by refusing pre-network, per VAL-DISC-007).
- *   3. POST `/v1/publish` with `{ repo, tag, org, modulePath?,
+ *   3. POST `/v1/publish` with `{ repo, tag, org, packPath?,
  *      visibility? }`. Visibility defaults to `org` (private, per
  *      architecture §8 decision 30). A non-2xx response raises
  *      `RegistryHttpError` carrying the registry's typed message —
  *      the CLI surfaces it verbatim so a 403 (insufficient role per
  *      VAL-DISC-008) is distinguishable from a 422 (schema validation
  *      per VAL-PUB-020).
- *   4. Poll `GET /v1/modules/<scope>/<name>/<version>` until the
+ *   4. Poll `GET /v1/packs/<scope>/<name>/<version>` until the
  *      version reaches `ready` or `failed` (500ms cadence, 60s
  *      ceiling). The polling loop respects the worker poll cycle so
  *      the CLI never out-races the worker.
  *   5. Print the terminal state. `failed` includes the worker error
- *      string (loadability gate diagnostic naming the failing action,
+ *      string (loadability gate diagnostic naming the failing recipe,
  *      per VAL-DISC-009). `ready` includes the pinned commit sha and
  *      content hash so the caller can pin against the registry's
  *      own record (VAL-DISC-006).
@@ -154,7 +154,7 @@ export async function runPublishCommand(spec: string, opts: PublishOptions): Pro
 		repo: parsed.repo,
 		tag: parsed.tag,
 		org: opts.org,
-		...(opts.path !== undefined && opts.path.length > 0 ? { modulePath: opts.path } : {}),
+		...(opts.path !== undefined && opts.path.length > 0 ? { packPath: opts.path } : {}),
 		...(opts.visibility !== undefined ? { visibility: opts.visibility } : {}),
 	}
 

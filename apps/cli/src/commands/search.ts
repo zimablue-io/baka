@@ -14,7 +14,7 @@ import { resolveRegistryList } from "../lib/registry-config"
  * Multi-registry merge with per-source attribution and per-source
  * failure isolation:
  *
- *   - One `GET /v1/modules` call per configured registry (decision 4
+ *   - One `GET /v1/packs` call per configured registry (decision 4
  *     precedence: `--registry` > `BAKA_REGISTRY_URL` > project
  *     settings > default localhost:4300).
  *   - Each catalog entry becomes one search hit annotated with the
@@ -63,7 +63,7 @@ interface SourceWarning {
 
 interface SourceResult {
 	baseUrl: string
-	modules: RegistryCatalogEntry[]
+	packs: RegistryCatalogEntry[]
 }
 
 interface SearchOptions {
@@ -92,12 +92,12 @@ function errorMessage(err: unknown): string {
 
 interface FetchedSource {
 	baseUrl: string
-	modules: RegistryCatalogEntry[] | null
+	packs: RegistryCatalogEntry[] | null
 	error: SourceWarning["error"] | null
 }
 
 /**
- * Queries every configured registry's `/v1/modules` endpoint and
+ * Queries every configured registry's `/v1/packs` endpoint and
  * groups the responses by source. Per-source failures are captured
  * (not thrown) so the caller can decide whether the overall result
  * set is empty-but-valid (no warnings → return 0) or
@@ -110,12 +110,12 @@ async function fetchAllSources(
 	const fetched: FetchedSource[] = await Promise.all(
 		registries.map(async (base) => {
 			try {
-				const modules = await getCatalog({ baseUrl: base, fetchImpl })
-				return { baseUrl: base, modules, error: null }
+				const packs = await getCatalog({ baseUrl: base, fetchImpl })
+				return { baseUrl: base, packs, error: null }
 			} catch (err) {
 				return {
 					baseUrl: base,
-					modules: null,
+					packs: null,
 					error:
 						err instanceof RegistryTransportError
 							? err.message
@@ -129,11 +129,11 @@ async function fetchAllSources(
 	const results: SourceResult[] = []
 	const warnings: SourceWarning[] = []
 	for (const r of fetched) {
-		if (r.modules === null) {
+		if (r.packs === null) {
 			warnings.push({ source: r.baseUrl, error: r.error ?? "unknown failure" })
 			continue
 		}
-		results.push({ baseUrl: r.baseUrl, modules: r.modules })
+		results.push({ baseUrl: r.baseUrl, packs: r.packs })
 	}
 	return { results, warnings }
 }
@@ -141,7 +141,7 @@ async function fetchAllSources(
 function buildHits(results: SourceResult[], query: string): SearchHit[] {
 	const hits: SearchHit[] = []
 	for (const src of results) {
-		for (const entry of src.modules) {
+		for (const entry of src.packs) {
 			if (!matchesQuery(entry, query)) continue
 			hits.push({
 				scope: entry.scope,
@@ -166,9 +166,9 @@ function buildHits(results: SourceResult[], query: string): SearchHit[] {
 
 function printHuman(hits: SearchHit[], warnings: SourceWarning[], query: string): void {
 	if (hits.length === 0) {
-		console.log(`no modules matching "${query}"`)
+		console.log(`no packs matching "${query}"`)
 	} else {
-		console.log(`\n${hits.length} module(s) matching "${query}":\n`)
+		console.log(`\n${hits.length} pack(s) matching "${query}":\n`)
 		for (const h of hits) {
 			const verSuffix = h.version ? `  v${h.version}` : ""
 			console.log(`  @${h.scope}/${h.name}${verSuffix}  [${h.tier}]  (source: ${h.registry})`)
@@ -198,7 +198,7 @@ export async function runSearchCommand(query: string, opts: SearchOptions = {}):
 	// respond, the search dies with ENGINE_ERROR (2) and an honest
 	// error naming each URL + transport cause. We distinguish
 	// transport truth ("registry unreachable") from a clean empty
-	// result set ("no modules matched"); users must be able to
+	// result set ("no packs matched"); users must be able to
 	// branch without parsing prose.
 	if (hits.length === 0 && results.length === 0 && warnings.length > 0) {
 		const lines = warnings.map((w) => `  - ${w.source}: ${w.error}`).join("\n")

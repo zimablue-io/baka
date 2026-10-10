@@ -1,7 +1,7 @@
 /**
  * Manifest field extraction (architecture §4.5).
  *
- * The publish endpoint needs to read two fields from the module
+ * The publish endpoint needs to read two fields from the pack
  * manifest — `name` and `version` — before creating a row:
  *
  *   - `version` is compared against the git tag (decision 11: the
@@ -12,7 +12,7 @@
  *     a non-official org is 422 (VAL-PUB-010).
  *
  * The manifest source is TypeScript that exports a default object
- * matching `ModuleManifestSchema`. The full engine loader (jiti)
+ * matching `PackManifestSchema`. The full engine loader (jiti)
  * is the worker's responsibility — it runs at ingest time and
  * evaluates the manifest in a real Node context. The publish
  * endpoint uses a narrow, sandboxed reader that:
@@ -20,14 +20,14 @@
  *   1. Strips TypeScript-only syntax (`satisfies`, `as`, type
  *      annotations, type-only imports).
  *   2. Wraps the manifest in a `module.exports = { default: ... }`
- *      style assignment and evaluates it via Node's `vm` module
+ *      style assignment and evaluates it via Node's `vm` pack
  *      with a 1-second timeout and zero host bindings.
  *   3. Reads ONLY `name` and `version` from the resulting object
  *      (the rest is left for the worker to validate against the
  *      full schema).
  *
  * The reader deliberately does NOT trust any other field. The
- * manifest's `description`, `actions`, `dependencies`, etc. are
+ * manifest's `description`, `recipes`, `dependencies`, etc. are
  * the worker's contract — the publish endpoint treats them as
  * opaque and does not surface them anywhere.
  */
@@ -35,7 +35,7 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import vm from "node:vm"
-import { ModuleManifestSchema } from "@repo/protocol"
+import { PackManifestSchema } from "@repo/protocol"
 
 interface ExtractedManifest {
 	name: string
@@ -56,7 +56,7 @@ interface ExtractedManifest {
  *
  * The result is plain ESM-like JavaScript that returns the default
  * export object. The TypeScript the manifest uses in practice is a
- * single `export default { ... } satisfies ModuleManifest` block;
+ * single `export default { ... } satisfies PackManifest` block;
  * the strip is enough to evaluate that shape.
  */
 function stripTypeScript(source: string): string {
@@ -86,7 +86,7 @@ function stripTypeScript(source: string): string {
 	// disappears under JSON.stringify and breaks schema validation
 	// for required array fields (`params`, etc.). Empty-array values
 	// in source manifests MUST survive into the VM evaluation intact
-	// so the served manifest round-trips through ModuleManifestSchema
+	// so the served manifest round-trips through PackManifestSchema
 	// (VAL-PUB-004).
 	// First segment must be PascalCase or a known primitive; subsequent
 	// segments in a union are matched identically.
@@ -137,7 +137,7 @@ function evaluateManifest(source: string): unknown {
 /**
  * Reads the manifest from the cloned repo and extracts `name`
  * and `version`. The full object is also returned (validated
- * against `ModuleManifestSchema` when possible) so the worker
+ * against `PackManifestSchema` when possible) so the worker
  * has a typed source to ingest.
  *
  * Returns `null` when the manifest cannot be parsed, evaluated,
@@ -148,10 +148,10 @@ function evaluateManifest(source: string): unknown {
  */
 export async function extractManifestFields(
 	cloneDir: string,
-	modulePath: string | undefined,
+	packPath: string | undefined,
 ): Promise<ExtractedManifest | null> {
-	if (modulePath && modulePath.length > 0 && (modulePath.includes("..") || modulePath.startsWith("/"))) {
-		// Mirrors `worker/ingest.ts:resolveModuleDir`: a publish
+	if (packPath && packPath.length > 0 && (packPath.includes("..") || packPath.startsWith("/"))) {
+		// Mirrors `worker/ingest.ts:resolvePackDir`: a publish
 		// body must not be able to make the reader escape the
 		// clone dir via `..` or an absolute path. The worker
 		// enforces the same confinement; doing it here as well
@@ -161,7 +161,7 @@ export async function extractManifestFields(
 		return null
 	}
 	const relative =
-		modulePath && modulePath.length > 0 ? join(cloneDir, modulePath, "manifest.ts") : join(cloneDir, "manifest.ts")
+		packPath && packPath.length > 0 ? join(cloneDir, packPath, "manifest.ts") : join(cloneDir, "manifest.ts")
 	let source: string
 	try {
 		source = await readFile(relative, "utf8")
@@ -178,7 +178,7 @@ export async function extractManifestFields(
 	// A failure here is informational — the worker re-validates
 	// and surfaces the canonical error. The publish endpoint
 	// only needs `name` and `version`.
-	const validated = ModuleManifestSchema.safeParse(obj)
+	const validated = PackManifestSchema.safeParse(obj)
 
 	return {
 		name: obj.name,

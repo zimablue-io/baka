@@ -2,16 +2,16 @@ import { Analytics } from "@vercel/analytics/react"
 import { SpeedInsights } from "@vercel/speed-insights/react"
 import { useEffect, useRef } from "react"
 import { LandingPage } from "./components/LandingPage"
-import { ModuleDetail } from "./components/ModuleDetail"
+import { PackDetail } from "./components/PackDetail"
 import { ResultsGallery } from "./components/ResultsGallery"
 import { SiteFooter } from "./components/SiteFooter"
 import { SiteHeader } from "./components/SiteHeader"
-import { matchModuleDetail, matchResults, useLocation } from "./lib/router"
+import { matchPackDetail, matchResults, useLocation } from "./lib/router"
 
 /**
  * App root. Two routes:
  *   - `/`                       — `LandingPage`
- *   - `/modules/:scope/:name`   — `ModuleDetail`
+ *   - `/packs/:scope/:name`   — `PackDetail`
  *
  * The router (see `src/lib/router.ts`) is initialised once at mount;
  * subsequent navigation is pushState + popstate. On back-navigation
@@ -22,11 +22,11 @@ import { matchModuleDetail, matchResults, useLocation } from "./lib/router"
  */
 export function App() {
 	const location = useLocation()
-	const detail = matchModuleDetail(location.pathname)
+	const detail = matchPackDetail(location.pathname)
 	const results = matchResults(location.pathname)
 
 	// Scroll to the top on route change so a deep link to
-	// `/modules/:scope/:name` does not inherit the previous page's
+	// `/packs/:scope/:name` does not inherit the previous page's
 	// scroll position. The browser preserves the position on
 	// `history.pushState` (annoying for detail pages), so we
 	// explicitly reset it. We compare against the previous
@@ -51,7 +51,7 @@ export function App() {
 						<LandingPage />
 					)
 				) : (
-					<ModuleDetail scope={detail.scope} name={detail.name} />
+					<PackDetail scope={detail.scope} name={detail.name} />
 				)}
 			</main>
 			<SiteFooter />

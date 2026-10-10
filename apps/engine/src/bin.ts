@@ -18,7 +18,7 @@ try {
 			host: flagValues("host")[0],
 			token: flagValues("token")[0],
 			allowRoots: flagValues("allow-root"),
-			moduleDirs: flagValues("modules-dir"),
+			packDirs: flagValues("packs-dir"),
 		},
 		process.env,
 		cwd,

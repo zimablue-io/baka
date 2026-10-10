@@ -18,13 +18,13 @@ import { createFilesystemStorage, type StorageAdapter } from "../src/storage"
  * decision 11; VAL-PUB-013, VAL-PUB-025).
  *
  * The catalog list endpoint's `latestVersion` must be the
- * highest-precedence semver among the module's `ready` versions,
+ * highest-precedence semver among the pack's `ready` versions,
  * NOT the most recently ingested one. Two ready versions ingested
  * in reverse semver order (`v1.10.0` first, then `v1.9.0`) must
  * still surface `v1.10.0` as the latest.
  *
  * The test bypasses the worker entirely: it inserts ready rows
- * directly into `module_versions` so the test pin is on the
+ * directly into `pack_versions` so the test pin is on the
  * catalog query, not on the ingest pipeline (which is exercised
  * separately by the ingest-worker suite).
  */
@@ -111,7 +111,7 @@ async function buildStack(): Promise<Stack> {
 }
 
 /**
- * Inserts a `modules` row + a `module_versions` row at `status: 'ready'`.
+ * Inserts a `packs` row + a `pack_versions` row at `status: 'ready'`.
  * The `content_hash` is a placeholder — the catalog read paths do not
  * read the artifact, only the `version` + `status`. The
  * `created_at` is set to the supplied ms offset so tests can
@@ -127,20 +127,20 @@ async function insertReadyVersion(
 		visibility?: "public" | "org"
 	},
 ): Promise<void> {
-	const moduleInsert = await fx.pglite.query<{ id: string }>(
-		`INSERT INTO modules (scope, name, visibility, tier, description, created_at, updated_at)
+	const packInsert = await fx.pglite.query<{ id: string }>(
+		`INSERT INTO packs (scope, name, visibility, tier, description, created_at, updated_at)
 		 VALUES ($1, $2, $3, 'community-unverified', '', to_timestamp($4::bigint / 1000.0), to_timestamp($4::bigint / 1000.0))
 		 ON CONFLICT (scope, name) DO UPDATE SET updated_at = to_timestamp($4::bigint / 1000.0)
 		 RETURNING id`,
 		[args.scope, args.name, args.visibility ?? "public", args.insertedAtMs],
 	)
-	const moduleId = moduleInsert.rows[0]?.id
-	if (!moduleId) throw new Error(`failed to insert module ${args.scope}/${args.name}`)
+	const packId = packInsert.rows[0]?.id
+	if (!packId) throw new Error(`failed to insert pack ${args.scope}/${args.name}`)
 	await fx.pglite.query(
-		`INSERT INTO module_versions (module_id, version, commit_sha, content_hash, manifest, status, created_at, updated_at)
+		`INSERT INTO pack_versions (pack_id, version, commit_sha, content_hash, manifest, status, created_at, updated_at)
 		 VALUES ($1, $2, $3, $4, $5::jsonb, 'ready', to_timestamp($6::bigint / 1000.0), to_timestamp($6::bigint / 1000.0))`,
 		[
-			moduleId,
+			packId,
 			args.version,
 			"0".repeat(40),
 			"a".repeat(64),
@@ -150,7 +150,7 @@ async function insertReadyVersion(
 				description: "",
 				dependencies: [],
 				conflictsWith: [],
-				actions: [
+				recipes: [
 					{
 						id: "noop",
 						description: "noop",
@@ -160,7 +160,7 @@ async function insertReadyVersion(
 						validators: [],
 					},
 				],
-				moduleValidators: [],
+				packValidators: [],
 			}),
 			args.insertedAtMs,
 		],
@@ -176,13 +176,13 @@ describe("latest-version pointer follows semver order (VAL-PUB-013 / VAL-PUB-025
 		await fx.close()
 	})
 
-	it("a module with two ready versions surfaces the higher semver, regardless of insertion order", async () => {
+	it("a pack with two ready versions surfaces the higher semver, regardless of insertion order", async () => {
 		// Insert v1.9.0 FIRST, then v1.10.0 (insertion order matches
 		// semver order — this is the trivial case).
 		await insertReadyVersion(fx, { scope: "acme", name: "widget", version: "v1.9.0", insertedAtMs: 1_000 })
 		await insertReadyVersion(fx, { scope: "acme", name: "widget", version: "v1.10.0", insertedAtMs: 2_000 })
 
-		const res = await fx.app.request("/v1/modules/acme/widget")
+		const res = await fx.app.request("/v1/packs/acme/widget")
 		expect(res.status).toBe(200)
 		const body = (await res.json()) as {
 			versions: Array<{ version: string; status: string }>
@@ -197,7 +197,7 @@ describe("latest-version pointer follows semver order (VAL-PUB-013 / VAL-PUB-025
 		await insertReadyVersion(fx, { scope: "acme", name: "widget", version: "v1.10.0", insertedAtMs: 1_000 })
 		await insertReadyVersion(fx, { scope: "acme", name: "widget", version: "v1.9.0", insertedAtMs: 2_000 })
 
-		const detail = await fx.app.request("/v1/modules/acme/widget")
+		const detail = await fx.app.request("/v1/packs/acme/widget")
 		expect(detail.status).toBe(200)
 		const detailBody = (await detail.json()) as {
 			versions: Array<{ version: string; status: string }>
@@ -210,12 +210,12 @@ describe("latest-version pointer follows semver order (VAL-PUB-013 / VAL-PUB-025
 		await insertReadyVersion(fx, { scope: "acme", name: "widget", version: "v1.10.0", insertedAtMs: 1_000 })
 		await insertReadyVersion(fx, { scope: "acme", name: "widget", version: "v1.9.0", insertedAtMs: 2_000 })
 
-		const list = await fx.app.request("/v1/modules")
+		const list = await fx.app.request("/v1/packs")
 		expect(list.status).toBe(200)
 		const listBody = (await list.json()) as {
-			modules: Array<{ scope: string; name: string; latestVersion: string }>
+			packs: Array<{ scope: string; name: string; latestVersion: string }>
 		}
-		const widget = listBody.modules.find((m) => m.scope === "acme" && m.name === "widget")
+		const widget = listBody.packs.find((m) => m.scope === "acme" && m.name === "widget")
 		expect(widget).toBeDefined()
 		expect(widget?.latestVersion).toBe("v1.10.0")
 	})
@@ -226,12 +226,12 @@ describe("latest-version pointer follows semver order (VAL-PUB-013 / VAL-PUB-025
 		await insertReadyVersion(fx, { scope: "acme", name: "semver-major", version: "v1.99.99", insertedAtMs: 2_000 })
 		await insertReadyVersion(fx, { scope: "acme", name: "semver-major", version: "v2.0.0", insertedAtMs: 1_000 })
 
-		const list = await fx.app.request("/v1/modules")
+		const list = await fx.app.request("/v1/packs")
 		expect(list.status).toBe(200)
 		const listBody = (await list.json()) as {
-			modules: Array<{ name: string; latestVersion: string }>
+			packs: Array<{ name: string; latestVersion: string }>
 		}
-		const m = listBody.modules.find((mod) => mod.name === "semver-major")
+		const m = listBody.packs.find((mod) => mod.name === "semver-major")
 		expect(m?.latestVersion).toBe("v2.0.0")
 	})
 
@@ -244,30 +244,30 @@ describe("latest-version pointer follows semver order (VAL-PUB-013 / VAL-PUB-025
 			insertedAtMs: 1_000,
 		})
 
-		const list = await fx.app.request("/v1/modules")
+		const list = await fx.app.request("/v1/packs")
 		expect(list.status).toBe(200)
 		const listBody = (await list.json()) as {
-			modules: Array<{ name: string; latestVersion: string }>
+			packs: Array<{ name: string; latestVersion: string }>
 		}
-		const m = listBody.modules.find((mod) => mod.name === "prerelease")
+		const m = listBody.packs.find((mod) => mod.name === "prerelease")
 		expect(m?.latestVersion).toBe("v1.0.0")
 	})
 
 	it("failed versions never become the latest pointer (only `ready` versions count)", async () => {
-		const moduleInsert = await fx.pglite.query<{ id: string }>(
-			`INSERT INTO modules (scope, name, visibility, tier, description, created_at, updated_at)
+		const packInsert = await fx.pglite.query<{ id: string }>(
+			`INSERT INTO packs (scope, name, visibility, tier, description, created_at, updated_at)
 			 VALUES ('acme', 'mixed', 'public', 'community-unverified', '', to_timestamp(0), to_timestamp(0))
 			 RETURNING id`,
 		)
-		const moduleId = moduleInsert.rows[0]?.id ?? ""
+		const packId = packInsert.rows[0]?.id ?? ""
 		// A failed version inserted AFTER a ready version must NOT
 		// become the latest pointer. Insertion order does not count
 		// for non-ready versions.
 		await fx.pglite.query(
-			`INSERT INTO module_versions (module_id, version, commit_sha, content_hash, manifest, status, created_at, updated_at)
+			`INSERT INTO pack_versions (pack_id, version, commit_sha, content_hash, manifest, status, created_at, updated_at)
 			 VALUES ($1, 'v1.0.0', $2, $3, $4::jsonb, 'ready', to_timestamp(0), to_timestamp(0))`,
 			[
-				moduleId,
+				packId,
 				"0".repeat(40),
 				"a".repeat(64),
 				JSON.stringify({
@@ -276,7 +276,7 @@ describe("latest-version pointer follows semver order (VAL-PUB-013 / VAL-PUB-025
 					description: "",
 					dependencies: [],
 					conflictsWith: [],
-					actions: [
+					recipes: [
 						{
 							id: "noop",
 							description: "noop",
@@ -286,15 +286,15 @@ describe("latest-version pointer follows semver order (VAL-PUB-013 / VAL-PUB-025
 							validators: [],
 						},
 					],
-					moduleValidators: [],
+					packValidators: [],
 				}),
 			],
 		)
 		await fx.pglite.query(
-			`INSERT INTO module_versions (module_id, version, commit_sha, content_hash, manifest, status, created_at, updated_at)
+			`INSERT INTO pack_versions (pack_id, version, commit_sha, content_hash, manifest, status, created_at, updated_at)
 			 VALUES ($1, 'v9.9.9', $2, '', $3::jsonb, 'failed', to_timestamp(2000), to_timestamp(2000))`,
 			[
-				moduleId,
+				packId,
 				"0".repeat(40),
 				JSON.stringify({
 					name: "acme/mixed",
@@ -302,34 +302,34 @@ describe("latest-version pointer follows semver order (VAL-PUB-013 / VAL-PUB-025
 					description: "",
 					dependencies: [],
 					conflictsWith: [],
-					actions: [],
-					moduleValidators: [],
+					recipes: [],
+					packValidators: [],
 				}),
 			],
 		)
 
-		const list = await fx.app.request("/v1/modules")
+		const list = await fx.app.request("/v1/packs")
 		expect(list.status).toBe(200)
 		const listBody = (await list.json()) as {
-			modules: Array<{ name: string; latestVersion: string; latestStatus: string | null }>
+			packs: Array<{ name: string; latestVersion: string; latestStatus: string | null }>
 		}
-		const m = listBody.modules.find((mod) => mod.name === "mixed")
+		const m = listBody.packs.find((mod) => mod.name === "mixed")
 		expect(m?.latestVersion).toBe("v1.0.0")
 		expect(m?.latestStatus).toBe("ready")
 	})
 
-	it("catalog list and module detail agree on latestVersion (VAL-PUB-006)", async () => {
+	it("catalog list and pack detail agree on latestVersion (VAL-PUB-006)", async () => {
 		await insertReadyVersion(fx, { scope: "acme", name: "agree", version: "v1.9.0", insertedAtMs: 1_000 })
 		await insertReadyVersion(fx, { scope: "acme", name: "agree", version: "v1.10.0", insertedAtMs: 2_000 })
 
-		const list = await fx.app.request("/v1/modules")
+		const list = await fx.app.request("/v1/packs")
 		const listBody = (await list.json()) as {
-			modules: Array<{ scope: string; name: string; latestVersion: string }>
+			packs: Array<{ scope: string; name: string; latestVersion: string }>
 		}
-		const summary = listBody.modules.find((m) => m.scope === "acme" && m.name === "agree")
+		const summary = listBody.packs.find((m) => m.scope === "acme" && m.name === "agree")
 		expect(summary?.latestVersion).toBe("v1.10.0")
 
-		const detail = await fx.app.request("/v1/modules/acme/agree")
+		const detail = await fx.app.request("/v1/packs/acme/agree")
 		const detailBody = (await detail.json()) as {
 			scope: string
 			name: string
@@ -354,16 +354,16 @@ describe("catalog tier filter on the latest-pointer query (VAL-PUB-029)", () => 
 		await fx.close()
 	})
 
-	it("an unknown tier value returns 400 — never silently returns every module", async () => {
-		const res = await fx.app.request("/v1/modules?tier=bogus")
+	it("an unknown tier value returns 400 — never silently returns every pack", async () => {
+		const res = await fx.app.request("/v1/packs?tier=bogus")
 		expect(res.status).toBe(400)
 		const body = (await res.json()) as { error?: string }
 		expect(typeof body.error).toBe("string")
 		expect(body.error?.toLowerCase()).toContain("tier")
 	})
 
-	it("tier filter returns only modules at the requested tier", async () => {
-		// Insert one module at community-unverified and one at
+	it("tier filter returns only packs at the requested tier", async () => {
+		// Insert one pack at community-unverified and one at
 		// official tier — same publish flow but a different tier.
 		await insertReadyVersion(fx, {
 			scope: "acme",
@@ -371,28 +371,28 @@ describe("catalog tier filter on the latest-pointer query (VAL-PUB-029)", () => 
 			version: "v1.0.0",
 			insertedAtMs: 1_000,
 		})
-		await fx.pglite.query(`UPDATE modules SET tier = 'community-unverified' WHERE scope = 'acme' AND name = 'low-tier'`)
+		await fx.pglite.query(`UPDATE packs SET tier = 'community-unverified' WHERE scope = 'acme' AND name = 'low-tier'`)
 
 		const inserted = await fx.pglite.query<{ id: string }>(
-			`INSERT INTO modules (scope, name, visibility, tier, description)
-			 VALUES ('baka', 'official-mod', 'public', 'official', 'official module')
+			`INSERT INTO packs (scope, name, visibility, tier, description)
+			 VALUES ('baka', 'official-mod', 'public', 'official', 'official pack')
 			 RETURNING id`,
 		)
-		const moduleId = inserted.rows[0]?.id ?? ""
+		const packId = inserted.rows[0]?.id ?? ""
 		await fx.pglite.query(
-			`INSERT INTO module_versions (module_id, version, commit_sha, content_hash, manifest, status)
+			`INSERT INTO pack_versions (pack_id, version, commit_sha, content_hash, manifest, status)
 			 VALUES ($1, 'v0.1.0', $2, $3, $4::jsonb, 'ready')`,
 			[
-				moduleId,
+				packId,
 				"0".repeat(40),
 				"a".repeat(64),
 				JSON.stringify({
 					name: "official-mod",
 					version: "0.1.0",
-					description: "official module",
+					description: "official pack",
 					dependencies: [],
 					conflictsWith: [],
-					actions: [
+					recipes: [
 						{
 							id: "noop",
 							description: "noop",
@@ -402,26 +402,26 @@ describe("catalog tier filter on the latest-pointer query (VAL-PUB-029)", () => 
 							validators: [],
 						},
 					],
-					moduleValidators: [],
+					packValidators: [],
 				}),
 			],
 		)
 
-		const filtered = await fx.app.request("/v1/modules?tier=official")
+		const filtered = await fx.app.request("/v1/packs?tier=official")
 		expect(filtered.status).toBe(200)
 		const filteredBody = (await filtered.json()) as {
-			modules: Array<{ tier: string }>
+			packs: Array<{ tier: string }>
 		}
-		for (const mod of filteredBody.modules) {
+		for (const mod of filteredBody.packs) {
 			expect(mod.tier).toBe("official")
 		}
 
-		const unverifiedFiltered = await fx.app.request("/v1/modules?tier=community-unverified")
+		const unverifiedFiltered = await fx.app.request("/v1/packs?tier=community-unverified")
 		expect(unverifiedFiltered.status).toBe(200)
 		const unverifiedBody = (await unverifiedFiltered.json()) as {
-			modules: Array<{ name: string; tier: string }>
+			packs: Array<{ name: string; tier: string }>
 		}
-		expect(unverifiedBody.modules.some((m) => m.name === "low-tier")).toBe(true)
-		expect(unverifiedBody.modules.some((m) => m.name === "official-mod")).toBe(false)
+		expect(unverifiedBody.packs.some((m) => m.name === "low-tier")).toBe(true)
+		expect(unverifiedBody.packs.some((m) => m.name === "official-mod")).toBe(false)
 	})
 })

@@ -15,9 +15,9 @@ import { toast } from "@/components/ui/toast"
 import {
 	defaultParamValues,
 	ENGINE_URL,
-	type EngineModule,
+	type EnginePack,
 	type EnginePreview,
-	fetchModules,
+	fetchPacks,
 	fetchPreview,
 	fillSlot,
 	paramsFromFields,
@@ -32,23 +32,23 @@ function isBodyTab(value: unknown): value is BodyTab {
 
 export function LabApp() {
 	const [project, setProject] = useState("")
-	const [modules, setModules] = useState<EngineModule[]>([])
+	const [packs, setPacks] = useState<EnginePack[]>([])
 	const [engineError, setEngineError] = useState<string | null>(null)
-	const [selected, setSelected] = useState<{ module: string; action: string } | null>(null)
+	const [selected, setSelected] = useState<{ pack: string; recipe: string } | null>(null)
 	const [preview, setPreview] = useState<EnginePreview | null>(null)
 	const [fields, setFields] = useState<Record<string, string>>({})
 	const [slotFills, setSlotFills] = useState<Record<string, string>>({})
 	const [result, setResult] = useState<string>("")
 	const [bodyTab, setBodyTab] = useState<BodyTab>("write")
-	const [busy, setBusy] = useState<"modules" | "preview" | "run" | null>(null)
+	const [busy, setBusy] = useState<"packs" | "preview" | "run" | null>(null)
 
-	const selectedModule = useMemo(() => modules.find((m) => m.name === selected?.module) ?? null, [modules, selected])
+	const selectedPack = useMemo(() => packs.find((m) => m.name === selected?.pack) ?? null, [packs, selected])
 
-	const loadModules = useCallback(async () => {
-		setBusy("modules")
+	const loadPacks = useCallback(async () => {
+		setBusy("packs")
 		try {
-			const listed = await fetchModules(project)
-			setModules(listed)
+			const listed = await fetchPacks(project)
+			setPacks(listed)
 			setEngineError(null)
 			setSelected(null)
 			setPreview(null)
@@ -56,23 +56,23 @@ export function LabApp() {
 			setSlotFills({})
 			setResult("")
 			setBodyTab("write")
-			toast.add({ type: "success", title: listed.length ? `${listed.length} module(s)` : "No modules in this project" })
+			toast.add({ type: "success", title: listed.length ? `${listed.length} pack(s)` : "No packs in this project" })
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
 			setEngineError(message)
-			setModules([])
+			setPacks([])
 			toast.add({ type: "error", title: message })
 		} finally {
 			setBusy(null)
 		}
 	}, [project])
 
-	const openAction = useCallback(
-		async (moduleName: string, actionId: string) => {
-			setSelected({ module: moduleName, action: actionId })
+	const openRecipe = useCallback(
+		async (packName: string, recipeId: string) => {
+			setSelected({ pack: packName, recipe: recipeId })
 			setBusy("preview")
 			try {
-				const next = await fetchPreview(project, moduleName, actionId)
+				const next = await fetchPreview(project, packName, recipeId)
 				setPreview(next)
 				setFields(defaultParamValues(next.params ?? []))
 				setSlotFills(Object.fromEntries((next.slots ?? []).map((s) => [s.id, ""])))
@@ -102,10 +102,10 @@ export function LabApp() {
 			for (const slot of preview.slots ?? []) {
 				const value = (slotFills[slot.id] ?? "").trim()
 				if (value) {
-					await fillSlot(project, selected.module, selected.action, slot.id, value, params)
+					await fillSlot(project, selected.pack, selected.recipe, slot.id, value, params)
 				}
 			}
-			const body = await runNamed(project, selected.module, selected.action, params)
+			const body = await runNamed(project, selected.pack, selected.recipe, params)
 			if (!body.ok) {
 				throw new Error(body.error ?? body.diagnostics?.[0]?.message ?? "run failed")
 			}
@@ -134,7 +134,7 @@ export function LabApp() {
 				<div className="flex flex-col gap-1">
 					<h1 className="font-heading text-lg font-medium tracking-tight">baka</h1>
 					<p className="text-muted-foreground text-sm">
-						Pick a project, pick an installed module, fill its fields, see the templates, write the files.
+						Pick a project, pick an installed pack, fill its fields, see the templates, write the files.
 					</p>
 				</div>
 				<div className="flex min-w-0 flex-1 flex-col gap-2 lg:max-w-xl">
@@ -149,13 +149,13 @@ export function LabApp() {
 					</Field>
 					<div className="flex items-center gap-2">
 						<Badge variant={engineError ? "destructive" : "secondary"}>{ENGINE_URL}</Badge>
-						<Button onClick={() => void loadModules()} disabled={busy !== null}>
-							{busy === "modules" ? (
+						<Button onClick={() => void loadPacks()} disabled={busy !== null}>
+							{busy === "packs" ? (
 								<Loader2Icon data-icon="inline-start" className="animate-spin" />
 							) : (
 								<FolderIcon data-icon="inline-start" />
 							)}
-							Load modules
+							Load packs
 						</Button>
 					</div>
 				</div>
@@ -165,14 +165,14 @@ export function LabApp() {
 				<aside className="flex min-h-0 max-h-[40vh] flex-col lg:max-h-none">
 					<Card size="sm" className="flex h-full min-h-0 flex-col">
 						<CardHeader className="shrink-0 border-b">
-							<CardTitle>Installed modules</CardTitle>
+							<CardTitle>Installed packs</CardTitle>
 							<CardDescription>
-								Whatever this project has in modules/, .baka/modules, or your user marketplace.
+								Whatever this project has in packs/, .baka/packs, or your user marketplace.
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="min-h-0 flex-1 overflow-hidden">
 							<ScrollArea className="h-full">
-								{modules.length === 0 ? (
+								{packs.length === 0 ? (
 									<Empty className="border py-8">
 										<EmptyHeader>
 											<EmptyTitle>None loaded</EmptyTitle>
@@ -184,22 +184,22 @@ export function LabApp() {
 									</Empty>
 								) : (
 									<div className="flex flex-col gap-4 pr-3 pb-1">
-										{modules.map((mod) => (
+										{packs.map((mod) => (
 											<div key={mod.name} className="flex flex-col gap-2">
 												<div>
 													<p className="font-medium">{mod.name}</p>
 													<p className="text-muted-foreground text-sm">{mod.description ?? "No description."}</p>
 												</div>
 												<div className="flex flex-col gap-1">
-													{mod.actions.map((act) => (
+													{mod.recipes.map((act) => (
 														<Button
 															key={act.id}
 															size="sm"
 															variant={
-																selected?.module === mod.name && selected.action === act.id ? "default" : "outline"
+																selected?.pack === mod.name && selected.recipe === act.id ? "default" : "outline"
 															}
 															className="h-auto justify-start whitespace-normal py-2 text-left"
-															onClick={() => void openAction(mod.name, act.id)}
+															onClick={() => void openRecipe(mod.name, act.id)}
 														>
 															<span className="flex flex-col gap-0.5">
 																<span>{act.id}</span>
@@ -223,9 +223,9 @@ export function LabApp() {
 					<Card size="sm" className="flex h-full min-h-0 flex-col">
 						<CardHeader className="shrink-0 border-b">
 							<CardTitle>
-								{selected.module} / {selected.action}
+								{selected.pack} / {selected.recipe}
 							</CardTitle>
-							<CardDescription>{preview.description ?? selectedModule?.description}</CardDescription>
+							<CardDescription>{preview.description ?? selectedPack?.description}</CardDescription>
 						</CardHeader>
 						<CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden">
 							<Tabs
@@ -281,7 +281,7 @@ export function LabApp() {
 														/>
 														<FieldDescription>
 															{slot.kind}
-															{slot.file ? ` in ${slot.file}` : ""}. Empty uses gemma on the engine if the action needs
+															{slot.file ? ` in ${slot.file}` : ""}. Empty uses gemma on the engine if the recipe needs
 															it.
 														</FieldDescription>
 													</Field>
@@ -300,7 +300,7 @@ export function LabApp() {
 								</TabsContent>
 								<TabsContent value="templates" className="min-h-0 overflow-hidden">
 									{preview.files.length === 0 ? (
-										<p className="text-muted-foreground">This action has no templates (side-effect only).</p>
+										<p className="text-muted-foreground">This recipe has no templates (side-effect only).</p>
 									) : (
 										<ScrollArea className="h-full">
 											<div className="flex flex-col gap-4 pr-3 pb-1">
@@ -334,9 +334,9 @@ export function LabApp() {
 				) : (
 					<Empty className="h-full border py-16">
 						<EmptyHeader>
-							<EmptyTitle>Select an action</EmptyTitle>
+							<EmptyTitle>Select a recipe</EmptyTitle>
 							<EmptyDescription>
-								The form and documents come from that module. Switching actions replaces the fields.
+								The form and documents come from that pack. Switching recipes replaces the fields.
 							</EmptyDescription>
 						</EmptyHeader>
 					</Empty>

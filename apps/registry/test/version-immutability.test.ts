@@ -27,10 +27,10 @@ import { buildIngestTestStack, type IngestTestStack } from "./ingest-worker-fixt
  *      accept the 202 re-ingest path.
  *
  *   3. VAL-PUB-004 (served manifest defaults): the manifest served
- *      at `GET /v1/modules/:scope/:name/:version` round-trips
- *      through `ModuleManifestSchema` — every action's
+ *      at `GET /v1/packs/:scope/:name/:version` round-trips
+ *      through `PackManifestSchema` — every recipe's
  *      `filePatterns` (and other defaulted fields like `validators`,
- *      `dependencies`, `conflictsWith`, `moduleValidators`) is
+ *      `dependencies`, `conflictsWith`, `packValidators`) is
  *      present in the served JSON, even when the source declared
  *      an empty array. The fix lives at the read surface (the
  *      catalog route applies schema defaults before stripping
@@ -142,7 +142,7 @@ describe("version immutability + re-publish semantics + served manifest defaults
 			// content_hash, AND artifact blob are UNTOUCHED. The
 			// pinned download still serves the ORIGINAL bytes.
 			const row = await fx.pglite.query<{ commit_sha: string; content_hash: string; status: string }>(
-				`SELECT commit_sha, content_hash, status FROM module_versions WHERE id = $1`,
+				`SELECT commit_sha, content_hash, status FROM pack_versions WHERE id = $1`,
 				[firstBody.versionId],
 			)
 			expect(row.rows[0]?.commit_sha).toBe(originalCommitSha)
@@ -169,7 +169,7 @@ describe("version immutability + re-publish semantics + served manifest defaults
 			expect(downloadAfterBytes).toEqual(originalBytes)
 		})
 
-		it("the immutability 409 does NOT create a new module_versions row", async () => {
+		it("the immutability 409 does NOT create a new pack_versions row", async () => {
 			await git.commitManifest({
 				name: "@acme/widget",
 				version: "1.0.0",
@@ -197,7 +197,7 @@ describe("version immutability + re-publish semantics + served manifest defaults
 			})
 
 			const beforeCount = await fx.pglite.query<{ count: string }>(
-				`SELECT COUNT(*)::text AS count FROM module_versions WHERE module_id = (SELECT id FROM modules WHERE scope='acme' AND name='widget')`,
+				`SELECT COUNT(*)::text AS count FROM pack_versions WHERE pack_id = (SELECT id FROM packs WHERE scope='acme' AND name='widget')`,
 			)
 			await fx.app.request("/v1/publish", {
 				method: "POST",
@@ -205,7 +205,7 @@ describe("version immutability + re-publish semantics + served manifest defaults
 				body: JSON.stringify({ repo: git.bareUrl, tag: "v1.0.0", org: "acme" }),
 			})
 			const afterCount = await fx.pglite.query<{ count: string }>(
-				`SELECT COUNT(*)::text AS count FROM module_versions WHERE module_id = (SELECT id FROM modules WHERE scope='acme' AND name='widget')`,
+				`SELECT COUNT(*)::text AS count FROM pack_versions WHERE pack_id = (SELECT id FROM packs WHERE scope='acme' AND name='widget')`,
 			)
 			expect(Number.parseInt(afterCount.rows[0]?.count ?? "0", 10)).toBe(
 				Number.parseInt(beforeCount.rows[0]?.count ?? "0", 10),
@@ -267,9 +267,7 @@ describe("version immutability + re-publish semantics + served manifest defaults
 				commit_sha: string
 				content_hash: string
 				updated_at: Date
-			}>(`SELECT status, commit_sha, content_hash, updated_at FROM module_versions WHERE id = $1`, [
-				firstBody.versionId,
-			])
+			}>(`SELECT status, commit_sha, content_hash, updated_at FROM pack_versions WHERE id = $1`, [firstBody.versionId])
 			expect(row.rows[0]?.status).toBe("ready")
 			expect(row.rows[0]?.commit_sha).toBe(firstTerminal.commitSha)
 			expect(row.rows[0]?.content_hash).toBe(firstTerminal.contentHash)
@@ -304,7 +302,7 @@ describe("version immutability + re-publish semantics + served manifest defaults
 			// Simulate an operator-driven failure: set the row to
 			// `failed` with a diagnostic. The re-publish MUST accept
 			// this (202) and the worker MUST re-ingest to ready.
-			await fx.pglite.query(`UPDATE module_versions SET status = 'failed', error = 'simulated' WHERE id = $1`, [
+			await fx.pglite.query(`UPDATE pack_versions SET status = 'failed', error = 'simulated' WHERE id = $1`, [
 				versionId,
 			])
 
@@ -329,16 +327,16 @@ describe("version immutability + re-publish semantics + served manifest defaults
 	// -------------------------------------------------------------------------
 
 	describe("VAL-PUB-004: served manifest carries default fields (filePatterns:[] preserved)", () => {
-		it("the served manifest includes filePatterns:[] on actions whose source filePatterns is empty", async () => {
-			// Publish a module with one action that declares
+		it("the served manifest includes filePatterns:[] on recipes whose source filePatterns is empty", async () => {
+			// Publish a pack with one recipe that declares
 			// `filePatterns: []` (the canonical empty-array case) and
-			// one action that declares a non-empty filePatterns.
+			// one recipe that declares a non-empty filePatterns.
 			await git.commitManifest({
 				name: "@acme/widget",
 				version: "1.0.0",
 				tag: "v1.0.0",
-				actions: [
-					{ id: "noop", description: "no-op action", filePatterns: [], requiresReasoning: false },
+				recipes: [
+					{ id: "noop", description: "no-op recipe", filePatterns: [], requiresReasoning: false },
 					{
 						id: "scaffold-lite",
 						description: "scaffold lite",
@@ -355,7 +353,7 @@ describe("version immutability + re-publish semantics + served manifest defaults
 			const { versionId } = (await res.json()) as { versionId: string }
 			await fx.waitForTerminal(versionId)
 
-			const detail = await fx.app.request("/v1/modules/acme/widget/v1.0.0", {
+			const detail = await fx.app.request("/v1/packs/acme/widget/v1.0.0", {
 				headers: { "x-api-key": fx.keys.owner },
 			})
 			expect(detail.status).toBe(200)
@@ -366,8 +364,8 @@ describe("version immutability + re-publish semantics + served manifest defaults
 					description: string
 					dependencies?: string[]
 					conflictsWith?: string[]
-					moduleValidators?: string[]
-					actions: Array<{
+					packValidators?: string[]
+					recipes: Array<{
 						id: string
 						description: string
 						filePatterns?: string[]
@@ -378,7 +376,7 @@ describe("version immutability + re-publish semantics + served manifest defaults
 				}
 			}
 
-			// The manifest round-trips through ModuleManifestSchema.
+			// The manifest round-trips through PackManifestSchema.
 			// Every defaulted field is present in the served JSON.
 			expect(body.manifest.name).toBe("@acme/widget")
 			expect(body.manifest.version).toBe("1.0.0")
@@ -386,10 +384,10 @@ describe("version immutability + re-publish semantics + served manifest defaults
 			expect(body.manifest.dependencies).toEqual([])
 			expect(Array.isArray(body.manifest.conflictsWith)).toBe(true)
 			expect(body.manifest.conflictsWith).toEqual([])
-			expect(Array.isArray(body.manifest.moduleValidators)).toBe(true)
-			expect(body.manifest.moduleValidators).toEqual([])
+			expect(Array.isArray(body.manifest.packValidators)).toBe(true)
+			expect(body.manifest.packValidators).toEqual([])
 
-			const noop = body.manifest.actions.find((a) => a.id === "noop")
+			const noop = body.manifest.recipes.find((a) => a.id === "noop")
 			expect(noop).toBeDefined()
 			expect(Array.isArray(noop?.filePatterns)).toBe(true)
 			expect(noop?.filePatterns).toEqual([])
@@ -397,22 +395,22 @@ describe("version immutability + re-publish semantics + served manifest defaults
 			expect(noop?.validators).toEqual([])
 			expect(Array.isArray(noop?.params)).toBe(true)
 
-			const scaffold = body.manifest.actions.find((a) => a.id === "scaffold-lite")
+			const scaffold = body.manifest.recipes.find((a) => a.id === "scaffold-lite")
 			expect(scaffold).toBeDefined()
 			expect(scaffold?.filePatterns).toEqual(["src/index.txt"])
 			expect(scaffold?.validators).toEqual([])
 		})
 
-		it("the served manifest re-parses cleanly through ModuleManifestSchema (round-trip)", async () => {
+		it("the served manifest re-parses cleanly through PackManifestSchema (round-trip)", async () => {
 			// Import the schema dynamically to avoid a hard
 			// workspace dependency from the test runner.
-			const { ModuleManifestSchema } = await import("@repo/protocol")
+			const { PackManifestSchema } = await import("@repo/protocol")
 
 			await git.commitManifest({
 				name: "@acme/widget",
 				version: "1.0.0",
 				tag: "v1.0.0",
-				actions: [{ id: "noop", description: "no-op action", filePatterns: [], requiresReasoning: false }],
+				recipes: [{ id: "noop", description: "no-op recipe", filePatterns: [], requiresReasoning: false }],
 			})
 			const res = await fx.app.request("/v1/publish", {
 				method: "POST",
@@ -422,11 +420,11 @@ describe("version immutability + re-publish semantics + served manifest defaults
 			const { versionId } = (await res.json()) as { versionId: string }
 			await fx.waitForTerminal(versionId)
 
-			const detail = await fx.app.request("/v1/modules/acme/widget/v1.0.0", {
+			const detail = await fx.app.request("/v1/packs/acme/widget/v1.0.0", {
 				headers: { "x-api-key": fx.keys.owner },
 			})
 			const body = (await detail.json()) as { manifest: unknown }
-			const parsed = ModuleManifestSchema.safeParse(body.manifest)
+			const parsed = PackManifestSchema.safeParse(body.manifest)
 			expect(parsed.success).toBe(true)
 		})
 	})

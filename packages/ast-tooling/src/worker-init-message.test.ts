@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Pinned test for the `baka init` hint the Worker emits when a
-// `requiresReasoning: true` action is invoked without an injected LLM
+// `requiresReasoning: true` recipe is invoked without an injected LLM
 // provider.
 //
 // The role-keyed config refactor replaces the legacy
@@ -30,43 +30,43 @@ afterEach(() => {
 })
 
 /**
- * Build a tiny project tree with one `requiresReasoning: true` action and
+ * Build a tiny project tree with one `requiresReasoning: true` recipe and
  * one handlebars template so `fillReasoningTemplates` is guaranteed to
  * enter the null-provider branch (not the "no templates" early return).
  */
-function makeRequiresReasoningProject(): { root: string; moduleName: string; actionId: string } {
+function makeRequiresReasoningProject(): { root: string; packName: string; recipeId: string } {
 	const root = mkdtempSync(join(tmpdir(), "baka-worker-init-message-"))
 	cleanup.push(root)
-	const moduleName = "init-hint-mod"
-	const actionId = "render-thing"
-	const moduleRoot = join(root, "modules", moduleName)
-	const actionDir = join(moduleRoot, actionId)
-	const templatesDir = join(actionDir, "templates")
+	const packName = "init-hint-mod"
+	const recipeId = "render-thing"
+	const packRoot = join(root, "packs", packName)
+	const recipeDir = join(packRoot, recipeId)
+	const templatesDir = join(recipeDir, "templates")
 	mkdirSync(templatesDir, { recursive: true })
 
 	writeFileSync(
-		join(moduleRoot, "manifest.ts"),
-		`import type { ModuleManifest } from "@repo/protocol"
-export const Manifest: ModuleManifest = {
-  name: "${moduleName}", version: "0.1.0", description: "fake", dependencies: [], conflictsWith: [],
-  actions: [{
-    id: "${actionId}",
+		join(packRoot, "manifest.ts"),
+		`import type { PackManifest } from "@repo/protocol"
+export const Manifest: PackManifest = {
+  name: "${packName}", version: "0.1.0", description: "fake", dependencies: [], conflictsWith: [],
+  recipes: [{
+    id: "${recipeId}",
     description: "renders a thing",
     params: [],
     requiresReasoning: true,
     filePatterns: [],
     validators: [],
   }],
-  moduleValidators: [],
+  packValidators: [],
 }
 `,
 	)
 	writeFileSync(join(templatesDir, "thing.md.hbs"), '{{#slot "body" kind="prose"}}one sentence{{/slot}}\n')
 
 	writeFileSync(
-		join(actionDir, "action.ts"),
+		join(recipeDir, "recipe.ts"),
 		`import { AgentRole, type StepResponse, type WorkflowStep } from "@repo/protocol"
-export const renderThingAction: WorkflowStep<unknown, boolean, unknown> = {
+export const renderThingRecipe: WorkflowStep<unknown, boolean, unknown> = {
   name: "render-thing",
   role: AgentRole.WORKER,
   execute: async (): Promise<StepResponse<boolean, unknown>> => ({
@@ -78,7 +78,7 @@ export const renderThingAction: WorkflowStep<unknown, boolean, unknown> = {
 }
 `,
 	)
-	return { root, moduleName, actionId }
+	return { root, packName, recipeId }
 }
 
 function makeState(targetDirectory: string): OrchestrationState {
@@ -94,10 +94,10 @@ function makeState(targetDirectory: string): OrchestrationState {
 
 describe("Worker error message — `baka init` hint when no LLM is injected", () => {
 	it("emits the `baka init` hint (not the legacy `baka providers use <name>` text) when llmProvider is null", async () => {
-		const { root, moduleName, actionId } = makeRequiresReasoningProject()
+		const { root, packName, recipeId } = makeRequiresReasoningProject()
 
 		const result = await executeWorkerStep.execute(
-			{ moduleName, actionName: actionId, parameters: {} },
+			{ packName, recipeName: recipeId, parameters: {} },
 			makeState(root),
 			{ llmProvider: null },
 		)

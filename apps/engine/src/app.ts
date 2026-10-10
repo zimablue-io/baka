@@ -5,18 +5,18 @@ import { createLLMProvider, loadLLMConfig, validateLLMConfig } from "@repo/agent
 import {
 	canonicalJson,
 	createDiskSlotStore,
-	describeModules,
+	describePacks,
 	hashBytes,
-	listActionSlots,
-	ModuleDirsError,
-	ModuleNotFoundError,
-	ModuleRegistry,
-	moduleDirsFromSettings,
-	parseActionTemplates,
-	previewAction,
+	listRecipeSlots,
+	PackDirsError,
+	PackNotFoundError,
+	PackRegistry,
+	packDirsFromSettings,
+	parseRecipeTemplates,
+	previewRecipe,
 	readLockfile,
-	resolveAction,
-	runAction,
+	resolveRecipe,
+	runRecipe,
 	slotCacheKey,
 	validateProject,
 	writeSlotCache,
@@ -57,19 +57,19 @@ export interface EngineAppOptions {
 	 */
 	allowedRoots?: readonly string[]
 	/**
-	 * Directories modules are drawn from, highest precedence first (relative
+	 * Directories packs are drawn from, highest precedence first (relative
 	 * paths resolve against the project). When set, ONLY these are searched:
-	 * the project's `modules/`, `.baka/modules`, and the user marketplace are
+	 * the project's `packs/`, `.baka/packs`, and the user marketplace are
 	 * not, so a catalog elsewhere can serve any project without symlinks and
 	 * without being written to. Unset: each project's `.baka/settings.json`
-	 * `moduleDirs`, else the default discovery.
+	 * `packDirs`, else the default discovery.
 	 */
-	moduleDirs?: readonly string[]
+	packDirs?: readonly string[]
 }
 
 const RunBodySchema = z.object({
-	module: z.string().min(1),
-	action: z.string().min(1),
+	pack: z.string().min(1),
+	recipe: z.string().min(1),
 	params: z.record(z.unknown()).default({}),
 	dryRun: z.boolean().optional(),
 	slots: SlotsInputSchema.optional(),
@@ -81,8 +81,8 @@ const RunBodySchema = z.object({
 })
 
 const FillBodySchema = z.object({
-	module: z.string().min(1),
-	action: z.string().min(1),
+	pack: z.string().min(1),
+	recipe: z.string().min(1),
 	slot: z.string().min(1),
 	value: z.unknown(),
 	params: z.record(z.unknown()).default({}),
@@ -90,7 +90,7 @@ const FillBodySchema = z.object({
 })
 
 const ValidateBodySchema = z.object({
-	module: z.string().optional(),
+	pack: z.string().optional(),
 	project: z.string().optional(),
 })
 
@@ -136,10 +136,10 @@ function resolveProject(defaultCwd: string, raw: string | undefined, allowedRoot
 	return real
 }
 
-/** The JSON error response for a thrown error: a refused request keeps its own status, a bad module-directory setting is 400, anything else gets `fallback`. */
+/** The JSON error response for a thrown error: a refused request keeps its own status, a bad pack-directory setting is 400, anything else gets `fallback`. */
 function failure(c: Context, err: unknown, fallback: 400 | 404): Response {
 	if (err instanceof RequestError) return c.json({ error: err.message }, err.status)
-	if (err instanceof ModuleDirsError) return c.json({ error: err.message }, 400)
+	if (err instanceof PackDirsError) return c.json({ error: err.message }, 400)
 	return c.json({ error: err instanceof Error ? err.message : String(err) }, fallback)
 }
 
@@ -175,12 +175,12 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 	const allowedRoots = (opts.allowedRoots ?? []).map((root) => realpathSync(root))
 	const projectOf = (raw: string | undefined): string => resolveProject(cwd, raw, allowedRoots)
 	// Directories the engine was started with decide for every project; without them each project's own
-	// `.baka/settings.json` `moduleDirs` does, and without those the default discovery.
-	const registryOf = (project: string): ModuleRegistry =>
-		new ModuleRegistry(project, { moduleDirs: opts.moduleDirs ?? moduleDirsFromSettings(project) })
+	// `.baka/settings.json` `packDirs` does, and without those the default discovery.
+	const registryOf = (project: string): PackRegistry =>
+		new PackRegistry(project, { packDirs: opts.packDirs ?? packDirsFromSettings(project) })
 
 	app.onError((err, c) => {
-		if (err instanceof ModuleDirsError) return c.json({ error: err.message }, 400)
+		if (err instanceof PackDirsError) return c.json({ error: err.message }, 400)
 		console.error(err)
 		return c.text("Internal Server Error", 500)
 	})
@@ -203,25 +203,25 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 		})
 	}
 
-	app.get("/v1/modules", (c) => {
+	app.get("/v1/packs", (c) => {
 		let project: string
 		try {
 			project = projectOf(c.req.query("project"))
 		} catch (err) {
 			return failure(c, err, 400)
 		}
-		return c.json(describeModules(registryOf(project)))
+		return c.json(describePacks(registryOf(project)))
 	})
 
 	app.get("/v1/slots", (c) => {
-		const moduleName = c.req.query("module")
-		const actionId = c.req.query("action")
-		if (!moduleName || !actionId) {
-			return c.json({ error: "module and action query params are required" }, 400)
+		const packName = c.req.query("pack")
+		const recipeId = c.req.query("recipe")
+		if (!packName || !recipeId) {
+			return c.json({ error: "pack and recipe query params are required" }, 400)
 		}
 		try {
 			const project = projectOf(c.req.query("project"))
-			const listed = listActionSlots(registryOf(project), moduleName, actionId)
+			const listed = listRecipeSlots(registryOf(project), packName, recipeId)
 			return c.json(listed)
 		} catch (err) {
 			return failure(c, err, 404)
@@ -229,14 +229,14 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 	})
 
 	app.get("/v1/preview", (c) => {
-		const moduleName = c.req.query("module")
-		const actionId = c.req.query("action")
-		if (!moduleName || !actionId) {
-			return c.json({ error: "module and action query params are required" }, 400)
+		const packName = c.req.query("pack")
+		const recipeId = c.req.query("recipe")
+		if (!packName || !recipeId) {
+			return c.json({ error: "pack and recipe query params are required" }, 400)
 		}
 		try {
 			const project = projectOf(c.req.query("project"))
-			return c.json(previewAction(registryOf(project), moduleName, actionId))
+			return c.json(previewRecipe(registryOf(project), packName, recipeId))
 		} catch (err) {
 			return failure(c, err, 404)
 		}
@@ -267,12 +267,12 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 			return failure(c, err, 400)
 		}
 		const { provider, model } = await resolveWorker(project)
-		const result = await runAction({
+		const result = await runRecipe({
 			registry: registryOf(project),
 			lock: lock ?? undefined,
 			store: createDiskSlotStore(project, { userFallback: true }),
-			module: parsed.data.module,
-			action: parsed.data.action,
+			pack: parsed.data.pack,
+			recipe: parsed.data.recipe,
 			params: parsed.data.params,
 			provider,
 			model,
@@ -300,24 +300,24 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 		}
 		try {
 			const project = projectOf(parsed.data.project)
-			const { moduleRoot, action } = resolveAction(registryOf(project), parsed.data.module, parsed.data.action)
-			const templatesDir = join(moduleRoot, action.id, "templates")
+			const { packRoot, recipe } = resolveRecipe(registryOf(project), parsed.data.pack, parsed.data.recipe)
+			const templatesDir = join(packRoot, recipe.id, "templates")
 			if (!existsSync(templatesDir)) {
-				return c.json({ error: `action "${action.id}" has no templates/` }, 400)
+				return c.json({ error: `recipe "${recipe.id}" has no templates/` }, 400)
 			}
 			// A run keys its slot cache by the params after defaults and coercion, so a fill must too.
-			const normalized = normalizeParams(action.params, parsed.data.params)
+			const normalized = normalizeParams(recipe.params, parsed.data.params)
 			if (!normalized.ok) {
 				return c.json(
 					{
-						error: `params for ${parsed.data.module}/${parsed.data.action}: ${normalized.message}`,
+						error: `params for ${parsed.data.pack}/${parsed.data.recipe}: ${normalized.message}`,
 						code: "invalid-params",
 					},
 					400,
 				)
 			}
 			const paramsHash = hashBytes(canonicalJson(normalized.params))
-			const { files, slots } = parseActionTemplates(templatesDir)
+			const { files, slots } = parseRecipeTemplates(templatesDir)
 			const slot = slots.find((s) => s.id === parsed.data.slot)
 			if (!slot) {
 				return c.json({ error: `slot "${parsed.data.slot}" not found` }, 404)
@@ -367,9 +367,9 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 			return failure(c, err, 400)
 		}
 		try {
-			return c.json(await validateProject(registryOf(project), body.module))
+			return c.json(await validateProject(registryOf(project), body.pack))
 		} catch (err) {
-			if (err instanceof ModuleNotFoundError) {
+			if (err instanceof PackNotFoundError) {
 				return c.json({ error: err.message, code: BAKA_EXIT_CODE.USER_ERROR }, 400)
 			}
 			throw err
@@ -391,9 +391,9 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 export async function engineRequest(
 	cwd: string,
 	path: string,
-	init?: { method?: string; body?: unknown; moduleDirs?: readonly string[] },
+	init?: { method?: string; body?: unknown; packDirs?: readonly string[] },
 ): Promise<{ status: number; json: unknown }> {
-	const app = createEngineApp({ cwd, moduleDirs: init?.moduleDirs })
+	const app = createEngineApp({ cwd, packDirs: init?.packDirs })
 	const res = await app.request(path, {
 		method: init?.method ?? "GET",
 		headers: init?.body !== undefined ? { "content-type": "application/json" } : undefined,

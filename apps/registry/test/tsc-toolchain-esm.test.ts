@@ -15,7 +15,7 @@ import { createGitFixture, type GitFixture } from "./git-fixture"
  * typescript entry via a bare `require.resolve("typescript/bin/tsc")`.
  * The package is `"type": "module"` and the registry dev server runs
  * under `tsx` ESM, where `require` is undefined — so any
- * `toolchain: 'tsc'` action crashed layer 3 with `require is not
+ * `toolchain: 'tsc'` recipe crashed layer 3 with `require is not
  * defined` and the version terminated `failed` with the entire
  * `screening` key null. The vitest suite passed because vitest
  * injects a require shim into ESM modules, masking the production
@@ -29,7 +29,7 @@ import { createGitFixture, type GitFixture } from "./git-fixture"
  *
  * This test pins the regression by booting the full registry stack
  * (`seed-publishing-server.ts`) as a CHILD PROCESS under plain tsx,
- * then publishing a `toolchain: 'tsc'` module through the live
+ * then publishing a `toolchain: 'tsc'` pack through the live
  * HTTP API and asserting the screening verdict reaches
  * `screened`. Vitest's require shim is irrelevant here: the
  * subprocess has no vitest in its ancestry and loads
@@ -183,7 +183,7 @@ interface VersionDetail {
 		outputValidation?: {
 			ok?: boolean
 			step?: string
-			toolchains?: Array<{ actionId: string; toolchain: string; exitCode: number }>
+			toolchains?: Array<{ recipeId: string; toolchain: string; exitCode: number }>
 		} | null
 	} | null
 }
@@ -199,7 +199,7 @@ async function fetchVersionDetail(
 	name: string,
 	version: string,
 ): Promise<VersionDetail> {
-	const res = await fetch(`${baseUrl}/v1/modules/${scope}/${name}/${version}`, {
+	const res = await fetch(`${baseUrl}/v1/packs/${scope}/${name}/${version}`, {
 		headers: { "x-api-key": ownerKey },
 	})
 	if (!res.ok) {
@@ -228,11 +228,11 @@ async function waitForTerminal(
 	)
 }
 
-// Action body — uses writeFileSync with JSON-stringified config so
+// Recipe body — uses writeFileSync with JSON-stringified config so
 // the actual writeFileSync call gets a string. Mirrors the existing
 // `output-validation.test.ts` tsc fixtures so the loader resolves
 // the same export shape (`default` = WorkflowStep with execute +
-// compensate functions). The action writes `src/index.ts` and
+// compensate functions). The recipe writes `src/index.ts` and
 // `tsconfig.json` to the sandbox; layer 3 then runs tsc --noEmit
 // against them.
 const TSC_CLEAN_BODY = `import { writeFileSync, mkdirSync } from "node:fs"
@@ -293,13 +293,13 @@ describe("tsc toolchain ESM regression (VAL-SCAN-017)", () => {
 		if (server?.dataDir) rmSync(server.dataDir, { recursive: true, force: true })
 	})
 
-	it("a toolchain:'tsc' action screens to `screened` under plain tsx (no vitest require shim)", async () => {
+	it("a toolchain:'tsc' recipe screens to `screened` under plain tsx (no vitest require shim)", async () => {
 		await fixture.commitManifest({
 			name: "@acme/widget-tsc-subprocess",
 			version: "1.0.0",
 			tag: "v1.0.0",
-			modulePath: "m",
-			actions: [
+			packPath: "m",
+			recipes: [
 				{
 					id: "gen-ts",
 					description: "writes a clean index.ts",
@@ -322,7 +322,7 @@ describe("tsc toolchain ESM regression (VAL-SCAN-017)", () => {
 				tag: "v1.0.0",
 				org: "acme",
 				visibility: "public",
-				modulePath: "m",
+				packPath: "m",
 			}),
 		})
 		expect(publishRes.status).toBeGreaterThanOrEqual(200)
@@ -352,7 +352,7 @@ describe("tsc toolchain ESM regression (VAL-SCAN-017)", () => {
 		expect(toolchains.length).toBeGreaterThan(0)
 		expect(toolchains[0]?.toolchain).toBe("tsc")
 		expect(toolchains[0]?.exitCode).toBe(0)
-		expect(toolchains[0]?.actionId).toBe("gen-ts")
+		expect(toolchains[0]?.recipeId).toBe("gen-ts")
 
 		// Defensive: the bug's signature was `require is not defined`
 		// on the version-level error AND a null screening key. Assert
@@ -364,7 +364,7 @@ describe("tsc toolchain ESM regression (VAL-SCAN-017)", () => {
 		expect(serialized).not.toMatch(/require is not defined/i)
 	}, 120_000)
 
-	it("a toolchain:'tsc' action whose output fails tsc terminates failed with outputValidation naming the toolchain step", async () => {
+	it("a toolchain:'tsc' recipe whose output fails tsc terminates failed with outputValidation naming the toolchain step", async () => {
 		// Companion to the control test above: layer 3 must surface
 		// the tsc failure honestly (verdict `failed`,
 		// outputValidation.step=`toolchain`, exitCode non-zero,
@@ -375,8 +375,8 @@ describe("tsc toolchain ESM regression (VAL-SCAN-017)", () => {
 			name: "@acme/widget-tscfail-subprocess",
 			version: "1.1.0",
 			tag: "v1.1.0",
-			modulePath: "m",
-			actions: [
+			packPath: "m",
+			recipes: [
 				{
 					id: "gen-ts",
 					description: "writes a broken index.ts",
@@ -399,7 +399,7 @@ describe("tsc toolchain ESM regression (VAL-SCAN-017)", () => {
 				tag: "v1.1.0",
 				org: "acme",
 				visibility: "public",
-				modulePath: "m",
+				packPath: "m",
 			}),
 		})
 		expect(publishRes.status).toBeGreaterThanOrEqual(200)
@@ -424,10 +424,10 @@ describe("tsc toolchain ESM regression (VAL-SCAN-017)", () => {
 		expect(terminal.screening?.outputValidation?.ok).toBe(false)
 		expect(terminal.screening?.outputValidation?.step).toBe("toolchain")
 		const failure = terminal.screening?.outputValidation as
-			| { failure?: { toolchain?: string; actionId?: string; exitCode?: number; stderr?: string } }
+			| { failure?: { toolchain?: string; recipeId?: string; exitCode?: number; stderr?: string } }
 			| undefined
 		expect(failure?.failure?.toolchain).toBe("tsc")
-		expect(failure?.failure?.actionId).toBe("gen-ts")
+		expect(failure?.failure?.recipeId).toBe("gen-ts")
 		expect(failure?.failure?.exitCode).not.toBe(0)
 		// The stderr must quote the actual diagnostic (the broken
 		// TS literal) rather than a generic crash message.

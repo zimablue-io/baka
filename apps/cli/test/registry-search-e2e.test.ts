@@ -11,8 +11,8 @@
 //
 // Coverage map (per validation-contract.md):
 //   VAL-DISC-011  baka search <q> returns live catalog entries from
-//                  GET /v1/modules on the local registry
-//   VAL-DISC-012  search with no matches prints a clean "no modules
+//                  GET /v1/packs on the local registry
+//   VAL-DISC-012  search with no matches prints a clean "no packs
 //                  matching" line, exits 0
 //   VAL-DISC-013  search with the registry DOWN fails with exit 2,
 //                  names the URL and the transport failure
@@ -173,7 +173,7 @@ let otherBaseUrl: string
 async function bootOtherServer(): Promise<void> {
 	// Boot a second seed-publishing-server on a different ephemeral port
 	// to exercise multi-registry merge (VAL-DISC-021, 035, 036). Both
-	// share the same built-in catalog, so module fields are identical;
+	// share the same built-in catalog, so pack fields are identical;
 	// the test pins the per-hit `registry` attribution to disambiguate.
 	const otherDataDir = mkdtempSync(join(tmpdir(), "baka-search-e2e-other-"))
 	const otherCreds = join(otherDataDir, "creds.json")
@@ -251,7 +251,7 @@ afterAll(async () => {
 // ---------------------------------------------------------------------------
 
 describe("VAL-DISC-011 baka search returns live catalog entries from the local registry", () => {
-	it("lists the built-in modules and prints a clean human-readable result", async () => {
+	it("lists the built-in packs and prints a clean human-readable result", async () => {
 		const cwd = makeIsolatedHome("baka-search-live-")
 		const env = { BAKA_REGISTRY_URL: serverBaseUrl }
 		const res = await spawnCli(["search", "hello"], cwd, env, 30_000)
@@ -286,12 +286,12 @@ describe("VAL-DISC-011 baka search returns live catalog entries from the local r
 // ---------------------------------------------------------------------------
 
 describe("VAL-DISC-012 baka search with no matches is a clean empty result", () => {
-	it("exits 0 and prints an explicit 'no modules matching' line, not an error", async () => {
+	it("exits 0 and prints an explicit 'no packs matching' line, not an error", async () => {
 		const cwd = makeIsolatedHome("baka-search-empty-")
 		const env = { BAKA_REGISTRY_URL: serverBaseUrl }
-		const res = await spawnCli(["search", "zzz-no-such-module-zzz"], cwd, env, 30_000)
+		const res = await spawnCli(["search", "zzz-no-such-pack-zzz"], cwd, env, 30_000)
 		expect(res.code, `stderr=${res.stderr}`).toBe(0)
-		expect(res.stdout).toContain('no modules matching "zzz-no-such-module-zzz"')
+		expect(res.stdout).toContain('no packs matching "zzz-no-such-pack-zzz"')
 		expect(res.stdout).not.toContain("Error")
 		expect(res.stdout).not.toContain("error:")
 	})
@@ -449,7 +449,7 @@ describe("VAL-DISC-036 multi-registry search merges with per-source attribution 
 	it("(a) when both registries serve the same catalog, every hit carries its source `registry`", async () => {
 		const cwd = makeIsolatedHome("baka-search-mergesources-")
 		// Order matters: first-listed wins, and both registries expose the
-		// same built-in modules, so the per-hit attribution disambiguates.
+		// same built-in packs, so the per-hit attribution disambiguates.
 		const env = { BAKA_REGISTRY_URL: serverBaseUrl }
 		seedProjectRegistries(cwd, [otherBaseUrl])
 		const res = await spawnCli(["search", "hello", "--json"], cwd, env, 30_000)

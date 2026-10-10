@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest"
 import { getCachedCatalog, setCachedCatalog, subscribeCatalogCache } from "./catalog-cache"
 
-const SAMPLE_MODULES = [
+const SAMPLE_PACKS = [
 	{
 		scope: "baka",
 		name: "widget",
 		tier: "official" as const,
 		visibility: "public" as const,
-		description: "A sample catalog module.",
+		description: "A sample catalog pack.",
 		latestVersion: "0.1.0",
 		latestStatus: "ready",
 	},
@@ -22,24 +22,24 @@ describe("catalog cache", () => {
 		expect(getCachedCatalog()).toBeNull()
 	})
 
-	it("stores and returns modules", () => {
-		setCachedCatalog(SAMPLE_MODULES)
-		expect(getCachedCatalog()).toEqual(SAMPLE_MODULES)
+	it("stores and returns packs", () => {
+		setCachedCatalog(SAMPLE_PACKS)
+		expect(getCachedCatalog()).toEqual(SAMPLE_PACKS)
 	})
 
 	it("clears the cache when set to null", () => {
-		setCachedCatalog(SAMPLE_MODULES)
+		setCachedCatalog(SAMPLE_PACKS)
 		setCachedCatalog(null)
 		expect(getCachedCatalog()).toBeNull()
 	})
 
 	it("does not emit when the same reference is set twice", () => {
-		setCachedCatalog(SAMPLE_MODULES)
+		setCachedCatalog(SAMPLE_PACKS)
 		let calls = 0
 		const unsubscribe = subscribeCatalogCache(() => {
 			calls += 1
 		})
-		setCachedCatalog(SAMPLE_MODULES)
+		setCachedCatalog(SAMPLE_PACKS)
 		unsubscribe()
 		expect(calls).toBe(0)
 	})
@@ -49,7 +49,7 @@ describe("catalog cache", () => {
 		const unsubscribe = subscribeCatalogCache(() => {
 			events.push(getCachedCatalog()?.length ?? 0)
 		})
-		setCachedCatalog(SAMPLE_MODULES)
+		setCachedCatalog(SAMPLE_PACKS)
 		setCachedCatalog(null)
 		setCachedCatalog([])
 		unsubscribe()

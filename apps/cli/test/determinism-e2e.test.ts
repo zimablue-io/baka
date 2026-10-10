@@ -151,8 +151,8 @@ describeIfOptIn(
 			}
 
 			const scratch = trackDir(mkdtempSync(join(tmpdir(), "baka-determinism-e2e-")))
-			mkdirSync(join(scratch, "modules"), { recursive: true })
-			symlinkSync(HONEST_MOD_FIXTURE, join(scratch, "modules", "honest-mod"))
+			mkdirSync(join(scratch, "packs"), { recursive: true })
+			symlinkSync(HONEST_MOD_FIXTURE, join(scratch, "packs", "honest-mod"))
 			const home = trackDir(mkdtempSync(join(tmpdir(), "baka-determinism-e2e-home-")))
 			seedRoleConfig(home)
 
@@ -198,8 +198,8 @@ describeIfOptIn(
 			const hashes: string[] = []
 			for (let run = 1; run <= 2; run++) {
 				const scratch = trackDir(mkdtempSync(join(tmpdir(), "baka-determinism-apply-")))
-				mkdirSync(join(scratch, "modules"), { recursive: true })
-				symlinkSync(HONEST_MOD_FIXTURE, join(scratch, "modules", "honest-mod"))
+				mkdirSync(join(scratch, "packs"), { recursive: true })
+				symlinkSync(HONEST_MOD_FIXTURE, join(scratch, "packs", "honest-mod"))
 				const home = trackDir(mkdtempSync(join(tmpdir(), "baka-determinism-apply-home-")))
 				seedRoleConfig(home)
 				writeFileSync(join(scratch, "package.json"), JSON.stringify({ name: "probe", private: true }))
@@ -227,8 +227,8 @@ describeIfOptIn(
 			const hashes: string[] = []
 			for (let run = 1; run <= 2; run++) {
 				const scratch = trackDir(mkdtempSync(join(tmpdir(), "baka-determinism-slot-")))
-				mkdirSync(join(scratch, "modules"), { recursive: true })
-				symlinkSync(SLOT_MOD_FIXTURE, join(scratch, "modules", "slot-mod"))
+				mkdirSync(join(scratch, "packs"), { recursive: true })
+				symlinkSync(SLOT_MOD_FIXTURE, join(scratch, "packs", "slot-mod"))
 				const home = trackDir(mkdtempSync(join(tmpdir(), "baka-determinism-slot-home-")))
 				seedRoleConfig(home)
 				writeFileSync(join(scratch, "package.json"), JSON.stringify({ name: "probe", private: true }))

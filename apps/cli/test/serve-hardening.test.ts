@@ -84,10 +84,8 @@ describe("baka serve hardening", () => {
 			env({ BAKA_ENGINE_TOKEN: "env-token-123" }),
 		)
 		const local = url.replace("0.0.0.0", "127.0.0.1")
-		expect((await fetch(`${local}/v1/modules`)).status).toBe(401)
-		expect((await fetch(`${local}/v1/modules`, { headers: { authorization: "Bearer env-token-123" } })).status).toBe(
-			200,
-		)
+		expect((await fetch(`${local}/v1/packs`)).status).toBe(401)
+		expect((await fetch(`${local}/v1/packs`, { headers: { authorization: "Bearer env-token-123" } })).status).toBe(200)
 	})
 
 	it("takes the token from --token, and refuses another project unless --allow-root permits it", async () => {
@@ -95,9 +93,9 @@ describe("baka serve hardening", () => {
 		const elsewhere = projectDir()
 		const closed = await startServe(["--port", port(), "--token", "flag-token-1"], cwd, env())
 		const headers = { authorization: "Bearer flag-token-1" }
-		expect((await fetch(`${closed}/v1/modules?project=${encodeURIComponent(elsewhere)}`, { headers })).status).toBe(403)
+		expect((await fetch(`${closed}/v1/packs?project=${encodeURIComponent(elsewhere)}`, { headers })).status).toBe(403)
 
 		const open = await startServe(["--port", port(), "--allow-root", tmpdir()], cwd, env())
-		expect((await fetch(`${open}/v1/modules?project=${encodeURIComponent(elsewhere)}`)).status).toBe(200)
+		expect((await fetch(`${open}/v1/packs?project=${encodeURIComponent(elsewhere)}`)).status).toBe(200)
 	})
 })

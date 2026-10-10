@@ -1,17 +1,17 @@
 import type { PGlite } from "@electric-sql/pglite"
-import type { ModuleManifest } from "@repo/protocol"
+import type { PackManifest } from "@repo/protocol"
 import { type DryRunResult, runDryRun } from "../screening/dry-run"
 import { runOutputValidation } from "../screening/output-validation"
 import { writeScreeningResult } from "../screening/screening-result"
 import { runStaticScan, type StaticScanFinding } from "../screening/static-scan"
-import { updateModuleTierForVerdict } from "../screening/tier-assignment"
+import { updatePackTierForVerdict } from "../screening/tier-assignment"
 import { cleanupClone, shallowCloneAtTag } from "./clone"
 import { checkLoadability, IngestFailure, loadManifest } from "./manifest"
 import { packTarball } from "./tarball"
 
 /**
  * The payload of a single ingest job. Just the `versionId` — the
- * rest of the row data (commit_sha, manifest, module_id, ...) is
+ * rest of the row data (commit_sha, manifest, pack_id, ...) is
  * fetched fresh from the DB at the top of `runIngestJob`. This
  * shape is the only thing that crosses the publish → worker
  * boundary.
@@ -23,12 +23,12 @@ export interface IngestVersionPayload {
 /**
  * Ingest task executor (architecture §4.5).
  *
- * One job per `module_versions` row: shallow-clone the repo at the
- * requested tag, locate the module dir (via `modulePath`), validate
- * the manifest via jiti against `ModuleManifestSchema`, run the
+ * One job per `pack_versions` row: shallow-clone the repo at the
+ * requested tag, locate the pack dir (via `packPath`), validate
+ * the manifest via jiti against `PackManifestSchema`, run the
  * loadability gate, content-hash, pack the tarball, store via the
  * storage adapter, and flip status to `ready`. Failure at any step
- * flips status to `failed` with a diagnostic in `module_versions.error`.
+ * flips status to `failed` with a diagnostic in `pack_versions.error`.
  *
  * The polling worker in `./runner.ts` is responsible for claiming
  * the row (UPDATE status='pending' → 'ingesting' with FOR UPDATE
@@ -81,16 +81,16 @@ export interface IngestVersionPayload {
 
 interface IngestRow {
 	id: string
-	module_id: string
+	pack_id: string
 	version: string
 	commit_sha: string
-	manifest: ModuleManifest & { _publish?: PublishPayload }
+	manifest: PackManifest & { _publish?: PublishPayload }
 	status: string
 	error: string | null
 	created_at: Date
 }
 
-interface ModuleRow {
+interface PackRow {
 	id: string
 	scope: string
 	name: string
@@ -100,7 +100,7 @@ interface ModuleRow {
 
 interface PublishPayload {
 	repo: string
-	modulePath: string | null
+	packPath: string | null
 	visibility: string
 	publishedAt: string
 }
@@ -109,7 +109,7 @@ interface IngestDeps {
 	pglite: PGlite
 	storage: import("../storage").StorageAdapter
 	/**
-	 * Per-action dry-run timeout in milliseconds (architecture §8
+	 * Per-recipe dry-run timeout in milliseconds (architecture §8
 	 * decision 6). Forwarded to the dry-run executor; `undefined`
 	 * falls back to the executor's 60s default.
 	 */
@@ -152,7 +152,7 @@ export async function runIngestJob(payload: IngestVersionPayload, deps: IngestDe
 	try {
 		await runIngestJobInner(payload, deps)
 	} catch (err) {
-		// Every failure path — clone, modulePath escape, manifest
+		// Every failure path — clone, packPath escape, manifest
 		// load, loadability gate, pack, store, DB — must terminate
 		// the row failed with diagnostics. We rethrow after marking
 		// so the runner's per-cycle catch still observes the failure
@@ -162,13 +162,13 @@ export async function runIngestJob(payload: IngestVersionPayload, deps: IngestDe
 		// as a pass. An exception that escapes the screening block
 		// (e.g. a detector bug, an unexpected runtime error in
 		// `runStaticScan` itself) routes through this catch — the
-		// version is marked `failed` AND the module's tier falls
+		// version is marked `failed` AND the pack's tier falls
 		// back to `community-unverified`. The tier update runs
 		// BEFORE the markFailed write so a follow-up crash during
 		// the markFailed path still leaves the catalog badge
-		// honest. The `module_id` lookup can fail if the row was
+		// honest. The `pack_id` lookup can fail if the row was
 		// deleted mid-flight; we tolerate that gracefully (the
-		// catalog cannot surface a tier on a missing module
+		// catalog cannot surface a tier on a missing pack
 		// anyway).
 		const message = err instanceof Error ? err.message : String(err)
 		await markScreeningCrashTierTransition(deps.pglite, payload.versionId)
@@ -216,16 +216,16 @@ async function runIngestJobInner(payload: IngestVersionPayload, deps: IngestDeps
 		return
 	}
 
-	const moduleRow = await fetchModule(deps.pglite, row.module_id)
-	if (moduleRow === null) {
-		throw new IngestFailure("manifest", `module row missing for id '${row.module_id}' (cannot determine scope/name)`)
+	const packRow = await fetchPack(deps.pglite, row.pack_id)
+	if (packRow === null) {
+		throw new IngestFailure("manifest", `pack row missing for id '${row.pack_id}' (cannot determine scope/name)`)
 	}
 
-	// Read repo + modulePath from the INGESTED row's own _publish
+	// Read repo + packPath from the INGESTED row's own _publish
 	// payload (scrutiny-round-1 fix #2). Earlier the worker queried
-	// manifest->_publish from the module's NEWEST version row, which
+	// manifest->_publish from the pack's NEWEST version row, which
 	// silently redirected an older pending version onto a newer
-	// version's repo/modulePath when two versions were queued
+	// version's repo/packPath when two versions were queued
 	// simultaneously. The row's own payload is the canonical source;
 	// `_publish` is written by the publish endpoint at the moment the
 	// row is created.
@@ -233,11 +233,11 @@ async function runIngestJobInner(payload: IngestVersionPayload, deps: IngestDeps
 	if (!publish || typeof publish.repo !== "string" || publish.repo.length === 0) {
 		throw new IngestFailure(
 			"manifest",
-			`publish body not found for module '${moduleRow.scope}/${moduleRow.name}' (cannot determine repo URL)`,
+			`publish body not found for pack '${packRow.scope}/${packRow.name}' (cannot determine repo URL)`,
 		)
 	}
 	const repoUrl = publish.repo
-	const modulePath = typeof publish.modulePath === "string" && publish.modulePath.length > 0 ? publish.modulePath : null
+	const packPath = typeof publish.packPath === "string" && publish.packPath.length > 0 ? publish.packPath : null
 
 	// Step 1 — clone (bounded by INGEST_CLONE_TIMEOUT_MS, default 120s).
 	const clone = await shallowCloneAtTag(repoUrl, row.version)
@@ -260,11 +260,11 @@ async function runIngestJobInner(payload: IngestVersionPayload, deps: IngestDeps
 	}
 
 	try {
-		// Step 2 — locate module dir.
-		const moduleDir = resolveModuleDir(clone.dir, modulePath)
+		// Step 2 — locate pack dir.
+		const packDir = resolvePackDir(clone.dir, packPath)
 
-		// Step 3 — validate manifest (jiti + ModuleManifestSchema).
-		const manifest = await loadManifest(moduleDir)
+		// Step 3 — validate manifest (jiti + PackManifestSchema).
+		const manifest = await loadManifest(packDir)
 
 		// Verify the worker's parsed manifest agrees with the version
 		// the row already records — the publish endpoint did the
@@ -282,10 +282,10 @@ async function runIngestJobInner(payload: IngestVersionPayload, deps: IngestDeps
 		}
 
 		// Step 4 — static capability scan (architecture §4.6 layer 1,
-		// VAL-SCAN-002 / 015 / 016 / 018). Public-visibility modules
-		// enter the screening pipeline; org-visibility modules skip it
+		// VAL-SCAN-002 / 015 / 016 / 018). Public-visibility packs
+		// enter the screening pipeline; org-visibility packs skip it
 		// entirely (decision 30, "private by default"). The scan
-		// never executes the module's own code — it parses every
+		// never executes the pack's own code — it parses every
 		// `.ts` file with the TypeScript Compiler API and walks
 		// every Handlebars template with a regex detector, looking
 		// for network / child_process / eval / dynamic-import /
@@ -301,7 +301,7 @@ async function runIngestJobInner(payload: IngestVersionPayload, deps: IngestDeps
 		// screening_results row, VAL-SCAN-018) instead of crashing
 		// the loadability gate with no screening record. The
 		// loadability gate still runs after a clean static scan to
-		// catch unloadable actions / validators.
+		// catch unloadable recipes / validators.
 		//
 		// On failure: write a screening_results row with verdict
 		// 'failed' + the static_scan payload + an explicit dry_run
@@ -317,25 +317,25 @@ async function runIngestJobInner(payload: IngestVersionPayload, deps: IngestDeps
 		// once the dry-run + output-validation layers complete).
 		// This lets the catalog surface "static scan passed" without
 		// prematurely claiming screened status.
-		if (moduleRow.visibility === "public") {
-			const staticResult = await runStaticScan(moduleDir, manifest)
+		if (packRow.visibility === "public") {
+			const staticResult = await runStaticScan(packDir, manifest)
 			if (!staticResult.passed) {
-				await runScreeningFailureStep(deps.pglite, payload.versionId, staticResult, moduleRow.id)
+				await runScreeningFailureStep(deps.pglite, payload.versionId, staticResult, packRow.id)
 				return
 			}
-			await runDryRunStep(deps, payload.versionId, moduleDir, manifest, staticResult, moduleRow.id)
+			await runDryRunStep(deps, payload.versionId, packDir, manifest, staticResult, packRow.id)
 		}
 
-		// Step 5 — loadability gate: every action, every module
-		// validator, and every action validator must resolve through
+		// Step 5 — loadability gate: every recipe, every pack
+		// validator, and every recipe validator must resolve through
 		// the real engine loader (scrutiny-round-1 fix #3). Previously
-		// the gate iterated actions only, so a module with a missing
+		// the gate iterated recipes only, so a pack with a missing
 		// validator file reached `ready` and failed later at user-side
 		// `baka validate` — the dishonesty this gate exists to prevent.
-		await checkLoadability(moduleDir, manifest)
+		await checkLoadability(packDir, manifest)
 
 		// Step 6 — content hash + tarball pack.
-		const pack = await packTarball(moduleDir)
+		const pack = await packTarball(packDir)
 
 		// Step 7 — store the tarball via the storage adapter
 		// (content-addressed dedup is the adapter's responsibility).
@@ -359,24 +359,24 @@ async function runIngestJobInner(payload: IngestVersionPayload, deps: IngestDeps
 
 async function fetchRow(pglite: PGlite, versionId: string): Promise<IngestRow | null> {
 	const result = await pglite.query<IngestRow>(
-		`SELECT id, module_id, version, commit_sha, manifest, status, error, created_at
-		   FROM module_versions
+		`SELECT id, pack_id, version, commit_sha, manifest, status, error, created_at
+		   FROM pack_versions
 		  WHERE id = $1`,
 		[versionId],
 	)
 	return result.rows[0] ?? null
 }
 
-async function fetchModule(pglite: PGlite, moduleId: string): Promise<ModuleRow | null> {
-	const result = await pglite.query<ModuleRow>(`SELECT id, scope, name, visibility, tier FROM modules WHERE id = $1`, [
-		moduleId,
+async function fetchPack(pglite: PGlite, packId: string): Promise<PackRow | null> {
+	const result = await pglite.query<PackRow>(`SELECT id, scope, name, visibility, tier FROM packs WHERE id = $1`, [
+		packId,
 	])
 	return result.rows[0] ?? null
 }
 
 async function markReady(pglite: PGlite, versionId: string, contentHash: string): Promise<void> {
 	await pglite.query(
-		`UPDATE module_versions
+		`UPDATE pack_versions
 		    SET status = 'ready',
 		        content_hash = $1,
 		        error = NULL,
@@ -388,7 +388,7 @@ async function markReady(pglite: PGlite, versionId: string, contentHash: string)
 
 async function markFailed(pglite: PGlite, versionId: string, error: string): Promise<void> {
 	await pglite.query(
-		`UPDATE module_versions
+		`UPDATE pack_versions
 		    SET status = 'failed',
 		        error = $1,
 		        updated_at = NOW()
@@ -404,8 +404,8 @@ async function markFailed(pglite: PGlite, versionId: string, error: string): Pro
  * propagates out as an exception — the wrapper catches it and
  * marks the version `failed`, but the catalog badge must also
  * reflect the honest "screening could not complete" state. This
- * helper resolves the version's module id and applies the
- * tier transition; if the module row is missing (e.g. deleted
+ * helper resolves the version's pack id and applies the
+ * tier transition; if the pack row is missing (e.g. deleted
  * mid-flight) the UPDATE is a no-op and the function returns
  * silently.
  *
@@ -413,20 +413,20 @@ async function markFailed(pglite: PGlite, versionId: string, error: string): Pro
  * inside the same try/catch as markFailed — a tier failure
  * must not block the version's terminal-state write, but the
  * catalog's honesty depends on the tier update completing
- * whenever the module row exists.
+ * whenever the pack row exists.
  */
 async function markScreeningCrashTierTransition(pglite: PGlite, versionId: string): Promise<void> {
-	const versionRow = await pglite.query<{ module_id: string }>(`SELECT module_id FROM module_versions WHERE id = $1`, [
+	const versionRow = await pglite.query<{ pack_id: string }>(`SELECT pack_id FROM pack_versions WHERE id = $1`, [
 		versionId,
 	])
-	const moduleId = versionRow.rows[0]?.module_id
-	if (!moduleId) return
+	const packId = versionRow.rows[0]?.pack_id
+	if (!packId) return
 	try {
-		await updateModuleTierForVerdict(pglite, moduleId, "failed")
+		await updatePackTierForVerdict(pglite, packId, "failed")
 	} catch (err) {
 		// Tier update failure must not block the version's
 		// terminal-state write. Log for operator forensics; the
-		// next worker sweep will retry on the same module row.
+		// next worker sweep will retry on the same pack row.
 		const message = err instanceof Error ? err.message : String(err)
 		process.stderr.write(`[ingest] tier transition failed for ${versionId}: ${message}\n`)
 	}
@@ -460,7 +460,7 @@ function stripV(value: string): string {
  * failed — the dry_run field carries the skip reason.
  *
  * Tier transition (VAL-SCAN-008 / 011 / 018, VAL-CROSS-013): a
- * failed static scan marks the module's tier `community-unverified`
+ * failed static scan marks the pack's tier `community-unverified`
  * so the catalog surfaces the honest verdict. The transition is
  * applied BEFORE the throw so the read surface's tier field is
  * correct even if the wrapper's markFailed write is interrupted
@@ -471,7 +471,7 @@ async function runScreeningFailureStep(
 	pglite: PGlite,
 	versionId: string,
 	result: Awaited<ReturnType<typeof runStaticScan>>,
-	moduleId: string,
+	packId: string,
 ): Promise<never> {
 	await writeScreeningResult(pglite, versionId, {
 		verdict: "failed",
@@ -482,7 +482,7 @@ async function runScreeningFailureStep(
 			at: new Date().toISOString(),
 		},
 	})
-	await updateModuleTierForVerdict(pglite, moduleId, "failed")
+	await updatePackTierForVerdict(pglite, packId, "failed")
 	const findingsText = result.findings
 		.slice(0, 5)
 		.map((f: StaticScanFinding) => `${f.capability}@${f.file}:${f.line}`)
@@ -494,8 +494,8 @@ async function runScreeningFailureStep(
 
 /**
  * Sandboxed dry-run step (architecture §4.6 layer 2, VAL-SCAN-003
- * / 013 / 014). Runs every non-reasoning action in its own
- * `node --permission` subprocess and aggregates the per-action
+ * / 013 / 014). Runs every non-reasoning recipe in its own
+ * `node --permission` subprocess and aggregates the per-recipe
  * outcomes into a verdict transition on `screening_results`:
  *
  *   - ok: true                              → verdict `screened` IF
@@ -503,8 +503,8 @@ async function runScreeningFailureStep(
  *                                            otherwise layer 3 runs
  *                                            and decides the verdict.
  *                                            If layer 3 is skipped
- *                                            (no module validators,
- *                                            no per-action writes
+ *                                            (no pack validators,
+ *                                            no per-recipe writes
  *                                            outside patterns, no
  *                                            declared toolchain),
  *                                            the dry-run alone
@@ -519,41 +519,41 @@ async function runScreeningFailureStep(
  *                                            timeout does NOT fail
  *                                            the version. Layer 3 is
  *                                            NOT invoked (the
- *                                            per-action preview files
+ *                                            per-recipe preview files
  *                                            are not durable after a
  *                                            timeout).
  *   - ok: false, reason: 'failure'         → verdict `failed`,
  *                                            `IngestFailure` thrown
  *                                            so the wrapper marks
  *                                            the row failed with
- *                                            the action's error
+ *                                            the recipe's error
  *                                            message as the
  *                                            diagnostic.
  *
  * The `policy` field on `dry_run` is the own-tree-only statement
- * (VAL-SCAN-014): the action's runtime NEVER fetched or installed
+ * (VAL-SCAN-014): the recipe's runtime NEVER fetched or installed
  * manifest dependencies; any attempt to import outside the
- * module's own tree was reported honestly as a per-action
+ * pack's own tree was reported honestly as a per-recipe
  * `failed` result (the sandbox enforcement is the `--permission`
  * flags; the policy text is the user-facing commitment).
  */
 async function runDryRunStep(
 	deps: IngestDeps,
 	versionId: string,
-	moduleDir: string,
-	manifest: ModuleManifest,
+	packDir: string,
+	manifest: PackManifest,
 	staticResult: Awaited<ReturnType<typeof runStaticScan>>,
-	moduleId: string,
+	packId: string,
 ): Promise<void> {
 	const result = await runDryRun({
-		moduleDir,
+		packDir,
 		manifest,
 		storage: deps.storage,
 		versionId,
 		pglite: deps.pglite,
 		timeoutMs: deps.screenDryRunTimeoutMs,
 	})
-	await applyDryRunVerdict(deps, versionId, moduleDir, manifest, staticResult, result, moduleId)
+	await applyDryRunVerdict(deps, versionId, packDir, manifest, staticResult, result, packId)
 }
 
 /**
@@ -574,11 +574,11 @@ async function runDryRunStep(
 async function applyDryRunVerdict(
 	deps: IngestDeps,
 	versionId: string,
-	moduleDir: string,
-	manifest: ModuleManifest,
+	packDir: string,
+	manifest: PackManifest,
 	staticResult: Awaited<ReturnType<typeof runStaticScan>>,
 	result: DryRunResult,
-	moduleId: string,
+	packId: string,
 ): Promise<void> {
 	// Build the discriminated `dry_run` payload. Both branches
 	// carry the same fields; the failure branch's `timedOutAt` is
@@ -586,12 +586,12 @@ async function applyDryRunVerdict(
 	// VAL-SCAN-013 verdict text (the worker always sets it).
 	const completedPayload: {
 		policy: string
-		perAction: DryRunResult["perAction"]
+		perRecipe: DryRunResult["perRecipe"]
 		timeoutMs: number
 		timedOutAt?: string
 	} = {
 		policy: result.policy,
-		perAction: result.perAction,
+		perRecipe: result.perRecipe,
 		timeoutMs: result.timeoutMs,
 	}
 	if (!result.ok) {
@@ -604,24 +604,24 @@ async function applyDryRunVerdict(
 			// The worker wrapper leaves the row to continue to
 			// pack (`ready`); the verdict text honestly states
 			// the dry-run could not complete in time. Layer 3 is
-			// NOT invoked (the per-action preview files are not
+			// NOT invoked (the per-recipe preview files are not
 			// durable after a timeout — the subprocess was
 			// SIGKILLed before its write list was reported).
 			// Tier transition: `unverified` for community
-			// modules so the catalog badge reflects the honest
+			// packs so the catalog badge reflects the honest
 			// "dry-run did not complete" state (VAL-SCAN-011).
 			await writeScreeningResult(deps.pglite, versionId, {
 				verdict: "unverified",
 				staticScan: staticResult,
 				dryRun: completedPayload,
 			})
-			await updateModuleTierForVerdict(deps.pglite, moduleId, "unverified")
+			await updatePackTierForVerdict(deps.pglite, packId, "unverified")
 			return
 		}
 
 		// Failure → verdict `failed`, throw so the wrapper marks
 		// the row failed with the diagnostic. The dry_run field
-		// carries the per-action error for the read surface to
+		// carries the per-recipe error for the read surface to
 		// surface. Tier transition: `community-unverified` so
 		// the catalog surfaces the honest verdict (VAL-SCAN-008,
 		// VAL-CROSS-013).
@@ -630,42 +630,42 @@ async function applyDryRunVerdict(
 			staticScan: staticResult,
 			dryRun: completedPayload,
 		})
-		await updateModuleTierForVerdict(deps.pglite, moduleId, "failed")
+		await updatePackTierForVerdict(deps.pglite, packId, "failed")
 
-		const failedActions = result.perAction.filter((p) => p.status === "failed")
-		const firstFailure = failedActions[0]
+		const failedRecipes = result.perRecipe.filter((p) => p.status === "failed")
+		const firstFailure = failedRecipes[0]
 		const errorSummary = firstFailure
-			? `dry-run action '${firstFailure.actionId}' failed: ${firstFailure.error}`
-			: "dry-run failed for at least one action"
+			? `dry-run recipe '${firstFailure.recipeId}' failed: ${firstFailure.error}`
+			: "dry-run failed for at least one recipe"
 
-		const moduleName = manifest.name ?? "module"
-		throw new IngestFailure("screening", `${errorSummary} (module '${moduleName}')`)
+		const packName = manifest.name ?? "pack"
+		throw new IngestFailure("screening", `${errorSummary} (pack '${packName}')`)
 	}
 
 	// ok: true — dry-run passed. Run layer 3 (output validation)
-	// against the rendered per-action output. Layer 3's verdict
+	// against the rendered per-recipe output. Layer 3's verdict
 	// decides the overall `screened` / `failed` transition.
-	await runOutputValidationStep(deps, versionId, moduleDir, manifest, staticResult, completedPayload, moduleId)
+	await runOutputValidationStep(deps, versionId, packDir, manifest, staticResult, completedPayload, packId)
 }
 
 /**
  * Screening layer 3 (architecture §4.6, VAL-SCAN-006 / 007 /
- * 017). Runs the module's own validators against the dry-run
+ * 017). Runs the pack's own validators against the dry-run
  * output, enforces that actual writes ⊆ declared filePatterns,
  * and runs the declared output toolchain (currently `tsc
  * --noEmit` for TS scaffolds). The dry-run step left the
- * per-action preview files in the storage adapter; layer 3
+ * per-recipe preview files in the storage adapter; layer 3
  * materializes them into a fresh validation dir and runs the
  * three sub-layers against it.
  *
  * Verdict transitions (VAL-SCAN-008 / 011):
  *   - layer 3 ok → verdict `screened` (overall) + tier
- *     `community-screened` for community modules. The tier
+ *     `community-screened` for community packs. The tier
  *     transition is the read-side contract that surfaces the
- *     "module passed all three layers" badge to the catalog.
+ *     "pack passed all three layers" badge to the catalog.
  *   - layer 3 fails → verdict `failed`, throws IngestFailure so
  *     the worker wrapper records the row's honest diagnostic;
- *     tier `community-unverified` for community modules so the
+ *     tier `community-unverified` for community packs so the
  *     catalog surfaces the honest verdict.
  *
  * The `output_validation` jsonb column carries the discriminated
@@ -675,21 +675,21 @@ async function applyDryRunVerdict(
 async function runOutputValidationStep(
 	deps: IngestDeps,
 	versionId: string,
-	moduleDir: string,
-	manifest: ModuleManifest,
+	packDir: string,
+	manifest: PackManifest,
 	staticResult: Awaited<ReturnType<typeof runStaticScan>>,
 	dryRunPayload: {
 		policy: string
-		perAction: DryRunResult["perAction"]
+		perRecipe: DryRunResult["perRecipe"]
 		timeoutMs: number
 		timedOutAt?: string
 	},
-	moduleId: string,
+	packId: string,
 ): Promise<void> {
 	const outputValidation = await runOutputValidation({
-		moduleDir,
+		packDir,
 		manifest,
-		perAction: dryRunPayload.perAction,
+		perRecipe: dryRunPayload.perRecipe,
 		storage: deps.storage,
 	})
 
@@ -700,7 +700,7 @@ async function runOutputValidationStep(
 			dryRun: dryRunPayload,
 			outputValidation,
 		})
-		await updateModuleTierForVerdict(deps.pglite, moduleId, "screened")
+		await updatePackTierForVerdict(deps.pglite, packId, "screened")
 		return
 	}
 
@@ -708,7 +708,7 @@ async function runOutputValidationStep(
 	// `failed` + the discriminated output_validation payload,
 	// then throw so the wrapper marks the row failed with the
 	// honest message. Tier transition: `community-unverified`
-	// for community modules (VAL-SCAN-011 — failed screening
+	// for community packs (VAL-SCAN-011 — failed screening
 	// marks the version honestly and the catalog never hides
 	// the failure).
 	await writeScreeningResult(deps.pglite, versionId, {
@@ -717,20 +717,20 @@ async function runOutputValidationStep(
 		dryRun: dryRunPayload,
 		outputValidation,
 	})
-	await updateModuleTierForVerdict(deps.pglite, moduleId, "failed")
+	await updatePackTierForVerdict(deps.pglite, packId, "failed")
 
-	const moduleName = manifest.name ?? "module"
-	throw new IngestFailure("screening", `${outputValidation.failure.message} (module '${moduleName}')`)
+	const packName = manifest.name ?? "pack"
+	throw new IngestFailure("screening", `${outputValidation.failure.message} (pack '${packName}')`)
 }
 
-function resolveModuleDir(cloneDir: string, modulePath: string | null): string {
-	if (!modulePath) return cloneDir
+function resolvePackDir(cloneDir: string, packPath: string | null): string {
+	if (!packPath) return cloneDir
 	// Normalize: reject `..` paths and absolute paths so a malicious
 	// publish body cannot escape the clone dir.
-	if (modulePath.includes("..") || modulePath.startsWith("/")) {
-		throw new IngestFailure("manifest", `modulePath '${modulePath}' contains an invalid path segment`)
+	if (packPath.includes("..") || packPath.startsWith("/")) {
+		throw new IngestFailure("manifest", `packPath '${packPath}' contains an invalid path segment`)
 	}
-	return joinSafe(cloneDir, modulePath)
+	return joinSafe(cloneDir, packPath)
 }
 
 function joinSafe(base: string, sub: string): string {

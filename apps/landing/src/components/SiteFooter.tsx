@@ -4,7 +4,7 @@ import { BRAND, SITE } from "@/lib/site"
 const FOOTER_LINKS = [
 	{ href: SITE.github.url, label: "GitHub", external: true },
 	{ href: SITE.github.blobUrl(SITE.docs.philosophy), label: "Philosophy", external: true },
-	{ href: SITE.github.blobUrl(SITE.docs.modules), label: "Module authoring", external: true },
+	{ href: SITE.github.blobUrl(SITE.docs.packs), label: "Pack authoring", external: true },
 	{ href: SITE.github.blobUrl(SITE.docs.agent), label: "Agent guide", external: true },
 ] as const
 

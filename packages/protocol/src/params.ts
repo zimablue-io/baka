@@ -1,4 +1,4 @@
-import { type ModuleActionParam, paramsToZod } from "./schemas"
+import { type PackRecipeParam, paramsToZod } from "./schemas"
 
 type Params = Record<string, unknown>
 
@@ -7,7 +7,7 @@ type Params = Record<string, unknown>
  * numeric string into a number and `"true"`/`"false"` into a boolean; leave
  * every other value for the validator to judge. Recurses into object params.
  */
-function coerceParams(specs: readonly ModuleActionParam[], raw: Params): Params {
+function coerceParams(specs: readonly PackRecipeParam[], raw: Params): Params {
 	const out: Params = { ...raw }
 	for (const spec of specs) {
 		const value = out[spec.name]
@@ -25,12 +25,12 @@ function coerceParams(specs: readonly ModuleActionParam[], raw: Params): Params 
 export type NormalizedParams = { ok: true; params: Params } | { ok: false; message: string }
 
 /**
- * Check raw action params against the declared param specs and return the
- * params the action will see: scalars coerced from text, defaults applied.
+ * Check raw recipe params against the declared param specs and return the
+ * params the recipe will see: scalars coerced from text, defaults applied.
  * Undeclared params and wrongly typed values are rejected with one message
  * that names every offending path.
  */
-export function normalizeParams(specs: readonly ModuleActionParam[], raw: Params): NormalizedParams {
+export function normalizeParams(specs: readonly PackRecipeParam[], raw: Params): NormalizedParams {
 	const parsed = paramsToZod(specs).safeParse(coerceParams(specs, raw))
 	if (parsed.success) return { ok: true, params: parsed.data }
 	const message = parsed.error.issues

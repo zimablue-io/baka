@@ -26,45 +26,45 @@ interface FixtureParam {
 	[extra: string]: unknown
 }
 
-interface FixtureAction {
+interface FixtureRecipe {
 	id: string
 	params?: FixtureParam[]
-	/** Template files, keyed by path under `<action>/templates/` (e.g. `hello.md.hbs`). */
+	/** Template files, keyed by path under `<recipe>/templates/` (e.g. `hello.md.hbs`). */
 	templates?: Record<string, string>
-	/** Source of `<action>/action.ts`, when the action has side effects. */
-	actionTs?: string
-	/** The manifest's `supportsDryRun` for this action. */
+	/** Source of `<recipe>/recipe.ts`, when the recipe has side effects. */
+	recipeTs?: string
+	/** The manifest's `supportsDryRun` for this recipe. */
 	supportsDryRun?: boolean
-	/** Validator ids the action declares; write each as `<action>/validators/<kebab-id>.ts` via `files`. */
+	/** Validator ids the recipe declares; write each as `<recipe>/validators/<kebab-id>.ts` via `files`. */
 	validators?: string[]
-	/** The manifest's `marker` globs for this action. */
+	/** The manifest's `marker` globs for this recipe. */
 	marker?: string[]
-	/** The manifest's `format` declaration for this action. */
+	/** The manifest's `format` declaration for this recipe. */
 	format?: { command: string; args?: string[] }
 }
 
-interface FixtureModule {
+interface FixturePack {
 	name: string
 	version?: string
-	actions: FixtureAction[]
-	/** Extra files under the module root, keyed by relative path. */
+	recipes: FixtureRecipe[]
+	/** Extra files under the pack root, keyed by relative path. */
 	files?: Record<string, string>
-	/** Module-level validator ids; write each as `_shared/validators/<kebab-id>.ts` via `files`. */
-	moduleValidators?: string[]
+	/** Pack-level validator ids; write each as `_shared/validators/<kebab-id>.ts` via `files`. */
+	packValidators?: string[]
 }
 
-/** Write a module directory under `modulesDir` and return its root. */
-export function writeModule(modulesDir: string, mod: FixtureModule): string {
-	const root = join(modulesDir, mod.name)
+/** Write a pack directory under `packsDir` and return its root. */
+export function writePack(packsDir: string, mod: FixturePack): string {
+	const root = join(packsDir, mod.name)
 	const manifest = {
 		name: mod.name,
 		version: mod.version ?? "0.1.0",
 		description: `${mod.name} fixture`,
 		dependencies: [],
 		conflictsWith: [],
-		actions: mod.actions.map((a) => ({
+		recipes: mod.recipes.map((a) => ({
 			id: a.id,
-			description: `${a.id} fixture action`,
+			description: `${a.id} fixture recipe`,
 			params: a.params ?? [],
 			requiresReasoning: false,
 			filePatterns: [],
@@ -73,14 +73,14 @@ export function writeModule(modulesDir: string, mod: FixtureModule): string {
 			...(a.marker ? { marker: a.marker } : {}),
 			...(a.format ? { format: a.format } : {}),
 		})),
-		moduleValidators: mod.moduleValidators ?? [],
+		packValidators: mod.packValidators ?? [],
 	}
 	write(join(root, "manifest.ts"), `export const Manifest = ${JSON.stringify(manifest, null, 2)}\n`)
-	for (const action of mod.actions) {
-		for (const [rel, source] of Object.entries(action.templates ?? {})) {
-			write(join(root, action.id, "templates", rel), source)
+	for (const recipe of mod.recipes) {
+		for (const [rel, source] of Object.entries(recipe.templates ?? {})) {
+			write(join(root, recipe.id, "templates", rel), source)
 		}
-		if (action.actionTs) write(join(root, action.id, "action.ts"), action.actionTs)
+		if (recipe.recipeTs) write(join(root, recipe.id, "recipe.ts"), recipe.recipeTs)
 	}
 	for (const [rel, source] of Object.entries(mod.files ?? {})) write(join(root, rel), source)
 	return root
@@ -94,9 +94,9 @@ function write(path: string, content: string): void {
 const GREET_PARAMS: FixtureParam[] = [{ name: "name", type: "string", required: true, description: "who" }]
 
 /** One template with a named prose slot: `hello.md` = heading + one filled sentence. */
-export const GREET_MODULE: FixtureModule = {
+export const GREET_PACK: FixturePack = {
 	name: "hello",
-	actions: [
+	recipes: [
 		{
 			id: "greet",
 			params: GREET_PARAMS,

@@ -1,20 +1,20 @@
 import { existsSync, mkdirSync, readdirSync, symlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { compensateAction, createRegistry, runAction } from "../src/index.js"
-import { cleanupTempDirs, tempDir, writeModule } from "./helpers.js"
+import { compensateRecipe, createRegistry, runRecipe } from "../src/index.js"
+import { cleanupTempDirs, tempDir, writePack } from "./helpers.js"
 
 afterEach(cleanupTempDirs)
 
 /** `base/project` is the project root, so `..` from it lands in `base`. */
-function setup(extra: { actionTs?: string; nameParam?: Record<string, unknown> } = {}) {
+function setup(extra: { recipeTs?: string; nameParam?: Record<string, unknown> } = {}) {
 	const base = tempDir()
 	const root = join(base, "project")
 	mkdirSync(root)
-	const modules = tempDir()
-	writeModule(modules, {
+	const packs = tempDir()
+	writePack(packs, {
 		name: "scaf",
-		actions: [
+		recipes: [
 			{
 				id: "scaffold",
 				params: [
@@ -25,15 +25,15 @@ function setup(extra: { actionTs?: string; nameParam?: Record<string, unknown> }
 					"{{dir}}/{{name}}/README.md.hbs": "# {{name}}\n",
 					"{{dir}}/{{name}}/src/index.ts.hbs": "export {}\n",
 				},
-				actionTs: extra.actionTs,
+				recipeTs: extra.recipeTs,
 			},
 		],
 	})
-	return { base, root, registry: createRegistry({ root, moduleDirs: [modules] }) }
+	return { base, root, registry: createRegistry({ root, packDirs: [packs] }) }
 }
 
 const run = (registry: ReturnType<typeof setup>["registry"], params: Record<string, unknown>, dryRun = false) =>
-	runAction({ registry, module: "scaf", action: "scaffold", params, dryRun })
+	runRecipe({ registry, pack: "scaf", recipe: "scaffold", params, dryRun })
 
 describe("template paths cannot leave the project root", () => {
 	it("--name ../../x is refused, writes nothing, and leaves nothing outside the root", async () => {
@@ -43,7 +43,7 @@ describe("template paths cannot leave the project root", () => {
 		expect(result.diagnostics.map((d) => d.rule)).toEqual(["path-escape"])
 		expect(result.diagnostics[0]?.message).toContain("..")
 		expect(result.changeset).toEqual([])
-		expect(result.compensation).toEqual({ created: [], createdDirs: [], overwritten: [], actionData: null })
+		expect(result.compensation).toEqual({ created: [], createdDirs: [], overwritten: [], recipeData: null })
 		expect(readdirSync(base)).toEqual(["project"])
 		expect(readdirSync(root)).toEqual([])
 	})
@@ -77,7 +77,7 @@ describe("template paths cannot leave the project root", () => {
 		expect((await run(registry, { dir: ".git", name: "hooks" })).diagnostics.map((d) => d.rule)).toEqual([
 			"path-escape",
 		])
-		expect((await run(registry, { dir: ".baka", name: "modules" })).diagnostics.map((d) => d.rule)).toEqual([
+		expect((await run(registry, { dir: ".baka", name: "packs" })).diagnostics.map((d) => d.rule)).toEqual([
 			"path-escape",
 		])
 		expect(readdirSync(root)).toEqual([])
@@ -110,13 +110,13 @@ describe("template paths cannot leave the project root", () => {
 		expect(result.ok).toBe(true)
 		expect(result.changeset.map((e) => e.path)).toEqual(["packages/ui/README.md", "packages/ui/src/index.ts"])
 		expect(result.compensation.createdDirs).toEqual(["packages", "packages/ui", "packages/ui/src"])
-		await compensateAction({ registry, module: "scaf", action: "scaffold", compensation: result.compensation })
+		await compensateRecipe({ registry, pack: "scaf", recipe: "scaffold", compensation: result.compensation })
 		expect(readdirSync(root)).toEqual([])
 	})
 })
 
 describe("rollback leaves nothing behind", () => {
-	const FAILING_ACTION = `export const scaffold = {
+	const FAILING_RECIPE = `export const scaffold = {
 	name: "scaf.scaffold",
 	execute: async () => ({ success: false, output: null, compensationData: null, error: "nope" }),
 	compensate: async () => {},
@@ -124,31 +124,31 @@ describe("rollback leaves nothing behind", () => {
 `
 
 	it("removes the files and every directory a failed run created, keeping directories that existed", async () => {
-		const { root, registry } = setup({ actionTs: FAILING_ACTION })
+		const { root, registry } = setup({ recipeTs: FAILING_RECIPE })
 		mkdirSync(join(root, "packages"))
 		const result = await run(registry, { name: "ui" })
-		expect(result.diagnostics.map((d) => d.rule)).toEqual(["action-failed"])
+		expect(result.diagnostics.map((d) => d.rule)).toEqual(["recipe-failed"])
 		expect(result.changeset).toEqual([])
 		expect(readdirSync(root)).toEqual(["packages"])
 		expect(readdirSync(join(root, "packages"))).toEqual([])
 	})
 
 	it("removes them all in a fresh project", async () => {
-		const { root, registry } = setup({ actionTs: FAILING_ACTION })
+		const { root, registry } = setup({ recipeTs: FAILING_RECIPE })
 		await run(registry, { name: "ui" })
 		expect(readdirSync(root)).toEqual([])
 	})
 
-	it("compensateAction refuses a forged receipt whose paths leave the root", async () => {
+	it("compensateRecipe refuses a forged receipt whose paths leave the root", async () => {
 		const { base, registry } = setup()
 		const victim = join(base, "victim.txt")
 		writeFileSync(victim, "keep me\n")
 		await expect(
-			compensateAction({
+			compensateRecipe({
 				registry,
-				module: "scaf",
-				action: "scaffold",
-				compensation: { created: ["../victim.txt"], createdDirs: [], overwritten: [], actionData: null },
+				pack: "scaf",
+				recipe: "scaffold",
+				compensation: { created: ["../victim.txt"], createdDirs: [], overwritten: [], recipeData: null },
 			}),
 		).rejects.toThrow(/path-escape|\.\./)
 		expect(existsSync(victim)).toBe(true)

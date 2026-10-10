@@ -1,12 +1,12 @@
-import type { ModuleManifest } from "baka-sdk"
+import type { PackManifest } from "baka-sdk"
 
-export const Manifest: ModuleManifest = {
+export const Manifest: PackManifest = {
 	name: "honest-mod",
 	version: "0.0.0",
 	description: "Param-only fixture used by determinism e2e. No LLM slots.",
 	dependencies: [],
 	conflictsWith: [],
-	actions: [
+	recipes: [
 		{
 			id: "write",
 			description: "Write a marker file to the project root.",
@@ -16,5 +16,5 @@ export const Manifest: ModuleManifest = {
 			params: [],
 		},
 	],
-	moduleValidators: [],
+	packValidators: [],
 }

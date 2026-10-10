@@ -8,11 +8,11 @@ import type { Hono } from "hono"
 import { type BetterAuthHandle, createBetterAuth } from "../src/auth/better-auth"
 import { createPgPool } from "../src/auth/kysely-db"
 import { ensureOrgPlanColumn } from "../src/auth/plan-limits"
-import { seedBuiltInCatalog, seedCatalogModules } from "../src/catalog/seed"
+import { seedBuiltInCatalog, seedCatalogPacks } from "../src/catalog/seed"
 import { applyAppMigrations } from "../src/db/migrate"
 import { buildApp } from "../src/index"
 import { createFilesystemStorage, type StorageAdapter } from "../src/storage"
-import { TEST_CATALOG_MODULE } from "./test-catalog-module"
+import { TEST_CATALOG_PACK } from "./test-catalog-pack"
 
 /**
  * Test fixture for the catalog read-paths feature.
@@ -82,7 +82,7 @@ export async function buildCatalogTestStack(): Promise<CatalogTestStack> {
 	await ensureOrgPlanColumn(pglite)
 
 	await seedBuiltInCatalog(pglite, "baka")
-	await seedCatalogModules(pglite, "baka", [TEST_CATALOG_MODULE])
+	await seedCatalogPacks(pglite, "baka", [TEST_CATALOG_PACK])
 
 	const app = buildApp({ auth: betterAuth.auth, pglite, officialOrg: "baka", storage })
 

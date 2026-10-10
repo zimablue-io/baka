@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { normalizeParams } from "./params"
-import type { ModuleActionParam, ParamFormat } from "./schemas"
+import type { PackRecipeParam, ParamFormat } from "./schemas"
 
-const SPECS: ModuleActionParam[] = [
+const SPECS: PackRecipeParam[] = [
 	{ name: "name", type: "string", required: true, description: "who" },
 	{ name: "count", type: "number", required: false, description: "how many" },
 	{ name: "loud", type: "boolean", required: false, description: "shout", default: false },
@@ -51,10 +51,10 @@ describe("normalizeParams", () => {
 })
 
 describe("string constraints", () => {
-	const spec = (extra: Partial<ModuleActionParam>): ModuleActionParam[] => [
+	const spec = (extra: Partial<PackRecipeParam>): PackRecipeParam[] => [
 		{ name: "value", type: "string", required: true, description: "v", ...extra },
 	]
-	const accepts = (extra: Partial<ModuleActionParam>, value: string) =>
+	const accepts = (extra: Partial<PackRecipeParam>, value: string) =>
 		normalizeParams(spec(extra), { value }).ok === true
 
 	it("pattern is unanchored unless the author anchors it, like JSON Schema", () => {
@@ -90,7 +90,7 @@ describe("string constraints", () => {
 	}
 
 	it("applies to array items and nested object fields", () => {
-		const specs: ModuleActionParam[] = [
+		const specs: PackRecipeParam[] = [
 			{
 				name: "names",
 				type: "array",

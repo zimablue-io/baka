@@ -1,15 +1,15 @@
-import type { ActionErrorCode } from "@repo/protocol"
+import type { RecipeErrorCode } from "@repo/protocol"
 
 /**
- * A failure with a stable, typed code. `runAction` turns it into an error
+ * A failure with a stable, typed code. `runRecipe` turns it into an error
  * diagnostic whose `rule` is the code, so callers never parse messages.
  */
-export class ActionError extends Error {
+export class RecipeError extends Error {
 	constructor(
-		readonly code: ActionErrorCode,
+		readonly code: RecipeErrorCode,
 		message: string,
 	) {
 		super(message)
-		this.name = "ActionError"
+		this.name = "RecipeError"
 	}
 }

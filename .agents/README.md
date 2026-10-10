@@ -9,7 +9,7 @@ any coding agent, not just one vendor's harness.
 | `rules/evidence-first.md` | Read the real files, cite `file:line`, verify library docs before coding |
 | `rules/typescript.md` | Strict TS, no `as` casts, no `any` escape hatches |
 | `rules/react.md` | React 19 + TanStack Start patterns, hooks, server/client boundary |
-| `rules/nextjs.md` | Next.js claims, checked against current docs when a Next.js module is authored |
+| `rules/nextjs.md` | Next.js claims, checked against current docs when a Next.js pack is authored |
 | `rules/api.md` | API contracts, auth identity resolution, no defaulted required inputs |
 | `rules/error-handling.md` | Let errors propagate, add context with `cause`, never swallow |
 | `rules/testing.md` | Test layout, state isolation, what counts as proof |

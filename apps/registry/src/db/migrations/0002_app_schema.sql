@@ -1,8 +1,8 @@
 -- Registry app schema (architecture §4.3, decision 28 forward-only).
 --
 -- Version: 0002_app_schema
--- Purpose: create the five app tables the registry owns (modules,
--- module_versions, artifacts, screening_results, plan_limits) plus the
+-- Purpose: create the five app tables the registry owns (packs,
+-- pack_versions, artifacts, screening_results, plan_limits) plus the
 -- internal migration tracking table that makes idempotent re-application
 -- safe across boots.
 --
@@ -22,12 +22,12 @@
 --   - jsonb for `manifest`, `static_scan`, `dry_run` so Drizzle can
 --     accept arbitrary structured payloads without round-tripping through
 --     a JSON-string column.
---   - ON DELETE CASCADE for child tables so a hard-removed module cleans
+--   - ON DELETE CASCADE for child tables so a hard-removed pack cleans
 --     up its versions / artifacts / screenings. Tombstones (the deletion
 --     path) use `removed_at` and never delete the row.
 --   - All CREATE TABLE statements use IF NOT EXISTS so a mid-apply crash
---     on a fresh data dir (process killed between, e.g., `modules` and
---     `module_versions`) is recoverable on the next boot: the runner
+--     on a fresh data dir (process killed between, e.g., `packs` and
+--     `pack_versions`) is recoverable on the next boot: the runner
 --     reads the `app_migrations` tracking row, sees 0002 is not yet
 --     applied, re-runs the SQL, and the already-created tables are
 --     skipped rather than failing the boot. The `app_migrations` INSERT
@@ -45,9 +45,9 @@ CREATE TABLE IF NOT EXISTS app_migrations (
 );
 
 -- ---------------------------------------------------------------------------
--- modules (architecture §4.3)
+-- packs (architecture §4.3)
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS modules (
+CREATE TABLE IF NOT EXISTS packs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   scope VARCHAR(64) NOT NULL,
   name VARCHAR(64) NOT NULL,
@@ -58,19 +58,19 @@ CREATE TABLE IF NOT EXISTS modules (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   removed_at TIMESTAMPTZ,
-  CONSTRAINT modules_scope_name_uniq UNIQUE (scope, name),
-  CONSTRAINT modules_visibility_check CHECK (visibility IN ('public', 'org')),
-  CONSTRAINT modules_tier_check CHECK (
+  CONSTRAINT packs_scope_name_uniq UNIQUE (scope, name),
+  CONSTRAINT packs_visibility_check CHECK (visibility IN ('public', 'org')),
+  CONSTRAINT packs_tier_check CHECK (
     tier IN ('official', 'verified', 'community-screened', 'community-unverified')
   )
 );
 
 -- ---------------------------------------------------------------------------
--- module_versions (architecture §4.3)
+-- pack_versions (architecture §4.3)
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS module_versions (
+CREATE TABLE IF NOT EXISTS pack_versions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  module_id UUID NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
+  pack_id UUID NOT NULL REFERENCES packs(id) ON DELETE CASCADE,
   version VARCHAR(64) NOT NULL,
   commit_sha VARCHAR(64) NOT NULL,
   content_hash VARCHAR(64) NOT NULL,
@@ -79,20 +79,20 @@ CREATE TABLE IF NOT EXISTS module_versions (
   error TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT module_versions_module_id_version_uniq UNIQUE (module_id, version),
-  CONSTRAINT module_versions_status_check CHECK (
+  CONSTRAINT pack_versions_pack_id_version_uniq UNIQUE (pack_id, version),
+  CONSTRAINT pack_versions_status_check CHECK (
     status IN ('pending', 'ingesting', 'ready', 'failed')
   )
 );
 
-CREATE INDEX IF NOT EXISTS module_versions_content_hash_idx ON module_versions (content_hash);
+CREATE INDEX IF NOT EXISTS pack_versions_content_hash_idx ON pack_versions (content_hash);
 
 -- ---------------------------------------------------------------------------
 -- artifacts (architecture §4.3)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS artifacts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  version_id UUID NOT NULL REFERENCES module_versions(id) ON DELETE CASCADE,
+  version_id UUID NOT NULL REFERENCES pack_versions(id) ON DELETE CASCADE,
   kind VARCHAR(32) NOT NULL,
   path TEXT NOT NULL,
   size BIGINT NOT NULL,
@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS artifacts (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS screening_results (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  version_id UUID NOT NULL REFERENCES module_versions(id) ON DELETE CASCADE,
+  version_id UUID NOT NULL REFERENCES pack_versions(id) ON DELETE CASCADE,
   verdict VARCHAR(32) NOT NULL,
   static_scan JSONB,
   dry_run JSONB,
@@ -123,7 +123,7 @@ CREATE TABLE IF NOT EXISTS screening_results (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS plan_limits (
   plan VARCHAR(32) PRIMARY KEY,
-  max_private_modules INTEGER NOT NULL,
+  max_private_packs INTEGER NOT NULL,
   max_members INTEGER NOT NULL,
   max_registries INTEGER NOT NULL,
   CONSTRAINT plan_limits_plan_check CHECK (plan IN ('free', 'pro'))
@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS plan_limits (
 -- before the REGISTRY_SEED_PLANS hook (architecture §8 decision 3) can
 -- overwrite them. ON CONFLICT DO NOTHING keeps this idempotent across
 -- migrations and against operator-supplied overrides.
-INSERT INTO plan_limits (plan, max_private_modules, max_members, max_registries)
+INSERT INTO plan_limits (plan, max_private_packs, max_members, max_registries)
 VALUES
   ('free', 5, 3, 1),
   ('pro', 100, 25, 10)

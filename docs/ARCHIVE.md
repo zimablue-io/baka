@@ -16,7 +16,7 @@ successor document. The living documentation surface today is:
 - `README.md` — install, quickstart, architecture overview
 - `docs/PHILOSOPHY.md` — the locked-in design philosophy
 - `docs/AGENT.md` — cross-package agent guide and layer invariants
-- `docs/MODULES.md` — module authoring contract
+- `docs/PACKS.md` — pack authoring contract
 - `docs/CATALOG-FORMAT.md` — marketplace catalog schema
 - `docs/PUBLISHING.md` — release runbook
 

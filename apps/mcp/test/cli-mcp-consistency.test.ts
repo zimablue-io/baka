@@ -13,7 +13,7 @@
 //   VAL-FOUND-042  MCP validation failure is inspectable as a failure
 //                  (isError set + top-level `valid: false`)
 //   VAL-FOUND-058  tools/list has engine + registry tools only
-//                  (no per-action tools; named actions go through `baka run`)
+//                  (no per-recipe tools; named recipes go through `baka run`)
 // ---------------------------------------------------------------------------
 
 import { type ChildProcess, spawn } from "node:child_process"
@@ -31,22 +31,22 @@ import { copyPlatformFixtures } from "../../cli/test/helpers/copy-fixtures"
 const BAKA_REPO = join(__dirname, "..", "..", "..")
 const MCP_DIST_INDEX = join(BAKA_REPO, "apps", "mcp", "dist", "index.js")
 const CLI_DIST_INDEX = join(BAKA_REPO, "apps", "cli", "dist", "index.js")
-// Inline fixture: minimal manifest + a single non-reasoning `write` action.
+// Inline fixture: minimal manifest + a single non-reasoning `write` recipe.
 // Built into the scratch tree (no symlink to a separate fixture dir, no
-// `baka-sdk` import path required) so the loader sees the module just like
-// any other on-disk module.
+// `baka-sdk` import path required) so the loader sees the pack just like
+// any other on-disk pack.
 const HONEST_MOD_NAME = "honest-mod"
 const HONEST_MOD_MANIFEST = `// Inline fixture: see apps/mcp/test/cli-mcp-consistency.test.ts
 // for why this is inlined instead of loaded from a separate fixture file.
-import type { ModuleManifest } from "baka-sdk"
+import type { PackManifest } from "baka-sdk"
 
-export const Manifest: ModuleManifest = {
+export const Manifest: PackManifest = {
 \tname: "${HONEST_MOD_NAME}",
 \tversion: "0.0.0",
 \tdescription: "Inline non-reasoning fixture used by CLI/MCP parity tests.",
 \tdependencies: [],
 \tconflictsWith: [],
-\tactions: [
+\trecipes: [
 \t\t{
 \t\t\tid: "write",
 \t\t\tdescription: "Write a marker file to the project root.",
@@ -56,14 +56,14 @@ export const Manifest: ModuleManifest = {
 \t\t\tparams: [],
 \t\t},
 \t],
-\tmoduleValidators: [],
+\tpackValidators: [],
 }
 `
-const HONEST_MOD_ACTION = `import { rmSync, writeFileSync } from "node:fs"
+const HONEST_MOD_RECIPE = `import { rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { AgentRole, type StepResponse, type WorkflowStep } from "baka-sdk"
 
-export const writeAction: WorkflowStep<Record<string, never>, boolean, { targetDirectory: string }> = {
+export const writeRecipe: WorkflowStep<Record<string, never>, boolean, { targetDirectory: string }> = {
 \tname: "${HONEST_MOD_NAME}.write",
 \trole: AgentRole.WORKER,
 
@@ -86,12 +86,12 @@ export const writeAction: WorkflowStep<Record<string, never>, boolean, { targetD
 \t},
 }
 `
-const SHIPPED_MODULES = ["honest-mod", "slot-mod"] as const
+const SHIPPED_PACKS = ["honest-mod", "slot-mod"] as const
 const ENGINE_TOOLS = [
 	"baka_plan",
 	"baka_apply",
 	"baka_validate",
-	"baka_list_actions",
+	"baka_list_recipes",
 	"baka_run",
 	"baka_slots",
 	"baka_fill",
@@ -307,8 +307,8 @@ function planResponse(): string {
 		resolvedSteps: [
 			{
 				id: "step-1",
-				module: "honest-mod",
-				action: "write",
+				pack: "honest-mod",
+				recipe: "write",
 				params: {},
 			},
 		],
@@ -335,15 +335,15 @@ function makeHome(baseUrl: string): string {
 /** Temp project exposing the honest-mod fixture via the tree scope. */
 function prepareScratchWithHonestMod(prefix: string): string {
 	const scratch = makeEmptyDir(prefix)
-	const modDir = join(scratch, "modules", HONEST_MOD_NAME)
+	const modDir = join(scratch, "packs", HONEST_MOD_NAME)
 	mkdirSync(join(modDir, "write"), { recursive: true })
 	writeFileSync(join(modDir, "manifest.ts"), HONEST_MOD_MANIFEST, "utf-8")
-	writeFileSync(join(modDir, "write", "action.ts"), HONEST_MOD_ACTION, "utf-8")
+	writeFileSync(join(modDir, "write", "recipe.ts"), HONEST_MOD_RECIPE, "utf-8")
 	return scratch
 }
 
 /** Temp project with honest-mod and slot-mod in tree scope. */
-function prepareScratchWithShippedModules(prefix: string): string {
+function prepareScratchWithShippedPacks(prefix: string): string {
 	const scratch = makeEmptyDir(prefix)
 	copyPlatformFixtures(scratch)
 	return scratch
@@ -435,7 +435,7 @@ describe("VAL-FOUND-042 baka_validate failure surface", () => {
 
 		// Failing project: a fixture validator that always fails.
 		const failing = makeEmptyDir("baka-consistency-vfail-")
-		const failMod = join(failing, "modules", "fail-mod")
+		const failMod = join(failing, "packs", "fail-mod")
 		mkdirSync(join(failMod, "noop", "templates"), { recursive: true })
 		writeFileSync(
 			join(failMod, "manifest.ts"),
@@ -445,7 +445,7 @@ describe("VAL-FOUND-042 baka_validate failure surface", () => {
   description: "declares a missing validator so validate fails",
   dependencies: [],
   conflictsWith: [],
-  actions: [{
+  recipes: [{
     id: "noop",
     description: "noop",
     params: [],
@@ -453,7 +453,7 @@ describe("VAL-FOUND-042 baka_validate failure surface", () => {
     filePatterns: [],
     validators: [],
   }],
-  moduleValidators: ["missing-rule"],
+  packValidators: ["missing-rule"],
 }
 `,
 		)
@@ -467,7 +467,7 @@ describe("VAL-FOUND-042 baka_validate failure surface", () => {
 			const result = resp?.result as { isError?: boolean; content: Array<{ type: string; text: string }> }
 			const parsed = JSON.parse(result.content[0].text) as {
 				valid: boolean
-				modulesDiscovered: number
+				packsDiscovered: number
 				validation: { kind: string; diagnostics: unknown[] }
 			}
 			expect(parsed.validation.kind, `expected a failing fixture: ${result.content[0].text}`).toBe("fail")
@@ -480,7 +480,7 @@ describe("VAL-FOUND-042 baka_validate failure surface", () => {
 			await shutdown(failState)
 		}
 
-		// Passing project: an empty tree with no modules has nothing to fail.
+		// Passing project: an empty tree with no packs has nothing to fail.
 		const passing = makeEmptyDir("baka-consistency-vpass-")
 		const passState = spawnMcp(passing, home)
 		try {
@@ -503,12 +503,12 @@ describe("VAL-FOUND-042 baka_validate failure surface", () => {
 })
 
 // ---------------------------------------------------------------------------
-// VAL-FOUND-058  tools/list exposes one tool per action per shipped module
+// VAL-FOUND-058  tools/list exposes one tool per recipe per shipped pack
 // ---------------------------------------------------------------------------
 
-describe("VAL-FOUND-058 MCP has no per-action tools", () => {
-	it("exposes engine + registry tools only; agents run `baka … --json` for named actions", async () => {
-		const scratch = prepareScratchWithShippedModules("baka-consistency-tools-")
+describe("VAL-FOUND-058 MCP has no per-recipe tools", () => {
+	it("exposes engine + registry tools only; agents run `baka … --json` for named recipes", async () => {
+		const scratch = prepareScratchWithShippedPacks("baka-consistency-tools-")
 		const home = makeHome("http://127.0.0.1:1/v1")
 
 		const state = spawnMcp(scratch, home)
@@ -524,15 +524,15 @@ describe("VAL-FOUND-058 MCP has no per-action tools", () => {
 			await shutdown(state)
 		}
 
-		// The engine tools are always present and are not per-action tools.
+		// The engine tools are always present and are not per-recipe tools.
 		for (const engine of ENGINE_TOOLS) {
 			expect(toolNames).toContain(engine)
 		}
 		// Milestone 5 mcp-registry-tools adds three registry
 		// discovery tools (architecture §8 decision 9: MCP has no
-		// install capability). They are NOT per-action tools, so
+		// install capability). They are NOT per-recipe tools, so
 		// they are excluded from the parity check — the CLI's
-		// `baka module list-actions` does not list them. The
+		// `baka pack list-recipes` does not list them. The
 		// `baka_registry_*` prefix is the convention; every new
 		// registry tool must carry that prefix to land in this
 		// exclusion automatically.
@@ -542,11 +542,11 @@ describe("VAL-FOUND-058 MCP has no per-action tools", () => {
 		)
 		expect(leftover).toEqual([])
 
-		for (const mod of SHIPPED_MODULES) {
-			const listed = await runCli(["module", "list-actions", mod, "--json"], { cwd: scratch, home })
-			expect(listed.code, `list-actions ${mod} failed: ${listed.stderr}`).toBe(0)
-			const parsed = JSON.parse(listed.stdout) as { actions: Array<{ id: string }> }
-			expect(parsed.actions.length).toBeGreaterThan(0)
+		for (const mod of SHIPPED_PACKS) {
+			const listed = await runCli(["pack", "list-recipes", mod, "--json"], { cwd: scratch, home })
+			expect(listed.code, `list-recipes ${mod} failed: ${listed.stderr}`).toBe(0)
+			const parsed = JSON.parse(listed.stdout) as { recipes: Array<{ id: string }> }
+			expect(parsed.recipes.length).toBeGreaterThan(0)
 		}
 	}, 60_000)
 })
