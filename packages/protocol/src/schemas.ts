@@ -326,6 +326,7 @@ export const ValidatorRunSchema = z.object({
 	ran: z.boolean(),
 	/** The params the recipe ran with (normalized); empty when `ran` is false. */
 	params: z.record(z.string(), z.unknown()),
+	/** What the recipe's `execute` returned as compensation data (template-only recipes: `{ written }`); null when it did not run. */
 	compensationData: z.unknown(),
 	/** What the recipe's `execute` returned as output; null for template-only recipes and when it did not run. */
 	output: z.unknown(),
@@ -352,6 +353,7 @@ export const OrchestrationStateSchema = z.object({
 	}),
 	logs: z.array(z.string()),
 	artifacts: z.record(z.string(), z.any()).default({}),
+	/** Set for validators only: the recipe run they are judging. */
 	run: ValidatorRunSchema.optional(),
 })
 
