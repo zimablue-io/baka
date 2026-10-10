@@ -1,5 +1,5 @@
 import type { PGlite } from "@electric-sql/pglite"
-import { ModuleManifestSchema } from "@repo/protocol"
+import { PackManifestSchema } from "@repo/protocol"
 import type { betterAuth } from "better-auth"
 import { Hono } from "hono"
 import { resolveIdentity } from "../auth/identity"
@@ -10,15 +10,15 @@ import type { StorageAdapter } from "../storage"
  * Catalog read paths (architecture §4.5, decision 25 / 31).
  *
  * Endpoints (all read-only; all carry `Cache-Control: no-store`):
- *   - GET  /v1/modules                     — full catalog list, optional `?tier=`
- *   - GET  /v1/modules/:scope/:name        — module detail with versions summary
- *   - GET  /v1/modules/:scope/:name/versions — versions list
- *   - GET  /v1/modules/:scope/:name/:version — version detail + manifest + screening
+ *   - GET  /v1/packs                     — full catalog list, optional `?tier=`
+ *   - GET  /v1/packs/:scope/:name        — pack detail with versions summary
+ *   - GET  /v1/packs/:scope/:name/versions — versions list
+ *   - GET  /v1/packs/:scope/:name/:version — version detail + manifest + screening
  *
  * Tiers come from the database `tier` column (server-attached; never
  * self-declared by publishers). The closed set is the four documented
  * values; an unknown tier query returns 400 — never silently returns
- * every module (VAL-PUB-029).
+ * every pack (VAL-PUB-029).
  *
  * Decision 25 (Cache-Control: no-store): the v1 contract is "updates
  * visible immediately" — no TTL hedging. Every response below sets the
@@ -30,11 +30,11 @@ import type { StorageAdapter } from "../storage"
  * createdAt }`) or `null` when the version was never screened. There
  * is no separate screening endpoint.
  *
- * Visibility (VAL-AUTH-003): the catalog list endpoint and the module
- * detail endpoint filter out org-visibility modules for callers who
+ * Visibility (VAL-AUTH-003): the catalog list endpoint and the pack
+ * detail endpoint filter out org-visibility packs for callers who
  * cannot prove org membership. The seeded built-in catalog is all
  * `public`, so the anonymous reads below return the full set. An
- * org-visibility module returns the same 404 as a missing module so
+ * org-visibility pack returns the same 404 as a missing pack so
  * existence is not leaked.
  */
 
@@ -48,16 +48,16 @@ function isCatalogTier(value: string): value is CatalogTier {
 }
 
 /**
- * Response body returned when a caller asks about a module that has
- * been tombstoned via DELETE /v1/modules/:scope/:name (architecture
+ * Response body returned when a caller asks about a pack that has
+ * been tombstoned via DELETE /v1/packs/:scope/:name (architecture
  * §8 decision 1). The body is intentionally distinct from a generic
  * "not found" — the contract demands callers can tell the two cases
  * apart (VAL-PUB-030). The `removedAt` ISO timestamp and the
  * scope/name echo back the identifying information the caller
- * already provided, so a UI can render a "this module was removed
+ * already provided, so a UI can render a "this pack was removed
  * on ..." message without an extra round trip.
  */
-interface RemovedModuleBody {
+interface RemovedPackBody {
 	error: string
 	removed: true
 	scope: string
@@ -65,9 +65,9 @@ interface RemovedModuleBody {
 	removedAt: string
 }
 
-function removedModuleResponse(scope: string, name: string, removedAt: Date, status = 404): Response {
-	const body: RemovedModuleBody = {
-		error: `module '${scope}/${name}' was removed at ${removedAt.toISOString()}`,
+function removedPackResponse(scope: string, name: string, removedAt: Date, status = 404): Response {
+	const body: RemovedPackBody = {
+		error: `pack '${scope}/${name}' was removed at ${removedAt.toISOString()}`,
 		removed: true,
 		scope,
 		name,
@@ -96,12 +96,12 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 	const { auth, pglite, storage } = deps
 	const app = new Hono()
 
-	// GET /v1/modules?tier=...
-	app.get("/v1/modules", async (c) => {
+	// GET /v1/packs?tier=...
+	app.get("/v1/packs", async (c) => {
 		const tierParam = c.req.query("tier")
 		// Decision: an empty string (e.g. `?tier=`) is treated like an
 		// unknown tier — 400 with an honest error. A missing query param
-		// is fine (returns every visible module).
+		// is fine (returns every visible pack).
 		if (tierParam !== undefined) {
 			if (tierParam.length === 0 || !isCatalogTier(tierParam)) {
 				return c.json(
@@ -117,9 +117,9 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 
 		// Visibility filter (VAL-AUTH-003, VAL-PUB-016, registry-core
 		// scrutiny regression): anonymous callers and authenticated
-		// non-members see `visibility='public'` modules only; members
-		// of an org see that org's `visibility='org'` modules too.
-		// Existence is never leaked (an org-visibility module never
+		// non-members see `visibility='public'` packs only; members
+		// of an org see that org's `visibility='org'` packs too.
+		// Existence is never leaked (an org-visibility pack never
 		// appears in the list response when the caller cannot prove
 		// membership — matching the 404 semantics on the detail
 		// endpoint).
@@ -134,15 +134,15 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 				? `AND (m.visibility = 'public' OR m.scope = ANY($${memberParamIndex}::text[]))`
 				: `AND m.visibility = 'public'`
 
-		// The catalog list returns one row per visible module with
+		// The catalog list returns one row per visible pack with
 		// the highest-precedence `ready` version (semver order per
-		// decision 11, NOT insertion order). We fetch the module
+		// decision 11, NOT insertion order). We fetch the pack
 		// metadata + every ready version in one query, then pick the
 		// max semver in JS. The published version is preferred over
 		// pending / failed versions — a freshly failed publish must
 		// never become the latest installable pointer.
 		const sql = `
-			SELECT m.id            AS module_id,
+			SELECT m.id            AS pack_id,
 			       m.scope         AS scope,
 			       m.name          AS name,
 			       m.tier          AS tier,
@@ -150,8 +150,8 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			       m.description   AS description,
 			       v.version       AS version,
 			       v.status        AS status
-			  FROM modules m
-			  LEFT JOIN module_versions v ON v.module_id = m.id AND v.status = 'ready'
+			  FROM packs m
+			  LEFT JOIN pack_versions v ON v.pack_id = m.id AND v.status = 'ready'
 			 WHERE m.removed_at IS NULL
 			   ${tierClause}
 			   ${visibilityClause}
@@ -162,15 +162,15 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		if (effectiveTier) params.push(effectiveTier)
 		if (memberSlugs.length > 0) params.push(memberSlugs)
 
-		const rows = await pglite.query<ModuleSummaryRow>(sql, params)
+		const rows = await pglite.query<PackSummaryRow>(sql, params)
 
-		// Group by module; pick the highest-precedence `ready` version
-		// via `compareSemver`. A module with zero `ready` versions
+		// Group by pack; pick the highest-precedence `ready` version
+		// via `compareSemver`. A pack with zero `ready` versions
 		// (still being ingested, all versions failed) gets a null
-		// latestVersion — the catalog then surfaces the module but
+		// latestVersion — the catalog then surfaces the pack but
 		// without a installable version pointer (the detail endpoint
 		// serves the full version history, including failures).
-		const byModule = new Map<
+		const byPack = new Map<
 			string,
 			{
 				scope: string
@@ -184,7 +184,7 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		>()
 		for (const row of rows.rows) {
 			const key = `${row.scope}/${row.name}`
-			let entry = byModule.get(key)
+			let entry = byPack.get(key)
 			if (entry === undefined) {
 				entry = {
 					scope: row.scope,
@@ -195,7 +195,7 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 					latestVersion: row.version,
 					latestStatus: row.status,
 				}
-				byModule.set(key, entry)
+				byPack.set(key, entry)
 				continue
 			}
 			if (row.version === null) continue
@@ -205,49 +205,49 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			}
 		}
 
-		const modules = Array.from(byModule.values()).sort((a, b) => {
+		const packs = Array.from(byPack.values()).sort((a, b) => {
 			if (a.scope !== b.scope) return a.scope < b.scope ? -1 : 1
 			return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
 		})
 
-		return c.json({ modules }, 200, NO_STORE_HEADERS)
+		return c.json({ packs }, 200, NO_STORE_HEADERS)
 	})
 
-	// GET /v1/modules/:scope/:name
-	app.get("/v1/modules/:scope/:name", async (c) => {
+	// GET /v1/packs/:scope/:name
+	app.get("/v1/packs/:scope/:name", async (c) => {
 		const scope = c.req.param("scope")
 		const name = c.req.param("name")
 
-		const moduleRow = await pglite.query<ModuleRow & { removed_at: Date | null }>(
+		const packRow = await pglite.query<PackRow & { removed_at: Date | null }>(
 			`SELECT id, scope, name, tier, visibility, description, removed_at
-			   FROM modules
+			   FROM packs
 			  WHERE scope = $1 AND name = $2`,
 			[scope, name],
 		)
-		const mod = moduleRow.rows[0]
+		const mod = packRow.rows[0]
 		if (!mod) {
-			// Existence is not leaked for org-private modules (VAL-AUTH-003).
-			return c.json({ error: `module '${scope}/${name}' not found` }, 404, NO_STORE_HEADERS)
+			// Existence is not leaked for org-private packs (VAL-AUTH-003).
+			return c.json({ error: `pack '${scope}/${name}' not found` }, 404, NO_STORE_HEADERS)
 		}
 		// Visibility check runs BEFORE the tombstone branch so an
 		// outsider (unauthenticated or non-member) never learns
-		// that a tombstoned org-visibility module existed. The
+		// that a tombstoned org-visibility pack existed. The
 		// membership gate returns the same uniform 404 as a missing
-		// module; only proven members see the removed-marker body
+		// pack; only proven members see the removed-marker body
 		// further down (VAL-AUTH-019).
 		if (mod.visibility === "org") {
 			// Org-visibility requires the caller to prove org membership
 			// (VAL-AUTH-003: uniform filtering across the read surface).
 			// An outsider — authenticated but not a member — sees the
-			// same 404 as a missing module. Membership is checked via
+			// same 404 as a missing pack. Membership is checked via
 			// the Better-Auth `member` table; any role counts (owner /
 			// admin / member) for visibility.
 			const memberCheck = await checkOrgMembership(pglite, auth, c.req.raw, mod.scope)
 			if (!memberCheck.ok) {
-				return c.json({ error: `module '${scope}/${name}' not found` }, 404, NO_STORE_HEADERS)
+				return c.json({ error: `pack '${scope}/${name}' not found` }, 404, NO_STORE_HEADERS)
 			}
 		}
-		// Tombstone: a removed module is not the same from a missing one
+		// Tombstone: a removed pack is not the same from a missing one
 		// (VAL-PUB-030). The contract demands the removed-marker body
 		// so callers can distinguish "never existed or you cannot see
 		// it" from "existed but was unpublished". Only the read
@@ -255,13 +255,13 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		// reach this branch — outsiders are filtered out before the
 		// existence check above.
 		if (mod.removed_at !== null) {
-			return removedModuleResponse(mod.scope, mod.name, mod.removed_at, 404)
+			return removedPackResponse(mod.scope, mod.name, mod.removed_at, 404)
 		}
 
 		const versions = await pglite.query<VersionSummaryRow>(
 			`SELECT version, status, created_at
-			   FROM module_versions
-			  WHERE module_id = $1
+			   FROM pack_versions
+			  WHERE pack_id = $1
 			  ORDER BY created_at DESC, version DESC`,
 			[mod.id],
 		)
@@ -286,21 +286,21 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		)
 	})
 
-	// GET /v1/modules/:scope/:name/versions
-	app.get("/v1/modules/:scope/:name/versions", async (c) => {
+	// GET /v1/packs/:scope/:name/versions
+	app.get("/v1/packs/:scope/:name/versions", async (c) => {
 		const scope = c.req.param("scope")
 		const name = c.req.param("name")
 
-		const moduleRow = await pglite.query<{
+		const packRow = await pglite.query<{
 			id: string
 			scope: string
 			name: string
 			visibility: string
 			removed_at: Date | null
-		}>(`SELECT id, scope, name, visibility, removed_at FROM modules WHERE scope = $1 AND name = $2`, [scope, name])
-		const mod = moduleRow.rows[0]
+		}>(`SELECT id, scope, name, visibility, removed_at FROM packs WHERE scope = $1 AND name = $2`, [scope, name])
+		const mod = packRow.rows[0]
 		if (!mod) {
-			return c.json({ error: `module '${scope}/${name}' not found` }, 404, NO_STORE_HEADERS)
+			return c.json({ error: `pack '${scope}/${name}' not found` }, 404, NO_STORE_HEADERS)
 		}
 		// Visibility check runs BEFORE the tombstone branch — see
 		// the detail endpoint above. Outsiders never see the
@@ -309,7 +309,7 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		if (mod.visibility === "org") {
 			const memberCheck = await checkOrgMembership(pglite, auth, c.req.raw, mod.scope)
 			if (!memberCheck.ok) {
-				return c.json({ error: `module '${scope}/${name}' not found` }, 404, NO_STORE_HEADERS)
+				return c.json({ error: `pack '${scope}/${name}' not found` }, 404, NO_STORE_HEADERS)
 			}
 		}
 		// Tombstone (VAL-PUB-030): the versions list is hidden too —
@@ -317,13 +317,13 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		// distinct from "never existed". Only callers who cleared
 		// the visibility gate above reach this branch.
 		if (mod.removed_at !== null) {
-			return removedModuleResponse(mod.scope, mod.name, mod.removed_at, 404)
+			return removedPackResponse(mod.scope, mod.name, mod.removed_at, 404)
 		}
 
 		const versions = await pglite.query<VersionRow>(
 			`SELECT version, commit_sha, content_hash, status, error, created_at
-			   FROM module_versions
-			  WHERE module_id = $1
+			   FROM pack_versions
+			  WHERE pack_id = $1
 			  ORDER BY created_at DESC, version DESC`,
 			[mod.id],
 		)
@@ -346,14 +346,14 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		)
 	})
 
-	// GET /v1/modules/:scope/:name/:version
-	app.get("/v1/modules/:scope/:name/:version", async (c) => {
+	// GET /v1/packs/:scope/:name/:version
+	app.get("/v1/packs/:scope/:name/:version", async (c) => {
 		const scope = c.req.param("scope")
 		const name = c.req.param("name")
 		const version = c.req.param("version")
 
 		const row = await pglite.query<VersionDetailRow & { removed_at: Date | null; tier: string }>(
-			`SELECT m.id             AS module_id,
+			`SELECT m.id             AS pack_id,
 			        m.scope          AS scope,
 			        m.name           AS name,
 			        m.visibility     AS visibility,
@@ -372,8 +372,8 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			        s.dry_run        AS screening_dry_run,
 			        s.output_validation AS screening_output_validation,
 			        s.created_at     AS screening_created_at
-			   FROM modules m
-			   JOIN module_versions v ON v.module_id = m.id
+			   FROM packs m
+			   JOIN pack_versions v ON v.pack_id = m.id
 			   LEFT JOIN screening_results s ON s.version_id = v.id
 			  WHERE m.scope = $1
 			    AND m.name = $2
@@ -396,11 +396,11 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		}
 		// Tombstone (VAL-PUB-030): the version detail hides too.
 		// Returning the full detail (manifest, artifacts, screening)
-		// would re-surface pre-removal data on a module the publisher
+		// would re-surface pre-removal data on a pack the publisher
 		// has withdrawn. Only callers who cleared the visibility gate
 		// above reach this branch.
 		if (detail.removed_at !== null) {
-			return removedModuleResponse(detail.scope, detail.name, detail.removed_at, 404)
+			return removedPackResponse(detail.scope, detail.name, detail.removed_at, 404)
 		}
 
 		const artifacts = await pglite.query<ArtifactRow>(
@@ -427,10 +427,10 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 				scope: detail.scope,
 				name: detail.name,
 				// Tier surfaces on every read surface (catalog list,
-				// module detail, version detail) — VAL-SCAN-008
+				// pack detail, version detail) — VAL-SCAN-008
 				// requires the same tier value to appear on all
 				// three, byte-for-byte. The screened version of a
-				// module carries tier=community-screened on every
+				// pack carries tier=community-screened on every
 				// surface; an unverified one carries
 				// tier=community-unverified on every surface.
 				tier: detail.tier,
@@ -455,23 +455,23 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		)
 	})
 
-	// GET /v1/modules/:scope/:name/:version/previews — preview
+	// GET /v1/packs/:scope/:name/:version/previews — preview
 	// artifact list (architecture §4.6 dry-run surface). Returns
-	// the per-action preview records produced by the dry-run layer
+	// the per-recipe preview records produced by the dry-run layer
 	// in screening_previews:
 	//
-	//   - rendered   — the action ran successfully; the response
+	//   - rendered   — the recipe ran successfully; the response
 	//                  carries the file list (path / size / sha256)
-	//                  for each artifact the action produced.
-	//   - needs-llm  — the action declares `requiresReasoning: true`
+	//                  for each artifact the recipe produced.
+	//   - needs-llm  — the recipe declares `requiresReasoning: true`
 	//                  and was not executed; no files.
 	//
 	// The 'failed' and 'timed-out' states are NOT surfaced here —
-	// they appear on the `screening.dry_run.perAction` field of
+	// they appear on the `screening.dry_run.perRecipe` field of
 	// the version-detail endpoint. The previews list is the
 	// "happy path" surface; failures are part of the verdict, not
 	// the catalog.
-	app.get("/v1/modules/:scope/:name/:version/previews", async (c) => {
+	app.get("/v1/packs/:scope/:name/:version/previews", async (c) => {
 		const scope = c.req.param("scope")
 		const name = c.req.param("name")
 		const version = c.req.param("version")
@@ -480,7 +480,7 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		// the version-detail endpoint exactly. A non-member never
 		// learns the version exists via this endpoint; the same
 		// uniform 404 as the detail endpoint applies (VAL-AUTH-003).
-		const moduleRow = await pglite.query<{
+		const packRow = await pglite.query<{
 			visibility: string
 			removed_at: Date | null
 			version_id: string | null
@@ -488,14 +488,14 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			`SELECT m.visibility      AS visibility,
 			        m.removed_at      AS removed_at,
 			        v.id              AS version_id
-			   FROM modules m
-			   LEFT JOIN module_versions v
-			          ON v.module_id = m.id AND v.version = $3
+			   FROM packs m
+			   LEFT JOIN pack_versions v
+			          ON v.pack_id = m.id AND v.version = $3
 			  WHERE m.scope = $1
 			    AND m.name = $2`,
 			[scope, name, version],
 		)
-		const mod = moduleRow.rows[0]
+		const mod = packRow.rows[0]
 		if (!mod) {
 			return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
 		}
@@ -506,29 +506,29 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			}
 		}
 		if (mod.removed_at !== null) {
-			return removedModuleResponse(scope, name, mod.removed_at, 404)
+			return removedPackResponse(scope, name, mod.removed_at, 404)
 		}
 		if (mod.version_id === null) {
 			return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
 		}
 
 		const previews = await pglite.query<{
-			action_id: string
+			recipe_id: string
 			state: string
 			files: Array<{ path: string; size: number; contentHash: string }> | null
 		}>(
-			`SELECT action_id, state, files
+			`SELECT recipe_id, state, files
 			   FROM screening_previews
 			  WHERE version_id = $1
 			    AND state IN ('rendered', 'needs-llm')
-			  ORDER BY action_id`,
+			  ORDER BY recipe_id`,
 			[mod.version_id],
 		)
 
 		return c.json(
 			{
 				previews: previews.rows.map((p) => ({
-					actionId: p.action_id,
+					recipeId: p.recipe_id,
 					state: p.state === "rendered" ? ("rendered" as const) : ("needs-llm" as const),
 					...(p.files
 						? {
@@ -546,39 +546,39 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		)
 	})
 
-	// GET /v1/modules/:scope/:name/:version/previews/:actionId —
-	// single-action preview detail (architecture §4.6 dry-run
+	// GET /v1/packs/:scope/:name/:version/previews/:recipeId —
+	// single-recipe preview detail (architecture §4.6 dry-run
 	// surface, decision 31, VAL-SCAN-004 / 005 / 019).
 	//
-	// The list endpoint above carries the per-action metadata
-	// (action id, state, file list with path / size / sha256); this
+	// The list endpoint above carries the per-recipe metadata
+	// (recipe id, state, file list with path / size / sha256); this
 	// endpoint carries the FILE CONTENTS for the same record so a
 	// landing page can render the rendered code without an extra
 	// indirection.
 	//
 	// Response shapes match the discriminated preview-record state:
 	//
-	//   - `rendered`   — action ran successfully; `files[]` carries
+	//   - `rendered`   — recipe ran successfully; `files[]` carries
 	//                    each path with its bytes + size + sha256.
 	//                    The bytes are fetched from the storage
 	//                    adapter (the `screening_previews.files`
 	//                    row only stores the storage key).
-	//   - `needs-llm`  — `requiresReasoning: true`; the action was
+	//   - `needs-llm`  — `requiresReasoning: true`; the recipe was
 	//                    never executed. The response carries the
 	//                    documented reason verbatim; `files` is
-	//                    absent (the action produced no output).
+	//                    absent (the recipe produced no output).
 	//   - `failed` / `timed-out` — NOT surfaced here; those states
 	//                    are part of the verdict on
-	//                    `screening.dry_run.perAction`. The single-
-	//                    action endpoint returns 404 with an honest
-	//                    error so the caller can tell "this action
-	//                    has no happy-path preview" from "the action
+	//                    `screening.dry_run.perRecipe`. The single-
+	//                    recipe endpoint returns 404 with an honest
+	//                    error so the caller can tell "this recipe
+	//                    has no happy-path preview" from "the recipe
 	//                    does not exist".
 	//
 	// Visibility (VAL-SCAN-019, decision 23): the same uniform
-	// membership gate as the list endpoint. Public modules are
+	// membership gate as the list endpoint. Public packs are
 	// reachable without authentication (the landing site depends on
-	// this). Org-visibility modules require a member credential;
+	// this). Org-visibility packs require a member credential;
 	// outsiders see a uniform 404 (existence not leaked).
 	//
 	// Storage adapter requirement: the endpoint reads the preview
@@ -588,17 +588,17 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 	// 503 — same shape as the tarball download endpoint. Tests
 	// that don't exercise the preview-detail wire path can omit
 	// the storage adapter and rely on the JSON list endpoint.
-	app.get("/v1/modules/:scope/:name/:version/previews/:actionId", async (c) => {
+	app.get("/v1/packs/:scope/:name/:version/previews/:recipeId", async (c) => {
 		const scope = c.req.param("scope")
 		const name = c.req.param("name")
 		const version = c.req.param("version")
-		const actionId = c.req.param("actionId")
+		const recipeId = c.req.param("recipeId")
 
 		// Single JOIN so the visibility / tombstone gates mirror
 		// the list endpoint exactly. A non-member never learns the
 		// version exists via this endpoint; the same uniform 404 as
 		// the list endpoint applies (VAL-AUTH-003).
-		const moduleRow = await pglite.query<{
+		const packRow = await pglite.query<{
 			visibility: string
 			removed_at: Date | null
 			version_id: string | null
@@ -606,14 +606,14 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			`SELECT m.visibility      AS visibility,
 			        m.removed_at      AS removed_at,
 			        v.id              AS version_id
-			   FROM modules m
-			   LEFT JOIN module_versions v
-			          ON v.module_id = m.id AND v.version = $3
+			   FROM packs m
+			   LEFT JOIN pack_versions v
+			          ON v.pack_id = m.id AND v.version = $3
 			  WHERE m.scope = $1
 			    AND m.name = $2`,
 			[scope, name, version],
 		)
-		const mod = moduleRow.rows[0]
+		const mod = packRow.rows[0]
 		if (!mod) {
 			return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
 		}
@@ -624,13 +624,13 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			}
 		}
 		if (mod.removed_at !== null) {
-			return removedModuleResponse(scope, name, mod.removed_at, 404)
+			return removedPackResponse(scope, name, mod.removed_at, 404)
 		}
 		if (mod.version_id === null) {
 			return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
 		}
 
-		// Fetch the per-action preview record. The `files` jsonb
+		// Fetch the per-recipe preview record. The `files` jsonb
 		// column is null for non-rendered states; the storageKey
 		// field on each file row resolves to the actual bytes via
 		// the storage adapter below.
@@ -643,13 +643,13 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			`SELECT state, files, error, timed_out_at
 			   FROM screening_previews
 			  WHERE version_id = $1
-			    AND action_id = $2`,
-			[mod.version_id, actionId],
+			    AND recipe_id = $2`,
+			[mod.version_id, recipeId],
 		)
 		const row = previewRow.rows[0]
 		if (!row) {
 			return c.json(
-				{ error: `no preview record for action '${actionId}' on version '${scope}/${name}@${version}'` },
+				{ error: `no preview record for recipe '${recipeId}' on version '${scope}/${name}@${version}'` },
 				404,
 				NO_STORE_HEADERS,
 			)
@@ -664,9 +664,9 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 				// the pre-existing reasoning-only case unchanged.
 				return c.json(
 					{
-						actionId,
+						recipeId,
 						state: "needs-llm",
-						reason: row.error ?? "action skipped because it requires LLM reasoning",
+						reason: row.error ?? "recipe skipped because it requires LLM reasoning",
 					},
 					200,
 					NO_STORE_HEADERS,
@@ -693,7 +693,7 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 						{
 							error:
 								`preview file '${file.path}' storage key '${file.storageKey}' is missing from storage ` +
-								`for action '${actionId}' on '${scope}/${name}@${version}'; the operator must re-publish`,
+								`for recipe '${recipeId}' on '${scope}/${name}@${version}'; the operator must re-publish`,
 						},
 						500,
 						NO_STORE_HEADERS,
@@ -708,9 +708,9 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			}
 			return c.json(
 				{
-					actionId,
+					recipeId,
 					state: "needs-llm",
-					reason: row.error ?? "action skipped because it requires LLM reasoning",
+					reason: row.error ?? "recipe skipped because it requires LLM reasoning",
 					files: fileContents,
 				},
 				200,
@@ -722,9 +722,9 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			// failed / timed-out: NOT surfaced on this endpoint
 			// (the verdict text on the version-detail endpoint is
 			// the canonical place for failure diagnostics). Return
-			// 404 with the action id so the caller can branch.
+			// 404 with the recipe id so the caller can branch.
 			return c.json(
-				{ error: `preview for action '${actionId}' is not available (state='${row.state}')` },
+				{ error: `preview for recipe '${recipeId}' is not available (state='${row.state}')` },
 				404,
 				NO_STORE_HEADERS,
 			)
@@ -732,12 +732,12 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 
 		const files = row.files ?? []
 		if (files.length === 0) {
-			// Rendered but produced no files — the action's
+			// Rendered but produced no files — the recipe's
 			// `execute()` ran successfully but wrote nothing.
 			// The list endpoint already filters empty-file
 			// rendered rows the same way; this endpoint matches
 			// the same shape with an empty `files` array.
-			return c.json({ actionId, state: "rendered", files: [] }, 200, NO_STORE_HEADERS)
+			return c.json({ recipeId, state: "rendered", files: [] }, 200, NO_STORE_HEADERS)
 		}
 
 		if (storage === undefined) {
@@ -749,20 +749,20 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		// so identical bytes across publishes resolve to the
 		// SAME blob on disk — the determinism invariant that
 		// makes VAL-CROSS-020 hold (no run-to-run variance in the
-		// served preview content for identical module content).
+		// served preview content for identical pack content).
 		const fileContents: Array<{ path: string; content: string; size: number; sha256: string }> = []
 		for (const file of files) {
 			const bytes = await storage.get(file.storageKey)
 			if (bytes === null) {
 				// The metadata row says the blob exists but the
 				// storage adapter cannot find it — surface the
-				// inconsistency honestly (an operator action is
+				// inconsistency honestly (an operator recipe is
 				// needed: re-publish or re-upload).
 				return c.json(
 					{
 						error:
 							`preview file '${file.path}' storage key '${file.storageKey}' is missing from storage ` +
-							`for action '${actionId}' on '${scope}/${name}@${version}'; the operator must re-publish`,
+							`for recipe '${recipeId}' on '${scope}/${name}@${version}'; the operator must re-publish`,
 					},
 					500,
 					NO_STORE_HEADERS,
@@ -776,7 +776,7 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			})
 		}
 
-		return c.json({ actionId, state: "rendered", files: fileContents }, 200, NO_STORE_HEADERS)
+		return c.json({ recipeId, state: "rendered", files: fileContents }, 200, NO_STORE_HEADERS)
 	})
 
 	// GET /v1/download/:scope/:name/:version — tarball download
@@ -784,16 +784,16 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 	//
 	// The endpoint serves the stored tarball artifact for a ready
 	// version. Visibility rules match the detail endpoint exactly:
-	//   - public module + any caller → 200 with the tarball body
-	//   - public module + missing version → 404 (JSON envelope)
-	//   - org-visibility module + non-member → 404 (existence not
-	//     leaked — same envelope as a missing module)
-	//   - org-visibility module + member → 200 with the tarball body
-	//   - any module + version still pending/ingesting → 404 (the
+	//   - public pack + any caller → 200 with the tarball body
+	//   - public pack + missing version → 404 (JSON envelope)
+	//   - org-visibility pack + non-member → 404 (existence not
+	//     leaked — same envelope as a missing pack)
+	//   - org-visibility pack + member → 200 with the tarball body
+	//   - any pack + version still pending/ingesting → 404 (the
 	//     tarball is not yet on disk; we do not surface "still
 	//     ingesting" as a 409 because the contract treats
 	//     not-yet-stored and not-found the same way)
-	//   - any module + version failed → 404 (the failed row exists,
+	//   - any pack + version failed → 404 (the failed row exists,
 	//     but no artifact was written)
 	//
 	// The body's sha256 MUST equal the `content_hash` recorded on
@@ -812,11 +812,11 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			return c.json({ error: `download endpoint unavailable: storage adapter not configured` }, 503, NO_STORE_HEADERS)
 		}
 
-		// Single JOIN: module visibility + version row + tarball
+		// Single JOIN: pack visibility + version row + tarball
 		// artifact. The visibility check below is uniform across all
 		// three branches (public, org-visibility + member, not
 		// found / not yet ready) so a non-member cannot probe for
-		// org-visibility modules via timing differences.
+		// org-visibility packs via timing differences.
 		const row = await pglite.query<{
 			visibility: string
 			removed_at: Date | null
@@ -829,8 +829,8 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			        a.path             AS artifact_path,
 			        a.sha256           AS artifact_sha256,
 			        v.status           AS version_status
-			   FROM modules m
-			   JOIN module_versions v ON v.module_id = m.id
+			   FROM packs m
+			   JOIN pack_versions v ON v.pack_id = m.id
 			   LEFT JOIN artifacts a
 			          ON a.version_id = v.id
 			         AND a.kind = 'tarball'
@@ -847,12 +847,12 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		// the detail endpoint above. Outsiders never see the 410
 		// Gone response for an org-visibility tombstone
 		// (VAL-AUTH-019); they get the same uniform 404 as a
-		// missing module.
+		// missing pack.
 		if (detail.visibility === "org") {
 			// Org-visibility requires the caller to prove org membership
 			// (VAL-AUTH-003: uniform filtering across the read surface).
 			// An outsider — authenticated but not a member — sees the
-			// same 404 as a missing module. Existence is not leaked.
+			// same 404 as a missing pack. Existence is not leaked.
 			const memberCheck = await checkOrgMembership(pglite, auth, c.req.raw, scope)
 			if (!memberCheck.ok) {
 				return c.json({ error: `version '${scope}/${name}@${version}' not found` }, 404, NO_STORE_HEADERS)
@@ -867,7 +867,7 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		// above reach this branch.
 		if (detail.removed_at !== null) {
 			const body: { error: string; removed: true; scope: string; name: string; removedAt: string } = {
-				error: `module '${scope}/${name}' was removed at ${detail.removed_at.toISOString()}; downloads are unavailable`,
+				error: `pack '${scope}/${name}' was removed at ${detail.removed_at.toISOString()}; downloads are unavailable`,
 				removed: true,
 				scope,
 				name,
@@ -891,7 +891,7 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		if (bytes === null) {
 			// The DB says the blob exists but the storage adapter
 			// cannot find it — surface the inconsistency honestly
-			// (an operator action is needed: re-publish or
+			// (an operator recipe is needed: re-publish or
 			// re-upload). A 500 is appropriate here because the
 			// catalog row is in a state the server cannot serve.
 			return c.json(
@@ -918,14 +918,14 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		})
 	})
 
-	// DELETE /v1/modules/:scope/:name — unpublish (architecture §8
+	// DELETE /v1/packs/:scope/:name — unpublish (architecture §8
 	// decision 1, validation contract VAL-PUB-030, VAL-AUTH-018,
 	// VAL-AUTH-016 via the org-deletion guard in org-routes.ts).
 	//
 	// Semantics:
-	//   - tombstone, NOT a hard delete: the module row stays in the
+	//   - tombstone, NOT a hard delete: the pack row stays in the
 	//     DB with `removed_at` set; cascading child rows
-	//     (module_versions, artifacts, screening_results) are
+	//     (pack_versions, artifacts, screening_results) are
 	//     preserved so the post-removal read paths (detail,
 	//     versions-list, version-detail) can return the
 	//     removed-marker body verbatim.
@@ -936,9 +936,9 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 	//     lacks owner/admin role.
 	//   - 403/404 when the caller is not a member of the owning
 	//     org (existence is not leaked — same envelope as a missing
-	//     module on the read surface).
-	//   - 404 when the module does not exist at all.
-	//   - 404 when the module is already tombstoned (re-unpublish
+	//     pack on the read surface).
+	//   - 404 when the pack does not exist at all.
+	//   - 404 when the pack is already tombstoned (re-unpublish
 	//     is a no-op that surfaces a 404, mirroring the read
 	//     surface's removed-marker semantics; the second DELETE is
 	//     idempotent against the row state but not against the
@@ -946,12 +946,12 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 	//     distinct state from "exists").
 	//
 	// Org-deletion guard integration (VAL-AUTH-016): an org that
-	// owns any non-tombstoned modules cannot be deleted. The
+	// owns any non-tombstoned packs cannot be deleted. The
 	// DELETE /v1/orgs/:slug route in `org-routes.ts` enforces the
 	// inverse — tombstones unblock org deletion so a deprecated
-	// org can still be cleaned up after its modules are
+	// org can still be cleaned up after its packs are
 	// unpublished.
-	app.delete("/v1/modules/:scope/:name", async (c) => {
+	app.delete("/v1/packs/:scope/:name", async (c) => {
 		const scope = c.req.param("scope")
 		const name = c.req.param("name")
 
@@ -960,11 +960,11 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			return c.json({ error: "authentication required" }, 401, NO_STORE_HEADERS)
 		}
 
-		// Role enforcement runs BEFORE the module lookup so the
+		// Role enforcement runs BEFORE the pack lookup so the
 		// three states (exists / missing / already-removed) are
 		// indistinguishable to a non-owner/admin (VAL-AUTH-019 /
 		// VAL-AUTH-018). A 403 from a non-owner returns the same
-		// shape regardless of whether the module is missing, ready,
+		// shape regardless of whether the pack is missing, ready,
 		// or tombstoned — the existence/state leak is closed.
 		const memberRow = await pglite.query<{ role: string }>(
 			`SELECT role
@@ -984,7 +984,7 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			)
 		}
 
-		// Once the role gate has passed, look up the module row
+		// Once the role gate has passed, look up the pack row
 		// WITHOUT the removed_at filter so we can distinguish
 		// "exists, not removed" (process the DELETE), "exists,
 		// already removed" (return 404), and "does not exist"
@@ -992,15 +992,15 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 		// removed differ so the owner can tell the two apart, but
 		// neither leaks the timestamp to a caller who has not
 		// proven owner/admin membership.
-		const moduleRow = await pglite.query<{ id: string; removed_at: Date | null }>(
+		const packRow = await pglite.query<{ id: string; removed_at: Date | null }>(
 			`SELECT id, removed_at
-			   FROM modules
+			   FROM packs
 			  WHERE scope = $1 AND name = $2`,
 			[scope, name],
 		)
-		const mod = moduleRow.rows[0]
+		const mod = packRow.rows[0]
 		if (!mod) {
-			return c.json({ error: `module '${scope}/${name}' not found` }, 404, NO_STORE_HEADERS)
+			return c.json({ error: `pack '${scope}/${name}' not found` }, 404, NO_STORE_HEADERS)
 		}
 		if (mod.removed_at !== null) {
 			// Already tombstoned. The tombstone marker is the
@@ -1008,39 +1008,39 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 			// surfaces 404 with the same envelope as the detail
 			// endpoint so callers can tell "you cannot unpublish
 			// twice" from "you cannot unpublish a never-published
-			// module".
+			// pack".
 			return c.json(
-				{ error: `module '${scope}/${name}' was already removed at ${mod.removed_at.toISOString()}` },
+				{ error: `pack '${scope}/${name}' was already removed at ${mod.removed_at.toISOString()}` },
 				404,
 				NO_STORE_HEADERS,
 			)
 		}
 
 		// Tombstone: set removed_at on the row. The child rows
-		// (module_versions, artifacts, screening_results) stay in
+		// (pack_versions, artifacts, screening_results) stay in
 		// place so the read surface's removed-marker responses
 		// remain honest. Artifacts in STORAGE_DIR are not purged
 		// in v1 (decision 1: "no purge of artifacts in v1").
-		await pglite.query(`UPDATE modules SET removed_at = NOW(), updated_at = NOW() WHERE id = $1`, [mod.id])
+		await pglite.query(`UPDATE packs SET removed_at = NOW(), updated_at = NOW() WHERE id = $1`, [mod.id])
 
 		return new Response(null, { status: 204, headers: { "cache-control": "no-store" } })
 	})
 
-	// DELETE /v1/modules/:scope/:name/:version — version-level
+	// DELETE /v1/packs/:scope/:name/:version — version-level
 	// removal is NOT supported (architecture §8 decision 1,
 	// VAL-PUB-031). The response is a 4xx (the validator accepts
 	// 404 or 405) whose body names the unsupported operation
 	// explicitly. The version continues to be served exactly as
 	// before — this handler does not touch any row.
-	app.delete("/v1/modules/:scope/:name/:version", async (c) => {
+	app.delete("/v1/packs/:scope/:name/:version", async (c) => {
 		const scope = c.req.param("scope")
 		const name = c.req.param("name")
 		const version = c.req.param("version")
 		return c.json(
 			{
 				error:
-					`version-level removal is not supported; DELETE the module scope instead ` +
-					`(decision 1: tombstone '${scope}/${name}' via DELETE /v1/modules/${scope}/${name})`,
+					`version-level removal is not supported; DELETE the pack scope instead ` +
+					`(decision 1: tombstone '${scope}/${name}' via DELETE /v1/packs/${scope}/${name})`,
 				scope,
 				name,
 				version,
@@ -1059,8 +1059,8 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono {
 // parsed values).
 // ---------------------------------------------------------------------------
 
-interface ModuleSummaryRow {
-	module_id: string
+interface PackSummaryRow {
+	pack_id: string
 	scope: string
 	name: string
 	tier: string
@@ -1070,7 +1070,7 @@ interface ModuleSummaryRow {
 	status: string | null
 }
 
-interface ModuleRow {
+interface PackRow {
 	id: string
 	scope: string
 	name: string
@@ -1095,7 +1095,7 @@ interface VersionRow {
 }
 
 interface VersionDetailRow {
-	module_id: string
+	pack_id: string
 	scope: string
 	name: string
 	visibility: string
@@ -1118,14 +1118,14 @@ interface VersionDetailRow {
 /**
  * Strips the publish endpoint's private `_publish` payload from the
  * served manifest and applies the protocol schema defaults. The
- * publish endpoint persists `repo`, `modulePath`, and `publishedAt`
+ * publish endpoint persists `repo`, `packPath`, and `publishedAt`
  * under a `_publish` key so the ingest worker can re-clone without a
  * dedicated column. The catalog surfaces MUST NOT expose those fields
- * (they are operator metadata, not module contract).
+ * (they are operator metadata, not pack contract).
  *
- * The function also re-runs `ModuleManifestSchema.parse` so every
+ * The function also re-runs `PackManifestSchema.parse` so every
  * schema-defaulted field (`filePatterns`, `validators`,
- * `dependencies`, `conflictsWith`, `moduleValidators`, ...) is
+ * `dependencies`, `conflictsWith`, `packValidators`, ...) is
  * guaranteed to appear in the served JSON, even when the stored row
  * was written by an older publish path that did not apply defaults.
  * The contract (VAL-PUB-004) demands "no fields dropped, renamed,
@@ -1145,7 +1145,7 @@ function stripPrivatePublishKeys(manifest: unknown): unknown {
 	if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest)) {
 		return manifest
 	}
-	const parsed = ModuleManifestSchema.safeParse(manifest)
+	const parsed = PackManifestSchema.safeParse(manifest)
 	if (parsed.success) {
 		const { _publish: _omit, ...rest } = parsed.data as Record<string, unknown> & { _publish?: unknown }
 		return rest
@@ -1195,7 +1195,7 @@ async function loadMemberSlugs(pglite: PGlite, userId: string): Promise<string[]
  * `{ ok: false }` otherwise (anonymous, authenticated but not a
  * member, or the org does not exist).
  *
- * Used by every read endpoint that gates an org-visibility module
+ * Used by every read endpoint that gates an org-visibility pack
  * (VAL-AUTH-003: uniform visibility filtering across the read surface).
  * The detail / version-detail / download endpoints all defer to this
  * helper so the membership check is identical at every callsite —

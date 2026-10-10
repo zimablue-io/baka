@@ -3,7 +3,7 @@
 // These probes spawn the BUILT CLI (`apps/cli/dist/index.js`) as a
 // subprocess against a live seed-publishing-server. The probes exercise
 // CLI parsing, error rendering, and config wiring — anything that needs
-// the full CLI binary rather than the install module's exported
+// the full CLI binary rather than the install pack's exported
 // functions (covered by `install-unit.test.ts`).
 //
 // End-to-end install/uninstall round-trips against a real registry are

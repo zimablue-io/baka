@@ -12,11 +12,18 @@ file and is injected automatically on session start.
 See `.agents/rules/` for the canonical rules. This file only adds
 project-specific constraints that don't yet deserve a full rule file.
 
-- **2026-08-26: The usable project is `demo/`.** Modules live in
-  the consumer tree (`demo/modules/`): `vite-app`, `vite-theme`,
+- **2026-08-26: The usable project is `demo/`.** Packs live in
+  the consumer tree (`demo/packs/`): `vite-app`, `vite-theme`,
   `vite-page`. They write a Vite + TypeScript app. Dashboard
   project folder = absolute path to `demo/`. Do not restore
   deleted first-party catalog packs.
+  **2026-10-10 exception, deliberate:** `packs/starter/` is the one
+  pack that ships inside the install (CLI and MCP `dist/packs/`). It is a
+  small, model-free set of everyday recipes (`add-readme`, `add-gitignore`,
+  ...) so the first run works with no setup. It is searched after every
+  other scope, so a project or user pack of the same name replaces it, and
+  it is absent when `--packs-dir` / `BAKA_PACK_DIRS` is given. Anything
+  larger belongs on the hub, not here.
 
 - **2026-08-25: Do not nibble-rename catalog tests.** If a suite
   still encodes a deleted catalog pack (`scaffold`, bundled
@@ -64,9 +71,9 @@ project-specific constraints that don't yet deserve a full rule file.
 
 ## Past Decisions
 
-- 2026-08-25: Slot-native templates. Files are Handlebars with named `{{#slot}}` holes; `gemma4:e4b` (served id `gemma4-e4b`, alias `gemma4:e4b`) is the intelligence floor. Hono `apps/engine` is the tool SSOT (`app.request()`, no CLI daemon). Planner is demoted. MCP has no per-action tools. Spec: `docs/superpowers/specs/2026-08-25-slot-native-templates.md`.
+- 2026-08-25: Slot-native templates. Files are Handlebars with named `{{#slot}}` holes; `gemma4:e4b` (served id `gemma4-e4b`, alias `gemma4:e4b`) is the intelligence floor. Hono `apps/engine` is the tool SSOT (`app.request()`, no CLI daemon). Planner is demoted. MCP has no per-recipe tools. Spec: `docs/superpowers/specs/2026-08-25-slot-native-templates.md`.
 
-- 2026-08-25: `POST /v1/run` sets `validate: false`. Named run writes the tree; `baka validate` / `POST /v1/validate` is the separate gate. Default `runNamedAction` still validates, which pulls structural diagnostics from every discovered module (including broken `$BAKA_HOME` marketplace copies).
+- 2026-08-25: `POST /v1/run` sets `validate: false`. Named run writes the tree; `baka validate` / `POST /v1/validate` is the separate gate. Default `runNamedRecipe` still validates, which pulls structural diagnostics from every discovered pack (including broken `$BAKA_HOME` marketplace copies).
 
 - 2026-08-25: `baka serve` CORS allows `localhost` / `127.0.0.1` origins so the dashboard (TanStack Start at `127.0.0.1:1420`) can call `http://127.0.0.1:4311`. CLI `app.request()` is same-origin and does not need that header.
 
@@ -74,9 +81,9 @@ project-specific constraints that don't yet deserve a full rule file.
 
 - 2026-08-25: Baka is one app. The user listed three surfaces (agent CLI, human desktop, marketplace), never "three products". That phrase was assistant-invented plan titling. Do not use it.
 
-- 2026-08-25: Desktop job (user): run experiments, manage modules, nice GUI, for humans, show the templating system. Shipped "baka lab" (JSON, N× hashes, kebab ids) is wrong. Clicking a module does not even load that action's param schema.
+- 2026-08-25: Desktop job (user): run experiments, manage packs, nice GUI, for humans, show the templating system. Shipped "baka lab" (JSON, N× hashes, kebab ids) is wrong. Clicking a pack does not even load that recipe's param schema.
 
-- 2026-08-25: Baka is a module **platform**. First-party example modules (baka-base, sdd, ts-style) are deleted, not the product. Next.js is a future module, not the architecture. Bundled discovery no longer walks the git repo into every package.json cwd. Desktop lists whatever is installed in the chosen project. Tests use tiny fixtures. A CLI happy-path e2e is one test among many, not a branded "pretend-user" product.
+- 2026-08-25: Baka is a pack **platform**. First-party example packs (baka-base, sdd, ts-style) are deleted, not the product. Next.js is a future pack, not the architecture. Bundled discovery no longer walks the git repo into every package.json cwd. Desktop lists whatever is installed in the chosen project. Tests use tiny fixtures. A CLI happy-path e2e is one test among many, not a branded "pretend-user" product.
 
 - 2026-08-25: Do not invent product names ("three products", "pretend-user CLI flow"). Say what the code does.
 

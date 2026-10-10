@@ -1,9 +1,9 @@
 import { z } from "zod"
-import { ACTION_ERROR_CODES, ENGINE_STATUS } from "./constants"
+import { ENGINE_STATUS, RECIPE_ERROR_CODES } from "./constants"
 import { AgentRole } from "./types"
 
 // ---------------------------------------------------------------------------
-// Module manifest
+// Pack manifest
 // ---------------------------------------------------------------------------
 
 /**
@@ -42,7 +42,7 @@ export interface ParamTypeNode {
 	enumValues?: string[]
 	default?: unknown
 	items?: ParamTypeNode
-	properties?: ModuleActionParam[]
+	properties?: PackRecipeParam[]
 	/** `string` only: a regular expression the value must match (unanchored, as in JSON Schema; anchor it with `^` and `$`). */
 	pattern?: string
 	/** `string` only: minimum length in UTF-16 code units. */
@@ -53,7 +53,7 @@ export interface ParamTypeNode {
 	format?: ParamFormat
 }
 
-export interface ModuleActionParam extends ParamTypeNode {
+export interface PackRecipeParam extends ParamTypeNode {
 	name: string
 	required: boolean
 	description: string
@@ -64,7 +64,7 @@ const ParamTypeNodeShape = {
 	enumValues: z.array(z.string()).optional(), // required when type === "enum"
 	default: z.unknown().optional(),
 	items: z.lazy((): z.ZodType<ParamTypeNode> => ParamTypeNodeSchema).optional(), // required when type === "array"
-	properties: z.lazy((): z.ZodType<ModuleActionParam[]> => z.array(ModuleActionParamSchema)).optional(), // required when type === "object"
+	properties: z.lazy((): z.ZodType<PackRecipeParam[]> => z.array(PackRecipeParamSchema)).optional(), // required when type === "object"
 	pattern: z.string().optional(), // string only
 	minLength: z.number().int().nonnegative().optional(), // string only
 	maxLength: z.number().int().nonnegative().optional(), // string only
@@ -111,7 +111,7 @@ export const ParamTypeNodeSchema: z.ZodType<ParamTypeNode> = z
 	.object({ ...ParamTypeNodeShape, description: z.string().optional() })
 	.superRefine(checkParamNode)
 
-export const ModuleActionParamSchema: z.ZodType<ModuleActionParam> = z
+export const PackRecipeParamSchema: z.ZodType<PackRecipeParam> = z
 	.object({
 		...ParamTypeNodeShape,
 		name: z.string().min(1),
@@ -160,10 +160,10 @@ function paramNodeToZod(node: ParamTypeNode): z.ZodType {
 }
 
 /**
- * The strict Zod object for an action's declared params. A param is optional
+ * The strict Zod object for a recipe's declared params. A param is optional
  * unless it is `required` (and has no default); undeclared keys are rejected.
  */
-export function paramsToZod(params: readonly ModuleActionParam[]): z.ZodObject<z.ZodRawShape> {
+export function paramsToZod(params: readonly PackRecipeParam[]): z.ZodObject<z.ZodRawShape> {
 	const shape: Record<string, z.ZodType> = {}
 	for (const param of params) {
 		const field = paramNodeToZod(param)
@@ -173,17 +173,17 @@ export function paramsToZod(params: readonly ModuleActionParam[]): z.ZodObject<z
 	return z.object(shape).strict()
 }
 
-export const ModuleActionSchema = z.object({
+export const PackRecipeSchema = z.object({
 	id: z.string().min(1),
 	description: z.string(),
-	params: z.array(ModuleActionParamSchema).superRefine((params, ctx) => {
+	params: z.array(PackRecipeParamSchema).superRefine((params, ctx) => {
 		const seen = new Set<string>()
 		params.forEach((param, index) => {
 			if (param.name === "data") {
 				ctx.addIssue({
 					code: "custom",
 					path: [index, "name"],
-					message: 'the param name "data" is reserved: templates and action.ts read the module\'s data files as `data`',
+					message: 'the param name "data" is reserved: templates and recipe.ts read the pack\'s data files as `data`',
 				})
 			}
 			if (seen.has(param.name))
@@ -196,26 +196,26 @@ export const ModuleActionSchema = z.object({
 	filePatterns: z.array(z.string()).default([]),
 	validators: z.array(z.string()).default([]),
 	/**
-	 * An action with an `action.ts` can be dry-run only if it says so here: it
+	 * A recipe with a `recipe.ts` can be dry-run only if it says so here: it
 	 * then promises to write solely through `ctx.files` while `ctx.dryRun` is
 	 * true (Baka checks the tree is unchanged afterwards). Template-only
-	 * actions are always dry-runnable and ignore this.
+	 * recipes are always dry-runnable and ignore this.
 	 */
 	supportsDryRun: z.boolean().optional(),
 	/**
-	 * How `baka validate` (which runs no action) recognises that this action's
+	 * How `baka validate` (which runs no recipe) recognises that this recipe's
 	 * output is present: glob patterns relative to the project root (`*` within
 	 * a segment, `**` across segments, `?`). When any file matches, the
-	 * action's validators run with `state.run.ran === false`. Without a
-	 * marker the action's validators run only after the action itself ran.
+	 * recipe's validators run with `state.run.ran === false`. Without a
+	 * marker the recipe's validators run only after the recipe itself ran.
 	 */
 	marker: z.array(z.string().min(1)).optional(),
 	/**
-	 * A command that formats this action's generated files, run by Baka only
-	 * when the caller asks (`runAction({ format: true })`, `baka run --format`)
+	 * A command that formats this recipe's generated files, run by Baka only
+	 * when the caller asks (`runRecipe({ format: true })`, `baka run --format`)
 	 * and by the caller itself otherwise. `{files}` in `args` expands to the
 	 * files the run created or updated (project-relative, one argument each);
-	 * without it they are appended. See docs/MODULES.md, "Formatting generated output".
+	 * without it they are appended. See docs/PACKS.md, "Formatting generated output".
 	 */
 	format: z
 		.object({
@@ -225,7 +225,7 @@ export const ModuleActionSchema = z.object({
 		.optional(),
 	/**
 	 * Optional toolchain the registry should run against the
-	 * dry-run output for this action. Today only `tsc` is
+	 * dry-run output for this recipe. Today only `tsc` is
 	 * declarable (architecture §4.6 layer 3); the closed set is
 	 * a deliberate cap so the registry can stay honest about
 	 * what tools it runs and how their failures are surfaced.
@@ -253,14 +253,14 @@ export const SlotFillSchema = z.object({
 	value: z.union([z.string(), z.array(z.string()), z.record(z.string(), z.unknown())]),
 })
 
-export const ModuleManifestSchema = z.object({
+export const PackManifestSchema = z.object({
 	name: z.string().min(1),
 	version: z.string().min(1),
 	description: z.string().default(""),
 	dependencies: z.array(z.string()).default([]),
 	conflictsWith: z.array(z.string()).default([]),
-	actions: z.array(ModuleActionSchema).min(1),
-	moduleValidators: z.array(z.string()).default([]),
+	recipes: z.array(PackRecipeSchema).min(1),
+	packValidators: z.array(z.string()).default([]),
 })
 
 // ---------------------------------------------------------------------------
@@ -269,8 +269,8 @@ export const ModuleManifestSchema = z.object({
 
 export const ResolvedPlanStepSchema = z.object({
 	id: z.string(),
-	module: z.string(),
-	action: z.string(),
+	pack: z.string(),
+	recipe: z.string(),
 	params: z.record(z.string(), z.any()),
 })
 
@@ -282,9 +282,9 @@ export const ResolvedPlanSchema = z.object({
  * What happened to one path.
  * - `create`: the file did not exist and was written.
  * - `update`: the file existed with other content and was rewritten.
- * - `delete`: the file existed before and is gone after (side-effect actions only).
- * - `unchanged`: the file already held exactly the bytes the action would write.
- * - `skip`: the file exists with other content and the action left it alone.
+ * - `delete`: the file existed before and is gone after (side-effect recipes only).
+ * - `unchanged`: the file already held exactly the bytes the recipe would write.
+ * - `skip`: the file exists with other content and the recipe left it alone.
  */
 export const ChangeOpSchema = z.enum(["create", "update", "delete", "unchanged", "skip"])
 
@@ -294,7 +294,7 @@ export const ChangesetEntrySchema = z.object({
 	/** Project-relative POSIX path. */
 	path: z.string(),
 	op: ChangeOpSchema,
-	/** sha256 (lowercase hex) of the file's bytes after the action; null for `delete`. */
+	/** sha256 (lowercase hex) of the file's bytes after the recipe; null for `delete`. */
 	contentHash: z.string().nullable(),
 	/** Why nothing was written: `identical` for `unchanged`, `already-exists` for `skip`. */
 	reason: ChangeReasonSchema.optional(),
@@ -308,31 +308,30 @@ export const ChangesetEntrySchema = z.object({
 		.string()
 		.regex(/^[0-7]{4}$/)
 		.optional(),
-	/** The file's UTF-8 text after the action. Only present when the caller asked for content, and never for `delete` or `skip`. */
+	/** The file's UTF-8 text after the recipe. Only present when the caller asked for content, and never for `delete` or `skip`. */
 	content: z.string().optional(),
 })
 
 /**
- * The run a validator is judging, set on `state.run` (see docs/MODULES.md,
- * "Validators"). `ran` says whether the action ran in this invocation:
- * true after `runAction` (or an apply step), false when `baka validate`
- * found the action's output through its manifest `marker` (then `params`
+ * The run a validator is judging, set on `state.run` (see docs/PACKS.md,
+ * "Validators"). `ran` says whether the recipe ran in this invocation:
+ * true after `runRecipe` (or an apply step), false when `baka validate`
+ * found the recipe's output through its manifest `marker` (then `params`
  * is empty, `compensationData` and `output` are null, and `detected` lists
  * the paths the marker matched).
  */
 export const ValidatorRunSchema = z.object({
-	module: z.string(),
-	action: z.string(),
+	pack: z.string(),
+	recipe: z.string(),
 	ran: z.boolean(),
-	/** The params the action ran with (normalized); empty when `ran` is false. */
+	/** The params the recipe ran with (normalized); empty when `ran` is false. */
 	params: z.record(z.string(), z.unknown()),
-	/** What the action's `execute` returned as compensation data (template-only actions: `{ written }`); null when it did not run. */
 	compensationData: z.unknown(),
-	/** What the action's `execute` returned as output; null for template-only actions and when it did not run. */
+	/** What the recipe's `execute` returned as output; null for template-only recipes and when it did not run. */
 	output: z.unknown(),
-	/** The run's changeset; empty when the action did not run. */
+	/** The run's changeset; empty when the recipe did not run. */
 	changeset: z.array(ChangesetEntrySchema),
-	/** When `ran` is false: the project paths the action's `marker` matched. */
+	/** When `ran` is false: the project paths the recipe's `marker` matched. */
 	detected: z.array(z.string()).optional(),
 })
 
@@ -343,8 +342,8 @@ export const ValidatorRunSchema = z.object({
 export const OrchestrationStateSchema = z.object({
 	userIntent: z.string(),
 	targetDirectory: z.string(),
-	/** The directories modules are drawn from, when the caller set them (`--modules-dir`, `BAKA_MODULE_DIRS`); absent means the default discovery. */
-	moduleDirs: z.array(z.string()).optional(),
+	/** The directories packs are drawn from, when the caller set them (`--packs-dir`, `BAKA_PACK_DIRS`); absent means the default discovery. */
+	packDirs: z.array(z.string()).optional(),
 	status: z.enum(ENGINE_STATUS),
 	currentRole: z.enum(AgentRole).optional(),
 	executionPlan: z.object({
@@ -353,27 +352,26 @@ export const OrchestrationStateSchema = z.object({
 	}),
 	logs: z.array(z.string()),
 	artifacts: z.record(z.string(), z.any()).default({}),
-	/** Set for validators only: the action run they are judging. */
 	run: ValidatorRunSchema.optional(),
 })
 
 // ---------------------------------------------------------------------------
-// Action result (the receipt `runAction` returns; also the CLI/MCP/HTTP `--json` shape)
+// Recipe result (the receipt `runRecipe` returns; also the CLI/MCP/HTTP `--json` shape)
 // ---------------------------------------------------------------------------
 
-export const ActionErrorCodeSchema = z.enum(ACTION_ERROR_CODES)
+export const RecipeErrorCodeSchema = z.enum(RECIPE_ERROR_CODES)
 
 export const ValidationDiagnosticSchema = z.object({
 	severity: z.enum(["error", "warning"]),
-	/** The validator's own rule id; for a failed run, an ActionErrorCode. */
+	/** The validator's own rule id; for a failed run, an RecipeErrorCode. */
 	rule: z.string(),
 	message: z.string(),
 	file: z.string().optional(),
 	hint: z.string().optional(),
-	/** Which validator produced it: `<module>:<id>` (module-level) or `<module>.<action>:<id>` (action-level). Absent for engine diagnostics. */
+	/** Which validator produced it: `<pack>:<id>` (pack-level) or `<pack>.<recipe>:<id>` (recipe-level). Absent for engine diagnostics. */
 	validator: z.string().optional(),
-	/** The module a discovery (structural) diagnostic is about. */
-	module: z.string().optional(),
+	/** The pack a discovery (structural) diagnostic is about. */
+	pack: z.string().optional(),
 })
 
 export const SlotRecordSchema = z.object({
@@ -392,15 +390,15 @@ export const SlotRecordSchema = z.object({
 	 * replay has both for a slot, the record taken against exactly these params wins.
 	 */
 	match: z.enum(["params", "template"]).optional(),
-	/** The model that produced the value (`manual` for a pinned fill). */
+	/** The model that produced the value (`manual` for a pinned fill, `supplied` for a value the caller passed in). */
 	model: z.string(),
 	value: SlotFillSchema.shape.value,
-	source: z.enum(["llm", "cache", "replay"]),
+	source: z.enum(["llm", "cache", "replay", "supplied"]),
 })
 
 /**
  * How slot values are obtained.
- * - `live` (default): the slot cache first, then the model; fresh fills are cached.
+ * - `live` (default): values the caller supplies, then the slot cache, then the model; fresh model fills are cached.
  * - `record`: always ask the model (the cache is not read) and cache the fills.
  * - `replay`: use only the supplied records. A slot without a matching record is a
  *   hard error and no model call is ever made.
@@ -419,9 +417,21 @@ export const SlotsInputSchema = z.object({
 	mode: SlotModeSchema,
 	/** The records `replay` draws from; ignored by the other modes. */
 	records: z.array(SlotRecordSchema).optional(),
+	/**
+	 * Fills the caller supplies for this call, by slot id. They win over the cache and the
+	 * model, are never cached, and need no model at all; an id the recipe does not declare
+	 * fails the run with `slot-unknown`. Ignored by `replay`.
+	 */
+	values: z.record(z.string(), z.unknown()).optional(),
 })
 
-export const ActionCompensationSchema = z.object({
+/** A slot a run could not fill because no value, cached fill or model was available: what a caller must supply. */
+export const OpenSlotSchema = SlotDeclSchema.extend({
+	/** The `key` a `match: "template"` slot record for this slot must carry. */
+	templateKey: z.string(),
+})
+
+export const RecipeCompensationSchema = z.object({
 	/** Paths this run created; compensation deletes them. */
 	created: z.array(z.string()),
 	/** Directories this run created, in creation order; compensation removes them (deepest first) once empty. */
@@ -435,40 +445,69 @@ export const ActionCompensationSchema = z.object({
 			mode: z.string().optional(),
 		}),
 	),
-	/** What the action's own `execute` returned as compensation data; handed back to its `compensate`. */
-	actionData: z.unknown(),
+	/** What the recipe's own `execute` returned as compensation data; handed back to its `compensate`. */
+	recipeData: z.unknown(),
 })
 
-/** A module as a run used it: its manifest name and version, and a hash of its files. */
-export const ModulePinSchema = z.object({
+/** A pack as a run used it: its manifest name and version, and a hash of its files. */
+export const PackPinSchema = z.object({
 	id: z.string(),
 	version: z.string(),
-	/** sha256 (lowercase hex) over the module's canonical file list; see docs/MODULES.md. */
+	/** sha256 (lowercase hex) over the pack's canonical file list; see docs/PACKS.md. */
 	contentHash: z.string(),
 })
 
-/** `baka.lock.json`: the pins a project insists on, keyed by module id. */
+/** `baka.lock.json`: the pins a project insists on, keyed by pack id. */
 export const BakaLockSchema = z.object({
 	lockfileVersion: z.literal(1),
-	modules: z.record(z.string(), z.object({ version: z.string(), contentHash: z.string() })),
+	packs: z.record(z.string(), z.object({ version: z.string(), contentHash: z.string() })),
 })
 
-export const ActionResultSchema = z.object({
+export const RecipeResultSchema = z.object({
+	/** The id of this document in the published contract (docs/CONTRACT.md). */
+	schema: z.literal("baka.receipt/1"),
 	ok: z.boolean(),
-	module: z.string(),
-	action: z.string(),
+	pack: z.string(),
+	recipe: z.string(),
 	/** The params the run used: the declared defaults applied and scalars coerced. The input as given when they did not validate. */
 	params: z.record(z.string(), z.unknown()),
-	/** Error diagnostics (a failed run carries one whose `rule` is an ActionErrorCode) plus validator output, warnings included. */
+	/** Error diagnostics (a failed run carries one whose `rule` is an RecipeErrorCode) plus validator output, warnings included. */
 	diagnostics: z.array(ValidationDiagnosticSchema),
 	changeset: z.array(ChangesetEntrySchema),
-	/** sha256 over the canonical (path, contentHash) list of the changeset; see docs/MODULES.md. */
+	/** sha256 over the canonical (path, contentHash) list of the changeset; see docs/PACKS.md. */
 	outputTreeHash: z.string(),
-	/** The module this run used, as resolved. Empty when the module could not be resolved. */
-	pins: z.array(ModulePinSchema),
+	/** The pack this run used, as resolved. Empty when the pack could not be resolved. */
+	pins: z.array(PackPinSchema),
 	slots: z.array(SlotRecordSchema),
-	compensation: ActionCompensationSchema,
-	/** What the action's `execute` returned (side-effect actions); null for template-only actions. */
+	/** Present only when the run failed with `slots-open`: every slot that still needs a value. Pass them back as `slots.values`. */
+	openSlots: z.array(OpenSlotSchema).optional(),
+	compensation: RecipeCompensationSchema,
+	/** What the recipe's `execute` returned (side-effect recipes); null for template-only recipes. */
 	output: z.unknown(),
 	dryRun: z.boolean(),
+})
+
+/**
+ * A model chosen for one call, instead of the user's stored config. Nothing here is remembered.
+ * The key is never on a command line: name the environment variable that holds it (`apiKeyEnv`),
+ * or pass `apiKey` over a channel you trust (a process environment, a bearer-authenticated request).
+ */
+export const LlmCallSchema = z.object({
+	baseUrl: z.string().min(1).optional(),
+	model: z.string().min(1).optional(),
+	apiKey: z.string().min(1).optional(),
+	apiKeyEnv: z.string().min(1).optional(),
+	temperature: z.number().optional(),
+	maxTokens: z.number().int().positive().optional(),
+	timeoutMs: z.number().int().positive().optional(),
+	seed: z.number().int().optional(),
+})
+
+/** What every failure that is not a run receipt looks like, over HTTP and from `--json` commands. */
+export const ApiErrorSchema = z.object({
+	error: z.object({
+		code: z.string().min(1),
+		message: z.string(),
+		hint: z.string().optional(),
+	}),
 })

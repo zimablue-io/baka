@@ -19,9 +19,9 @@
  * so a vanilla boot produces:
  *
  *   - empty production built-in catalog (tests may insert a `hello`
- *     fixture via seedCatalogModules; built-in modules bypass screening
+ *     fixture via seedCatalogPacks; built-in packs bypass screening
  *     and serve screening=null)
- *   - one public community module on a non-bundled scope that
+ *   - one public community pack on a non-bundled scope that
  *     passed through the real publish → ingest → screening pipeline
  *     with both preview states (rendered + needs-llm-with-sentinel)
  *     AND a real downloadable tarball
@@ -45,7 +45,7 @@
  *                        into the org; "0" leaves the org owner-only
  *                        (plan-limit member tests need headroom).
  *   REGISTRY_SEED_PLANS  passed through to applySeedPlans at every boot.
- *   REGISTRY_VERIFIED_MODULES  passed through to applyVerifiedModules at
+ *   REGISTRY_VERIFIED_PACKS  passed through to applyVerifiedPacks at
  *                        every boot (SEED=0 restarts included), mirroring
  *                        the production boot path in src/server.ts — a
  *                        validator publishes first, then restarts with the
@@ -53,7 +53,7 @@
  *                        (VAL-SCAN-010).
  *   REGISTRY_API_KEY_RATE_LIMIT  "off" recommended (seeded keys are
  *                        hammered during validation).
- *   SCREEN_DRYRUN_TIMEOUT_MS  forwarded to the worker's per-action dry-run
+ *   SCREEN_DRYRUN_TIMEOUT_MS  forwarded to the worker's per-recipe dry-run
  *                        timeout (architecture §8 decision 6, VAL-SCAN-013).
  *                        Unset keeps the 60s default.
  *   WORKER_DISABLED      "1" boots without the polling worker (rows
@@ -72,15 +72,15 @@ import { type BetterAuthHandle, createBetterAuth } from "../src/auth/better-auth
 import { createPgPool } from "../src/auth/kysely-db"
 import { ensureOfficialOrg } from "../src/auth/official-org"
 import { applySeedPlans, ensureOrgPlanColumn } from "../src/auth/plan-limits"
-import { seedBuiltInCatalog, seedCatalogModules } from "../src/catalog/seed"
+import { seedBuiltInCatalog, seedCatalogPacks } from "../src/catalog/seed"
 import { applyAppMigrations } from "../src/db/migrate"
 import { buildApp } from "../src/index"
-import { applyVerifiedModules } from "../src/screening/tier-assignment"
+import { applyVerifiedPacks } from "../src/screening/tier-assignment"
 import { createFilesystemStorage, type StorageAdapter } from "../src/storage"
 import { createInMemoryEnqueuer } from "../src/worker/enqueue"
 import { startWorker, type WorkerHandle } from "../src/worker/runner"
 import { createGitFixture, type GitFixture } from "./git-fixture"
-import { TEST_CATALOG_MODULE } from "./test-catalog-module"
+import { TEST_CATALOG_PACK } from "./test-catalog-pack"
 
 interface SeededUser {
 	userId: string
@@ -207,16 +207,16 @@ async function bootSeedPublishingServer(opts: {
 	await applySeedPlans(pglite, process.env.REGISTRY_SEED_PLANS)
 	const officialOrg = opts.officialOrg ?? "baka"
 	await seedBuiltInCatalog(pglite, officialOrg)
-	await seedCatalogModules(pglite, officialOrg, [TEST_CATALOG_MODULE])
+	await seedCatalogPacks(pglite, officialOrg, [TEST_CATALOG_PACK])
 	// Mirrors src/server.ts: the verified-tier seeder runs at every
 	// boot, after the built-in catalog seed, and never refuses to
 	// boot on a malformed entry.
-	const verifiedResult = await applyVerifiedModules(pglite, process.env.REGISTRY_VERIFIED_MODULES)
+	const verifiedResult = await applyVerifiedPacks(pglite, process.env.REGISTRY_VERIFIED_PACKS)
 	if (verifiedResult.applied > 0) {
-		process.stdout.write(`seed-publishing-server: pinned ${verifiedResult.applied} module(s) to the verified tier\n`)
+		process.stdout.write(`seed-publishing-server: pinned ${verifiedResult.applied} pack(s) to the verified tier\n`)
 	}
 	for (const failure of verifiedResult.failures) {
-		process.stdout.write(`seed-publishing-server: WARNING REGISTRY_VERIFIED_MODULES entry invalid: ${failure.error}\n`)
+		process.stdout.write(`seed-publishing-server: WARNING REGISTRY_VERIFIED_PACKS entry invalid: ${failure.error}\n`)
 	}
 
 	const storage = createFilesystemStorage(storageDir)
@@ -433,9 +433,9 @@ function extractSessionCookie(setCookie: string): string {
 }
 
 /**
- * The fixture module the seed publishes through the real pipeline.
+ * The fixture pack the seed publishes through the real pipeline.
  *
- * The module exercises BOTH preview states:
+ * The pack exercises BOTH preview states:
  *   - `greet` (non-reasoning) → sandboxed dry-run writes
  *     `greeting.txt` and the registry records a `rendered` preview.
  *   - `plan-feature` (`requiresReasoning: true`) → the registry's
@@ -443,7 +443,7 @@ function extractSessionCookie(setCookie: string): string {
  *     template and surfaces the rendered bytes alongside the
  *     `needs-llm` state.
  *
- * The action bodies are deliberately minimal so the static capability
+ * The recipe bodies are deliberately minimal so the static capability
  * scan (layer 1) passes without surprises: `greet` imports
  * `node:fs` (allowlisted) and writes a single file inside its declared
  * `filePatterns`; `plan-feature` exports an empty default so no
@@ -456,11 +456,11 @@ function extractSessionCookie(setCookie: string): string {
  * runs end-to-end and the catalog surfaces the `community-screened`
  * tier badge on every read surface.
  */
-const FIXTURE_MODULE_NAME = "screened-fixture"
-const FIXTURE_MODULE_TAG = "v1.0.0"
-const FIXTURE_MODULE_VERSION = "1.0.0"
+const FIXTURE_PACK_NAME = "screened-fixture"
+const FIXTURE_PACK_TAG = "v1.0.0"
+const FIXTURE_PACK_VERSION = "1.0.0"
 
-const FIXTURE_NON_REASONING_ACTION_SOURCE = `import { writeFileSync } from "node:fs"
+const FIXTURE_NON_REASONING_RECIPE_SOURCE = `import { writeFileSync } from "node:fs"
 export default {
   name: "greet",
   role: 1,
@@ -474,7 +474,7 @@ export default {
 }
 `
 
-const FIXTURE_REASONING_ACTION_SOURCE = `export default {
+const FIXTURE_REASONING_RECIPE_SOURCE = `export default {
   name: "plan-feature",
   role: 1,
   async execute() {
@@ -492,7 +492,7 @@ This is a static welcome template from the baka community fixture.
 It is shipped with the \`{{!-- no-llm --}}\` sentinel so the registry
 renders it without invoking an LLM at apply time.
 
-Reasoning actions still require an LLM at apply time; this preview
+Reasoning recipes still require an LLM at apply time; this preview
 shows the deterministic template render the LLM would otherwise
 fill in.
 `
@@ -548,13 +548,13 @@ export async function seedCommunityScreenedFixture(opts: {
 		content_hash: string
 	}>(
 		`SELECT mv.id, mv.status, m.tier, mv.commit_sha, mv.content_hash
-		   FROM module_versions mv
-		   JOIN modules m ON m.id = mv.module_id
+		   FROM pack_versions mv
+		   JOIN packs m ON m.id = mv.pack_id
 		  WHERE m.scope = $1
 		    AND m.name = $2
 		    AND mv.version = $3
 		    AND m.removed_at IS NULL`,
-		[orgSlug, FIXTURE_MODULE_NAME, FIXTURE_MODULE_TAG],
+		[orgSlug, FIXTURE_PACK_NAME, FIXTURE_PACK_TAG],
 	)
 	const prior = existing.rows[0]
 	if (prior) {
@@ -566,8 +566,8 @@ export async function seedCommunityScreenedFixture(opts: {
 		const terminalStatus: "ready" | "failed" = prior.status === "ready" ? "ready" : "failed"
 		return {
 			scope: orgSlug,
-			name: FIXTURE_MODULE_NAME,
-			version: FIXTURE_MODULE_TAG,
+			name: FIXTURE_PACK_NAME,
+			version: FIXTURE_PACK_TAG,
 			versionId: prior.id,
 			status: terminalStatus,
 			tier: prior.tier,
@@ -578,25 +578,25 @@ export async function seedCommunityScreenedFixture(opts: {
 	// Materialize the fixture's bare git repo (the working tree
 	// + commit + tag the publish endpoint will clone at).
 	await git.commitManifest({
-		name: `@${orgSlug}/${FIXTURE_MODULE_NAME}`,
-		version: FIXTURE_MODULE_VERSION,
-		tag: FIXTURE_MODULE_TAG,
-		modulePath: "",
+		name: `@${orgSlug}/${FIXTURE_PACK_NAME}`,
+		version: FIXTURE_PACK_VERSION,
+		tag: FIXTURE_PACK_TAG,
+		packPath: "",
 		description: "Community-screened fixture for landing-detail preview states (client-integration).",
-		actions: [
+		recipes: [
 			{
 				id: "greet",
 				description: "Write a greeting file (non-reasoning, rendered preview).",
 				filePatterns: ["greeting.txt"],
 				requiresReasoning: false,
-				body: FIXTURE_NON_REASONING_ACTION_SOURCE,
+				body: FIXTURE_NON_REASONING_RECIPE_SOURCE,
 			},
 			{
 				id: "plan-feature",
 				description: "Plan a new feature (requires LLM, sentinel-rendered preview).",
 				filePatterns: [],
 				requiresReasoning: true,
-				body: FIXTURE_REASONING_ACTION_SOURCE,
+				body: FIXTURE_REASONING_RECIPE_SOURCE,
 			},
 		],
 		extras: [{ path: "plan-feature/templates/welcome.hbs", content: FIXTURE_SENTINEL_TEMPLATE }],
@@ -611,7 +611,7 @@ export async function seedCommunityScreenedFixture(opts: {
 		headers: { "x-api-key": ownerKey },
 		body: JSON.stringify({
 			repo: git.bareUrl,
-			tag: FIXTURE_MODULE_TAG,
+			tag: FIXTURE_PACK_TAG,
 			org: orgSlug,
 			visibility: "public",
 		}),
@@ -628,8 +628,8 @@ export async function seedCommunityScreenedFixture(opts: {
 	while (Date.now() < deadline) {
 		const row = await pglite.query<{ status: string; tier: string }>(
 			`SELECT mv.status, m.tier
-			   FROM module_versions mv
-			   JOIN modules m ON m.id = mv.module_id
+			   FROM pack_versions mv
+			   JOIN packs m ON m.id = mv.pack_id
 			  WHERE mv.id = $1`,
 			[body.versionId],
 		)
@@ -637,8 +637,8 @@ export async function seedCommunityScreenedFixture(opts: {
 		if (r && (r.status === "ready" || r.status === "failed")) {
 			return {
 				scope: orgSlug,
-				name: FIXTURE_MODULE_NAME,
-				version: FIXTURE_MODULE_TAG,
+				name: FIXTURE_PACK_NAME,
+				version: FIXTURE_PACK_TAG,
 				versionId: body.versionId,
 				status: r.status,
 				tier: r.tier,
@@ -653,8 +653,8 @@ export async function seedCommunityScreenedFixture(opts: {
 	// observe it via the catalog).
 	return {
 		scope: orgSlug,
-		name: FIXTURE_MODULE_NAME,
-		version: FIXTURE_MODULE_TAG,
+		name: FIXTURE_PACK_NAME,
+		version: FIXTURE_PACK_TAG,
 		versionId: body.versionId,
 		status: "failed",
 		tier: null,

@@ -1,10 +1,32 @@
 # Contributing to baka
 
-Thanks for your interest in contributing. Baka is a deterministic module-action engine for LLM-assisted development, and contributions of all sizes are welcome.
+Thanks for your interest in contributing. Baka is a deterministic pack-recipe engine for LLM-assisted development, and contributions of all sizes are welcome.
 
 ## Code of conduct
 
 This project follows the [Contributor Covenant](./CODE_OF_CONDUCT.md). By participating, you agree to its terms.
+
+## Contributor License Agreement
+
+> Draft text, awaiting legal review before the first public release.
+
+Baka is open source under the [Apache License 2.0](./LICENSE), and the owner also sells paid options built around it (see [COMMERCIAL.md](./COMMERCIAL.md)). So that the owner can license every contribution both ways, each outside contribution comes under this agreement. It is the same for every contributor and is needed from the first one.
+
+By submitting a contribution (a pull request, a patch, or anything else sent for inclusion), you, the contributor, agree that:
+
+1. **You wrote it, or may submit it.** The contribution is your original work, or you have the right to submit it under these terms, and your employer, if any, does not object.
+2. **Copyright license.** You grant Zima Blue (the owner) and everyone who receives Baka a perpetual, worldwide, non-exclusive, royalty-free, irrevocable license to reproduce, prepare derivative works of, publicly display, publicly perform, sublicense and distribute your contribution and such derivative works.
+3. **Relicensing.** You also agree that the owner may license your contribution under any other terms, including commercial terms and a different open-source license, for any version of Baka or of its paid options. You keep the copyright in your contribution.
+4. **Patent license.** You grant the owner and every recipient a perpetual, worldwide, non-exclusive, royalty-free, irrevocable patent license to make, use, sell, offer to sell, import and otherwise transfer your contribution, limited to the patent claims you can license that are necessarily infringed by it alone or with the work it was submitted to.
+5. **No warranty.** You provide the contribution as is, with no warranty or obligation to support it.
+
+To agree, put this line in the description of every pull request, unchanged:
+
+```
+I have read and agree to the Contributor License Agreement in CONTRIBUTING.md.
+```
+
+The `CLA` check on pull requests fails until the line is there. Authors listed in `.github/cla-exempt.txt` (the owner and automation) do not need it.
 
 ## Reporting security issues
 
@@ -40,22 +62,22 @@ The postinstall hook builds the `baka` CLI. After install you can invoke it with
 | `pnpm format` | Run Biome's auto-formatter (`biome format --write .`) |
 | `pnpm knip` | Run the strict unused file, export, and dependency gate |
 | `pnpm baka plan "<intent>"` | Plan a feature using the engine |
-| `pnpm baka scaffold <module>` | Scaffold a new module |
+| `pnpm baka scaffold <pack>` | Scaffold a new pack |
 
 ## Project layout
 
 - `apps/cli` — the `baka` binary
 - `apps/mcp` — the `baka-mcp` MCP server
-- `apps/registry` — the self-hostable OSS module registry (the public hub)
+- `apps/registry` — the self-hostable OSS pack registry (the public hub)
 - `apps/landing` — the marketing site
 - `packages/protocol` — single source of truth for types and schemas
 - `packages/agent-engine` — the only package that knows what an `LLMProvider` is
 - `packages/ast-tooling` — file/AST operations
-- `packages/core` — `@baka/core`, the published embeddable library (runAction, validate, describeModules)
-- `packages/baka-sdk` — public SDK for module authors
+- `packages/core` — `@baka/core`, the published embeddable library (runRecipe, validate, describePacks)
+- `packages/baka-sdk` — public SDK for pack authors
 - `packages/typescript-config` — shared TypeScript configs
 - `workflows/` — engine orchestration for this project
-- `modules/` — user-defined patterns (action-centric layout)
+- `packs/` — user-defined patterns (recipe-centric layout)
 
 The provider boundary is enforced: only `packages/agent-engine` may import a provider, HTTP client, or model name. See `docs/PHILOSOPHY.md` for the full invariant.
 
@@ -76,7 +98,7 @@ The provider boundary is enforced: only `packages/agent-engine` may import a pro
 5. **Fill out the PR template.** Include the rationale, the test plan, and a link to the tracking issue.
 6. **CI must be green before merge.** Every PR runs lint, type-check, test, build,
    pack, Knip, and the smoke step (linked-binary probe of `baka` and `baka-mcp`) on
-   GitHub Actions. A failing CI run blocks merge: do not bypass the required
+   GitHub Recipes. A failing CI run blocks merge: do not bypass the required
    status checks or push commits that skip the workflow. The PR template
    mirrors CI; reviewers will wait for it. If a CI failure is unrelated to your
    change, fix the underlying cause in a separate PR rather than merging a red
@@ -104,15 +126,15 @@ Common types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `build`, `ci`.
 - Add tests for new behavior. Bug fixes include a regression test.
 - Do not bypass the provider boundary. The grep test in `docs/PHILOSOPHY.md` must pass.
 
-## Adding a new module
+## Adding a new pack
 
-Modules are action-centric. Author one with the double-diamond flow:
+Packs are recipe-centric. Author one with the double-diamond flow:
 
 ```bash
-pnpm baka module create <name>
+pnpm baka pack create <name>
 ```
 
-The CLI handles manifest, actions, validators, templates, and `PREFERENCES.md`. Hand-writing manifests is discouraged — the design tool enforces a 5x consistency test before delivery.
+The CLI handles manifest, recipes, validators, templates, and `PREFERENCES.md`. Hand-writing manifests is discouraged — the design tool enforces a 5x consistency test before delivery.
 
 ## License
 

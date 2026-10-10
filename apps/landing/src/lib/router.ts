@@ -5,7 +5,7 @@ import { useSyncExternalStore } from "react"
  *
  * The landing is a single-route SPA; we only need two locations:
  *   - `/`                     — the landing page (hero + catalog + ...)
- *   - `/modules/:scope/:name` — the module detail page
+ *   - `/packs/:scope/:name` — the pack detail page
  *
  * We deliberately avoid `react-router` here: the route surface is
  * small, the existing app does not depend on it, and the assertion
@@ -117,13 +117,13 @@ export function useLocation(): RouterLocation {
 	return useSyncExternalStore(subscribeLocation, getLocation, getLocation)
 }
 
-interface ModuleMatch {
+interface PackMatch {
 	readonly scope: string
 	readonly name: string
 }
 
 /**
- * Matches `/modules/:scope/:name` against a pathname. Trailing slash
+ * Matches `/packs/:scope/:name` against a pathname. Trailing slash
  * is tolerated. Returns `null` when the path does not match — the
  * caller falls back to the landing page.
  */
@@ -131,8 +131,8 @@ export function matchResults(pathname: string): boolean {
 	return pathname === "/results" || pathname === "/results/"
 }
 
-export function matchModuleDetail(pathname: string): ModuleMatch | null {
-	const match = pathname.match(/^\/modules\/([^/]+)\/([^/]+)\/?$/)
+export function matchPackDetail(pathname: string): PackMatch | null {
+	const match = pathname.match(/^\/packs\/([^/]+)\/([^/]+)\/?$/)
 	if (match === null) return null
 	const [, scopeRaw, nameRaw] = match
 	if (scopeRaw === undefined || nameRaw === undefined) return null

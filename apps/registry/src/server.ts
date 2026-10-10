@@ -9,7 +9,7 @@ import type { RegistryConfig } from "./config"
 import { createDatabase, type DatabaseHandle } from "./db/client"
 import { buildApp } from "./index"
 import { ensureSchemaVersion } from "./schema-version"
-import { applyVerifiedModules } from "./screening/tier-assignment"
+import { applyVerifiedPacks } from "./screening/tier-assignment"
 import { createFilesystemStorage, type StorageAdapter } from "./storage"
 import { createInMemoryEnqueuer, type IngestEnqueuer } from "./worker/enqueue"
 import { startWorker, type WorkerHandle } from "./worker/runner"
@@ -34,7 +34,7 @@ import { bootSweepIngestingRows } from "./worker/sweep"
  *      mid-ingest must not strand a version).
  *   7. Start the in-process polling worker (architecture §4.5,
  *      embedded in the same process for self-host simplicity). The
- *      worker reads `module_versions.status='pending'` directly via
+ *      worker reads `pack_versions.status='pending'` directly via
  *      `FOR UPDATE SKIP LOCKED` (decision 35; the enqueue seam is a
  *      hint, not the discovery mechanism).
  *   8. Build the Hono app with auth + pglite + enqueuer wired in, and
@@ -113,7 +113,7 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 		// the Better-Auth organization plugin's `beforeCreateInvitation`
 		// and `beforeAcceptInvitation` callbacks. They share the same
 		// `checkPlanLimit()` seam the publish route uses for
-		// `max_private_modules` and emit the same body shape (so the
+		// `max_private_packs` and emit the same body shape (so the
 		// api-key surface is honestly the same family of failures
 		// whether the rejection came from publish or from the org
 		// flow). The hooks need read access to the `member` and
@@ -153,25 +153,25 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 	})
 
 	// Seed the built-in catalog (architecture §2 / §4.5, decision 17).
-	// Production `BUILT_IN_CATALOG` is empty until a module is productized.
-	// Tests insert a tiny fixture via `seedCatalogModules`.
+	// Production `BUILT_IN_CATALOG` is empty until a pack is productized.
+	// Tests insert a tiny fixture via `seedCatalogPacks`.
 	await seedBuiltInCatalog(database.pglite, config.officialOrg)
 
-	// Apply the verified-modules env (architecture §8 decision 20,
+	// Apply the verified-packs env (architecture §8 decision 20,
 	// VAL-SCAN-010). A JSON array of `scope/name` strings; the
-	// seeder pins each entry's module to the `verified` tier.
+	// seeder pins each entry's pack to the `verified` tier.
 	// Runs AFTER the built-in catalog so the operator can override
 	// a built-in's tier (e.g. a registry operator who wants
-	// an official module to show as `verified`).
+	// an official pack to show as `verified`).
 	// The seeder is idempotent; failures (malformed JSON, invalid
 	// entry shape) are logged but never refuse to boot — a typo
 	// in the env must not wedge the registry.
-	const verifiedResult = await applyVerifiedModules(database.pglite, config.verifiedModules)
+	const verifiedResult = await applyVerifiedPacks(database.pglite, config.verifiedPacks)
 	if (verifiedResult.applied > 0) {
-		process.stdout.write(`baka-registry: pinned ${verifiedResult.applied} module(s) to the verified tier\n`)
+		process.stdout.write(`baka-registry: pinned ${verifiedResult.applied} pack(s) to the verified tier\n`)
 	}
 	for (const failure of verifiedResult.failures) {
-		process.stdout.write(`baka-registry: WARNING REGISTRY_VERIFIED_MODULES entry invalid: ${failure.error}\n`)
+		process.stdout.write(`baka-registry: WARNING REGISTRY_VERIFIED_PACKS entry invalid: ${failure.error}\n`)
 	}
 
 	// Surface the official-org bootstrap outcome so the operator log
@@ -250,7 +250,7 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 			// registry converges within the ceiling without any
 			// env configuration.
 			sweepThresholdMs: config.ingestStaleMs,
-			// Per-action dry-run timeout (architecture §8 decision 6).
+			// Per-recipe dry-run timeout (architecture §8 decision 6).
 			// Wired through to the worker so the operator knob
 			// `SCREEN_DRYRUN_TIMEOUT_MS` is a first-class input to
 			// the ingest pipeline rather than an implicit env read
@@ -260,7 +260,7 @@ export async function startServer(config: RegistryConfig): Promise<ServerHandle>
 			screenDryRunTimeoutMs: config.screenDryRunTimeoutMs,
 		})
 		// The polling worker discovers rows directly from
-		// `module_versions`; the publish endpoint still records the
+		// `pack_versions`; the publish endpoint still records the
 		// enqueue (in-memory, since there's no separate job queue) so
 		// tests that count enqueues keep working.
 	}

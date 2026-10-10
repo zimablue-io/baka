@@ -1,19 +1,19 @@
 // Contract tests for the protocol zod schemas. These schemas are the wire
-// contract between the orchestrator, the worker, the CLI, and module authors
+// contract between the orchestrator, the worker, the CLI, and pack authors
 // (via baka-sdk). The tests pin the shapes every consumer relies on:
 //   - which fields are required vs defaulted
 //   - which values enums accept and reject
 //   - that parsed output carries the documented defaults
 // A schema change that breaks one of these tests is a breaking protocol
-// change for the CLI, the MCP server, and every installed module.
+// change for the CLI, the MCP server, and every installed pack.
 
 import { describe, expect, it } from "vitest"
 import { ENGINE_STATUS } from "./constants"
 import {
-	ModuleActionParamSchema,
-	ModuleActionSchema,
-	ModuleManifestSchema,
 	OrchestrationStateSchema,
+	PackManifestSchema,
+	PackRecipeParamSchema,
+	PackRecipeSchema,
 	ResolvedPlanSchema,
 	ResolvedPlanStepSchema,
 	SlotDeclSchema,
@@ -22,10 +22,10 @@ import {
 } from "./schemas"
 import { AgentRole } from "./types"
 
-describe("ModuleActionParamSchema", () => {
+describe("PackRecipeParamSchema", () => {
 	it("accepts a fully-specified param of every supported type", () => {
 		for (const type of ["string", "boolean", "number", "enum"] as const) {
-			const parsed = ModuleActionParamSchema.parse({
+			const parsed = PackRecipeParamSchema.parse({
 				name: "name",
 				type,
 				required: true,
@@ -38,7 +38,7 @@ describe("ModuleActionParamSchema", () => {
 
 	it("rejects a param type outside the supported set", () => {
 		expect(
-			ModuleActionParamSchema.safeParse({
+			PackRecipeParamSchema.safeParse({
 				name: "name",
 				type: "date",
 				required: true,
@@ -49,16 +49,16 @@ describe("ModuleActionParamSchema", () => {
 
 	it("rejects an empty param name", () => {
 		expect(
-			ModuleActionParamSchema.safeParse({ name: "", type: "string", required: false, description: "x" }).success,
+			PackRecipeParamSchema.safeParse({ name: "", type: "string", required: false, description: "x" }).success,
 		).toBe(false)
 	})
 })
 
-describe("ModuleActionParamSchema string constraints", () => {
+describe("PackRecipeParamSchema string constraints", () => {
 	const base = { name: "p", required: true, description: "d" }
 
 	it("accepts pattern, minLength, maxLength, and a named format on a string", () => {
-		const parsed = ModuleActionParamSchema.safeParse({
+		const parsed = PackRecipeParamSchema.safeParse({
 			...base,
 			type: "string",
 			pattern: "^a",
@@ -71,20 +71,18 @@ describe("ModuleActionParamSchema string constraints", () => {
 
 	it("rejects them on any other type", () => {
 		for (const extra of [{ pattern: "a" }, { minLength: 1 }, { maxLength: 1 }, { format: "slug" }]) {
-			expect(ModuleActionParamSchema.safeParse({ ...base, type: "number", ...extra }).success).toBe(false)
+			expect(PackRecipeParamSchema.safeParse({ ...base, type: "number", ...extra }).success).toBe(false)
 		}
 	})
 
 	it("rejects an invalid regular expression, an unknown format, and min greater than max", () => {
-		expect(ModuleActionParamSchema.safeParse({ ...base, type: "string", pattern: "(" }).success).toBe(false)
-		expect(ModuleActionParamSchema.safeParse({ ...base, type: "string", format: "email" }).success).toBe(false)
-		expect(ModuleActionParamSchema.safeParse({ ...base, type: "string", minLength: 3, maxLength: 2 }).success).toBe(
-			false,
-		)
+		expect(PackRecipeParamSchema.safeParse({ ...base, type: "string", pattern: "(" }).success).toBe(false)
+		expect(PackRecipeParamSchema.safeParse({ ...base, type: "string", format: "email" }).success).toBe(false)
+		expect(PackRecipeParamSchema.safeParse({ ...base, type: "string", minLength: 3, maxLength: 2 }).success).toBe(false)
 	})
 
 	it("rejects a default that violates the constraints", () => {
-		const parsed = ModuleActionParamSchema.safeParse({
+		const parsed = PackRecipeParamSchema.safeParse({
 			...base,
 			required: false,
 			type: "string",
@@ -95,16 +93,16 @@ describe("ModuleActionParamSchema string constraints", () => {
 	})
 })
 
-describe("ModuleActionSchema", () => {
+describe("PackRecipeSchema", () => {
 	it("applies the documented defaults for requiresReasoning, filePatterns, and validators", () => {
-		const parsed = ModuleActionSchema.parse({ id: "scaffold", description: "scaffold a project", params: [] })
+		const parsed = PackRecipeSchema.parse({ id: "scaffold", description: "scaffold a project", params: [] })
 		expect(parsed.requiresReasoning).toBe(false)
 		expect(parsed.filePatterns).toEqual([])
 		expect(parsed.validators).toEqual([])
 	})
 
 	it("preserves explicit reasoning and compensation declarations", () => {
-		const parsed = ModuleActionSchema.parse({
+		const parsed = PackRecipeSchema.parse({
 			id: "init-constitution",
 			description: "generate a constitution",
 			params: [],
@@ -120,7 +118,7 @@ describe("ModuleActionSchema", () => {
 	})
 
 	it("accepts an explicit `toolchain: 'tsc'` declaration (screening layer 3)", () => {
-		const parsed = ModuleActionSchema.parse({
+		const parsed = PackRecipeSchema.parse({
 			id: "scaffold",
 			description: "scaffold a TS project",
 			params: [],
@@ -132,7 +130,7 @@ describe("ModuleActionSchema", () => {
 
 	it("rejects a toolchain value outside the declared closed set", () => {
 		expect(
-			ModuleActionSchema.safeParse({
+			PackRecipeSchema.safeParse({
 				id: "x",
 				description: "x",
 				params: [],
@@ -140,7 +138,7 @@ describe("ModuleActionSchema", () => {
 			}).success,
 		).toBe(false)
 		expect(
-			ModuleActionSchema.safeParse({
+			PackRecipeSchema.safeParse({
 				id: "x",
 				description: "x",
 				params: [],
@@ -150,41 +148,41 @@ describe("ModuleActionSchema", () => {
 	})
 })
 
-describe("ModuleManifestSchema", () => {
-	const validAction = { id: "scaffold", description: "scaffold a project", params: [] }
+describe("PackManifestSchema", () => {
+	const validRecipe = { id: "scaffold", description: "scaffold a project", params: [] }
 
 	it("accepts a minimal manifest and applies defaults", () => {
-		const parsed = ModuleManifestSchema.parse({ name: "acme-mod", version: "0.1.0", actions: [validAction] })
+		const parsed = PackManifestSchema.parse({ name: "acme-mod", version: "0.1.0", recipes: [validRecipe] })
 		expect(parsed.description).toBe("")
 		expect(parsed.dependencies).toEqual([])
 		expect(parsed.conflictsWith).toEqual([])
-		expect(parsed.moduleValidators).toEqual([])
+		expect(parsed.packValidators).toEqual([])
 	})
 
-	it("rejects a manifest with zero actions (a module must do something)", () => {
-		expect(ModuleManifestSchema.safeParse({ name: "empty", version: "0.1.0", actions: [] }).success).toBe(false)
+	it("rejects a manifest with zero recipes (a pack must do something)", () => {
+		expect(PackManifestSchema.safeParse({ name: "empty", version: "0.1.0", recipes: [] }).success).toBe(false)
 	})
 
 	it("rejects a manifest missing name or version", () => {
-		expect(ModuleManifestSchema.safeParse({ version: "0.1.0", actions: [validAction] }).success).toBe(false)
-		expect(ModuleManifestSchema.safeParse({ name: "x", actions: [validAction] }).success).toBe(false)
+		expect(PackManifestSchema.safeParse({ version: "0.1.0", recipes: [validRecipe] }).success).toBe(false)
+		expect(PackManifestSchema.safeParse({ name: "x", recipes: [validRecipe] }).success).toBe(false)
 	})
 })
 
 describe("ResolvedPlanStepSchema", () => {
-	it("accepts arbitrary JSON params (module-defined, not protocol-enforced)", () => {
+	it("accepts arbitrary JSON params (pack-defined, not protocol-enforced)", () => {
 		const parsed = ResolvedPlanStepSchema.parse({
 			id: "step-1",
-			module: "acme-mod",
-			action: "scaffold",
-			params: { name: "app", moduleType: "esm", nested: { deep: [1, 2] } },
+			pack: "acme-mod",
+			recipe: "scaffold",
+			params: { name: "app", packType: "esm", nested: { deep: [1, 2] } },
 		})
-		expect(parsed.params).toEqual({ name: "app", moduleType: "esm", nested: { deep: [1, 2] } })
+		expect(parsed.params).toEqual({ name: "app", packType: "esm", nested: { deep: [1, 2] } })
 	})
 
-	it("rejects a step missing the module/action pair the worker resolves against", () => {
-		expect(ResolvedPlanStepSchema.safeParse({ id: "step-1", action: "scaffold", params: {} }).success).toBe(false)
-		expect(ResolvedPlanStepSchema.safeParse({ id: "step-1", module: "acme-mod", params: {} }).success).toBe(false)
+	it("rejects a step missing the pack/recipe pair the worker resolves against", () => {
+		expect(ResolvedPlanStepSchema.safeParse({ id: "step-1", recipe: "scaffold", params: {} }).success).toBe(false)
+		expect(ResolvedPlanStepSchema.safeParse({ id: "step-1", pack: "acme-mod", params: {} }).success).toBe(false)
 	})
 })
 

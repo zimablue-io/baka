@@ -12,22 +12,22 @@
 //
 //   VAL-MCP-001   initialize returns serverInfo.name === "baka-mcp"
 //   VAL-MCP-002   serverInfo.version matches apps/mcp/package.json
-//   VAL-MCP-003   tools/list enumerates 10 tools (7 engine + 3 registry; no per-action)
+//   VAL-MCP-003   tools/list enumerates 10 tools (7 engine + 3 registry; no per-recipe)
 //   VAL-MCP-004   every inputSchema has type/properties/required
-//   VAL-MCP-005   baka_run required fields are module and action
+//   VAL-MCP-005   baka_run required fields are pack and recipe
 //   VAL-MCP-006   baka_run exposes params as an object
 //   VAL-MCP-007   baka_apply missing plan returns isError
 //   VAL-MCP-008   baka_apply error text is parseable / stable-prefixed
-//   VAL-MCP-009   baka_list_actions with known module returns actions
-//   VAL-MCP-010   baka_list_actions with unknown module returns error
+//   VAL-MCP-009   baka_list_recipes with known pack returns recipes
+//   VAL-MCP-010   baka_list_recipes with unknown pack returns error
 //   VAL-MCP-011   baka_validate returns documented shape
 //   VAL-MCP-012   baka_plan dry-run shape (fake LLM, worker role only)
-//   VAL-MCP-013   resources/list advertises baka://modules
-//   VAL-MCP-014   resources/read baka://modules returns the directory
+//   VAL-MCP-013   resources/list advertises baka://packs
+//   VAL-MCP-014   resources/read baka://packs returns the directory
 //   VAL-MCP-015   resources/templates/list advertises manifest template
-//   VAL-MCP-016   resources/read baka://module/honest-mod/manifest
-//   VAL-MCP-017   prompts/list advertises baka_design_module
-//   VAL-MCP-018   prompts/get baka_design_module returns messages
+//   VAL-MCP-016   resources/read baka://pack/honest-mod/manifest
+//   VAL-MCP-017   prompts/list advertises baka_design_pack
+//   VAL-MCP-018   prompts/get baka_design_pack returns messages
 //   VAL-MCP-019   malformed JSON-RPC does not crash the server
 //   VAL-MCP-020   cwd sensitivity: same 10 tools in repo and empty dir
 //   VAL-MCP-021   missing required field returns schema error
@@ -87,7 +87,7 @@ interface SpawnedMcp {
  * Write a baka config to <home>/.baka/config.json with the role-keyed
  * shape (worker / validator). The worker role is what the LLM-backed
  * MCP tools (baka_plan) need. The validator role is needed only when
- * a module's validators run (e.g. via baka_validate --module); for
+ * a pack's validators run (e.g. via baka_validate --pack); for
  * the existing black-box probes, the worker role is sufficient.
  */
 function seedRoleConfig(home: string, cfg: { baseUrl: string; model: string; apiKey?: string }) {
@@ -287,15 +287,15 @@ function startFakeLLM(script: ScriptedResponse[]): Promise<FakeLLMHandle> {
 	})
 }
 
-function planResponse(name: string, module = "honest-mod", action = "write"): ScriptedResponse {
+function planResponse(name: string, pack = "honest-mod", recipe = "write"): ScriptedResponse {
 	return {
 		content: JSON.stringify({
 			resolvedSteps: [
 				{
 					id: "step-1",
-					module,
-					action,
-					params: { name, moduleType: "esm" },
+					pack,
+					recipe,
+					params: { name, packType: "esm" },
 				},
 			],
 		}),
@@ -316,7 +316,7 @@ function trackDir(path: string): string {
 	return path
 }
 
-function prepareScratchWithModules(prefix: string): string {
+function prepareScratchWithPacks(prefix: string): string {
 	const scratch = trackDir(makeEmptyDir(prefix))
 	copyPlatformFixtures(scratch)
 	return scratch
@@ -346,7 +346,7 @@ afterEach(() => {
 })
 
 // EMPTY_CWD is a constant-path tmp dir created in beforeAll so it can be
-// passed as `cwd:` to a spawned MCP server without discovering modules.
+// passed as `cwd:` to a spawned MCP server without discovering packs.
 // Remove it after the suite so a single suite run leaves zero tmp dirs
 // behind.
 afterAll(() => {
@@ -400,11 +400,11 @@ describe("VAL-MCP-002 serverInfo.version", () => {
 })
 
 // ---------------------------------------------------------------------------
-//   VAL-MCP-003..006 — tools/list enumerates engine + registry (no per-action tools)
+//   VAL-MCP-003..006 — tools/list enumerates engine + registry (no per-recipe tools)
 // ---------------------------------------------------------------------------
 
 describe("VAL-MCP-003..006 tools/list", () => {
-	it("returns 10 tools: 7 engine + 3 registry (no per-action tools)", async () => {
+	it("returns 10 tools: 7 engine + 3 registry (no per-recipe tools)", async () => {
 		const state = spawnMcp({})
 		try {
 			await initialize(state)
@@ -418,13 +418,13 @@ describe("VAL-MCP-003..006 tools/list", () => {
 			expect(names).toContain("baka_plan")
 			expect(names).toContain("baka_apply")
 			expect(names).toContain("baka_validate")
-			expect(names).toContain("baka_list_actions")
+			expect(names).toContain("baka_list_recipes")
 			expect(names).toContain("baka_run")
 			expect(names).toContain("baka_slots")
 			expect(names).toContain("baka_fill")
 
 			expect(names).toContain("baka_registry_search")
-			expect(names).toContain("baka_registry_get_module")
+			expect(names).toContain("baka_registry_get_pack")
 			expect(names).toContain("baka_registry_get_preview")
 
 			expect(names.filter((n) => n.startsWith("baka_baka_base_"))).toEqual([])
@@ -453,7 +453,7 @@ describe("VAL-MCP-003..006 tools/list", () => {
 		}
 	})
 
-	it("VAL-MCP-005 baka_run required fields are module and action", async () => {
+	it("VAL-MCP-005 baka_run requires only the recipe; the pack is optional", async () => {
 		const state = spawnMcp({})
 		try {
 			await initialize(state)
@@ -461,7 +461,7 @@ describe("VAL-MCP-003..006 tools/list", () => {
 			const resp = await waitForResponse(state, id, 5_000)
 			const result = resp?.result as { tools: Array<{ name: string; inputSchema: { required?: string[] } }> }
 			const run = result.tools.find((t) => t.name === "baka_run")
-			expect(run?.inputSchema.required).toEqual(["module", "action"])
+			expect(run?.inputSchema.required).toEqual(["recipe"])
 		} finally {
 			await shutdown(state)
 		}
@@ -515,18 +515,18 @@ describe("VAL-MCP-003..006 tools/list", () => {
 })
 
 // ---------------------------------------------------------------------------
-// VAL-FOUND-018..020 — per-action MCP tools load and execute hyphenated actions
+// VAL-FOUND-018..020 — per-recipe MCP tools load and execute hyphenated recipes
 // ---------------------------------------------------------------------------
 
-describe("baka_run executes a fixture action", () => {
+describe("baka_run executes a fixture recipe", () => {
 	it("baka_run honest-mod/write writes marker.txt", async () => {
-		const scratch = prepareScratchWithModules("baka-mcp-run-")
+		const scratch = prepareScratchWithPacks("baka-mcp-run-")
 		const state = spawnMcp({ cwd: scratch })
 		try {
 			await initialize(state)
 			const id = sendRpc(state, "tools/call", {
 				name: "baka_run",
-				arguments: { module: "honest-mod", action: "write", params: {} },
+				arguments: { pack: "honest-mod", recipe: "write", params: {} },
 			})
 			const resp = await waitForResponse(state, id, 5_000)
 			expect(resp?.error).toBeUndefined()
@@ -535,6 +535,27 @@ describe("baka_run executes a fixture action", () => {
 			const parsed = JSON.parse(result.content[0].text) as { ok: boolean }
 			expect(parsed.ok).toBe(true)
 			expect(readFileSync(join(scratch, "marker.txt"), "utf-8")).toBe("honest-mod was here\n")
+		} finally {
+			await shutdown(state)
+		}
+	})
+})
+
+describe("baka_run on a fresh install", () => {
+	it("runs a bundled recipe by its bare name with no packs, no model and no config", async () => {
+		const scratch = trackDir(makeEmptyDir("baka-mcp-first-"))
+		writeFileSync(join(scratch, "package.json"), JSON.stringify({ name: "first", private: true }))
+		const state = spawnMcp({ cwd: scratch })
+		try {
+			await initialize(state)
+			const id = sendRpc(state, "tools/call", {
+				name: "baka_run",
+				arguments: { recipe: "add-readme", params: { name: "from-mcp" } },
+			})
+			const resp = await waitForResponse(state, id, 5_000)
+			const result = resp?.result as { isError?: boolean; content: Array<{ type: string; text: string }> }
+			expect(result.isError).toBeFalsy()
+			expect(readFileSync(join(scratch, "README.md"), "utf-8")).toContain("# from-mcp")
 		} finally {
 			await shutdown(state)
 		}
@@ -581,36 +602,36 @@ describe("VAL-MCP-007/008 tools/call baka_apply missing plan", () => {
 	})
 })
 
-describe("VAL-MCP-009/010 tools/call baka_list_actions", () => {
-	it("VAL-MCP-009 returns the declared actions for a known module", async () => {
+describe("VAL-MCP-009/010 tools/call baka_list_recipes", () => {
+	it("VAL-MCP-009 returns the declared recipes for a known pack", async () => {
 		const state = spawnMcp({})
 		try {
 			await initialize(state)
 			const id = sendRpc(state, "tools/call", {
-				name: "baka_list_actions",
-				arguments: { module: "honest-mod" },
+				name: "baka_list_recipes",
+				arguments: { pack: "honest-mod" },
 			})
 			const resp = await waitForResponse(state, id, 5_000)
 			const result = resp?.result as { content: Array<{ type: string; text: string }>; isError?: boolean }
 			expect(result.isError).toBeFalsy()
 			const parsed = JSON.parse(result.content[0].text) as {
-				module: string
-				actions: Array<{ id: string }>
+				pack: string
+				recipes: Array<{ id: string }>
 			}
-			expect(parsed.module).toBe("honest-mod")
-			expect(parsed.actions.map((a) => a.id).sort()).toEqual(["write"])
+			expect(parsed.pack).toBe("honest-mod")
+			expect(parsed.recipes.map((a) => a.id).sort()).toEqual(["write"])
 		} finally {
 			await shutdown(state)
 		}
 	})
 
-	it("VAL-MCP-010 returns isError:true with a message naming the unknown module", async () => {
+	it("VAL-MCP-010 returns isError:true with a message naming the unknown pack", async () => {
 		const state = spawnMcp({})
 		try {
 			await initialize(state)
 			const id = sendRpc(state, "tools/call", {
-				name: "baka_list_actions",
-				arguments: { module: "ghost" },
+				name: "baka_list_recipes",
+				arguments: { pack: "ghost" },
 			})
 			const resp = await waitForResponse(state, id, 5_000)
 			const result = resp?.result as { content: Array<{ type: string; text: string }>; isError?: boolean }
@@ -636,11 +657,11 @@ describe("VAL-MCP-011 tools/call baka_validate", () => {
 			const result = resp?.result as { content: Array<{ type: string; text: string }>; isError?: boolean }
 			const parsed = JSON.parse(result.content[0].text) as {
 				valid: boolean
-				modulesDiscovered: number
+				packsDiscovered: number
 				validation: { kind: string; diagnostics: unknown[] }
 			}
-			expect(typeof parsed.modulesDiscovered).toBe("number")
-			expect(parsed.modulesDiscovered).toBeGreaterThanOrEqual(2)
+			expect(typeof parsed.packsDiscovered).toBe("number")
+			expect(parsed.packsDiscovered).toBeGreaterThanOrEqual(2)
 			expect(["pass", "fail"]).toContain(parsed.validation.kind)
 			expect(Array.isArray(parsed.validation.diagnostics)).toBe(true)
 			// The failure surface is unambiguous (VAL-FOUND-042): a failing
@@ -674,7 +695,7 @@ describe("VAL-MCP-012 tools/call baka_plan dry-run", () => {
 			expect(result.isError).toBeFalsy()
 			const parsed = JSON.parse(result.content[0].text) as {
 				status: string
-				steps: Array<{ module: string; action: string; params?: Record<string, unknown> }>
+				steps: Array<{ pack: string; recipe: string; params?: Record<string, unknown> }>
 				logs: string[]
 			}
 			expect(["SUCCESS", "FAILED"]).toContain(parsed.status)
@@ -682,8 +703,8 @@ describe("VAL-MCP-012 tools/call baka_plan dry-run", () => {
 			expect(Array.isArray(parsed.logs)).toBe(true)
 			if (parsed.status === "SUCCESS") {
 				expect(parsed.steps.length).toBeGreaterThanOrEqual(1)
-				expect(parsed.steps[0]?.module).toBe("honest-mod")
-				expect(parsed.steps[0]?.action).toBe("write")
+				expect(parsed.steps[0]?.pack).toBe("honest-mod")
+				expect(parsed.steps[0]?.recipe).toBe("write")
 			}
 			// Fake LLM was actually hit (the orchestrator runs the planning step).
 			expect(fake.calls).toBeGreaterThanOrEqual(1)
@@ -695,36 +716,36 @@ describe("VAL-MCP-012 tools/call baka_plan dry-run", () => {
 })
 
 // ---------------------------------------------------------------------------
-// VAL-MCP-013/014 — resources/list + resources/read baka://modules
+// VAL-MCP-013/014 — resources/list + resources/read baka://packs
 // ---------------------------------------------------------------------------
 
 describe("VAL-MCP-013/014 resources/list and resources/read", () => {
-	it("resources/list advertises baka://modules", async () => {
+	it("resources/list advertises baka://packs", async () => {
 		const state = spawnMcp({})
 		try {
 			await initialize(state)
 			const id = sendRpc(state, "resources/list")
 			const resp = await waitForResponse(state, id, 5_000)
 			const result = resp?.result as { resources: Array<{ uri: string }> }
-			expect(result.resources.map((r) => r.uri)).toContain("baka://modules")
+			expect(result.resources.map((r) => r.uri)).toContain("baka://packs")
 		} finally {
 			await shutdown(state)
 		}
 	})
 
-	it("resources/read baka://modules returns the catalog JSON", async () => {
+	it("resources/read baka://packs returns the catalog JSON", async () => {
 		const state = spawnMcp({})
 		try {
 			await initialize(state)
-			const id = sendRpc(state, "resources/read", { uri: "baka://modules" })
+			const id = sendRpc(state, "resources/read", { uri: "baka://packs" })
 			const resp = await waitForResponse(state, id, 5_000)
 			const result = resp?.result as { contents: Array<{ uri: string; text: string }> }
-			expect(result.contents[0].uri).toBe("baka://modules")
+			expect(result.contents[0].uri).toBe("baka://packs")
 			const parsed = JSON.parse(result.contents[0].text) as {
-				modules: Array<{ name: string }>
+				packs: Array<{ name: string }>
 			}
-			expect(parsed.modules.length).toBeGreaterThanOrEqual(2)
-			const names = parsed.modules.map((m) => m.name)
+			expect(parsed.packs.length).toBeGreaterThanOrEqual(2)
+			const names = parsed.packs.map((m) => m.name)
 			expect(names).toContain("honest-mod")
 			expect(names).toContain("slot-mod")
 		} finally {
@@ -734,11 +755,11 @@ describe("VAL-MCP-013/014 resources/list and resources/read", () => {
 })
 
 // ---------------------------------------------------------------------------
-// VAL-MCP-015/016 — resources/templates/list and per-module manifest read
+// VAL-MCP-015/016 — resources/templates/list and per-pack manifest read
 // ---------------------------------------------------------------------------
 
-describe("VAL-MCP-015/016 resources/templates/list and per-module manifest", () => {
-	it("resources/templates/list advertises the module-manifest template", async () => {
+describe("VAL-MCP-015/016 resources/templates/list and per-pack manifest", () => {
+	it("resources/templates/list advertises the pack-manifest template", async () => {
 		const state = spawnMcp({})
 		try {
 			await initialize(state)
@@ -754,21 +775,21 @@ describe("VAL-MCP-015/016 resources/templates/list and per-module manifest", () 
 		}
 	})
 
-	it("resources/read baka://module/honest-mod/manifest returns the manifest", async () => {
+	it("resources/read baka://pack/honest-mod/manifest returns the manifest", async () => {
 		const state = spawnMcp({})
 		try {
 			await initialize(state)
-			const id = sendRpc(state, "resources/read", { uri: "baka://module/honest-mod/manifest" })
+			const id = sendRpc(state, "resources/read", { uri: "baka://pack/honest-mod/manifest" })
 			const resp = await waitForResponse(state, id, 5_000)
 			const result = resp?.result as { contents: Array<{ text: string }> }
 			const manifest = JSON.parse(result.contents[0].text) as {
 				name: string
 				version: string
-				actions: Array<{ id: string }>
+				recipes: Array<{ id: string }>
 			}
 			expect(manifest.name).toBe("honest-mod")
-			expect(Array.isArray(manifest.actions)).toBe(true)
-			expect(manifest.actions.map((a) => a.id)).toContain("write")
+			expect(Array.isArray(manifest.recipes)).toBe(true)
+			expect(manifest.recipes.map((a) => a.id)).toContain("write")
 		} finally {
 			await shutdown(state)
 		}
@@ -780,25 +801,25 @@ describe("VAL-MCP-015/016 resources/templates/list and per-module manifest", () 
 // ---------------------------------------------------------------------------
 
 describe("VAL-MCP-017/018 prompts/list and prompts/get", () => {
-	it("prompts/list advertises baka_design_module", async () => {
+	it("prompts/list advertises baka_design_pack", async () => {
 		const state = spawnMcp({})
 		try {
 			await initialize(state)
 			const id = sendRpc(state, "prompts/list")
 			const resp = await waitForResponse(state, id, 5_000)
 			const result = resp?.result as { prompts: Array<{ name: string }> }
-			expect(result.prompts.map((p) => p.name)).toContain("baka_design_module")
+			expect(result.prompts.map((p) => p.name)).toContain("baka_design_pack")
 		} finally {
 			await shutdown(state)
 		}
 	})
 
-	it("prompts/get baka_design_module returns messages mentioning all four phases", async () => {
+	it("prompts/get baka_design_pack returns messages mentioning all four phases", async () => {
 		const state = spawnMcp({})
 		try {
 			await initialize(state)
 			const id = sendRpc(state, "prompts/get", {
-				name: "baka_design_module",
+				name: "baka_design_pack",
 				arguments: { name: "probe" },
 			})
 			const resp = await waitForResponse(state, id, 5_000)
@@ -845,13 +866,13 @@ describe("VAL-MCP-019 malformed JSON-RPC resilience", () => {
 // ---------------------------------------------------------------------------
 
 describe("VAL-MCP-020 cwd sensitivity", () => {
-	it("sees the same 10 tools in BAKA_REPO and in an empty dir (no per-action tools)", async () => {
+	it("sees the same 10 tools in BAKA_REPO and in an empty dir (no per-recipe tools)", async () => {
 		const expected = [
 			"baka_apply",
 			"baka_fill",
-			"baka_list_actions",
+			"baka_list_recipes",
 			"baka_plan",
-			"baka_registry_get_module",
+			"baka_registry_get_pack",
 			"baka_registry_get_preview",
 			"baka_registry_search",
 			"baka_run",
@@ -1001,8 +1022,8 @@ describe("VAL-MCP-025 stderr logging discipline", () => {
 			// Run two tools/call probes; each must produce at least one log
 			// line tagged with the tool name on stderr.
 			const id1 = sendRpc(state, "tools/call", {
-				name: "baka_list_actions",
-				arguments: { module: "honest-mod" },
+				name: "baka_list_recipes",
+				arguments: { pack: "honest-mod" },
 			})
 			const resp1 = await waitForResponse(state, id1, 5_000)
 			expect(resp1?.error).toBeUndefined()
@@ -1017,11 +1038,11 @@ describe("VAL-MCP-025 stderr logging discipline", () => {
 			// Each successful tools/call must produce ≥1 stderr log line.
 			const stderr = state.stderrBuf
 			const lines = stderr.split("\n").filter((l) => l.trim().length > 0)
-			const bakaListLines = lines.filter((l) => l.includes("baka_list_actions"))
+			const bakaListLines = lines.filter((l) => l.includes("baka_list_recipes"))
 			const bakaValidateLines = lines.filter((l) => l.includes("baka_validate"))
 			expect(
 				bakaListLines.length,
-				`expected ≥1 stderr line for baka_list_actions; stderr=${stderr}`,
+				`expected ≥1 stderr line for baka_list_recipes; stderr=${stderr}`,
 			).toBeGreaterThanOrEqual(1)
 			expect(
 				bakaValidateLines.length,
@@ -1060,7 +1081,7 @@ describe("VAL-MCP-025 stderr logging discipline", () => {
 
 describe("VAL-CROSS-010 CLI plan --json vs MCP tools/call baka_plan shape parity", () => {
 	it("share the documented top-level keys (status, steps, logs)", async () => {
-		const scratch = prepareScratchWithModules("baka-cross010-")
+		const scratch = prepareScratchWithPacks("baka-cross010-")
 		const fake = await startFakeLLM([planResponse("probe")])
 
 		const fakeHome = trackDir(makeEmptyDir("baka-cross010-home-"))

@@ -5,8 +5,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { userModulesDir, userSettingsPath } from "./package-manager.js"
-import { ModuleRegistry } from "./registry.js"
+import { userPacksDir, userSettingsPath } from "./package-manager.js"
+import { PackRegistry } from "./registry.js"
 import { StructuredLog } from "./structured-log.js"
 
 const prevBakaHome = process.env.BAKA_HOME
@@ -42,10 +42,10 @@ function setHomes(): { bakaHome: string; home: string } {
 }
 
 describe("BAKA_HOME adoption (architecture decision 33)", () => {
-	it("userSettingsPath and userModulesDir resolve under BAKA_HOME", () => {
+	it("userSettingsPath and userPacksDir resolve under BAKA_HOME", () => {
 		const { bakaHome } = setHomes()
 		expect(userSettingsPath()).toBe(join(bakaHome, "settings.json"))
-		expect(userModulesDir()).toBe(join(bakaHome, "modules"))
+		expect(userPacksDir()).toBe(join(bakaHome, "packs"))
 	})
 
 	it("StructuredLog writes under BAKA_HOME/logs", () => {
@@ -55,10 +55,10 @@ describe("BAKA_HOME adoption (architecture decision 33)", () => {
 		expect(file.startsWith(join(bakaHome, "logs"))).toBe(true)
 	})
 
-	it("ModuleRegistry discovers user-scope modules under BAKA_HOME/modules", () => {
+	it("PackRegistry discovers user-scope packs under BAKA_HOME/packs", () => {
 		const { bakaHome } = setHomes()
 		const root = mkTemp("baka-home-adopt-root-")
-		const modDir = join(bakaHome, "modules", "baka-home-mod")
+		const modDir = join(bakaHome, "packs", "baka-home-mod")
 		mkdirSync(modDir, { recursive: true })
 		writeFileSync(
 			join(modDir, "manifest.ts"),
@@ -66,19 +66,19 @@ describe("BAKA_HOME adoption (architecture decision 33)", () => {
 				name: "baka-home-mod",
 				version: "0.1.0",
 				description: "user scope via BAKA_HOME",
-				actions: [{ id: "act", description: "act", params: [], requiresReasoning: false, filePatterns: [], validators: [] }],
+				recipes: [{ id: "act", description: "act", params: [], requiresReasoning: false, filePatterns: [], validators: [] }],
 				dependencies: [],
 				conflictsWith: [],
-				moduleValidators: [],
+				packValidators: [],
 			}`,
 		)
 		mkdirSync(join(modDir, "act"), { recursive: true })
-		writeFileSync(join(modDir, "act", "action.ts"), "export const actAction = {}\n")
+		writeFileSync(join(modDir, "act", "recipe.ts"), "export const actRecipe = {}\n")
 
-		const registry = new ModuleRegistry(root)
-		const { modules, diagnostics } = registry.discover(false)
+		const registry = new PackRegistry(root)
+		const { packs, diagnostics } = registry.discover(false)
 		expect(
-			modules.map((m: { name: string }) => m.name),
+			packs.map((m: { name: string }) => m.name),
 			`diagnostics=${JSON.stringify(diagnostics)}`,
 		).toContain("baka-home-mod")
 	})

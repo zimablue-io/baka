@@ -21,14 +21,14 @@
 //     role keys (`worker`, `validator`); the legacy `providers` /
 //     `activeProvider` / `defaults` keys must NOT be re-introduced.
 //   - The `baka roles` command with an empty config (no roles
-//     configured) exits 1 with a clean `missing LLM config: ... Run
+//     configured) exits 2 with a clean `missing LLM config: ... Run
 //     \`baka init\`` message and a `baka: ` prefix applied EXACTLY ONCE
 //     (no `baka: baka:` doubling). This is the same defect as the
 //     round-1 corrupt-config test, but it bites even on a clean
 //     `baka: missing LLM config...` path because the `no roles
 //     configured` guard in roles.ts pre-prepends `baka: ` and the
 //     CLI's `die()` adds another.
-//   - `baka plan` with NO config (no roles configured at all) exits 1
+//   - `baka plan` with NO config (no roles configured at all) exits 2
 //     with a clean `missing LLM config: ... Run \`baka init\`` line
 //     and a single `baka:` prefix.
 // ---------------------------------------------------------------------------
@@ -185,7 +185,7 @@ describe("VAL-ROLE-030 baka role <name> with names outside SUPPORTED_ROLES", () 
 	]
 
 	for (const name of REJECTED_NAMES) {
-		it(`exits 1 with a clear 'unknown role' message for ${JSON.stringify(name)}`, async () => {
+		it(`exits 2 with a clear 'unknown role' message for ${JSON.stringify(name)}`, async () => {
 			const fakeHome = trackDir(makeEmptyDir(`baka-role-reject-${name}-`))
 			const { code, stdout, stderr } = await spawnCliWithFakeHome({
 				argv: ["role", name],
@@ -196,7 +196,7 @@ describe("VAL-ROLE-030 baka role <name> with names outside SUPPORTED_ROLES", () 
 				},
 			})
 
-			expect(code, `expected exit 1 for ${name}; stdout=${stdout}; stderr=${stderr}`).toBe(1)
+			expect(code, `expected exit 2 for ${name}; stdout=${stdout}; stderr=${stderr}`).toBe(2)
 			expect(stderr, `expected 'unknown role' for ${name}; got ${stderr}`).toContain("unknown role")
 			expect(stderr, `expected the role name in the message; got ${stderr}`).toContain(`"${name}"`)
 			expect(stderr, `expected the known-roles hint; got ${stderr}`).toContain("worker")
@@ -219,7 +219,7 @@ describe("VAL-ROLE-030 baka role <name> with names outside SUPPORTED_ROLES", () 
 		// because the role name is invalid for the surface (not just
 		// unconfigured). Either error is acceptable, but the user must see
 		// a clean single-`baka:` line.
-		expect(code, `expected exit 1; stdout=${stdout}; stderr=${stderr}`).toBe(1)
+		expect(code, `expected exit 2; stdout=${stdout}; stderr=${stderr}`).toBe(2)
 		expect(stderr, "stderr should not double-prefix").not.toMatch(/baka:\s*baka:/)
 		expect(stderr).toContain("unknown role")
 	})
@@ -364,7 +364,7 @@ describe("VAL-ROLE-033 config file shape after `baka role` write", () => {
 })
 
 // ===========================================================================
-// Defect E: `baka plan` with no config (no roles configured) exits 1 with
+// Defect E: `baka plan` with no config (no roles configured) exits 2 with
 // a single `baka:` prefix. This is the user-facing manifestation of the
 // engine's "missing LLM config: worker role not configured" path; the
 // CLI's `die()` adds the `baka:` prefix and the user sees EXACTLY ONE
@@ -372,7 +372,7 @@ describe("VAL-ROLE-033 config file shape after `baka role` write", () => {
 // ===========================================================================
 
 describe("VAL-ROLE-034 baka plan with no config emits a single `baka:` prefix", () => {
-	it("`baka plan <intent>` exits 1 with a clean `baka: missing LLM config...` line", async () => {
+	it("`baka plan <intent>` exits 2 with a clean `baka: missing LLM config...` line", async () => {
 		const fakeHome = trackDir(makeEmptyDir("baka-plan-no-config-"))
 		// No config at all.
 		const { code, stdout, stderr } = await spawnCliWithFakeHome({
@@ -381,7 +381,7 @@ describe("VAL-ROLE-034 baka plan with no config emits a single `baka:` prefix", 
 			timeoutMs: 15_000,
 		})
 
-		expect(code, `expected exit 1; stdout=${stdout}; stderr=${stderr}`).toBe(1)
+		expect(code, `expected exit 2; stdout=${stdout}; stderr=${stderr}`).toBe(2)
 		expect(stderr, "stderr should not double-prefix").not.toMatch(/baka:\s*baka:/)
 		expect(stderr, "stderr should include the missing-config message").toMatch(/missing LLM config/)
 		expect(stderr, "stderr should include the `baka init` hint").toContain("baka init")
@@ -391,13 +391,13 @@ describe("VAL-ROLE-034 baka plan with no config emits a single `baka:` prefix", 
 })
 
 // ===========================================================================
-// Defect F: `baka roles` with no config (no roles configured) exits 1
+// Defect F: `baka roles` with no config (no roles configured) exits 2
 // with a single `baka:` prefix. The `no roles configured` guard in
 // roles.ts must not double-prefix when the CLI's `die()` runs.
 // ===========================================================================
 
 describe("VAL-ROLE-035 baka roles with no config emits a single `baka:` prefix", () => {
-	it("`baka roles` exits 1 with a clean `baka: missing LLM config: no roles configured...` line", async () => {
+	it("`baka roles` exits 2 with a clean `baka: missing LLM config: no roles configured...` line", async () => {
 		const fakeHome = trackDir(makeEmptyDir("baka-roles-no-config-"))
 		// No config at all.
 		const { code, stdout, stderr } = await spawnCliWithFakeHome({
@@ -405,7 +405,7 @@ describe("VAL-ROLE-035 baka roles with no config emits a single `baka:` prefix",
 			fakeHome,
 		})
 
-		expect(code, `expected exit 1; stdout=${stdout}; stderr=${stderr}`).toBe(1)
+		expect(code, `expected exit 2; stdout=${stdout}; stderr=${stderr}`).toBe(2)
 		// This is a separate double-prefix path from the corrupt-config
 		// one. The `no roles configured` guard in roles.ts uses its own
 		// wording: it says "no roles configured" rather than "<role>
@@ -451,11 +451,11 @@ describe("VAL-ROLE-036 baka roles masks every role's apiKey (not just one)", () 
 
 // ===========================================================================
 // Defect H: `baka role <name> --value ""` for non-apiKey fields is a
-// USER_ERROR (the user gave us a bad value). The error must be clean.
+// BAD_INPUT (the user gave us a bad value). The error must be clean.
 // ===========================================================================
 
 describe("VAL-ROLE-037 baka role <name> --value '' (empty) for a non-apiKey field", () => {
-	it("exits 1 with a `--value is required` message (no stack frames)", async () => {
+	it("exits 2 with a `--value is required` message (no stack frames)", async () => {
 		const fakeHome = trackDir(makeEmptyDir("baka-role-empty-nonapikey-"))
 		const { code, stdout, stderr } = await spawnCliWithFakeHome({
 			argv: ["role", "worker", "--field", "baseUrl", "--value", ""],
@@ -463,7 +463,7 @@ describe("VAL-ROLE-037 baka role <name> --value '' (empty) for a non-apiKey fiel
 			bakaConfig: { worker: { baseUrl: "http://w", model: "wm" } },
 		})
 
-		expect(code, `expected exit 1; stdout=${stdout}; stderr=${stderr}`).toBe(1)
+		expect(code, `expected exit 2; stdout=${stdout}; stderr=${stderr}`).toBe(2)
 		expect(stderr, "stderr should not double-prefix").not.toMatch(/baka:\s*baka:/)
 		// The CLI's `die()` adds `baka:` exactly once.
 		expect(stderr, `stderr should mention 'value is required'; got ${stderr}`).toMatch(/--value is required/)

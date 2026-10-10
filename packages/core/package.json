@@ -1,8 +1,8 @@
 {
 	"name": "@baka/core",
-	"version": "0.3.0",
-	"license": "MIT",
-	"description": "Embeddable Baka engine: run declared module actions deterministically, with an injected LLM provider for named slots only. No CLI, no process-global config.",
+	"version": "0.1.0",
+	"license": "Apache-2.0",
+	"description": "Embeddable Baka engine: run declared pack recipes deterministically, with an injected LLM provider for named slots only. No CLI, no process-global config.",
 	"private": true,
 	"type": "module",
 	"main": "./dist/index.js",
@@ -12,12 +12,15 @@
 			"types": "./dist/index.d.ts",
 			"import": "./dist/index.js"
 		},
+		"./schemas/*": "./schemas/*",
 		"./package.json": "./package.json"
 	},
 	"files": [
 		"dist",
+		"schemas",
 		"README.md",
-		"LICENSE"
+		"LICENSE",
+		"NOTICE"
 	],
 	"scripts": {
 		"build": "tsup",

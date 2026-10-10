@@ -40,7 +40,7 @@ const ConfigSchema = z.object({
 	/**
 	 * Operator-supplied plan overrides applied at boot (architecture
 	 * §4.7, decision 3). JSON array of
-	 *   `{plan, max_private_modules, max_members, max_registries}`
+	 *   `{plan, max_private_packs, max_members, max_registries}`
 	 * entries; each is upserted into `plan_limits`. When unset the
 	 * migration-0002 defaults (`free`/`pro`) are the active set.
 	 */
@@ -64,7 +64,7 @@ const ConfigSchema = z.object({
 	officialPublishers: z.string().optional(),
 	/**
 	 * Stale-ingesting sweep threshold in milliseconds (VAL-PUB-028).
-	 * Per-cycle, the worker resets `module_versions` rows stuck at
+	 * Per-cycle, the worker resets `pack_versions` rows stuck at
 	 * `status='ingesting'` whose `updated_at` is older than this
 	 * value back to `pending`. The default (`120_000`, the contract
 	 * ceiling) converges a kill mid-ingest within the 120s poll
@@ -75,8 +75,8 @@ const ConfigSchema = z.object({
 	 */
 	ingestStaleMs: z.coerce.number().int().positive().optional(),
 	/**
-	 * Per-action dry-run timeout in milliseconds (architecture §8
-	 * decision 6). Each non-reasoning action runs in its own
+	 * Per-recipe dry-run timeout in milliseconds (architecture §8
+	 * decision 6). Each non-reasoning recipe runs in its own
 	 * `node --permission` subprocess; this bound is the max wall
 	 * time before the parent SIGKILLs the child. The default
 	 * (`60_000`, 60s) is decision 6's documented ceiling; operators
@@ -85,7 +85,7 @@ const ConfigSchema = z.object({
 	 */
 	screenDryRunTimeoutMs: z.coerce.number().int().positive().optional(),
 	/**
-	 * JSON array of `scope/name` strings whose modules the registry
+	 * JSON array of `scope/name` strings whose packs the registry
 	 * pins to the `verified` tier (architecture §8 decision 20,
 	 * VAL-SCAN-010). Applied at boot; the seeder is idempotent on
 	 * the tier column and never touches `official` rows. The env is
@@ -94,7 +94,7 @@ const ConfigSchema = z.object({
 	 * fast at boot (the operator log surfaces the failure and the
 	 * server still starts with the empty verified set).
 	 */
-	verifiedModules: z.string().optional(),
+	verifiedPacks: z.string().optional(),
 })
 
 export type RegistryConfig = z.infer<typeof ConfigSchema> & {
@@ -130,7 +130,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd: string = p
 		officialPublishers: env.REGISTRY_OFFICIAL_PUBLISHERS,
 		ingestStaleMs: env.REGISTRY_INGEST_STALE_MS,
 		screenDryRunTimeoutMs: env.SCREEN_DRYRUN_TIMEOUT_MS,
-		verifiedModules: env.REGISTRY_VERIFIED_MODULES,
+		verifiedPacks: env.REGISTRY_VERIFIED_PACKS,
 	})
 	if (!parsed.success) {
 		const issues = parsed.error.issues.map((i) => `  - ${i.path.join(".") || "(root)"}: ${i.message}`).join("\n")

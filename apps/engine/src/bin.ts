@@ -18,7 +18,7 @@ try {
 			host: flagValues("host")[0],
 			token: flagValues("token")[0],
 			allowRoots: flagValues("allow-root"),
-			moduleDirs: flagValues("modules-dir"),
+			packDirs: flagValues("packs-dir"),
 		},
 		process.env,
 		cwd,
@@ -29,10 +29,10 @@ try {
 	)
 } catch (err) {
 	process.stderr.write(`baka-engine: ${err instanceof Error ? err.message : String(err)}\n`)
-	process.exit(BAKA_EXIT_CODE.USER_ERROR)
+	process.exit(BAKA_EXIT_CODE.BAD_INPUT)
 }
 
 process.on("uncaughtException", (err) => {
 	process.stderr.write(`baka-engine: ${err instanceof Error ? err.message : String(err)}\n`)
-	process.exit(BAKA_EXIT_CODE.ENGINE_ERROR)
+	process.exit(BAKA_EXIT_CODE.FAILED)
 })

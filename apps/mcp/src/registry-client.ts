@@ -1,12 +1,12 @@
 import {
-	type RegistryActionPreview,
-	RegistryActionPreviewSchema,
 	type RegistryCatalogEntry,
 	RegistryCatalogResponseSchema,
-	type RegistryModuleDetail,
-	RegistryModuleDetailSchema,
+	type RegistryPackDetail,
+	RegistryPackDetailSchema,
 	type RegistryPreviewListResponse,
 	RegistryPreviewListResponseSchema,
+	type RegistryRecipePreview,
+	RegistryRecipePreviewSchema,
 	type RegistryVersionDetail,
 	RegistryVersionDetailSchema,
 } from "@repo/protocol"
@@ -16,9 +16,9 @@ import {
  * `apps/cli/src/lib/registry-client.ts`, MCP-side).
  *
  * The MCP registry tools (`baka_registry_search`,
- * `baka_registry_get_module`, `baka_registry_get_preview`) only
- * need the three read endpoints (`GET /v1/modules`,
- * `GET /v1/modules/<scope>/<name>`, `GET /v1/modules/<scope>/<name>/<version>`
+ * `baka_registry_get_pack`, `baka_registry_get_preview`) only
+ * need the three read endpoints (`GET /v1/packs`,
+ * `GET /v1/packs/<scope>/<name>`, `GET /v1/packs/<scope>/<name>/<version>`
  * and its `/previews` family). The MCP never installs, never
  * publishes, never admins orgs (architecture §8 decision 9:
  * "MCP has no install tool"; the install handoff is the CLI's
@@ -26,7 +26,7 @@ import {
  *
  * Every response is parsed against a `Registry*Schema` from
  * `@repo/protocol` so the wire shape is guaranteed. A 404 on a
- * missing / private / tombstoned module returns `null`
+ * missing / private / tombstoned pack returns `null`
  * (existence-leak parity with the CLI's surfaces — VAL-AUTH-003 /
  * VAL-DISC-019). Transport failures raise `RegistryTransportError`,
  * non-2xx HTTP responses raise `RegistryHttpError` with the
@@ -34,9 +34,9 @@ import {
  *
  * The credential model matches the CLI (decision 33 + decision 4):
  * the per-registry API key is passed as `x-api-key: <key>` when a
- * credential is stored for that registry URL. `public` modules
+ * credential is stored for that registry URL. `public` packs
  * remain reachable without a credential (VAL-SCAN-019 / decision
- * 23); `org`-visibility modules fail honestly with the registry's
+ * 23); `org`-visibility packs fail honestly with the registry's
  * 401/404 envelope.
  */
 
@@ -102,11 +102,11 @@ async function request<T>(path: string, opts: RequestOptions): Promise<ParsedRes
 }
 
 // ---------------------------------------------------------------------------
-// /v1/modules — catalog list
+// /v1/packs — catalog list
 // ---------------------------------------------------------------------------
 
 /**
- * Calls `GET /v1/modules`. Returns the visible-to-caller catalog.
+ * Calls `GET /v1/packs`. Returns the visible-to-caller catalog.
  * Throws `RegistryTransportError` for transport failures and
  * `RegistryHttpError` for non-2xx responses. Callers must catch and
  * isolate per-source failures (decision 4 + decision 27 — the MCP
@@ -117,53 +117,53 @@ export async function getCatalog(opts: {
 	apiKey?: string
 	fetchImpl?: typeof fetch
 }): Promise<RegistryCatalogEntry[]> {
-	const res = await request<unknown>("/v1/modules", opts)
+	const res = await request<unknown>("/v1/packs", opts)
 	if (!res.ok || res.body === null) {
-		throw new RegistryHttpError(opts.baseUrl, "/v1/modules", res.status, res.text)
+		throw new RegistryHttpError(opts.baseUrl, "/v1/packs", res.status, res.text)
 	}
 	const parsed = RegistryCatalogResponseSchema.safeParse(res.body)
 	if (!parsed.success) {
-		throw new RegistryHttpError(opts.baseUrl, "/v1/modules", res.status, "registry returned an unparseable catalog")
+		throw new RegistryHttpError(opts.baseUrl, "/v1/packs", res.status, "registry returned an unparseable catalog")
 	}
-	return parsed.data.modules
+	return parsed.data.packs
 }
 
 // ---------------------------------------------------------------------------
-// /v1/modules/:scope/:name — module detail
+// /v1/packs/:scope/:name — pack detail
 // ---------------------------------------------------------------------------
 
 /**
- * Calls `GET /v1/modules/:scope/:name`. Returns the parsed detail
+ * Calls `GET /v1/packs/:scope/:name`. Returns the parsed detail
  * on a 200, `null` on a 404 (the caller surfaces this as "not
  * found" — existence-leak parity with the read surface). Any other
  * non-2xx response throws `RegistryHttpError`.
  */
-export async function getModuleDetail(opts: {
+export async function getPackDetail(opts: {
 	baseUrl: string
 	scope: string
 	name: string
 	apiKey?: string
 	fetchImpl?: typeof fetch
-}): Promise<RegistryModuleDetail | null> {
-	const path = `/v1/modules/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}`
+}): Promise<RegistryPackDetail | null> {
+	const path = `/v1/packs/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}`
 	const res = await request<unknown>(path, opts)
 	if (res.status === 404) return null
 	if (!res.ok || res.body === null) {
 		throw new RegistryHttpError(opts.baseUrl, path, res.status, res.text)
 	}
-	const parsed = RegistryModuleDetailSchema.safeParse(res.body)
+	const parsed = RegistryPackDetailSchema.safeParse(res.body)
 	if (!parsed.success) {
-		throw new RegistryHttpError(opts.baseUrl, path, res.status, "registry returned an unparseable module detail")
+		throw new RegistryHttpError(opts.baseUrl, path, res.status, "registry returned an unparseable pack detail")
 	}
 	return parsed.data
 }
 
 // ---------------------------------------------------------------------------
-// /v1/modules/:scope/:name/:version — version detail
+// /v1/packs/:scope/:name/:version — version detail
 // ---------------------------------------------------------------------------
 
 /**
- * Calls `GET /v1/modules/:scope/:name/:version`. Returns the
+ * Calls `GET /v1/packs/:scope/:name/:version`. Returns the
  * parsed detail (manifest + screening + artifacts) on a 200, `null`
  * on a 404. The MCP tool surfaces `manifest` and `screening` (for
  * the official `"official"` tier badge and verdict display); the
@@ -177,7 +177,7 @@ export async function getVersionDetail(opts: {
 	apiKey?: string
 	fetchImpl?: typeof fetch
 }): Promise<RegistryVersionDetail | null> {
-	const path = `/v1/modules/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}`
+	const path = `/v1/packs/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}`
 	const res = await request<unknown>(path, opts)
 	if (res.status === 404) return null
 	if (!res.ok || res.body === null) {
@@ -191,25 +191,25 @@ export async function getVersionDetail(opts: {
 }
 
 // ---------------------------------------------------------------------------
-// /v1/modules/:scope/:name/:version/previews — preview list
+// /v1/packs/:scope/:name/:version/previews — preview list
 // ---------------------------------------------------------------------------
 
 /**
- * Calls `GET /v1/modules/:scope/:name/:version/previews` (decision 31,
+ * Calls `GET /v1/packs/:scope/:name/:version/previews` (decision 31,
  * VAL-SCAN-012). Returns the parsed list of preview records (one
- * per manifest action with `state: rendered | needs-llm`) on a 200,
+ * per manifest recipe with `state: rendered | needs-llm`) on a 200,
  * `[]` when the version has no previews (the MCP tool surfaces the
- * empty list honestly: a module without previews prints an explicit
+ * empty list honestly: a pack without previews prints an explicit
  * "no previews available" branch — fabricated code for `needs-llm`
- * actions is a contract violation, VAL-DISC-031).
+ * recipes is a contract violation, VAL-DISC-031).
  *
- * A 404 collapses three cases: missing module, missing version,
+ * A 404 collapses three cases: missing pack, missing version,
  * org-visibility outsider. The MCP tool surfaces these as a single
  * "not found" so the response cannot distinguish them; this matches
  * the CLI's `baka registry preview` shape for `org`-visibility
  * missing (VAL-DISC-019).
  */
-export async function getModulePreviews(opts: {
+export async function getPackPreviews(opts: {
 	baseUrl: string
 	scope: string
 	name: string
@@ -217,7 +217,7 @@ export async function getModulePreviews(opts: {
 	apiKey?: string
 	fetchImpl?: typeof fetch
 }): Promise<RegistryPreviewListResponse> {
-	const path = `/v1/modules/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}/previews`
+	const path = `/v1/packs/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}/previews`
 	const res = await request<unknown>(path, opts)
 	if (res.status === 404) return { previews: [] }
 	if (!res.ok || res.body === null) {
@@ -231,36 +231,36 @@ export async function getModulePreviews(opts: {
 }
 
 // ---------------------------------------------------------------------------
-// /v1/modules/:scope/:name/:version/previews/:actionId — per-action preview
+// /v1/packs/:scope/:name/:version/previews/:recipeId — per-recipe preview
 // ---------------------------------------------------------------------------
 
 /**
  * Calls
- * `GET /v1/modules/:scope/:name/:version/previews/:actionId`
+ * `GET /v1/packs/:scope/:name/:version/previews/:recipeId`
  * (decision 31, VAL-SCAN-004 / VAL-DISC-031). Returns the
- * per-action record (`rendered` with file CONTENTS, or
- * `needs-llm` with reason), or `null` on a 404 (the action has
- * no happy-path preview — either the action is unknown to the
+ * per-recipe record (`rendered` with file CONTENTS, or
+ * `needs-llm` with reason), or `null` on a 404 (the recipe has
+ * no happy-path preview — either the recipe is unknown to the
  * manifest, or the verdict is `failed`/`timed-out`).
  */
-export async function getActionPreview(opts: {
+export async function getRecipePreview(opts: {
 	baseUrl: string
 	scope: string
 	name: string
 	version: string
-	actionId: string
+	recipeId: string
 	apiKey?: string
 	fetchImpl?: typeof fetch
-}): Promise<RegistryActionPreview | null> {
-	const path = `/v1/modules/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}/previews/${encodeURIComponent(opts.actionId)}`
+}): Promise<RegistryRecipePreview | null> {
+	const path = `/v1/packs/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}/previews/${encodeURIComponent(opts.recipeId)}`
 	const res = await request<unknown>(path, opts)
 	if (res.status === 404) return null
 	if (!res.ok || res.body === null) {
 		throw new RegistryHttpError(opts.baseUrl, path, res.status, res.text)
 	}
-	const parsed = RegistryActionPreviewSchema.safeParse(res.body)
+	const parsed = RegistryRecipePreviewSchema.safeParse(res.body)
 	if (!parsed.success) {
-		throw new RegistryHttpError(opts.baseUrl, path, res.status, "registry returned an unparseable action preview")
+		throw new RegistryHttpError(opts.baseUrl, path, res.status, "registry returned an unparseable recipe preview")
 	}
 	return parsed.data
 }

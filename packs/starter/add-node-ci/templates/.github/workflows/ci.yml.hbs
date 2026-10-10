@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+{{#if pnpm}}
+      - uses: pnpm/action-setup@v4
+{{/if}}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: {{nodeVersion}}
+{{#if pnpm}}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm build
+{{else}}
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+{{/if}}

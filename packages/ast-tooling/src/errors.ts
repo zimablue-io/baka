@@ -1,15 +1,17 @@
-import type { ActionErrorCode } from "@repo/protocol"
+import type { OpenSlot, RecipeErrorCode } from "@repo/protocol"
 
 /**
- * A failure with a stable, typed code. `runAction` turns it into an error
+ * A failure with a stable, typed code. `runRecipe` turns it into an error
  * diagnostic whose `rule` is the code, so callers never parse messages.
+ * `slots-open` also carries the slots still needing a value.
  */
-export class ActionError extends Error {
+export class RecipeError extends Error {
 	constructor(
-		readonly code: ActionErrorCode,
+		readonly code: RecipeErrorCode,
 		message: string,
+		readonly openSlots?: readonly OpenSlot[],
 	) {
 		super(message)
-		this.name = "ActionError"
+		this.name = "RecipeError"
 	}
 }

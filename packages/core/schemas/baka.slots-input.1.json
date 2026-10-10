@@ -1,0 +1,86 @@
+{
+	"$id": "https://baka.dev/schemas/baka.slots-input/1",
+	"title": "baka.slots-input/1",
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"type": "object",
+	"properties": {
+		"mode": {
+			"type": "string",
+			"enum": [
+				"live",
+				"record",
+				"replay"
+			]
+		},
+		"records": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"key": {
+						"type": "string"
+					},
+					"match": {
+						"type": "string",
+						"enum": [
+							"params",
+							"template"
+						]
+					},
+					"model": {
+						"type": "string"
+					},
+					"value": {
+						"anyOf": [
+							{
+								"type": "string"
+							},
+							{
+								"type": "array",
+								"items": {
+									"type": "string"
+								}
+							},
+							{
+								"type": "object",
+								"propertyNames": {
+									"type": "string"
+								},
+								"additionalProperties": {}
+							}
+						]
+					},
+					"source": {
+						"type": "string",
+						"enum": [
+							"llm",
+							"cache",
+							"replay",
+							"supplied"
+						]
+					}
+				},
+				"required": [
+					"id",
+					"key",
+					"model",
+					"value",
+					"source"
+				]
+			}
+		},
+		"values": {
+			"type": "object",
+			"propertyNames": {
+				"type": "string"
+			},
+			"additionalProperties": {}
+		}
+	},
+	"required": [
+		"mode"
+	]
+}

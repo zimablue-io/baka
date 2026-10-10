@@ -2,8 +2,8 @@ import { createHash } from "node:crypto"
 import { chmodSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { compensateAction, createRegistry, runAction, TREE_HASH_DOMAIN } from "../src/index.js"
-import { cleanupTempDirs, fakeProvider, tempDir, writeModule } from "./helpers.js"
+import { compensateRecipe, createRegistry, runRecipe, TREE_HASH_DOMAIN } from "../src/index.js"
+import { cleanupTempDirs, fakeProvider, tempDir, writePack } from "./helpers.js"
 
 afterEach(cleanupTempDirs)
 
@@ -12,33 +12,33 @@ const sha = (s: string) => createHash("sha256").update(s).digest("hex")
 interface Fixture {
 	params?: Array<Record<string, unknown>>
 	templates?: Record<string, string>
-	actionTs?: string
+	recipeTs?: string
 	files?: Record<string, string>
 	supportsDryRun?: boolean
 }
 
 function setup(fx: Fixture) {
 	const root = tempDir()
-	const modules = tempDir()
-	writeModule(modules, {
+	const packs = tempDir()
+	writePack(packs, {
 		name: "t",
-		actions: [
+		recipes: [
 			{
 				id: "gen",
 				params: (fx.params ?? []) as never,
 				templates: fx.templates,
-				actionTs: fx.actionTs,
+				recipeTs: fx.recipeTs,
 				supportsDryRun: fx.supportsDryRun,
 			},
 		],
 		files: fx.files,
 	})
-	return { root, modules, registry: createRegistry({ root, moduleDirs: [modules] }) }
+	return { root, packs, registry: createRegistry({ root, packDirs: [packs] }) }
 }
 
 type Registry = ReturnType<typeof setup>["registry"]
 const run = (registry: Registry, params: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) =>
-	runAction({ registry, module: "t", action: "gen", params, ...extra })
+	runRecipe({ registry, pack: "t", recipe: "gen", params, ...extra })
 
 const files = (root: string) => readdirSync(root).sort()
 
@@ -127,7 +127,7 @@ describe("conditional files", () => {
 		expect(provider.calls).toHaveLength(1)
 	})
 
-	it("a rerun with the flag flipped leaves the earlier file alone and hashes only what the action owns now", async () => {
+	it("a rerun with the flag flipped leaves the earlier file alone and hashes only what the recipe owns now", async () => {
 		const { registry } = setup({ params, templates })
 		const first = await run(registry, { vitest: true })
 		const second = await run(registry, { vitest: true })
@@ -201,7 +201,7 @@ describe("file mode", () => {
 		expect(modeOf(join(root, "run.sh"))).toBe(0o755)
 		expect(fixed.compensation.overwritten[0]).toMatchObject({ path: "run.sh", mode: "0644" })
 
-		await compensateAction({ registry, module: "t", action: "gen", compensation: fixed.compensation })
+		await compensateRecipe({ registry, pack: "t", recipe: "gen", compensation: fixed.compensation })
 		expect(modeOf(join(root, "run.sh"))).toBe(0o644)
 	})
 
@@ -214,7 +214,7 @@ describe("file mode", () => {
 
 	it("ctx.files.write takes a mode too", async () => {
 		const { root, registry } = setup({
-			actionTs: `export const genAction = { name: "x", execute: async (_i, _s, ctx) => {
+			recipeTs: `export const genRecipe = { name: "x", execute: async (_i, _s, ctx) => {
 				const w = ctx.files.write("bin/tool", "#!/bin/sh\\n", { mode: "755" })
 				return { success: true, output: w, compensationData: null }
 			}, compensate: async () => {} }`,
@@ -369,7 +369,7 @@ describe("the subset stays strict and fails closed", () => {
 	})
 })
 
-describe("module data files", () => {
+describe("pack data files", () => {
 	const VERSIONS = JSON.stringify({ pnpm: "11.28.3", biome: { core: "2.5.15" }, list: ["a", "b"] })
 
 	it("exposes data/*.json to templates as data.<name>", async () => {
@@ -390,10 +390,10 @@ describe("module data files", () => {
 		expect(readFileSync(join(root, "pins.txt"), "utf-8")).toBe("pnpm 11.28.3 biome 2.5.15 x 1\na b \n")
 	})
 
-	it("exposes it to action.ts as ctx.data, read-only", async () => {
+	it("exposes it to recipe.ts as ctx.data, read-only", async () => {
 		const { registry } = setup({
 			files: { "data/versions.json": VERSIONS },
-			actionTs: `export const genAction = { name: "x", execute: async (_i, _s, ctx) => {
+			recipeTs: `export const genRecipe = { name: "x", execute: async (_i, _s, ctx) => {
 				let threw = false
 				try { ctx.data.versions.pnpm = "hacked" } catch { threw = true }
 				let threwDeep = false
@@ -405,14 +405,14 @@ describe("module data files", () => {
 		expect(result.output).toEqual({ pnpm: "11.28.3", keys: ["versions"], threw: true, threwDeep: true, frozen: true })
 	})
 
-	it("is empty for a module without data/", async () => {
+	it("is empty for a pack without data/", async () => {
 		const { registry } = setup({
-			actionTs: `export const genAction = { name: "x", execute: async (_i, _s, ctx) => ({ success: true, output: Object.keys(ctx.data), compensationData: null }), compensate: async () => {} }`,
+			recipeTs: `export const genRecipe = { name: "x", execute: async (_i, _s, ctx) => ({ success: true, output: Object.keys(ctx.data), compensationData: null }), compensate: async () => {} }`,
 		})
 		expect((await run(registry)).output).toEqual([])
 	})
 
-	it("is part of the module pin, so a lockfile covers it", async () => {
+	it("is part of the pack pin, so a lockfile covers it", async () => {
 		const a = setup({ files: { "data/versions.json": '{"v":1}' }, templates: { "o.txt.hbs": "{{data.versions.v}}\n" } })
 		const b = setup({ files: { "data/versions.json": '{"v":2}' }, templates: { "o.txt.hbs": "{{data.versions.v}}\n" } })
 		const ra = await run(a.registry)
@@ -421,10 +421,10 @@ describe("module data files", () => {
 		expect(ra.outputTreeHash).not.toBe(rb.outputTreeHash)
 	})
 
-	it("fails the module with module-invalid on a data file that is not JSON", async () => {
+	it("fails the pack with pack-invalid on a data file that is not JSON", async () => {
 		const { root, registry } = setup({ files: { "data/bad.json": "{nope" }, templates: { "o.txt.hbs": "x\n" } })
 		const result = await run(registry)
-		expect(result.diagnostics.map((d) => d.rule)).toEqual(["module-invalid"])
+		expect(result.diagnostics.map((d) => d.rule)).toEqual(["pack-invalid"])
 		expect(result.diagnostics[0]?.message).toContain("data/bad.json")
 		expect(files(root)).toEqual([])
 	})
@@ -435,7 +435,7 @@ describe("module data files", () => {
 			templates: { "o.txt.hbs": "x\n" },
 		})
 		const result = await run(registry)
-		expect(result.diagnostics.map((d) => d.rule)).toEqual(["module-invalid"])
+		expect(result.diagnostics.map((d) => d.rule)).toEqual(["pack-invalid"])
 		expect(result.diagnostics[0]?.message).toContain("reserved")
 	})
 })

@@ -71,7 +71,7 @@ function hashFiles(root: string, filter: WalkFilter): Map<string, string> {
 
 /**
  * path -> content hash for every file under a project, so a side-effect
- * action can be diffed. `.git/`, `node_modules/`, and the root-level `.baka/`
+ * recipe can be diffed. `.git/`, `node_modules/`, and the root-level `.baka/`
  * are skipped.
  */
 export function snapshotTree(root: string): Map<string, string> {
@@ -113,27 +113,27 @@ export function snapshotDirectories(root: string): Set<string> {
 	return out
 }
 
-/** Domain tag of a module's content hash; bump it if the canonical form below ever changes. */
-export const MODULE_HASH_DOMAIN = "baka.module.v1"
+/** Domain tag of a pack's content hash; bump it if the canonical form below ever changes. */
+export const PACK_HASH_DOMAIN = "baka.pack.v1"
 
 /**
- * The content hash of a module: sha256 over
+ * The content hash of a pack: sha256 over
  *
- *   baka.module.v1\n
+ *   baka.pack.v1\n
  *   <path>\0<sha256 of the file's bytes>\n    (one line per file, ascending by UTF-8 bytes of <path>)
  *
- * for every file under the module directory, with paths relative to it and
+ * for every file under the pack directory, with paths relative to it and
  * POSIX-separated. Symlinks count as their target text. Skipped, because they
- * are install or tool residue and not the module: `node_modules/`, `.git/`,
+ * are install or tool residue and not the pack: `node_modules/`, `.git/`,
  * and `out/` directories, `.DS_Store`, and `.design-state.json`.
  */
-export function moduleContentHash(moduleRoot: string): string {
-	const files = hashFiles(moduleRoot, {
+export function packContentHash(packRoot: string): string {
+	const files = hashFiles(packRoot, {
 		skipDir: (name) => name === "node_modules" || name === ".git" || name === "out",
 		skipFile: (name) => name === ".DS_Store" || name === ".design-state.json",
 	})
 	const lines = [...files].sort(([a], [b]) => compareUtf8(a, b)).map(([path, hash]) => `${path}\0${hash}\n`)
-	return sha256Hex(`${MODULE_HASH_DOMAIN}\n${lines.join("")}`)
+	return sha256Hex(`${PACK_HASH_DOMAIN}\n${lines.join("")}`)
 }
 
 /** create / update / delete entries between two snapshots, in canonical path order. */

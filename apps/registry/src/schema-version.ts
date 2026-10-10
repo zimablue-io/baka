@@ -21,7 +21,7 @@ import { applyAppMigrations } from "./db/migrate"
  *
  * Version history:
  *   - 1: scaffold (no app tables; just the on-disk version file).
- *   - 2: data layer — modules, module_versions, artifacts, screening_results,
+ *   - 2: data layer — packs, pack_versions, artifacts, screening_results,
  *        plan_limits (architecture §4.3) + the internal app_migrations
  *        tracking table.
  *   - 3: auth layer — Better-Auth manages its own tables (user, session,
@@ -37,24 +37,24 @@ import { applyAppMigrations } from "./db/migrate"
  *        this migration only extends the auth-side schema. The column
  *        defaults to `free` and is server-attached: no public API
  *        surface can mutate it (VAL-AUTH-017).
- *   - 5: publish-endpoint — `modules.created_by` column type changed
+ *   - 5: publish-endpoint — `packs.created_by` column type changed
  *        from UUID to TEXT so it can store Better-Auth's user ids
  *        (which are non-UUID strings). The publish endpoint now records
  *        the creating user id for audit. No data backfill: existing rows
  *        keep `NULL` because the column was never populated under the
  *        UUID shape.
  *   - 6: sandboxed-dry-run — `screening_previews` table added so the
- *        dry-run layer can record per-action outcome (rendered /
+ *        dry-run layer can record per-recipe outcome (rendered /
  *        needs-llm / failed / timed-out) with optional preview file
  *        metadata. The `screening_results.dry_run` jsonb column now
- *        carries a discriminated payload (`{ policy, perAction,
+ *        carries a discriminated payload (`{ policy, perRecipe,
  *        timedOutAt? }`) for passing / unverified verdicts and the
  *        existing `{ skipped: true, reason: "static_scan_failed", at }`
  *        marker for the static-scan-failed path. The schema-version
  *        bump is forward-only; older binaries refuse to boot against
  *        a v6 data dir.
  *   - 7: screening output-validation — `screening_results.output_validation`
- *        jsonb column added so layer 3 (the module's own validators
+ *        jsonb column added so layer 3 (the pack's own validators
  *        run against dry-run output, writes-subset-filePatterns
  *        enforcement, and the declared output toolchain, currently
  *        `tsc --noEmit` for TS scaffolds) can record its outcome in

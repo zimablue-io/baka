@@ -1,8 +1,8 @@
 import {
-	RegistryActionPreviewSchema,
 	RegistryCatalogResponseSchema,
-	RegistryModuleDetailSchema,
+	RegistryPackDetailSchema,
 	RegistryPreviewListResponseSchema,
+	RegistryRecipePreviewSchema,
 	RegistryVersionDetailSchema,
 } from "@repo/protocol"
 import type { z } from "zod"
@@ -19,7 +19,7 @@ import type { z } from "zod"
  * Every error path names the URL the client tried so the UI can render
  * an honest "registry unreachable at <url>" message (VAL-WEB-007),
  * not a generic "something went wrong". Distinguishing network / HTTP /
- * parse failures lets the UI branch (a 404 is "module removed", a
+ * parse failures lets the UI branch (a 404 is "pack removed", a
  * network failure is "registry down").
  */
 
@@ -51,7 +51,7 @@ type RegistryErrorCode = "network" | "http" | "parse" | "not-found"
 
 /**
  * Error thrown by the registry client. The UI uses `code` to branch
- * (a not-found on `getModuleDetail` is "module removed", while a
+ * (a not-found on `getPackDetail` is "pack removed", while a
  * network error is "registry unreachable"); `url` and `status`
  * surface the exact cause so the message can be specific.
  */
@@ -109,38 +109,38 @@ async function fetchJson<T>(url: string, schema: z.ZodType<T>): Promise<T> {
 }
 
 /**
- * Fetches `GET /v1/modules` (the catalog list) and returns the parsed
- * module entries. The registry seeds this from
+ * Fetches `GET /v1/packs` (the catalog list) and returns the parsed
+ * pack entries. The registry seeds this from
  * `BUILT_IN_CATALOG` in `@repo/protocol` plus any community
  * publishes. Returns an empty array when the registry is reachable
- * but has no modules (VAL-WEB-008).
+ * but has no packs (VAL-WEB-008).
  */
 export async function getCatalog(
 	baseUrl: string = REGISTRY_BASE_URL,
-): Promise<z.infer<typeof RegistryCatalogResponseSchema>["modules"]> {
-	const parsed = await fetchJson(`${baseUrl}/v1/modules`, RegistryCatalogResponseSchema)
-	return parsed.modules
+): Promise<z.infer<typeof RegistryCatalogResponseSchema>["packs"]> {
+	const parsed = await fetchJson(`${baseUrl}/v1/packs`, RegistryCatalogResponseSchema)
+	return parsed.packs
 }
 
 /**
- * Fetches `GET /v1/modules/:scope/:name` and returns the parsed
- * module detail. Throws a `not-found` `RegistryError` when the module
+ * Fetches `GET /v1/packs/:scope/:name` and returns the parsed
+ * pack detail. Throws a `not-found` `RegistryError` when the pack
  * does not exist or the caller is not an org member (visibility
  * hides existence — uniform 404 envelope).
  */
-export async function getModuleDetail(
+export async function getPackDetail(
 	scope: string,
 	name: string,
 	baseUrl: string = REGISTRY_BASE_URL,
-): Promise<z.infer<typeof RegistryModuleDetailSchema>> {
+): Promise<z.infer<typeof RegistryPackDetailSchema>> {
 	return fetchJson(
-		`${baseUrl}/v1/modules/${encodeURIComponent(scope)}/${encodeURIComponent(name)}`,
-		RegistryModuleDetailSchema,
+		`${baseUrl}/v1/packs/${encodeURIComponent(scope)}/${encodeURIComponent(name)}`,
+		RegistryPackDetailSchema,
 	)
 }
 
 /**
- * Fetches `GET /v1/modules/:scope/:name/:version` and returns the
+ * Fetches `GET /v1/packs/:scope/:name/:version` and returns the
  * parsed version detail (manifest, screening, artifacts).
  */
 export async function getVersionDetail(
@@ -150,16 +150,16 @@ export async function getVersionDetail(
 	baseUrl: string = REGISTRY_BASE_URL,
 ): Promise<z.infer<typeof RegistryVersionDetailSchema>> {
 	return fetchJson(
-		`${baseUrl}/v1/modules/${encodeURIComponent(scope)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}`,
+		`${baseUrl}/v1/packs/${encodeURIComponent(scope)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}`,
 		RegistryVersionDetailSchema,
 	)
 }
 
 /**
- * Fetches `GET /v1/modules/:scope/:name/:version/previews` and
- * returns the per-action preview summary list (action id, state,
+ * Fetches `GET /v1/packs/:scope/:name/:version/previews` and
+ * returns the per-recipe preview summary list (recipe id, state,
  * file metadata). The landing app uses this to decide which
- * actions have rendered previews vs needs-llm records vs no
+ * recipes have rendered previews vs needs-llm records vs no
  * record at all (VAL-WEB-013: explicit empty state for missing
  * previews).
  */
@@ -170,28 +170,28 @@ export async function getPreviewList(
 	baseUrl: string = REGISTRY_BASE_URL,
 ): Promise<z.infer<typeof RegistryPreviewListResponseSchema>> {
 	return fetchJson(
-		`${baseUrl}/v1/modules/${encodeURIComponent(scope)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}/previews`,
+		`${baseUrl}/v1/packs/${encodeURIComponent(scope)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}/previews`,
 		RegistryPreviewListResponseSchema,
 	)
 }
 
 /**
- * Fetches `GET /v1/modules/:scope/:name/:version/previews/:actionId`
- * and returns the per-action preview payload (full file contents
+ * Fetches `GET /v1/packs/:scope/:name/:version/previews/:recipeId`
+ * and returns the per-recipe preview payload (full file contents
  * for rendered state; reason + optional sentinel-rendered files
  * for needs-llm). 404 surfaces as a `not-found` RegistryError so
  * the UI can render the explicit "no preview record" state without
  * distinguishing it from a missing version (VAL-WEB-013).
  */
-export async function getActionPreview(
+export async function getRecipePreview(
 	scope: string,
 	name: string,
 	version: string,
-	actionId: string,
+	recipeId: string,
 	baseUrl: string = REGISTRY_BASE_URL,
-): Promise<z.infer<typeof RegistryActionPreviewSchema>> {
+): Promise<z.infer<typeof RegistryRecipePreviewSchema>> {
 	return fetchJson(
-		`${baseUrl}/v1/modules/${encodeURIComponent(scope)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}/previews/${encodeURIComponent(actionId)}`,
-		RegistryActionPreviewSchema,
+		`${baseUrl}/v1/packs/${encodeURIComponent(scope)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}/previews/${encodeURIComponent(recipeId)}`,
+		RegistryRecipePreviewSchema,
 	)
 }

@@ -8,7 +8,7 @@ import type { Hono } from "hono"
 import { type BetterAuthHandle, createBetterAuth } from "../src/auth/better-auth"
 import { createPgPool } from "../src/auth/kysely-db"
 import { applyAppMigrations } from "../src/db/migrate"
-import * as schemaModule from "../src/db/schema"
+import * as schemaPack from "../src/db/schema"
 import { buildApp } from "../src/index"
 
 /**
@@ -114,10 +114,10 @@ export async function buildAuthTestStack(options: BuildAuthStackOptions = {}): P
 }
 
 /**
- * Convenience: seed a module row directly via Drizzle. Used by tests
+ * Convenience: seed a pack row directly via Drizzle. Used by tests
  * for the visibility-aware read assertion (VAL-AUTH-003).
  */
-export async function seedModule(
+export async function seedPack(
 	stack: AuthTestStack,
 	input: {
 		scope: string
@@ -128,8 +128,8 @@ export async function seedModule(
 	},
 ): Promise<void> {
 	const { drizzle } = await import("drizzle-orm/pglite")
-	const db = drizzle(stack.pglite, { schema: schemaModule })
-	await db.insert(schemaModule.modules).values({
+	const db = drizzle(stack.pglite, { schema: schemaPack })
+	await db.insert(schemaPack.packs).values({
 		scope: input.scope,
 		name: input.name,
 		visibility: input.visibility,

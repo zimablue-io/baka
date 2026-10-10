@@ -1,7 +1,7 @@
 {
 	"name": "@baka/mcp-server",
 	"version": "0.1.0",
-	"license": "MIT",
+	"license": "Apache-2.0",
 	"private": true,
 	"type": "module",
 	"bin": {
@@ -10,7 +10,8 @@
 	"files": [
 		"dist",
 		"README.md",
-		"LICENSE"
+		"LICENSE",
+		"NOTICE"
 	],
 	"scripts": {
 		"build": "tsup",
@@ -26,6 +27,7 @@
 		"@repo/ast-tooling": "workspace:*",
 		"@repo/feature-planning-workflow": "workspace:*",
 		"@repo/protocol": "workspace:*",
+		"jiti": "^2.7.0",
 		"zod": "^4.6.5"
 	},
 	"devDependencies": {

@@ -46,49 +46,49 @@ function snapshotTree(root: string): string[] {
 }
 
 /**
- * Builds a fake consumer project with a single module `comp-mod` containing a
- * `write` action. The action creates `created.txt` and appends to a pre-existing
+ * Builds a fake consumer project with a single pack `comp-mod` containing a
+ * `write` recipe. The recipe creates `created.txt` and appends to a pre-existing
  * `config.txt`, recording the original `config.txt` content in its compensation
  * data. Its `compensate` restores `config.txt` and removes `created.txt`.
  */
-function makeCompensationProject(): { root: string; moduleName: string; actionId: string } {
+function makeCompensationProject(): { root: string; packName: string; recipeId: string } {
 	const root = mkdtempSync(join(tmpdir(), "baka-saga-comp-"))
 	cleanup.push(root)
 
-	const moduleName = "comp-mod"
-	const actionId = "write"
-	const moduleRoot = join(root, "modules", moduleName)
-	const actionDir = join(moduleRoot, actionId)
-	mkdirSync(actionDir, { recursive: true })
+	const packName = "comp-mod"
+	const recipeId = "write"
+	const packRoot = join(root, "packs", packName)
+	const recipeDir = join(packRoot, recipeId)
+	mkdirSync(recipeDir, { recursive: true })
 	writeFileSync(join(root, "config.txt"), "original", "utf-8")
 
 	writeFileSync(
-		join(moduleRoot, "manifest.ts"),
+		join(packRoot, "manifest.ts"),
 		`export const Manifest = {
-	name: "${moduleName}",
+	name: "${packName}",
 	version: "0.1.0",
-	description: "compensation test module",
+	description: "compensation test pack",
 	dependencies: [],
 	conflictsWith: [],
-	actions: [{
-		id: "${actionId}",
+	recipes: [{
+		id: "${recipeId}",
 		description: "writes a file and edits config",
 		params: [],
 		requiresReasoning: false,
 		filePatterns: ["created.txt"],
 		validators: [],
 	}],
-	moduleValidators: [],
+	packValidators: [],
 }
 `,
 	)
 
 	writeFileSync(
-		join(actionDir, "action.ts"),
+		join(recipeDir, "recipe.ts"),
 		`const { writeFileSync, readFileSync, rmSync, existsSync } = require("node:fs")
 const { join } = require("node:path")
 
-export const writeAction = {
+export const writeRecipe = {
 	name: "write",
 	role: "worker",
 	execute: async (_input, state) => {
@@ -111,11 +111,11 @@ export const writeAction = {
 `,
 	)
 
-	return { root, moduleName, actionId }
+	return { root, packName, recipeId }
 }
 
 function planWith(
-	steps: Array<{ id: string; module: string; action: string; params: Record<string, unknown> }>,
+	steps: Array<{ id: string; pack: string; recipe: string; params: Record<string, unknown> }>,
 ): ResolvedPlan {
 	return { resolvedSteps: steps }
 }
@@ -128,11 +128,11 @@ const fakeProvider: LLMProvider = {
 
 describe("SAGA compensation through executeWorkerStep production wiring", () => {
 	it("leaves the consumer tree byte-identical when a later step fails", async () => {
-		const { root, moduleName, actionId } = makeCompensationProject()
+		const { root, packName, recipeId } = makeCompensationProject()
 		const before = snapshotTree(root)
 
 		const stepsByKey = new Map<string, WorkflowStep<unknown, unknown, unknown>>()
-		stepsByKey.set(`${moduleName}:${actionId}`, executeWorkerStep as unknown as WorkflowStep<unknown, unknown, unknown>)
+		stepsByKey.set(`${packName}:${recipeId}`, executeWorkerStep as unknown as WorkflowStep<unknown, unknown, unknown>)
 		stepsByKey.set("other:fail", {
 			name: "fail",
 			role: "worker" as never,
@@ -154,8 +154,8 @@ describe("SAGA compensation through executeWorkerStep production wiring", () => 
 			artifacts: {},
 		}
 		const plan = planWith([
-			{ id: "1", module: moduleName, action: actionId, params: {} },
-			{ id: "2", module: "other", action: "fail", params: {} },
+			{ id: "1", pack: packName, recipe: recipeId, params: {} },
+			{ id: "2", pack: "other", recipe: "fail", params: {} },
 		])
 		const result = await runSaga(plan, state, { llmProvider: fakeProvider }, stepsByKey)
 
@@ -172,11 +172,11 @@ describe("Worker reasoning pollution", () => {
 		const dir = mkdtempSync(join(tmpdir(), "baka-worker-pollution-"))
 		cleanup.push(dir)
 
-		const moduleName = "pollution-mod"
-		const actionId = "render"
-		const moduleRoot = join(dir, "modules", moduleName)
-		const actionDir = join(moduleRoot, actionId)
-		const templatesDir = join(actionDir, "templates")
+		const packName = "pollution-mod"
+		const recipeId = "render"
+		const packRoot = join(dir, "packs", packName)
+		const recipeDir = join(packRoot, recipeId)
+		const templatesDir = join(recipeDir, "templates")
 		mkdirSync(templatesDir, { recursive: true })
 		writeFileSync(
 			join(templatesDir, "page.md.hbs"),
@@ -184,27 +184,27 @@ describe("Worker reasoning pollution", () => {
 		)
 
 		writeFileSync(
-			join(moduleRoot, "manifest.ts"),
+			join(packRoot, "manifest.ts"),
 			`export const Manifest = {
-	name: "${moduleName}",
+	name: "${packName}",
 	version: "0.1.0",
 	description: "pollution test",
 	dependencies: [],
 	conflictsWith: [],
-	actions: [{
-		id: "${actionId}",
+	recipes: [{
+		id: "${recipeId}",
 		description: "renders a page",
 		params: [{ name: "name", type: "string", required: true, description: "name" }],
 		requiresReasoning: true,
 		filePatterns: ["page.md"],
 		validators: [],
 	}],
-	moduleValidators: [],
+	packValidators: [],
 }
 `,
 		)
 
-		// templates/ is the output tree; no action.ts author.
+		// templates/ is the output tree; no recipe.ts author.
 
 		const fakeProvider: LLMProvider = {
 			name: "fake",
@@ -226,7 +226,7 @@ describe("Worker reasoning pollution", () => {
 		}
 
 		const result = await executeWorkerStep.execute(
-			{ moduleName, actionName: actionId, parameters: { name: "world" } },
+			{ packName, recipeName: recipeId, parameters: { name: "world" } },
 			state,
 			{ llmProvider: fakeProvider },
 		)
@@ -234,6 +234,6 @@ describe("Worker reasoning pollution", () => {
 		expect(result.success, result.error).toBe(true)
 		expect(existsSync(join(dir, "page.md"))).toBe(true)
 		expect(readFileSync(join(dir, "page.md"), "utf-8")).toBe("Hello world\ngenerated\n")
-		expect(existsSync(join(dir, "modules", moduleName, actionId, "out"))).toBe(false)
+		expect(existsSync(join(dir, "packs", packName, recipeId, "out"))).toBe(false)
 	})
 })

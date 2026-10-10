@@ -5,29 +5,29 @@ import type { PGlite } from "@electric-sql/pglite"
  * VAL-SCAN-008 / 009 / 010 / 011 / 018, VAL-CROSS-012 / 013).
  *
  * Tiers are server-attached, NEVER self-declarable. The closed set
- * is fixed by the `modules.tier` CHECK constraint in
+ * is fixed by the `packs.tier` CHECK constraint in
  * `migrations/0002_app_schema.sql`:
  *
- *   - `official`             — module is published under the official
+ *   - `official`             — pack is published under the official
  *                              org (decision 26). Bare-name resolution
  *                              and the seed catalog live here. Any
- *                              module under the official scope is
+ *                              pack under the official scope is
  *                              `official` regardless of screening
  *                              outcome (the org's authority is the
  *                              pin).
- *   - `verified`             — module's `scope/name` matches an
- *                              entry in the `REGISTRY_VERIFIED_MODULES`
+ *   - `verified`             — pack's `scope/name` matches an
+ *                              entry in the `REGISTRY_VERIFIED_PACKS`
  *                              env (decision 20). Applied at boot;
  *                              server-only, no publish parameter
  *                              can produce it.
- *   - `community-screened`   — public module that PASSED all three
+ *   - `community-screened`   — public pack that PASSED all three
  *                              screening layers (static scan +
  *                              sandboxed dry-run + output
  *                              validation). The dry-run layer's
  *                              overall verdict is `screened`.
- *   - `community-unverified` — public module that FAILED screening
+ *   - `community-unverified` — public pack that FAILED screening
  *                              or whose screening did not run, plus
- *                              every org-private module (decision
+ *                              every org-private pack (decision
  *                              30: private-by-default skips
  *                              screening entirely). Still listable,
  *                              clearly badged — the verdict text is
@@ -40,7 +40,7 @@ import type { PGlite } from "@electric-sql/pglite"
  * for `verified`) so they survive worker re-runs.
  *
  * The helper is intentionally a single UPDATE statement per
- * transition — the existing `modules.tier` row is the single
+ * transition — the existing `packs.tier` row is the single
  * source of truth on every read surface, and the worker's
  * update is idempotent (a re-run on the same row produces the
  * same tier).
@@ -57,7 +57,7 @@ const TIER_COMMUNITY_SCREENED = "community-screened"
 const TIER_COMMUNITY_UNVERIFIED = "community-unverified"
 
 /**
- * Updates the module's tier to match the screening verdict
+ * Updates the pack's tier to match the screening verdict
  * (community-screened on a full pass, community-unverified on
  * failure or skip). Called by the worker after the screening
  * record is written so the read surface's tier field reflects
@@ -65,21 +65,21 @@ const TIER_COMMUNITY_UNVERIFIED = "community-unverified"
  *
  * Idempotent: a re-run of the same verdict writes the same
  * tier. The function does NOT touch `official` or `verified`
- * modules — those tiers are server-attached by other paths
+ * packs — those tiers are server-attached by other paths
  * (publish-endpoint, boot-time verified seeder) and the
  * verdict → tier transition only governs the community pair.
  *
  * Why explicit UPDATE per verdict transition: the tier column
- * is the catalog-facing field, and an unscreened public module
+ * is the catalog-facing field, and an unscreened public pack
  * that previously reached `community-screened` (e.g. an older
  * tag) needs to fall back to `community-unverified` when its
  * new tag fails screening. A read-time derived tier would not
  * be honest about the row's CURRENT state — the row carries
  * the truth, the verdict updates it.
  */
-export async function updateModuleTierForVerdict(
+export async function updatePackTierForVerdict(
 	pglite: PGlite,
-	moduleId: string,
+	packId: string,
 	verdict: "screened" | "unverified" | "failed",
 ): Promise<void> {
 	const targetTier = verdict === "screened" ? TIER_COMMUNITY_SCREENED : TIER_COMMUNITY_UNVERIFIED
@@ -87,29 +87,29 @@ export async function updateModuleTierForVerdict(
 	// pair is updated here — `official` and `verified` rows are
 	// left alone by design.
 	await pglite.query(
-		`UPDATE modules
+		`UPDATE packs
 		    SET tier = $1,
 		        updated_at = NOW()
 		  WHERE id = $2
 		    AND tier IN ($3, $4)`,
-		[targetTier, moduleId, TIER_COMMUNITY_SCREENED, TIER_COMMUNITY_UNVERIFIED],
+		[targetTier, packId, TIER_COMMUNITY_SCREENED, TIER_COMMUNITY_UNVERIFIED],
 	)
 }
 
 /**
- * Applies the `REGISTRY_VERIFIED_MODULES` env var at boot. The
+ * Applies the `REGISTRY_VERIFIED_PACKS` env var at boot. The
  * env is a JSON array of `scope/name` strings; each entry
- * pins a single module's tier to `verified`. Already-tombstoned
- * modules are skipped (the verified tier must surface on the
+ * pins a single pack's tier to `verified`. Already-tombstoned
+ * packs are skipped (the verified tier must surface on the
  * read surface, which a tombstone would hide anyway — there's
  * no point marking a tombstone).
  *
  * Idempotent: a re-run against the same data dir leaves
- * already-verified rows alone. A module that was previously
+ * already-verified rows alone. A pack that was previously
  * `verified` but is no longer in the env retains its `verified`
  * tier on this boot — the seeder does NOT actively unverify,
  * because an operator removing an entry mid-process would
- * otherwise silently downgrade a published module's badge.
+ * otherwise silently downgrade a published pack's badge.
  * Operators changing the verified list should restart the
  * binary against a fresh data dir (or manually reset tiers)
  * to make the change effective.
@@ -121,7 +121,7 @@ export async function updateModuleTierForVerdict(
  * never throws on a per-entry error so a single typo cannot
  * block the rest of the list.
  */
-export async function applyVerifiedModules(
+export async function applyVerifiedPacks(
 	pglite: PGlite,
 	rawEnv: string | undefined,
 ): Promise<{ applied: number; failures: Array<{ entry: string; error: string }> }> {
@@ -135,13 +135,13 @@ export async function applyVerifiedModules(
 		parsed = JSON.parse(rawEnv)
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err)
-		failures.push({ entry: rawEnv, error: `REGISTRY_VERIFIED_MODULES is not valid JSON: ${message}` })
+		failures.push({ entry: rawEnv, error: `REGISTRY_VERIFIED_PACKS is not valid JSON: ${message}` })
 		return { applied, failures }
 	}
 	if (!Array.isArray(parsed)) {
 		failures.push({
 			entry: rawEnv,
-			error: "REGISTRY_VERIFIED_MODULES must be a JSON array of scope/name strings",
+			error: "REGISTRY_VERIFIED_PACKS must be a JSON array of scope/name strings",
 		})
 		return { applied, failures }
 	}
@@ -162,12 +162,12 @@ export async function applyVerifiedModules(
 		const scope = entry.slice(0, slash)
 		const name = entry.slice(slash + 1)
 		// Idempotent: the UPDATE is a no-op when the row does not
-		// exist or is already `verified`. An existing module that
+		// exist or is already `verified`. An existing pack that
 		// does not yet have a published version is fine — the tier
 		// surfaces on the catalog list and the next publish keeps
 		// the tier pin.
 		const result = await pglite.query(
-			`UPDATE modules
+			`UPDATE packs
 			    SET tier = $1,
 			        updated_at = NOW()
 			  WHERE scope = $2 AND name = $3

@@ -3,7 +3,7 @@
  *
  * The publish body accepts a `repo` field that the worker later
  * shallow-clones via system git. At publish time the registry MUST
- * reject malformed URLs BEFORE creating any `module_versions` row
+ * reject malformed URLs BEFORE creating any `pack_versions` row
  * so a typo doesn't pollute the catalog with a phantom version.
  *
  * Accepted shapes:

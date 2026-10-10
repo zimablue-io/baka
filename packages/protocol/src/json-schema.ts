@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { ActionResultSchema, type ModuleActionParam, type ParamTypeNode, paramsToZod } from "./schemas"
+import { type PackRecipeParam, type ParamTypeNode, paramsToZod, RecipeResultSchema } from "./schemas"
 
 /** A JSON Schema (draft-07) document. */
 export type JsonSchema = Record<string, unknown>
@@ -11,12 +11,12 @@ function toJsonSchema(schema: z.ZodType): JsonSchema {
 }
 
 /**
- * The JSON Schema of an action's params, generated from the same Zod schema
- * `runAction` validates against: an object with `additionalProperties: false`,
+ * The JSON Schema of a recipe's params, generated from the same Zod schema
+ * `runRecipe` validates against: an object with `additionalProperties: false`,
  * `required` listing the required params, and each param's description,
  * enum values, element type, nested properties, and default.
  */
-export function paramsJsonSchema(params: readonly ModuleActionParam[]): JsonSchema {
+export function paramsJsonSchema(params: readonly PackRecipeParam[]): JsonSchema {
 	const schema = toJsonSchema(paramsToZod(params))
 	annotateObject(schema, params)
 	return schema
@@ -28,7 +28,7 @@ export function paramsJsonSchema(params: readonly ModuleActionParam[]): JsonSche
  * also as `x-baka-format`, so a reader can tell `slug` from a hand-written
  * regex without a draft-07 validator rejecting an unknown `format` name.
  */
-function annotateObject(schema: JsonSchema, params: readonly ModuleActionParam[]): void {
+function annotateObject(schema: JsonSchema, params: readonly PackRecipeParam[]): void {
 	const properties = schema.properties as Record<string, JsonSchema> | undefined
 	if (!properties) return
 	for (const param of params) {
@@ -43,7 +43,7 @@ function annotateNode(schema: JsonSchema, node: ParamTypeNode): void {
 	if (node.type === "object" && node.properties) annotateObject(schema, node.properties)
 }
 
-/** The JSON Schema of the `ActionResult` receipt that `runAction` returns. */
-export function actionResultJsonSchema(): JsonSchema {
-	return toJsonSchema(ActionResultSchema)
+/** The JSON Schema of the `RecipeResult` receipt that `runRecipe` returns. */
+export function recipeResultJsonSchema(): JsonSchema {
+	return toJsonSchema(RecipeResultSchema)
 }

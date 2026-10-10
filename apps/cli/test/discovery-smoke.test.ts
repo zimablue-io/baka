@@ -9,10 +9,10 @@
 //   VAL-FOUND-025  project-marketplace scope is visible to plan AND validate
 //   VAL-FOUND-026  one discovery implementation (no diverged duplicate)
 //   VAL-FOUND-054  malformed entries never crash discovery
-//   VAL-FOUND-055  same module in project+user scope dedupes, project wins
+//   VAL-FOUND-055  same pack in project+user scope dedupes, project wins
 //   VAL-FOUND-056  discovery output is deterministic across runs
-//   VAL-FOUND-063  cross-module action-id collision refused at plan time
-//   VAL-CROSS-001  fresh install discovers bundled modules with zero config
+//   VAL-FOUND-063  cross-pack recipe-id collision refused at plan time
+//   VAL-CROSS-001  fresh install discovers bundled packs with zero config
 // ---------------------------------------------------------------------------
 
 import { type ChildProcess, spawn } from "node:child_process"
@@ -156,49 +156,49 @@ function startFakeLLM(planContent: string): Promise<FakeLLMHandle> {
 	})
 }
 
-/** A scripted plan response referencing one module:action step. */
-function planReferencing(moduleName: string, actionId: string): string {
+/** A scripted plan response referencing one pack:recipe step. */
+function planReferencing(packName: string, recipeId: string): string {
 	return JSON.stringify({
-		resolvedSteps: [{ id: "step-1", module: moduleName, action: actionId, params: {} }],
+		resolvedSteps: [{ id: "step-1", pack: packName, recipe: recipeId, params: {} }],
 	})
 }
 
 // ---------------------------------------------------------------------------
-// Fixture module writer
+// Fixture pack writer
 // ---------------------------------------------------------------------------
 
-function writeFixtureModule(
-	moduleDir: string,
+function writeFixturePack(
+	packDir: string,
 	name: string,
-	opts: { description?: string; version?: string; actionIds?: string[] } = {},
+	opts: { description?: string; version?: string; recipeIds?: string[] } = {},
 ): void {
 	const description = opts.description ?? "fixture"
 	const version = opts.version ?? "0.1.0"
-	const actionIds = opts.actionIds ?? ["act"]
-	mkdirSync(moduleDir, { recursive: true })
-	const actions = actionIds
+	const recipeIds = opts.recipeIds ?? ["act"]
+	mkdirSync(packDir, { recursive: true })
+	const recipes = recipeIds
 		.map(
 			(id) =>
 				`{ id: "${id}", description: "${id} in ${name}", params: [], requiresReasoning: false, filePatterns: [], validators: [] }`,
 		)
 		.join(", ")
 	writeFileSync(
-		join(moduleDir, "manifest.ts"),
-		`import type { ModuleManifest } from "@repo/protocol"
-export const Manifest: ModuleManifest = {
+		join(packDir, "manifest.ts"),
+		`import type { PackManifest } from "@repo/protocol"
+export const Manifest: PackManifest = {
 	name: "${name}",
 	version: "${version}",
 	description: "${description}",
 	dependencies: [],
 	conflictsWith: [],
-	actions: [${actions}],
-	moduleValidators: [],
+	recipes: [${recipes}],
+	packValidators: [],
 }
 `,
 	)
-	for (const id of actionIds) {
-		mkdirSync(join(moduleDir, id), { recursive: true })
-		writeFileSync(join(moduleDir, id, "action.ts"), "export const actAction = {}\n")
+	for (const id of recipeIds) {
+		mkdirSync(join(packDir, id), { recursive: true })
+		writeFileSync(join(packDir, id, "recipe.ts"), "export const actRecipe = {}\n")
 	}
 }
 
@@ -210,10 +210,16 @@ function parseJson(stdout: string): Record<string, unknown> {
 	}
 }
 
-function moduleNames(listModulesStdout: string): string[] {
-	const json = parseJson(listModulesStdout)
-	const modules = json.modules as Array<{ name: string }>
-	return modules.map((m) => m.name)
+/** Every pack list-packs reports, bundled starter pack included. */
+function allPackNames(listPacksStdout: string): string[] {
+	const json = parseJson(listPacksStdout)
+	const packs = json.packs as Array<{ name: string }>
+	return packs.map((m) => m.name)
+}
+
+/** The packs a test put there: the starter pack that ships with every install is not one of them. */
+function packNames(listPacksStdout: string): string[] {
+	return allPackNames(listPacksStdout).filter((name) => name !== "starter")
 }
 
 // ===========================================================================
@@ -227,7 +233,7 @@ describe("VAL-FOUND-026 single discovery implementation", () => {
 			join(BAKA_REPO, "apps", "cli", "package.json"),
 			join(BAKA_REPO, "apps", "mcp", "package.json"),
 			join(BAKA_REPO, "workflows", "feature-planning", "package.json"),
-			join(BAKA_REPO, "workflows", "module-management", "package.json"),
+			join(BAKA_REPO, "workflows", "pack-management", "package.json"),
 		]
 		for (const manifestPath of manifests) {
 			const pkg = JSON.parse(readFileSync(manifestPath, "utf-8")) as {
@@ -243,26 +249,27 @@ describe("VAL-FOUND-026 single discovery implementation", () => {
 })
 
 // ===========================================================================
-// VAL-CROSS-001  fresh install discovers bundled modules with zero config
+// VAL-CROSS-001  fresh install discovers bundled packs with zero config
 // ===========================================================================
 
 describe("discovery has no leaked repo catalog", () => {
-	it("lists zero modules from the git checkout", async () => {
+	it("lists zero packs from the git checkout", async () => {
 		const fakeHome = makeEmptyDir("baka-cross001-home-")
-		const { code, stdout, stderr } = await spawnCli({ argv: ["list-modules", "--json"], cwd: BAKA_REPO, fakeHome })
+		const { code, stdout, stderr } = await spawnCli({ argv: ["list-packs", "--json"], cwd: BAKA_REPO, fakeHome })
 		expect(code, stderr).toBe(0)
-		expect(moduleNames(stdout)).toEqual([])
+		expect(packNames(stdout)).toEqual([])
+		expect(allPackNames(stdout)).toEqual(["starter"])
 	})
 
-	it("exits 0 with a no-modules diagnostic from an empty temp dir", async () => {
+	it("lists only the bundled starter pack from an empty temp dir, with no diagnostics", async () => {
 		const fakeHome = makeEmptyDir("baka-cross001-home-")
 		const emptyCwd = makeEmptyDir("baka-cross001-cwd-")
-		const { code, stdout, stderr } = await spawnCli({ argv: ["list-modules", "--json"], cwd: emptyCwd, fakeHome })
+		const { code, stdout, stderr } = await spawnCli({ argv: ["list-packs", "--json"], cwd: emptyCwd, fakeHome })
 		expect(code, stderr).toBe(0)
-		expect(moduleNames(stdout)).toEqual([])
+		expect(allPackNames(stdout)).toEqual(["starter"])
 		const json = parseJson(stdout)
 		const diagnostics = json.diagnostics as Array<{ rule: string; message: string }>
-		expect(diagnostics.some((d) => d.rule === "no-modules")).toBe(true)
+		expect(diagnostics).toEqual([])
 		expect(stderr).not.toMatch(/at .*\.ts:\d+|\bError\b/)
 	})
 })
@@ -272,37 +279,37 @@ describe("discovery has no leaked repo catalog", () => {
 // ===========================================================================
 
 describe("VAL-FOUND-025 project-marketplace scope visibility", () => {
-	it("list-modules, validate, and plan all see a project-installed fixture", async () => {
+	it("list-packs, validate, and plan all see a project-installed fixture", async () => {
 		const fakeHome = makeEmptyDir("baka-f025-home-")
 		const project = makeEmptyDir("baka-f025-proj-")
 		const fixtureSrc = makeEmptyDir("baka-f025-src-")
-		writeFixtureModule(join(fixtureSrc, "fx-mod"), "fx-mod", { actionIds: ["fx-act"] })
+		writeFixturePack(join(fixtureSrc, "fx-mod"), "fx-mod", { recipeIds: ["fx-act"] })
 
-		// Install into the project scope (<cwd>/.baka/modules).
+		// Install into the project scope (<cwd>/.baka/packs).
 		const install = await spawnCli({ argv: ["install", join(fixtureSrc, "fx-mod")], cwd: project, fakeHome })
 		expect(install.code, install.stderr).toBe(0)
-		expect(existsSync(join(project, ".baka", "modules", "fx-mod"))).toBe(true)
+		expect(existsSync(join(project, ".baka", "packs", "fx-mod"))).toBe(true)
 
-		// (a) list-modules sees it.
-		const list = await spawnCli({ argv: ["list-modules", "--json"], cwd: project, fakeHome })
+		// (a) list-packs sees it.
+		const list = await spawnCli({ argv: ["list-packs", "--json"], cwd: project, fakeHome })
 		expect(list.code, list.stderr).toBe(0)
-		expect(moduleNames(list.stdout)).toEqual(["fx-mod"])
+		expect(packNames(list.stdout)).toEqual(["fx-mod"])
 
 		// (b) validate counts it and runs against it.
 		const validate = await spawnCli({ argv: ["validate", "--json"], cwd: project, fakeHome })
 		expect(validate.code, validate.stderr).toBe(0)
 		const validateJson = parseJson(validate.stdout)
-		expect(validateJson.modulesDiscovered).toBe(1)
+		expect(validateJson.packsDiscovered).toBe(2)
 
-		// (c) plan resolves the fixture's action via a fake LLM.
+		// (c) plan resolves the fixture's recipe via a fake LLM.
 		const llm = await startFakeLLM(planReferencing("fx-mod", "fx-act"))
 		seedWorkerConfig(fakeHome, llm.url)
 		const plan = await spawnCli({ argv: ["plan", "use the fixture", "--json"], cwd: project, fakeHome })
 		expect(plan.code, plan.stderr).toBe(0)
 		const planJson = parseJson(plan.stdout)
 		expect(planJson.status).toBe("SUCCESS")
-		const steps = planJson.steps as Array<{ module: string; action: string }>
-		expect(steps[0]).toMatchObject({ module: "fx-mod", action: "fx-act" })
+		const steps = planJson.steps as Array<{ pack: string; recipe: string }>
+		expect(steps[0]).toMatchObject({ pack: "fx-mod", recipe: "fx-act" })
 	})
 })
 
@@ -314,7 +321,7 @@ describe("VAL-FOUND-054 malformed entries tolerated", () => {
 	it("broken manifest, dangling symlink, and empty dir are reported, never fatal", async () => {
 		const fakeHome = makeEmptyDir("baka-f054-home-")
 		const project = makeEmptyDir("baka-f054-proj-")
-		const marketDir = join(project, ".baka", "modules")
+		const marketDir = join(project, ".baka", "packs")
 		mkdirSync(marketDir, { recursive: true })
 
 		// (a) syntactically invalid manifest.ts
@@ -326,12 +333,12 @@ describe("VAL-FOUND-054 malformed entries tolerated", () => {
 		// (c) empty directory
 		mkdirSync(join(marketDir, "empty-dir"), { recursive: true })
 		// (d) one valid fixture
-		writeFixtureModule(join(marketDir, "good-mod"), "good-mod", { actionIds: ["good-act"] })
+		writeFixturePack(join(marketDir, "good-mod"), "good-mod", { recipeIds: ["good-act"] })
 
-		const list = await spawnCli({ argv: ["list-modules", "--json"], cwd: project, fakeHome })
+		const list = await spawnCli({ argv: ["list-packs", "--json"], cwd: project, fakeHome })
 		expect(list.code, list.stderr).toBe(0)
 		expect(list.stderr).not.toMatch(/at .*\.ts:\d+/)
-		expect(moduleNames(list.stdout)).toEqual(["good-mod"])
+		expect(packNames(list.stdout)).toEqual(["good-mod"])
 		const listJson = parseJson(list.stdout)
 		const diagnostics = listJson.diagnostics as Array<{ message: string }>
 		for (const broken of ["broken-syntax", "dangling-link", "empty-dir"]) {
@@ -342,18 +349,18 @@ describe("VAL-FOUND-054 malformed entries tolerated", () => {
 		}
 
 		const validate = await spawnCli({ argv: ["validate", "--json"], cwd: project, fakeHome })
-		// An unloadable entry is an honest validation failure (exit 4), not a
+		// An unloadable entry is an honest validation failure (exit 1), not a
 		// crash: the run must still count the valid fixture and print JSON.
-		expect(validate.code === 0 || validate.code === 4, validate.stderr).toBe(true)
+		expect(validate.code === 0 || validate.code === 1, validate.stderr).toBe(true)
 		expect(validate.stderr).not.toMatch(/at .*\.ts:\d+/)
 		const validateJson = parseJson(validate.stdout)
-		expect(validateJson.modulesDiscovered).toBe(1)
+		expect(validateJson.packsDiscovered).toBe(2)
 		const validation = validateJson.validation as { diagnostics: Array<{ message: string }> }
 		expect(validation.diagnostics.some((d) => d.message.includes("broken-syntax"))).toBe(true)
 
 		const llm = await startFakeLLM(planReferencing("good-mod", "good-act"))
 		seedWorkerConfig(fakeHome, llm.url)
-		const plan = await spawnCli({ argv: ["plan", "use the good module", "--json"], cwd: project, fakeHome })
+		const plan = await spawnCli({ argv: ["plan", "use the good pack", "--json"], cwd: project, fakeHome })
 		expect(plan.code, plan.stderr).toBe(0)
 		expect(parseJson(plan.stdout).status).toBe("SUCCESS")
 	})
@@ -368,8 +375,8 @@ describe("VAL-FOUND-055 project-over-user dedup", () => {
 		const fakeHome = makeEmptyDir("baka-f055-home-")
 		const project = makeEmptyDir("baka-f055-proj-")
 		const src = makeEmptyDir("baka-f055-src-")
-		writeFixtureModule(join(src, "dup-a", "dup-mod"), "dup-mod", { description: "USER VERSION A", version: "0.1.0" })
-		writeFixtureModule(join(src, "dup-b", "dup-mod"), "dup-mod", { description: "PROJECT VERSION B", version: "0.2.0" })
+		writeFixturePack(join(src, "dup-a", "dup-mod"), "dup-mod", { description: "USER VERSION A", version: "0.1.0" })
+		writeFixturePack(join(src, "dup-b", "dup-mod"), "dup-mod", { description: "PROJECT VERSION B", version: "0.2.0" })
 
 		const installUser = await spawnCli({
 			argv: ["install", "--user", join(src, "dup-a", "dup-mod")],
@@ -377,33 +384,33 @@ describe("VAL-FOUND-055 project-over-user dedup", () => {
 			fakeHome,
 		})
 		expect(installUser.code, installUser.stderr).toBe(0)
-		expect(existsSync(join(fakeHome, ".baka", "modules", "dup-mod"))).toBe(true)
+		expect(existsSync(join(fakeHome, ".baka", "packs", "dup-mod"))).toBe(true)
 
 		const installProject = await spawnCli({ argv: ["install", join(src, "dup-b", "dup-mod")], cwd: project, fakeHome })
 		expect(installProject.code, installProject.stderr).toBe(0)
 
-		const first = await spawnCli({ argv: ["list-modules", "--json"], cwd: project, fakeHome })
-		const second = await spawnCli({ argv: ["list-modules", "--json"], cwd: project, fakeHome })
+		const first = await spawnCli({ argv: ["list-packs", "--json"], cwd: project, fakeHome })
+		const second = await spawnCli({ argv: ["list-packs", "--json"], cwd: project, fakeHome })
 		expect(first.code, first.stderr).toBe(0)
 		expect(first.stdout).toBe(second.stdout)
-		const modules = parseJson(first.stdout).modules as Array<{ name: string; description: string }>
-		expect(modules.filter((m) => m.name === "dup-mod")).toHaveLength(1)
-		expect(modules[0].description).toBe("PROJECT VERSION B")
+		const packs = parseJson(first.stdout).packs as Array<{ name: string; description: string }>
+		expect(packs.filter((m) => m.name === "dup-mod")).toHaveLength(1)
+		expect(packs[0].description).toBe("PROJECT VERSION B")
 
 		const validate = await spawnCli({ argv: ["validate", "--json"], cwd: project, fakeHome })
 		expect(validate.code, validate.stderr).toBe(0)
-		expect(parseJson(validate.stdout).modulesDiscovered).toBe(1)
+		expect(parseJson(validate.stdout).packsDiscovered).toBe(2)
 
-		const listActions = await spawnCli({
-			argv: ["module", "list-actions", "dup-mod", "--json"],
+		const listRecipes = await spawnCli({
+			argv: ["pack", "list-recipes", "dup-mod", "--json"],
 			cwd: project,
 			fakeHome,
 		})
-		expect(listActions.code, listActions.stderr).toBe(0)
-		const actionsJson = parseJson(listActions.stdout)
-		expect(actionsJson.module).toBe("dup-mod")
-		expect(actionsJson.version).toBe("0.2.0")
-		expect(actionsJson.description).toBe("PROJECT VERSION B")
+		expect(listRecipes.code, listRecipes.stderr).toBe(0)
+		const recipesJson = parseJson(listRecipes.stdout)
+		expect(recipesJson.pack).toBe("dup-mod")
+		expect(recipesJson.version).toBe("0.2.0")
+		expect(recipesJson.description).toBe("PROJECT VERSION B")
 	})
 })
 
@@ -412,50 +419,50 @@ describe("VAL-FOUND-055 project-over-user dedup", () => {
 // ===========================================================================
 
 describe("VAL-FOUND-056 deterministic output", () => {
-	it("three list-modules runs are byte-identical with only installed fixtures", async () => {
+	it("three list-packs runs are byte-identical with only installed fixtures", async () => {
 		const fakeHome = makeEmptyDir("baka-f056-home-")
 		const project = makeEmptyDir("baka-f056-proj-")
 		writeFileSync(join(project, "package.json"), JSON.stringify({ name: "det-proj", version: "0.0.0" }))
-		writeFixtureModule(join(project, ".baka", "modules", "zeta-fx"), "zeta-fx")
-		writeFixtureModule(join(project, ".baka", "modules", "alpha-fx"), "alpha-fx")
+		writeFixturePack(join(project, ".baka", "packs", "zeta-fx"), "zeta-fx")
+		writeFixturePack(join(project, ".baka", "packs", "alpha-fx"), "alpha-fx")
 
 		const runs: string[] = []
 		for (let i = 0; i < 3; i++) {
-			const { code, stdout, stderr } = await spawnCli({ argv: ["list-modules", "--json"], cwd: project, fakeHome })
+			const { code, stdout, stderr } = await spawnCli({ argv: ["list-packs", "--json"], cwd: project, fakeHome })
 			expect(code, stderr).toBe(0)
 			runs.push(stdout)
 		}
 		expect(runs[0]).toBe(runs[1])
 		expect(runs[1]).toBe(runs[2])
-		expect(moduleNames(runs[0])).toEqual(["alpha-fx", "zeta-fx"])
+		expect(packNames(runs[0])).toEqual(["alpha-fx", "zeta-fx"])
 	})
 })
 
 // ===========================================================================
-// VAL-FOUND-063  cross-module action-id collision refused at plan time
+// VAL-FOUND-063  cross-pack recipe-id collision refused at plan time
 // ===========================================================================
 
-describe("VAL-FOUND-063 action-id collision refusal", () => {
-	it("discovery succeeds but a plan referencing the ambiguous action id is refused naming both modules", async () => {
+describe("VAL-FOUND-063 recipe-id collision refusal", () => {
+	it("discovery succeeds but a plan referencing the ambiguous recipe id is refused naming both packs", async () => {
 		const fakeHome = makeEmptyDir("baka-f063-home-")
 		const project = makeEmptyDir("baka-f063-proj-")
-		writeFixtureModule(join(project, ".baka", "modules", "mod-a"), "mod-a", { actionIds: ["collide"] })
-		writeFixtureModule(join(project, ".baka", "modules", "mod-b"), "mod-b", { actionIds: ["collide"] })
+		writeFixturePack(join(project, ".baka", "packs", "mod-a"), "mod-a", { recipeIds: ["collide"] })
+		writeFixturePack(join(project, ".baka", "packs", "mod-b"), "mod-b", { recipeIds: ["collide"] })
 
-		// Discovery itself succeeds: both modules listed.
-		const list = await spawnCli({ argv: ["list-modules", "--json"], cwd: project, fakeHome })
+		// Discovery itself succeeds: both packs listed.
+		const list = await spawnCli({ argv: ["list-packs", "--json"], cwd: project, fakeHome })
 		expect(list.code, list.stderr).toBe(0)
-		expect(moduleNames(list.stdout)).toEqual(["mod-a", "mod-b"])
+		expect(packNames(list.stdout)).toEqual(["mod-a", "mod-b"])
 
-		// A plan referencing the ambiguous action id is refused.
+		// A plan referencing the ambiguous recipe id is refused.
 		const llm = await startFakeLLM(planReferencing("mod-a", "collide"))
 		seedWorkerConfig(fakeHome, llm.url)
-		const plan = await spawnCli({ argv: ["plan", "run the colliding action", "--json"], cwd: project, fakeHome })
+		const plan = await spawnCli({ argv: ["plan", "run the colliding recipe", "--json"], cwd: project, fakeHome })
 		expect(plan.code, `expected non-zero exit, got ${plan.code}: ${plan.stdout}`).not.toBe(0)
 		const planJson = parseJson(plan.stdout)
 		expect(planJson.status).toBe("FAILED")
 		const logs = planJson.logs as string[]
 		const refusal = logs.find((l) => l.includes("collide") && l.includes("mod-a") && l.includes("mod-b"))
-		expect(refusal, `expected a refusal naming both modules in ${JSON.stringify(logs)}`).toBeDefined()
+		expect(refusal, `expected a refusal naming both packs in ${JSON.stringify(logs)}`).toBeDefined()
 	})
 })

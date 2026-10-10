@@ -3,22 +3,42 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
-	parseModuleAction,
 	parseParamFlags,
+	parseSlotValues,
+	parseTarget,
 	runFillCommand,
 	runInspectCommand,
-	runListModulesCommand,
+	runListPacksCommand,
 	runLockCommand,
 	runRunCommand,
 	runSlotsCommand,
 } from "./run.js"
 
-describe("parseModuleAction", () => {
-	it("splits module/action", () => {
-		expect(parseModuleAction("hello/greet")).toEqual({
-			module: "hello",
-			action: "greet",
-		})
+describe("parseTarget", () => {
+	it("splits pack/recipe", () => {
+		expect(parseTarget("hello/greet")).toEqual({ pack: "hello", recipe: "greet" })
+	})
+
+	it("takes a bare recipe name with no pack", () => {
+		expect(parseTarget("add-readme")).toEqual({ recipe: "add-readme" })
+	})
+})
+
+describe("parseSlotValues", () => {
+	it("reads id=value, keeping any further = in the value", () => {
+		expect(parseSlotValues(["intro=Hello", "eq=a=b"], undefined)).toEqual({ intro: "Hello", eq: "a=b" })
+	})
+
+	it("lets --slot win over --slots-file", () => {
+		const dir = mkdtempSync(join(tmpdir(), "baka-slotvals-"))
+		cleanup.push(dir)
+		const file = join(dir, "slots.json")
+		writeFileSync(file, JSON.stringify({ intro: "from file", other: "kept" }))
+		expect(parseSlotValues(["intro=from flag"], file)).toEqual({ intro: "from flag", other: "kept" })
+	})
+
+	it("returns undefined when nothing was supplied", () => {
+		expect(parseSlotValues(undefined, undefined)).toBeUndefined()
 	})
 })
 
@@ -46,6 +66,26 @@ describe("parseParamFlags", () => {
 		})
 	})
 
+	it("does not take the per-call flags as params", () => {
+		expect(
+			parseParamFlags([
+				"--name",
+				"x",
+				"--isolated",
+				"--llm-base-url",
+				"http://h/v1",
+				"--llm-model",
+				"m",
+				"--llm-api-key-env",
+				"K",
+				"--slot",
+				"a=b",
+				"--slots-file",
+				"f.json",
+			]),
+		).toEqual({ name: "x" })
+	})
+
 	it("merges --params JSON with extra flags", () => {
 		expect(parseParamFlags(["--name", "probe"], '{"description":"hi"}')).toEqual({
 			description: "hi",
@@ -69,17 +109,17 @@ function fixtureProject(): string {
 	const dir = mkdtempSync(join(tmpdir(), "baka-cli-run-"))
 	cleanup.push(dir)
 	writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "probe", private: true }))
-	const templates = join(dir, "modules", "hello", "greet", "templates")
+	const templates = join(dir, "packs", "hello", "greet", "templates")
 	mkdirSync(templates, { recursive: true })
 	writeFileSync(
-		join(dir, "modules", "hello", "manifest.ts"),
+		join(dir, "packs", "hello", "manifest.ts"),
 		`export const Manifest = {
   name: "hello",
   version: "0.0.0",
   description: "fixture",
   dependencies: [],
   conflictsWith: [],
-  actions: [{
+  recipes: [{
     id: "greet",
     description: "write a greeting",
     params: [{ name: "name", type: "string", required: true, description: "who" }],
@@ -87,7 +127,7 @@ function fixtureProject(): string {
     filePatterns: ["hello.md"],
     validators: [],
   }],
-  moduleValidators: [],
+  packValidators: [],
 }
 `,
 	)
@@ -98,8 +138,8 @@ function fixtureProject(): string {
 	return dir
 }
 
-describe("run / slots / fill / list-modules via engineRequest", () => {
-	it("lists modules, lists slots, pins a fill, and materializes a byte-identical tree", async () => {
+describe("run / slots / fill / list-packs via engineRequest", () => {
+	it("lists packs, lists slots, pins a fill, and materializes a byte-identical tree", async () => {
 		const cwd = fixtureProject()
 		const logs: string[] = []
 		const orig = console.log
@@ -107,7 +147,7 @@ describe("run / slots / fill / list-modules via engineRequest", () => {
 			logs.push(typeof msg === "string" ? msg : JSON.stringify(msg))
 		}
 		try {
-			await runListModulesCommand({ cwd, json: true })
+			await runListPacksCommand({ cwd, json: true })
 			expect(logs.at(-1)).toContain('"name": "hello"')
 
 			await runInspectCommand("hello/greet", { cwd, json: true })
@@ -170,7 +210,7 @@ describe("run / slots / fill / list-modules via engineRequest", () => {
 		}
 	})
 
-	it("`baka lock` pins the discovered modules in baka.lock.json", () => {
+	it("`baka lock` pins the discovered packs in baka.lock.json", () => {
 		const cwd = fixtureProject()
 		const logs: string[] = []
 		const orig = console.log
@@ -183,12 +223,12 @@ describe("run / slots / fill / list-modules via engineRequest", () => {
 			expect(printed.path).toBe(join(cwd, "baka.lock.json"))
 			const lock = JSON.parse(readFileSync(printed.path, "utf-8")) as {
 				lockfileVersion: number
-				modules: Record<string, { version: string; contentHash: string }>
+				packs: Record<string, { version: string; contentHash: string }>
 			}
 			expect(lock.lockfileVersion).toBe(1)
-			expect(Object.keys(lock.modules)).toEqual(["hello"])
-			expect(lock.modules.hello?.version).toBe("0.0.0")
-			expect(lock.modules.hello?.contentHash).toMatch(/^[0-9a-f]{64}$/)
+			expect(Object.keys(lock.packs)).toEqual(["hello"])
+			expect(lock.packs.hello?.version).toBe("0.0.0")
+			expect(lock.packs.hello?.contentHash).toMatch(/^[0-9a-f]{64}$/)
 		} finally {
 			console.log = orig
 		}

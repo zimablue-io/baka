@@ -1,14 +1,14 @@
 import { spawnSync } from "node:child_process"
 import { delimiter, join } from "node:path"
-import type { ChangesetEntry, ModuleAction } from "@repo/protocol"
-import { ActionError } from "./errors.js"
+import type { ChangesetEntry, PackRecipe } from "@repo/protocol"
+import { RecipeError } from "./errors.js"
 
-type FormatSpec = NonNullable<ModuleAction["format"]>
+type FormatSpec = NonNullable<PackRecipe["format"]>
 
 const FORMAT_TIMEOUT_MS = 120_000
 
 /**
- * Run an action's declared formatter over the files the run created or
+ * Run a recipe's declared formatter over the files the run created or
  * updated, from the project root. The command resolves through `PATH` with the
  * project's `node_modules/.bin` first, so a formatter installed in the project
  * is found. `{files}` in `args` expands to one argument per file (relative
@@ -31,11 +31,11 @@ export function runFormatter(root: string, spec: FormatSpec, changeset: readonly
 	})
 	const shown = `${spec.command} ${args.slice(0, 3).join(" ")}${args.length > 3 ? " ..." : ""}`
 	if (result.error) {
-		throw new ActionError("format-failed", `the formatter \`${shown}\` could not run: ${result.error.message}`)
+		throw new RecipeError("format-failed", `the formatter \`${shown}\` could not run: ${result.error.message}`)
 	}
 	if (result.status !== 0) {
 		const detail = `${result.stderr ?? ""}${result.stdout ?? ""}`.trim().split("\n").slice(-8).join("\n")
-		throw new ActionError(
+		throw new RecipeError(
 			"format-failed",
 			`the formatter \`${shown}\` exited ${result.status}${detail ? `:\n${detail}` : ""}`,
 		)

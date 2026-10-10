@@ -6,109 +6,109 @@ import {
 	BAKA_LOCKFILE_NAME,
 	createLock,
 	createRegistry,
-	describeModules,
+	describePacks,
 	readLockfile,
-	runAction,
+	runRecipe,
 	writeLockfile,
 } from "../src/index.js"
-import { cleanupTempDirs, fakeProvider, GREET_MODULE, tempDir, writeModule } from "./helpers.js"
+import { cleanupTempDirs, fakeProvider, GREET_PACK, tempDir, writePack } from "./helpers.js"
 
 afterEach(cleanupTempDirs)
 
 const sha = (data: string | Buffer) => createHash("sha256").update(data).digest("hex")
-const RUN = { module: "hello", action: "greet", params: { name: "Ada" } }
+const RUN = { pack: "hello", recipe: "greet", params: { name: "Ada" } }
 
-/** The documented module hash, computed here from the file list rather than imported. */
-function expectedModuleHash(files: Record<string, string>): string {
+/** The documented pack hash, computed here from the file list rather than imported. */
+function expectedPackHash(files: Record<string, string>): string {
 	const lines = Object.keys(files)
 		.sort()
 		.map((path) => `${path}\0${sha(files[path] ?? "")}\n`)
-	return sha(`baka.module.v1\n${lines.join("")}`)
+	return sha(`baka.pack.v1\n${lines.join("")}`)
 }
 
-function setup(mod = GREET_MODULE) {
+function setup(mod = GREET_PACK) {
 	const root = tempDir()
-	const modules = tempDir()
-	const moduleRoot = writeModule(modules, mod)
-	return { root, modules, moduleRoot, registry: createRegistry({ root, moduleDirs: [modules] }) }
+	const packs = tempDir()
+	const packRoot = writePack(packs, mod)
+	return { root, packs, packRoot, registry: createRegistry({ root, packDirs: [packs] }) }
 }
 
-describe("module pins", () => {
-	it("records {id, version, contentHash} for the module a run used", async () => {
-		const { registry, moduleRoot } = setup({ ...GREET_MODULE, version: "1.4.2" })
-		const result = await runAction({ registry, ...RUN, provider: fakeProvider() })
-		const manifest = readFileSync(join(moduleRoot, "manifest.ts"), "utf-8")
-		const template = readFileSync(join(moduleRoot, "greet", "templates", "hello.md.hbs"), "utf-8")
+describe("pack pins", () => {
+	it("records {id, version, contentHash} for the pack a run used", async () => {
+		const { registry, packRoot } = setup({ ...GREET_PACK, version: "1.4.2" })
+		const result = await runRecipe({ registry, ...RUN, provider: fakeProvider() })
+		const manifest = readFileSync(join(packRoot, "manifest.ts"), "utf-8")
+		const template = readFileSync(join(packRoot, "greet", "templates", "hello.md.hbs"), "utf-8")
 		expect(result.pins).toEqual([
 			{
 				id: "hello",
 				version: "1.4.2",
-				contentHash: expectedModuleHash({ "manifest.ts": manifest, "greet/templates/hello.md.hbs": template }),
+				contentHash: expectedPackHash({ "manifest.ts": manifest, "greet/templates/hello.md.hbs": template }),
 			},
 		])
 	})
 
-	it("hashes the same module content to the same value wherever it lives", async () => {
+	it("hashes the same pack content to the same value wherever it lives", async () => {
 		const a = setup()
 		const b = setup()
-		const ra = await runAction({ registry: a.registry, ...RUN, provider: fakeProvider() })
-		const rb = await runAction({ registry: b.registry, ...RUN, provider: fakeProvider() })
+		const ra = await runRecipe({ registry: a.registry, ...RUN, provider: fakeProvider() })
+		const rb = await runRecipe({ registry: b.registry, ...RUN, provider: fakeProvider() })
 		expect(ra.pins).toEqual(rb.pins)
 	})
 
-	it("changes when a module file changes, and ignores install and tool residue", async () => {
-		const { registry, moduleRoot } = setup()
-		const before = (await runAction({ registry, ...RUN, dryRun: true, provider: fakeProvider() })).pins[0]?.contentHash
+	it("changes when a pack file changes, and ignores install and tool residue", async () => {
+		const { registry, packRoot } = setup()
+		const before = (await runRecipe({ registry, ...RUN, dryRun: true, provider: fakeProvider() })).pins[0]?.contentHash
 
-		mkdirSync(join(moduleRoot, "node_modules", "dep"), { recursive: true })
-		writeFileSync(join(moduleRoot, "node_modules", "dep", "index.js"), "x")
-		mkdirSync(join(moduleRoot, "greet", "out"), { recursive: true })
-		writeFileSync(join(moduleRoot, "greet", "out", "residue.txt"), "x")
-		writeFileSync(join(moduleRoot, ".DS_Store"), "x")
-		writeFileSync(join(moduleRoot, ".design-state.json"), "{}")
-		const withResidue = (await runAction({ registry, ...RUN, dryRun: true, provider: fakeProvider() })).pins[0]
+		mkdirSync(join(packRoot, "node_modules", "dep"), { recursive: true })
+		writeFileSync(join(packRoot, "node_modules", "dep", "index.js"), "x")
+		mkdirSync(join(packRoot, "greet", "out"), { recursive: true })
+		writeFileSync(join(packRoot, "greet", "out", "residue.txt"), "x")
+		writeFileSync(join(packRoot, ".DS_Store"), "x")
+		writeFileSync(join(packRoot, ".design-state.json"), "{}")
+		const withResidue = (await runRecipe({ registry, ...RUN, dryRun: true, provider: fakeProvider() })).pins[0]
 			?.contentHash
 		expect(withResidue).toBe(before)
 
-		writeFileSync(join(moduleRoot, "greet", "templates", "hello.md.hbs"), "# changed\n")
-		const changed = (await runAction({ registry, ...RUN, dryRun: true, provider: fakeProvider() })).pins[0]?.contentHash
+		writeFileSync(join(packRoot, "greet", "templates", "hello.md.hbs"), "# changed\n")
+		const changed = (await runRecipe({ registry, ...RUN, dryRun: true, provider: fakeProvider() })).pins[0]?.contentHash
 		expect(changed).not.toBe(before)
 	})
 
-	it("is listed per module in the catalog, equal to the run's pin", async () => {
+	it("is listed per pack in the catalog, equal to the run's pin", async () => {
 		const { registry } = setup()
-		const catalog = describeModules(registry)
-		const run = await runAction({ registry, ...RUN, dryRun: true, provider: fakeProvider() })
-		expect(catalog.modules[0]?.contentHash).toBe(run.pins[0]?.contentHash)
+		const catalog = describePacks(registry)
+		const run = await runRecipe({ registry, ...RUN, dryRun: true, provider: fakeProvider() })
+		expect(catalog.packs[0]?.contentHash).toBe(run.pins[0]?.contentHash)
 	})
 
-	it("is empty when the module cannot be resolved", async () => {
+	it("is empty when the pack cannot be resolved", async () => {
 		const { registry } = setup()
-		const result = await runAction({ registry, module: "nope", action: "x", params: {} })
+		const result = await runRecipe({ registry, pack: "nope", recipe: "x", params: {} })
 		expect(result.pins).toEqual([])
 	})
 })
 
 describe("baka.lock.json", () => {
-	it("createLock pins every module by id, and a run under that lock passes", async () => {
+	it("createLock pins every pack by id, and a run under that lock passes", async () => {
 		const { root, registry } = setup()
 		const lock = createLock(registry)
-		const pin = (await runAction({ registry, ...RUN, dryRun: true, provider: fakeProvider() })).pins[0]
+		const pin = (await runRecipe({ registry, ...RUN, dryRun: true, provider: fakeProvider() })).pins[0]
 		expect(lock).toEqual({
 			lockfileVersion: 1,
-			modules: { hello: { version: "0.1.0", contentHash: pin?.contentHash } },
+			packs: { hello: { version: "0.1.0", contentHash: pin?.contentHash } },
 		})
-		const result = await runAction({ registry, ...RUN, lock, provider: fakeProvider() })
+		const result = await runRecipe({ registry, ...RUN, lock, provider: fakeProvider() })
 		expect(result.ok).toBe(true)
 		expect(existsSync(join(root, "hello.md"))).toBe(true)
 	})
 
-	it("fails closed, before any model call or write, when a module file changed since the lock", async () => {
-		const { root, registry, moduleRoot } = setup()
+	it("fails closed, before any model call or write, when a pack file changed since the lock", async () => {
+		const { root, registry, packRoot } = setup()
 		const lock = createLock(registry)
-		writeFileSync(join(moduleRoot, "greet", "templates", "hello.md.hbs"), "# tampered {{name}}\n")
+		writeFileSync(join(packRoot, "greet", "templates", "hello.md.hbs"), "# tampered {{name}}\n")
 		const provider = fakeProvider()
-		const result = await runAction({ registry, ...RUN, lock, provider })
+		const result = await runRecipe({ registry, ...RUN, lock, provider })
 		expect(result.ok).toBe(false)
 		expect(result.diagnostics.map((d) => d.rule)).toEqual(["lock-mismatch"])
 		expect(result.diagnostics[0]?.message).toContain("contentHash")
@@ -119,28 +119,28 @@ describe("baka.lock.json", () => {
 	it("fails with lock-mismatch when the version moved", async () => {
 		const { registry } = setup()
 		const lock = createLock(registry)
-		lock.modules.hello = { version: "0.0.9", contentHash: lock.modules.hello?.contentHash ?? "" }
-		const result = await runAction({ registry, ...RUN, lock, provider: fakeProvider() })
+		lock.packs.hello = { version: "0.0.9", contentHash: lock.packs.hello?.contentHash ?? "" }
+		const result = await runRecipe({ registry, ...RUN, lock, provider: fakeProvider() })
 		expect(result.diagnostics.map((d) => d.rule)).toEqual(["lock-mismatch"])
 		expect(result.diagnostics[0]?.message).toContain("locked at version 0.0.9")
 	})
 
-	it("fails with lock-unlisted when the lock does not mention the module", async () => {
+	it("fails with lock-unlisted when the lock does not mention the pack", async () => {
 		const { registry } = setup()
-		const result = await runAction({
+		const result = await runRecipe({
 			registry,
 			...RUN,
-			lock: { lockfileVersion: 1, modules: {} },
+			lock: { lockfileVersion: 1, packs: {} },
 			provider: fakeProvider(),
 		})
 		expect(result.diagnostics.map((d) => d.rule)).toEqual(["lock-unlisted"])
 	})
 
-	it("can lock a subset of modules", () => {
-		const { registry, modules } = setup()
-		writeModule(modules, { name: "other", actions: GREET_MODULE.actions })
-		expect(Object.keys(createLock(registry).modules)).toEqual(["hello", "other"])
-		expect(Object.keys(createLock(registry, ["other"]).modules)).toEqual(["other"])
+	it("can lock a subset of packs", () => {
+		const { registry, packs } = setup()
+		writePack(packs, { name: "other", recipes: GREET_PACK.recipes })
+		expect(Object.keys(createLock(registry).packs)).toEqual(["hello", "other"])
+		expect(Object.keys(createLock(registry, ["other"]).packs)).toEqual(["other"])
 	})
 
 	it("round-trips through the file, and reports a missing or malformed file", () => {
@@ -154,17 +154,17 @@ describe("baka.lock.json", () => {
 
 		writeFileSync(path, "{ not json")
 		expect(() => readLockfile(root)).toThrow("not valid JSON")
-		writeFileSync(path, JSON.stringify({ lockfileVersion: 2, modules: {} }))
+		writeFileSync(path, JSON.stringify({ lockfileVersion: 2, packs: {} }))
 		expect(() => readLockfile(root)).toThrow("not a valid baka.lock.json")
 	})
 
-	it("is satisfied by a copy of the module elsewhere with identical content", async () => {
-		const { registry, moduleRoot } = setup()
+	it("is satisfied by a copy of the pack elsewhere with identical content", async () => {
+		const { registry, packRoot } = setup()
 		const lock = createLock(registry)
 		const elsewhere = tempDir()
-		cpSync(moduleRoot, join(elsewhere, "hello"), { recursive: true })
-		const other = createRegistry({ root: tempDir(), moduleDirs: [elsewhere] })
-		const result = await runAction({ registry: other, ...RUN, lock, provider: fakeProvider() })
+		cpSync(packRoot, join(elsewhere, "hello"), { recursive: true })
+		const other = createRegistry({ root: tempDir(), packDirs: [elsewhere] })
+		const result = await runRecipe({ registry: other, ...RUN, lock, provider: fakeProvider() })
 		expect(result.ok).toBe(true)
 	})
 })

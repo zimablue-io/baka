@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { actionResultJsonSchema, paramsJsonSchema } from "./json-schema"
-import { type ModuleActionParam, ModuleActionParamSchema } from "./schemas"
+import { paramsJsonSchema, recipeResultJsonSchema } from "./json-schema"
+import { type PackRecipeParam, PackRecipeParamSchema } from "./schemas"
 
-const PARAMS: ModuleActionParam[] = [
+const PARAMS: PackRecipeParam[] = [
 	{ name: "name", type: "string", required: true, description: "Project name." },
 	{ name: "strict", type: "boolean", required: false, description: "Strict mode.", default: true },
 	{ name: "retries", type: "number", required: false, description: "Retry count." },
@@ -72,22 +72,22 @@ describe("paramsJsonSchema", () => {
 		expect(JSON.parse(JSON.stringify(schema))).toEqual(schema)
 	})
 
-	it("describes a param-less action as an empty closed object", () => {
+	it("describes a param-less recipe as an empty closed object", () => {
 		expect(paramsJsonSchema([])).toMatchObject({ type: "object", properties: {}, additionalProperties: false })
 	})
 })
 
-describe("actionResultJsonSchema", () => {
+describe("recipeResultJsonSchema", () => {
 	it("describes the receipt a run returns", () => {
-		const schema = actionResultJsonSchema() as {
+		const schema = recipeResultJsonSchema() as {
 			required: string[]
 			properties: Record<string, { type?: string; enum?: string[]; items?: { properties?: Record<string, unknown> } }>
 		}
 		expect(schema.required).toEqual(
 			expect.arrayContaining([
 				"ok",
-				"module",
-				"action",
+				"pack",
+				"recipe",
 				"diagnostics",
 				"changeset",
 				"outputTreeHash",
@@ -102,12 +102,12 @@ describe("actionResultJsonSchema", () => {
 	})
 })
 
-describe("ModuleActionParamSchema, extended types", () => {
+describe("PackRecipeParamSchema, extended types", () => {
 	const base = { name: "p", required: false, description: "d" }
 
 	it("accepts array and object params, nested", () => {
 		expect(
-			ModuleActionParamSchema.safeParse({
+			PackRecipeParamSchema.safeParse({
 				...base,
 				type: "array",
 				items: { type: "object", properties: [{ name: "id", type: "number", required: true, description: "id" }] },
@@ -125,7 +125,7 @@ describe("ModuleActionParamSchema, extended types", () => {
 		["a required param with a default", { ...base, type: "string", required: true, default: "x" }],
 		["a nested param that is itself invalid", { ...base, type: "array", items: { type: "enum" } }],
 	])("rejects %s", (_label, param) => {
-		expect(ModuleActionParamSchema.safeParse(param).success).toBe(false)
+		expect(PackRecipeParamSchema.safeParse(param).success).toBe(false)
 	})
 })
 

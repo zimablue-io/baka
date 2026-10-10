@@ -1,28 +1,28 @@
-// Black-box tests for the CLI's --cwd flag consistency on `baka module`
+// Black-box tests for the CLI's --cwd flag consistency on `baka pack`
 // subcommands (feature `cli-cwd-consistency`, misc-found milestone).
 //
-// Bug: `baka module validate|list-actions|test` (and `module edit`) read
+// Bug: `baka pack validate|list-recipes|test` (and `pack edit`) read
 // `process.cwd()` directly, ignoring the global --cwd flag the CLI
 // advertises. Every other `baka` subcommand already honors the flag. The
-// fix is to thread an explicit `cwd` through the module command handlers
+// fix is to thread an explicit `cwd` through the pack command handlers
 // and pass it from `index.ts`.
 //
 // Bug (root script): `pnpm baka` runs the CLI via
 // `pnpm --filter baka exec tsx src/index.ts ...`, which sets the spawned
 // process's cwd to `apps/cli`. From the repo root that means every
-// `baka module ...` invocation resolves modules from `apps/cli` instead
+// `baka pack ...` invocation resolves packs from `apps/cli` instead
 // of the user's invocation directory. The root `scripts/baka.mjs` wrapper
 // must forward the invoker's cwd (via INIT_CWD or by explicit chdir).
 //
 // The black-box probes here spawn the BUILT artifact
 // (`apps/cli/dist/index.js`) as a subprocess with a fake HOME, then assert
 // that:
-//   (a) `baka --cwd <fixtureDir> module validate <name>` finds the fixture
+//   (a) `baka --cwd <fixtureDir> pack validate <name>` finds the fixture
 //       from any process cwd (proves the --cwd flag is honored);
-//   (b) `baka --cwd <fixtureDir> module list-actions <name>` lists the
-//       fixture's actions;
-//   (c) `baka --cwd <fixtureDir> module test <name> --action <id>` runs
-//       the fixture's action;
+//   (b) `baka --cwd <fixtureDir> pack list-recipes <name>` lists the
+//       fixture's recipes;
+//   (c) `baka --cwd <fixtureDir> pack test <name> --recipe <id>` runs
+//       the fixture's recipe;
 //   (d) `pnpm baka <cmd>` invoked from a non-baka-repo cwd (with
 //       INIT_CWD pointing at a fixture project) operates on that fixture
 //       project, not on `apps/cli`.
@@ -105,23 +105,23 @@ function spawnCli(args: {
 }
 
 /**
- * Write a minimal valid fixture module under `<projectDir>/.baka/modules/<name>`.
- * The module declares one non-reasoning action that writes a single
- * marker file, so `baka module test` can prove the loader resolved the
+ * Write a minimal valid fixture pack under `<projectDir>/.baka/packs/<name>`.
+ * The pack declares one non-reasoning recipe that writes a single
+ * marker file, so `baka pack test` can prove the loader resolved the
  * fixture through the project-marketplace scope.
  */
-function writeFixtureModule(projectDir: string, name: string, markerFile: string): void {
-	const moduleDir = join(projectDir, ".baka", "modules", name)
-	mkdirSync(join(moduleDir, "echo", "validators"), { recursive: true })
+function writeFixturePack(projectDir: string, name: string, markerFile: string): void {
+	const packDir = join(projectDir, ".baka", "packs", name)
+	mkdirSync(join(packDir, "echo", "validators"), { recursive: true })
 	writeFileSync(
-		join(moduleDir, "manifest.ts"),
+		join(packDir, "manifest.ts"),
 		`export const Manifest = {
 	name: ${JSON.stringify(name)},
 	version: "0.1.0",
 	description: ${JSON.stringify(`fixture for ${name}`)},
 	dependencies: [],
 	conflictsWith: [],
-	actions: [
+	recipes: [
 		{
 			id: "echo",
 			description: "writes a marker file so the runner can prove it ran",
@@ -131,17 +131,17 @@ function writeFixtureModule(projectDir: string, name: string, markerFile: string
 			params: [],
 		},
 	],
-	moduleValidators: [],
+	packValidators: [],
 }
 `,
 		"utf-8",
 	)
 	writeFileSync(
-		join(moduleDir, "echo", "action.ts"),
+		join(packDir, "echo", "recipe.ts"),
 		`import { writeFileSync } from "node:fs"
 import { join } from "node:path"
 
-export const echoAction = {
+export const echoRecipe = {
 	name: ${JSON.stringify(`${name}.echo`)},
 	execute: async (_input, state) => {
 		writeFileSync(join(state.targetDirectory, ${JSON.stringify(markerFile)}), "ok\\n", "utf-8")
@@ -153,7 +153,7 @@ export const echoAction = {
 		"utf-8",
 	)
 	writeFileSync(
-		join(moduleDir, "echo", "validators", "has-output.ts"),
+		join(packDir, "echo", "validators", "has-output.ts"),
 		`export const hasOutput = {
 	name: ${JSON.stringify(`${name}.echo.has-output`)},
 	validate: async (_input, _state, _output) => ({ kind: "pass", diagnostics: [] }),
@@ -164,37 +164,37 @@ export const echoAction = {
 }
 
 // ---------------------------------------------------------------------------
-// (a) `baka --cwd <fixtureDir> module validate <name>` finds the fixture
+// (a) `baka --cwd <fixtureDir> pack validate <name>` finds the fixture
 // even when process.cwd() != fixtureDir.
 // ---------------------------------------------------------------------------
-describe("cli-cwd-consistency / baka --cwd <dir> module validate honors --cwd", () => {
+describe("cli-cwd-consistency / baka --cwd <dir> pack validate honors --cwd", () => {
 	it("finds a fixture installed in the --cwd dir from a different process cwd", async () => {
 		const fixtureDir = makeEmptyDir("baka-cwd-consistency-validate-")
 		const foreignCwd = makeEmptyDir("baka-cwd-consistency-validate-foreign-")
 		const fakeHome = makeEmptyDir("baka-cwd-consistency-validate-home-")
-		writeFixtureModule(fixtureDir, "cwd-fixture-mod", "validate-marker.txt")
+		writeFixturePack(fixtureDir, "cwd-fixture-mod", "validate-marker.txt")
 
 		const { code, stdout, stderr } = await spawnCli({
-			argv: ["--cwd", fixtureDir, "module", "validate", "cwd-fixture-mod", "--json"],
+			argv: ["--cwd", fixtureDir, "pack", "validate", "cwd-fixture-mod", "--json"],
 			cwd: foreignCwd,
 			fakeHome,
 		})
 
 		expect(code, `unexpected exit ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(0)
-		const parsed = JSON.parse(stdout) as { module: string; valid: boolean; errors: string[] }
-		expect(parsed.module).toBe("cwd-fixture-mod")
+		const parsed = JSON.parse(stdout) as { pack: string; valid: boolean; errors: string[] }
+		expect(parsed.pack).toBe("cwd-fixture-mod")
 		expect(parsed.valid, `errors: ${parsed.errors.join("; ")}`).toBe(true)
 		expect(parsed.errors).toEqual([])
 	})
 
-	it("exits 1 with 'module not found' when neither --cwd nor process.cwd can resolve the name", async () => {
+	it("exits 1 with 'pack not found' when neither --cwd nor process.cwd can resolve the name", async () => {
 		const fixtureDir = makeEmptyDir("baka-cwd-consistency-validate-missing-")
 		const foreignCwd = makeEmptyDir("baka-cwd-consistency-validate-missing-foreign-")
 		const fakeHome = makeEmptyDir("baka-cwd-consistency-validate-missing-home-")
 		// fixtureDir is empty; foreignCwd is empty; no project marketplace anywhere.
 
 		const { code, stdout, stderr } = await spawnCli({
-			argv: ["--cwd", fixtureDir, "module", "validate", "cwd-fixture-mod", "--json"],
+			argv: ["--cwd", fixtureDir, "pack", "validate", "cwd-fixture-mod", "--json"],
 			cwd: foreignCwd,
 			fakeHome,
 		})
@@ -202,47 +202,47 @@ describe("cli-cwd-consistency / baka --cwd <dir> module validate honors --cwd", 
 		expect(code).not.toBe(0)
 		// In --json mode the error message is wrapped in the JSON payload on
 		// stdout; the human-readable form (no --json) writes to stderr. Either
-		// surface should name the missing module.
+		// surface should name the missing pack.
 		const combined = stdout + stderr
-		expect(combined).toContain("module not found")
+		expect(combined).toContain("pack not found")
 		expect(combined).toContain("cwd-fixture-mod")
 	})
 })
 
 // ---------------------------------------------------------------------------
-// (b) `baka --cwd <fixtureDir> module list-actions <name>` honors --cwd.
+// (b) `baka --cwd <fixtureDir> pack list-recipes <name>` honors --cwd.
 // ---------------------------------------------------------------------------
-describe("cli-cwd-consistency / baka --cwd <dir> module list-actions honors --cwd", () => {
-	it("lists the fixture's actions when --cwd points at the project marketplace", async () => {
+describe("cli-cwd-consistency / baka --cwd <dir> pack list-recipes honors --cwd", () => {
+	it("lists the fixture's recipes when --cwd points at the project marketplace", async () => {
 		const fixtureDir = makeEmptyDir("baka-cwd-consistency-list-")
 		const foreignCwd = makeEmptyDir("baka-cwd-consistency-list-foreign-")
 		const fakeHome = makeEmptyDir("baka-cwd-consistency-list-home-")
-		writeFixtureModule(fixtureDir, "cwd-fixture-mod", "list-marker.txt")
+		writeFixturePack(fixtureDir, "cwd-fixture-mod", "list-marker.txt")
 
 		const { code, stdout, stderr } = await spawnCli({
-			argv: ["--cwd", fixtureDir, "module", "list-actions", "cwd-fixture-mod"],
+			argv: ["--cwd", fixtureDir, "pack", "list-recipes", "cwd-fixture-mod"],
 			cwd: foreignCwd,
 			fakeHome,
 		})
 
 		expect(code, `unexpected exit ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(0)
-		expect(stdout).toContain("module: cwd-fixture-mod")
+		expect(stdout).toContain("pack: cwd-fixture-mod")
 		expect(stdout).toContain("- echo:")
 	})
 })
 
 // ---------------------------------------------------------------------------
-// (c) `baka --cwd <fixtureDir> module test <name> --action <id>` honors --cwd.
+// (c) `baka --cwd <fixtureDir> pack test <name> --recipe <id>` honors --cwd.
 // ---------------------------------------------------------------------------
-describe("cli-cwd-consistency / baka --cwd <dir> module test honors --cwd", () => {
-	it("runs the fixture's action when --cwd points at the project marketplace", async () => {
+describe("cli-cwd-consistency / baka --cwd <dir> pack test honors --cwd", () => {
+	it("runs the fixture's recipe when --cwd points at the project marketplace", async () => {
 		const fixtureDir = makeEmptyDir("baka-cwd-consistency-test-")
 		const foreignCwd = makeEmptyDir("baka-cwd-consistency-test-foreign-")
 		const fakeHome = makeEmptyDir("baka-cwd-consistency-test-home-")
-		writeFixtureModule(fixtureDir, "cwd-fixture-mod", "test-marker.txt")
+		writeFixturePack(fixtureDir, "cwd-fixture-mod", "test-marker.txt")
 
 		const { code, stdout, stderr } = await spawnCli({
-			argv: ["--cwd", fixtureDir, "module", "test", "cwd-fixture-mod", "--action", "echo", "--input", "{}"],
+			argv: ["--cwd", fixtureDir, "pack", "test", "cwd-fixture-mod", "--recipe", "echo", "--input", "{}"],
 			cwd: foreignCwd,
 			fakeHome,
 		})
@@ -260,15 +260,15 @@ describe("cli-cwd-consistency / baka --cwd <dir> module test honors --cwd", () =
 // read the invoker's cwd, not `apps/cli`.
 // ---------------------------------------------------------------------------
 describe("cli-cwd-consistency / scripts/baka.mjs passes the invoker's cwd through", () => {
-	it("`baka --cwd <dir> list-modules --json` reports the fixture project's modules when invoked via scripts/baka.mjs", async () => {
+	it("`baka --cwd <dir> list-packs --json` reports the fixture project's packs when invoked via scripts/baka.mjs", async () => {
 		const fixtureDir = makeEmptyDir("baka-cwd-consistency-wrapper-list-")
 		const fakeHome = makeEmptyDir("baka-cwd-consistency-wrapper-list-home-")
-		writeFixtureModule(fixtureDir, "wrapper-fixture-mod", "wrapper-list-marker.txt")
+		writeFixturePack(fixtureDir, "wrapper-fixture-mod", "wrapper-list-marker.txt")
 
 		// scripts/baka.mjs runs the CLI (tsx) from the invoker's directory.
 		// From a different process cwd, with --cwd <fixtureDir>, it should see the
-		// fixture (not the baka repo's bundled modules).
-		const child: ChildProcess = spawn("node", [BAKA_MJS, "--cwd", fixtureDir, "list-modules", "--json"], {
+		// fixture (not the baka repo's bundled packs).
+		const child: ChildProcess = spawn("node", [BAKA_MJS, "--cwd", fixtureDir, "list-packs", "--json"], {
 			cwd: BAKA_REPO, // INVOKER'S cwd (the repo root)
 			env: {
 				...process.env,
@@ -298,12 +298,12 @@ describe("cli-cwd-consistency / scripts/baka.mjs passes the invoker's cwd throug
 		expect(result.code, `unexpected exit; stdout=${outStr}; stderr=${errStr}`).toBe(0)
 
 		const parsed = JSON.parse(outStr) as {
-			modules: Array<{ name: string }>
+			packs: Array<{ name: string }>
 			diagnostics: Array<{ rule: string }>
 		}
-		const names = parsed.modules.map((m) => m.name)
+		const names = parsed.packs.map((m) => m.name)
 		expect(names).toContain("wrapper-fixture-mod")
-		// The fixture project has no bundled modules and no in-tree modules;
+		// The fixture project has no bundled packs and no in-tree packs;
 		// engine catalog names must not leak.
 		expect(names).not.toContain("baka-base")
 		expect(names).not.toContain("sdd")

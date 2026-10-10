@@ -12,7 +12,7 @@ import type { IncomingHttpHeaders } from "node:http"
  *
  * Better-Auth's `getSession` handles both: when an API key is present
  * the apiKey middleware resolves it to a synthetic session, so the same
- * `user.id` is returned regardless of credential path. This module
+ * `user.id` is returned regardless of credential path. This pack
  * exposes that resolution as a single typed helper so future endpoints
  * (publish, org mutations, etc.) can use it without re-implementing the
  * branching logic.

@@ -4,10 +4,10 @@ import { mkdtemp } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import type { ModuleManifest, OrchestrationState, ValidationDiagnostic } from "@repo/protocol"
+import type { OrchestrationState, PackManifest, ValidationDiagnostic } from "@repo/protocol"
 import { createJiti } from "jiti"
 import type { StorageAdapter } from "../storage"
-import type { PerActionState } from "./dry-run"
+import type { PerRecipeState } from "./dry-run"
 
 /**
  * Screening output-validation (architecture §4.6 layer 3,
@@ -15,23 +15,23 @@ import type { PerActionState } from "./dry-run"
  *
  * Three sub-layers run after the dry-run (layer 2) completes:
  *
- *   1. Module's own validators — load every validator the
- *      manifest declares (`moduleValidators` + `action.validators`)
- *      from the module's own tree, run them against the
+ *   1. Pack's own validators — load every validator the
+ *      manifest declares (`packValidators` + `recipe.validators`)
+ *      from the pack's own tree, run them against the
  *      materialized dry-run output, collect diagnostics.
  *      Validator errors fail the layer with the rule's diagnostic
  *      surfaced verbatim on `output_validation.failure`.
  *
  *   2. Writes-subset-filePatterns — for every rendered preview
  *      file produced by layer 2, verify its relative path is
- *      covered by the action's declared `filePatterns`. This is
+ *      covered by the recipe's declared `filePatterns`. This is
  *      the runtime complement to layer 1's static detection
  *      (layer 1 catches string-literal writes; layer 3 catches
  *      computed-path writes the static scanner cannot see). An
  *      off-pattern write names the offending path on
  *      `output_validation.failure`.
  *
- *   3. Output toolchain — for actions that declare
+ *   3. Output toolchain — for recipes that declare
  *      `toolchain: 'tsc'`, run `tsc --noEmit` against the
  *      validation dir and surface the diagnostic verbatim on
  *      failure. The closed `tsc` set is deliberate: the
@@ -55,13 +55,13 @@ import type { PerActionState } from "./dry-run"
  * system.
  *
  * Validator subprocess isolation: validators are loaded via
- * jiti (the same loader used for actions in the dry-run
+ * jiti (the same loader used for recipes in the dry-run
  * subprocess). They are then invoked in-process by the worker;
  * the static scan has already denied network APIs / child_process
- * / eval in the module's own tree, so an in-process validator
+ * / eval in the pack's own tree, so an in-process validator
  * cannot bypass the screening gates. The validator file is
  * trusted because the loadability gate
- * (`packages/ast-tooling/src/action-loader.ts:81-117` /
+ * (`packages/ast-tooling/src/recipe-loader.ts:81-117` /
  * `apps/registry/src/worker/manifest.ts`) requires the file to
  * exist and to export a function.
  */
@@ -77,12 +77,12 @@ interface ValidatorSummary {
 export interface OutputValidationResultSuccess {
 	ok: true
 	validators: {
-		moduleValidators: ValidatorSummary[]
-		actionValidators: ValidatorSummary[]
+		packValidators: ValidatorSummary[]
+		recipeValidators: ValidatorSummary[]
 	}
 	writesSubset: true
 	toolchains: Array<{
-		actionId: string
+		recipeId: string
 		toolchain: "tsc"
 		exitCode: number
 		ok: boolean
@@ -94,12 +94,12 @@ export interface OutputValidationResultFailure {
 	step: "validator" | "writes-subset" | "toolchain"
 	failure: {
 		step: "validator" | "writes-subset" | "toolchain"
-		/** Module-level validator id that failed, when step=validator. */
+		/** Pack-level validator id that failed, when step=validator. */
 		validatorId?: string
-		/** "module" | "action" — the validator scope. */
-		validatorScope?: "module" | "action"
-		/** Action id, when step=validator on an action validator. */
-		actionId?: string
+		/** "pack" | "recipe" — the validator scope. */
+		validatorScope?: "pack" | "recipe"
+		/** Recipe id, when step=validator on a recipe validator. */
+		recipeId?: string
 		/** The validator's surfaced diagnostics. */
 		diagnostics?: ValidationDiagnostic[]
 		/** Off-pattern write path, when step=writes-subset. */
@@ -117,9 +117,9 @@ export interface OutputValidationResultFailure {
 export type OutputValidationPayload = OutputValidationResultSuccess | OutputValidationResultFailure
 
 interface RunOutputValidationOptions {
-	moduleDir: string
-	manifest: ModuleManifest
-	perAction: PerActionState[]
+	packDir: string
+	manifest: PackManifest
+	perRecipe: PerRecipeState[]
 	storage: StorageAdapter
 	jitiRoot?: string
 	/** Per-toolchain timeout in milliseconds (default 30s). */
@@ -127,59 +127,59 @@ interface RunOutputValidationOptions {
 }
 
 export async function runOutputValidation(opts: RunOutputValidationOptions): Promise<OutputValidationPayload> {
-	const jitiRoot = opts.jitiRoot ?? findJitiRoot(opts.moduleDir)
-	const moduleReal = realpathSync(opts.moduleDir)
+	const jitiRoot = opts.jitiRoot ?? findJitiRoot(opts.packDir)
+	const packReal = realpathSync(opts.packDir)
 
 	// Materialize the dry-run output into a fresh validation dir.
-	// One subdir per action; per-action preview files land under
-	// `<validationDir>/<actionId>/`. The subdir matches the
-	// action's relative file paths so validators and the
-	// declared toolchain see the same paths the action wrote.
+	// One subdir per recipe; per-recipe preview files land under
+	// `<validationDir>/<recipeId>/`. The subdir matches the
+	// recipe's relative file paths so validators and the
+	// declared toolchain see the same paths the recipe wrote.
 	const validationDir = await mkdtemp(join(tmpdir(), VALIDATION_DIR_PREFIX))
 
-	const moduleValidatorResults: ValidatorSummary[] = []
-	const actionValidatorResults: ValidatorSummary[] = []
+	const packValidatorResults: ValidatorSummary[] = []
+	const recipeValidatorResults: ValidatorSummary[] = []
 	const toolchainResults: OutputValidationResultSuccess["toolchains"] = []
 
 	try {
-		// Materialize preview files for every screened action.
+		// Materialize preview files for every screened recipe.
 		// The narrow type lets TS see `previewFiles` is defined
 		// when we iterate the materialized entries below.
-		type ScreenedActionState = Extract<PerActionState, { status: "screened" }>
-		const actionMaterialized: Array<{ actionId: string; state: ScreenedActionState }> = []
-		for (const state of opts.perAction) {
+		type ScreenedRecipeState = Extract<PerRecipeState, { status: "screened" }>
+		const recipeMaterialized: Array<{ recipeId: string; state: ScreenedRecipeState }> = []
+		for (const state of opts.perRecipe) {
 			if (state.status !== "screened") continue
-			const actionSubdir = join(validationDir, state.actionId)
-			mkdirSync(actionSubdir, { recursive: true })
+			const recipeSubdir = join(validationDir, state.recipeId)
+			mkdirSync(recipeSubdir, { recursive: true })
 			for (const file of state.previewFiles) {
 				const bytes = await opts.storage.get(file.storageKey)
 				if (bytes === null) {
-					throw new Error(`preview file storage key ${file.storageKey} not found for action ${state.actionId}`)
+					throw new Error(`preview file storage key ${file.storageKey} not found for recipe ${state.recipeId}`)
 				}
-				const target = join(actionSubdir, file.path)
+				const target = join(recipeSubdir, file.path)
 				mkdirSync(join(target, ".."), { recursive: true })
 				writeFileSync(target, bytes)
 			}
-			actionMaterialized.push({ actionId: state.actionId, state })
+			recipeMaterialized.push({ recipeId: state.recipeId, state })
 		}
 
 		// -----------------------------------------------------------------
-		// Sub-layer 1: module's own validators (VAL-SCAN-006)
+		// Sub-layer 1: pack's own validators (VAL-SCAN-006)
 		// -----------------------------------------------------------------
-		// Module validators run against the whole validation dir.
+		// Pack validators run against the whole validation dir.
 		// The validator's contract is `async (state) => Diagnostic[]`
 		// where `state.targetDirectory` is the dir to scan — the
 		// same contract `runValidators` in
 		// `packages/ast-tooling/src/validator.ts` honors.
-		const moduleValidatorIds = opts.manifest.moduleValidators ?? []
-		for (const validatorId of moduleValidatorIds) {
-			const summary = await invokeModuleValidator({
-				moduleReal,
+		const packValidatorIds = opts.manifest.packValidators ?? []
+		for (const validatorId of packValidatorIds) {
+			const summary = await invokePackValidator({
+				packReal,
 				jitiRoot,
 				validatorId,
 				targetDirectory: validationDir,
 			})
-			moduleValidatorResults.push(summary)
+			packValidatorResults.push(summary)
 			const errors = summary.diagnostics.filter((d) => d.severity === "error")
 			if (errors.length > 0) {
 				return {
@@ -187,34 +187,34 @@ export async function runOutputValidation(opts: RunOutputValidationOptions): Pro
 					step: "validator",
 					failure: {
 						step: "validator",
-						validatorScope: "module",
+						validatorScope: "pack",
 						validatorId,
 						diagnostics: errors,
-						message: `module validator '${validatorId}' reported ${errors.length} error(s) against dry-run output`,
+						message: `pack validator '${validatorId}' reported ${errors.length} error(s) against dry-run output`,
 					},
 				}
 			}
 		}
 
-		// Per-action validators run against the action's subdir so
-		// the validator sees only that action's produced files.
+		// Per-recipe validators run against the recipe's subdir so
+		// the validator sees only that recipe's produced files.
 		// The engine contract hands the validator the run in `state.run`
 		// (`runValidators` does the same); here it is the screening dry run.
-		for (const { actionId, state } of actionMaterialized) {
-			const action = opts.manifest.actions.find((a) => a.id === actionId)
-			if (action === undefined) continue
-			const validatorIds = action.validators ?? []
+		for (const { recipeId, state } of recipeMaterialized) {
+			const recipe = opts.manifest.recipes.find((a) => a.id === recipeId)
+			if (recipe === undefined) continue
+			const validatorIds = recipe.validators ?? []
 			for (const validatorId of validatorIds) {
-				const summary = await invokeActionValidator({
-					moduleReal,
+				const summary = await invokeRecipeValidator({
+					packReal,
 					jitiRoot,
-					actionId,
+					recipeId,
 					validatorId,
-					targetDirectory: join(validationDir, actionId),
-					moduleName: opts.manifest.name,
-					actionData: state,
+					targetDirectory: join(validationDir, recipeId),
+					packName: opts.manifest.name,
+					recipeData: state,
 				})
-				actionValidatorResults.push(summary)
+				recipeValidatorResults.push(summary)
 				const errors = summary.diagnostics.filter((d) => d.severity === "error")
 				if (errors.length > 0) {
 					return {
@@ -222,11 +222,11 @@ export async function runOutputValidation(opts: RunOutputValidationOptions): Pro
 						step: "validator",
 						failure: {
 							step: "validator",
-							validatorScope: "action",
+							validatorScope: "recipe",
 							validatorId,
-							actionId,
+							recipeId,
 							diagnostics: errors,
-							message: `action validator '${actionId}:${validatorId}' reported ${errors.length} error(s) against dry-run output`,
+							message: `recipe validator '${recipeId}:${validatorId}' reported ${errors.length} error(s) against dry-run output`,
 						},
 					}
 				}
@@ -237,18 +237,18 @@ export async function runOutputValidation(opts: RunOutputValidationOptions): Pro
 		// Sub-layer 2: writes-subset-filePatterns (VAL-SCAN-007)
 		// -----------------------------------------------------------------
 		// For every rendered preview file, check that its
-		// relative path (within the action's subdir) is covered
-		// by the action's declared `filePatterns`. The path
+		// relative path (within the recipe's subdir) is covered
+		// by the recipe's declared `filePatterns`. The path
 		// match is exact-prefix: a declared `src/index.ts`
 		// matches both `src/index.ts` and `src/index.ts/extra`
 		// (the prefix-list shape the static scanner enforces).
 		// The check covers computed-path writes that the static
 		// scanner cannot see (layer 1 only flags string-literal
 		// arguments to writeFile-like calls).
-		for (const { actionId, state } of actionMaterialized) {
-			const action = opts.manifest.actions.find((a) => a.id === actionId)
-			if (action === undefined) continue
-			const allowed = new Set<string>(action.filePatterns)
+		for (const { recipeId, state } of recipeMaterialized) {
+			const recipe = opts.manifest.recipes.find((a) => a.id === recipeId)
+			if (recipe === undefined) continue
+			const allowed = new Set<string>(recipe.filePatterns)
 			for (const file of state.previewFiles) {
 				const normalized = file.path.replace(/\\/g, "/").replace(/^\.\//, "")
 				if (matchesAllowedPattern(normalized, allowed)) continue
@@ -258,8 +258,8 @@ export async function runOutputValidation(opts: RunOutputValidationOptions): Pro
 					failure: {
 						step: "writes-subset",
 						path: file.path,
-						actionId,
-						message: `action '${actionId}' wrote '${file.path}' which is outside its declared filePatterns [${[...allowed].join(", ")}]`,
+						recipeId,
+						message: `recipe '${recipeId}' wrote '${file.path}' which is outside its declared filePatterns [${[...allowed].join(", ")}]`,
 					},
 				}
 			}
@@ -268,20 +268,20 @@ export async function runOutputValidation(opts: RunOutputValidationOptions): Pro
 		// -----------------------------------------------------------------
 		// Sub-layer 3: output toolchain (VAL-SCAN-017)
 		// -----------------------------------------------------------------
-		// For each action that declares `toolchain: 'tsc'`, run
-		// `tsc --noEmit` against the action's subdir and surface
+		// For each recipe that declares `toolchain: 'tsc'`, run
+		// `tsc --noEmit` against the recipe's subdir and surface
 		// the diagnostic verbatim on failure. The closed `tsc`
 		// set is intentional: the registry stays honest about
 		// which tools it runs.
 		const toolchainTimeoutMs = opts.toolchainTimeoutMs ?? 30_000
-		for (const { actionId } of actionMaterialized) {
-			const action = opts.manifest.actions.find((a) => a.id === actionId)
-			if (action === undefined) continue
-			if (action.toolchain !== "tsc") continue
-			const actionSubdir = join(validationDir, actionId)
-			const result = await runTscNoEmit({ targetDir: actionSubdir, timeoutMs: toolchainTimeoutMs })
+		for (const { recipeId } of recipeMaterialized) {
+			const recipe = opts.manifest.recipes.find((a) => a.id === recipeId)
+			if (recipe === undefined) continue
+			if (recipe.toolchain !== "tsc") continue
+			const recipeSubdir = join(validationDir, recipeId)
+			const result = await runTscNoEmit({ targetDir: recipeSubdir, timeoutMs: toolchainTimeoutMs })
 			toolchainResults.push({
-				actionId,
+				recipeId,
 				toolchain: "tsc",
 				exitCode: result.exitCode,
 				ok: result.ok,
@@ -293,10 +293,10 @@ export async function runOutputValidation(opts: RunOutputValidationOptions): Pro
 					failure: {
 						step: "toolchain",
 						toolchain: "tsc",
-						actionId,
+						recipeId,
 						exitCode: result.exitCode,
 						stderr: result.stderr,
-						message: `tsc --noEmit failed for action '${actionId}' with exit code ${result.exitCode}`,
+						message: `tsc --noEmit failed for recipe '${recipeId}' with exit code ${result.exitCode}`,
 					},
 				}
 			}
@@ -305,8 +305,8 @@ export async function runOutputValidation(opts: RunOutputValidationOptions): Pro
 		return {
 			ok: true,
 			validators: {
-				moduleValidators: moduleValidatorResults,
-				actionValidators: actionValidatorResults,
+				packValidators: packValidatorResults,
+				recipeValidators: recipeValidatorResults,
 			},
 			writesSubset: true,
 			toolchains: toolchainResults,
@@ -325,27 +325,27 @@ export async function runOutputValidation(opts: RunOutputValidationOptions): Pro
 }
 
 /**
- * Loads a module-level validator from the module's own tree
+ * Loads a pack-level validator from the pack's own tree
  * and invokes it against `targetDirectory`. The validator file
  * is trusted: the loadability gate
  * (`apps/registry/src/worker/manifest.ts`) requires the file to
  * exist; the static scan denied network APIs / child_process /
- * eval in the module's own tree.
+ * eval in the pack's own tree.
  *
- * Mirrors `loadModuleValidator` in
- * `packages/ast-tooling/src/action-loader.ts:81-87`:
- *   path = `<moduleRoot>/_shared/validators/<kebabId>.ts`
+ * Mirrors `loadPackValidator` in
+ * `packages/ast-tooling/src/recipe-loader.ts:81-87`:
+ *   path = `<packRoot>/_shared/validators/<kebabId>.ts`
  *   export = `mod[validatorId] ?? mod.default`
  */
-async function invokeModuleValidator(opts: {
-	moduleReal: string
+async function invokePackValidator(opts: {
+	packReal: string
 	jitiRoot: string
 	validatorId: string
 	targetDirectory: string
 }): Promise<ValidatorSummary> {
-	const validatorPath = join(opts.moduleReal, "_shared", "validators", `${kebabCase(opts.validatorId)}.ts`)
+	const validatorPath = join(opts.packReal, "_shared", "validators", `${kebabCase(opts.validatorId)}.ts`)
 	if (!existsSync(validatorPath)) {
-		throw new Error(`module validator '${opts.validatorId}' file not found at ${validatorPath}`)
+		throw new Error(`pack validator '${opts.validatorId}' file not found at ${validatorPath}`)
 	}
 	const jiti = createJiti(opts.jitiRoot, { interopDefault: true })
 	const mod = jiti(validatorPath) as Record<string, unknown>
@@ -354,7 +354,7 @@ async function invokeModuleValidator(opts: {
 		| undefined
 	if (typeof fn !== "function") {
 		throw new Error(
-			`module validator '${opts.validatorId}' must export a function named '${opts.validatorId}' (or as default)`,
+			`pack validator '${opts.validatorId}' must export a function named '${opts.validatorId}' (or as default)`,
 		)
 	}
 	const diagnostics = await safeInvokeValidator(fn, opts.targetDirectory)
@@ -362,24 +362,24 @@ async function invokeModuleValidator(opts: {
 }
 
 /**
- * Loads an action-level validator from the module's own tree
- * and invokes it against `targetDirectory` with the run in `state.run`. Mirrors `loadActionValidator` in
- * `packages/ast-tooling/src/action-loader.ts:103-117`:
- *   path = `<moduleRoot>/<actionId>/validators/<kebabId>.ts`
+ * Loads a recipe-level validator from the pack's own tree
+ * and invokes it against `targetDirectory` with the run in `state.run`. Mirrors `loadRecipeValidator` in
+ * `packages/ast-tooling/src/recipe-loader.ts:103-117`:
+ *   path = `<packRoot>/<recipeId>/validators/<kebabId>.ts`
  *   export = `mod[validatorId] ?? mod.default`
  */
-async function invokeActionValidator(opts: {
-	moduleReal: string
+async function invokeRecipeValidator(opts: {
+	packReal: string
 	jitiRoot: string
-	actionId: string
+	recipeId: string
 	validatorId: string
 	targetDirectory: string
-	moduleName: string
-	actionData: unknown
+	packName: string
+	recipeData: unknown
 }): Promise<ValidatorSummary> {
-	const validatorPath = join(opts.moduleReal, opts.actionId, "validators", `${kebabCase(opts.validatorId)}.ts`)
+	const validatorPath = join(opts.packReal, opts.recipeId, "validators", `${kebabCase(opts.validatorId)}.ts`)
 	if (!existsSync(validatorPath)) {
-		throw new Error(`action validator '${opts.actionId}:${opts.validatorId}' file not found at ${validatorPath}`)
+		throw new Error(`recipe validator '${opts.recipeId}:${opts.validatorId}' file not found at ${validatorPath}`)
 	}
 	const jiti = createJiti(opts.jitiRoot, { interopDefault: true })
 	const mod = jiti(validatorPath) as Record<string, unknown>
@@ -388,13 +388,13 @@ async function invokeActionValidator(opts: {
 		| undefined
 	if (typeof fn !== "function") {
 		throw new Error(
-			`action validator '${opts.validatorId}' must export a function named '${opts.validatorId}' (or as default)`,
+			`recipe validator '${opts.validatorId}' must export a function named '${opts.validatorId}' (or as default)`,
 		)
 	}
-	const diagnostics = await safeInvokeActionValidator(fn, opts.targetDirectory, {
-		module: opts.moduleName,
-		action: opts.actionId,
-		actionData: opts.actionData,
+	const diagnostics = await safeInvokeRecipeValidator(fn, opts.targetDirectory, {
+		pack: opts.packName,
+		recipe: opts.recipeId,
+		recipeData: opts.recipeData,
 	})
 	return { validatorId: opts.validatorId, path: validatorPath, diagnostics }
 }
@@ -413,21 +413,21 @@ async function safeInvokeValidator(
 	}
 }
 
-async function safeInvokeActionValidator(
+async function safeInvokeRecipeValidator(
 	fn: (state: OrchestrationState) => Promise<ValidationDiagnostic[]>,
 	targetDirectory: string,
-	run: { module: string; action: string; actionData: unknown },
+	run: { pack: string; recipe: string; recipeData: unknown },
 ): Promise<ValidationDiagnostic[]> {
-	// The same `state.run` the engine gives an action validator after a run (see docs/MODULES.md,
-	// "Validators"): the screening dry run has no params and no changeset, but the action did run.
+	// The same `state.run` the engine gives a recipe validator after a run (see docs/PACKS.md,
+	// "Validators"): the screening dry run has no params and no changeset, but the recipe did run.
 	const state: OrchestrationState = {
 		...makeOrchestrationState(targetDirectory),
 		run: {
-			module: run.module,
-			action: run.action,
+			pack: run.pack,
+			recipe: run.recipe,
 			ran: true,
 			params: {},
-			compensationData: run.actionData,
+			compensationData: run.recipeData,
 			output: null,
 			changeset: [],
 		},
@@ -466,7 +466,7 @@ interface TscResult {
 /**
  * Runs `npx tsc --noEmit` against the target dir. The registry
  * does not bundle its own tsc; it shells out so the toolchain
- * the action declared (and the rest of the project's
+ * the recipe declared (and the rest of the project's
  * toolchain) is the one being tested.
  *
  * `npx` finds `tsc` via the parent PATH / workspace
@@ -475,7 +475,7 @@ interface TscResult {
  * (npm warnings about unknown env configs) that would mask
  * the actual tsc diagnostic in the verdict text.
  *
- * The command's `cwd` is set to the action's subdir so
+ * The command's `cwd` is set to the recipe's subdir so
  * `tsconfig.json` resolution follows the local config.
  */
 function runTscNoEmit(opts: { targetDir: string; timeoutMs: number }): Promise<TscResult> {

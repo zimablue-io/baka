@@ -28,15 +28,12 @@ export class OpenAICompatibleProvider implements LLMProvider {
 	validateConfig(): void {
 		if (!this.config.baseUrl) {
 			throw makeError(
-				BAKA_EXIT_CODE.PROVIDER_ERROR,
+				BAKA_EXIT_CODE.UNAVAILABLE,
 				"openai-compatible: baseUrl is required. Run `baka init` to configure.",
 			)
 		}
 		if (!this.config.model) {
-			throw makeError(
-				BAKA_EXIT_CODE.PROVIDER_ERROR,
-				"openai-compatible: model is required. Run `baka init` to configure.",
-			)
+			throw makeError(BAKA_EXIT_CODE.UNAVAILABLE, "openai-compatible: model is required. Run `baka init` to configure.")
 		}
 	}
 
@@ -86,7 +83,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
 			const retried = await fetchWithTimeout(url, retryBody, this.config, request)
 			text = retried.choices?.[0]?.message?.content
 			if (typeof text !== "string" || text.trim() === "") {
-				throw makeError(BAKA_EXIT_CODE.PROVIDER_ERROR, "openai-compatible: empty or non-string content in response")
+				throw makeError(BAKA_EXIT_CODE.UNAVAILABLE, "openai-compatible: empty or non-string content in response")
 			}
 		}
 
@@ -105,7 +102,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
 			const retry = schema.safeParse(repaired)
 			if (!retry.success) {
 				throw makeError(
-					BAKA_EXIT_CODE.PROVIDER_ERROR,
+					BAKA_EXIT_CODE.UNAVAILABLE,
 					`openai-compatible: response did not match schema after one repair attempt: ${retry.error.message}`,
 				)
 			}
@@ -156,20 +153,17 @@ async function fetchWithTimeout(
 		if (!res.ok) {
 			const text = await res.text().catch(() => "")
 			throw makeError(
-				BAKA_EXIT_CODE.PROVIDER_ERROR,
+				BAKA_EXIT_CODE.UNAVAILABLE,
 				`openai-compatible: ${res.status} ${res.statusText} from ${url}: ${text.slice(0, 500)}`,
 			)
 		}
 		return (await res.json()) as WireResponse
 	} catch (err) {
 		if ((err as Error).name === "AbortError") {
-			throw makeError(
-				BAKA_EXIT_CODE.PROVIDER_ERROR,
-				`openai-compatible: request to ${url} timed out after ${timeout}ms`,
-			)
+			throw makeError(BAKA_EXIT_CODE.UNAVAILABLE, `openai-compatible: request to ${url} timed out after ${timeout}ms`)
 		}
 		const message = err instanceof Error ? err.message : String(err)
-		throw makeError(BAKA_EXIT_CODE.PROVIDER_ERROR, `openai-compatible: request to ${url} failed: ${message}`)
+		throw makeError(BAKA_EXIT_CODE.UNAVAILABLE, `openai-compatible: request to ${url} failed: ${message}`)
 	} finally {
 		clearTimeout(timer)
 	}
@@ -202,13 +196,13 @@ async function tryRepair(
 	const res = await fetchWithTimeout(url, repairBody, config, request)
 	const text = res.choices?.[0]?.message?.content
 	if (typeof text !== "string") {
-		throw makeError(BAKA_EXIT_CODE.PROVIDER_ERROR, "openai-compatible: repair attempt returned empty content")
+		throw makeError(BAKA_EXIT_CODE.UNAVAILABLE, "openai-compatible: repair attempt returned empty content")
 	}
 	try {
 		return JSON.parse(text)
 	} catch (err) {
 		throw makeError(
-			BAKA_EXIT_CODE.PROVIDER_ERROR,
+			BAKA_EXIT_CODE.UNAVAILABLE,
 			`openai-compatible: repair attempt did not return valid JSON: ${err instanceof Error ? err.message : String(err)}`,
 		)
 	}

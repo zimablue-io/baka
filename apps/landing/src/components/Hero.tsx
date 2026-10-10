@@ -27,8 +27,8 @@ export function Hero() {
 					Sometimes, dumber is better.
 				</h1>
 				<p className="mt-6 max-w-2xl text-pretty text-lg text-neutral-400 sm:text-xl">
-					A pattern-enforcement layer for LLM-assisted development. The LLM picks from a finite, declared action space —
-					never invents one.
+					A pattern-enforcement layer for LLM-assisted development. The LLM picks from a finite, declared set of recipes
+					— never invents one.
 				</p>
 				<div className="mt-10 flex flex-col gap-3 sm:flex-row">
 					<a

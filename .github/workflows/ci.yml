@@ -64,6 +64,11 @@ jobs:
       - name: Install the @baka/core tarball into a scratch project outside the workspace
         run: node scripts/verify-core-pack.mjs
 
+      # The first run a new user has: install the CLI tarball outside the workspace, run a bundled
+      # recipe in an empty project with an empty home and no model.
+      - name: Install the baka tarball and run a bundled recipe with no setup
+        run: node scripts/verify-cli-pack.mjs
+
       - name: Smoke test against packed tarballs
         run: |
           set -euo pipefail

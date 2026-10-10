@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmdirSync } from "node:fs"
 import { dirname, isAbsolute, join, relative, sep } from "node:path"
-import { ActionError } from "./errors.js"
+import { RecipeError } from "./errors.js"
 
 /**
  * Path containment: every path the engine writes, reads for a write decision,
@@ -10,12 +10,12 @@ import { ActionError } from "./errors.js"
  * 1. Lexical: a non-empty string without NUL, control characters, or
  *    backslashes; not absolute (`/x`, `C:x`); no `..` segment; not the root
  *    itself; no `.git` segment anywhere and no root-level `.baka` (those hold
- *    hooks and installed modules, i.e. code that runs later).
+ *    hooks and installed packs, i.e. code that runs later).
  * 2. Resolution: after resolving symlinks, the deepest existing ancestor of
  *    the target lies inside the root's real path, and the target itself is
  *    not a symlink.
  *
- * Failures throw `ActionError("path-escape")`.
+ * Failures throw `RecipeError("path-escape")`.
  */
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters is the point
@@ -23,7 +23,7 @@ const CONTROL = /[\u0000-\u001f]/
 const WINDOWS_DRIVE = /^[A-Za-z]:/
 
 function reject(path: string, why: string): never {
-	throw new ActionError("path-escape", `path "${path}" ${why}`)
+	throw new RecipeError("path-escape", `path "${path}" ${why}`)
 }
 
 /**
@@ -41,11 +41,11 @@ export function normalizeRelativePath(path: string): string {
 	for (const segment of path.split("/")) {
 		if (segment === "" || segment === ".") continue
 		if (segment === "..") reject(path, 'contains a ".." segment and would leave the project root')
-		if (segment === ".git") reject(path, 'goes through ".git", which actions may not write')
+		if (segment === ".git") reject(path, 'goes through ".git", which recipes may not write')
 		segments.push(segment)
 	}
 	if (segments.length === 0) reject(path, "resolves to the project root itself")
-	if (segments[0] === ".baka") reject(path, 'is inside ".baka", which actions may not write')
+	if (segments[0] === ".baka") reject(path, 'is inside ".baka", which recipes may not write')
 	return segments.join("/")
 }
 
@@ -86,7 +86,7 @@ export function resolveContained(root: string, rel: string): string {
 	} catch {
 		// does not exist: only its ancestors matter
 	}
-	if (isLink) reject(rel, "is a symbolic link; actions do not write through links")
+	if (isLink) reject(rel, "is a symbolic link; recipes do not write through links")
 	if (!isInside(realRoot, realDeepestExisting(abs)))
 		reject(rel, "resolves outside the project root through a symbolic link")
 	return abs

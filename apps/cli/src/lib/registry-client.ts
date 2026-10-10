@@ -154,7 +154,7 @@ export function maskApiKey(key: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Catalog + module detail (milestone 5, cli-search-multiregistry consumers).
+// Catalog + pack detail (milestone 5, cli-search-multiregistry consumers).
 //
 // The CLI replaces the old `@baka/api` marketplace surface with the
 // apps/registry catalog endpoints. Both GETs carry the API key header
@@ -163,7 +163,7 @@ export function maskApiKey(key: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * One row of the catalog list response from `GET /v1/modules`. Mirrors
+ * One row of the catalog list response from `GET /v1/packs`. Mirrors
  * the schema served by `apps/registry/src/catalog/routes.ts` — kept
  * narrow here so the CLI does not pick up fields the registry has not
  * actually emitted.
@@ -179,11 +179,11 @@ export interface RegistryCatalogEntry {
 }
 
 interface CatalogListResponse {
-	modules: RegistryCatalogEntry[]
+	packs: RegistryCatalogEntry[]
 }
 
 /**
- * Calls `GET /v1/modules`. Returns the full visible-to-caller
+ * Calls `GET /v1/packs`. Returns the full visible-to-caller
  * catalog for the registry. Throws `RegistryTransportError` for
  * transport failures and `RegistryHttpError` for non-2xx
  * responses; callers must catch and isolate per-source failures
@@ -194,19 +194,19 @@ export async function getCatalog(opts: {
 	apiKey?: string
 	fetchImpl?: typeof fetch
 }): Promise<RegistryCatalogEntry[]> {
-	const res = await request<CatalogListResponse>("/v1/modules", {
+	const res = await request<CatalogListResponse>("/v1/packs", {
 		baseUrl: opts.baseUrl,
 		apiKey: opts.apiKey,
 		fetchImpl: opts.fetchImpl,
 	})
 	if (!res.ok || res.body === null) {
-		throw new RegistryHttpError(opts.baseUrl, "/v1/modules", res.status, res.text)
+		throw new RegistryHttpError(opts.baseUrl, "/v1/packs", res.status, res.text)
 	}
-	return res.body.modules
+	return res.body.packs
 }
 
 /**
- * Module detail record from `GET /v1/modules/:scope/:name`. The CLI
+ * Pack detail record from `GET /v1/packs/:scope/:name`. The CLI
  * uses the `latestVersion` field for the latest-pointer assertions
  * (VAL-DISC-038) and the `tier` / `description` for `baka registry
  * info` display (VAL-DISC-030). The 404-vs-tombstone vs org-private
@@ -223,7 +223,7 @@ export interface PublishBody {
 	repo: string
 	tag: string
 	org: string
-	modulePath?: string
+	packPath?: string
 	visibility?: "org" | "public"
 }
 
@@ -296,7 +296,7 @@ export async function publishToRegistry(opts: {
 }
 
 /**
- * Polls `GET /v1/modules/:scope/:name/:version` until the version
+ * Polls `GET /v1/packs/:scope/:name/:version` until the version
  * reaches a terminal state (`ready` / `failed`). Returns the latest
  * detail JSON. Throws `RegistryTransportError` on connection
  * failures and `RegistryHttpError` for non-2xx. Polling cadence is
@@ -315,7 +315,7 @@ export async function pollVersionStatus(opts: {
 }): Promise<VersionDetailResponse> {
 	const intervalMs = opts.intervalMs ?? 500
 	const deadline = Date.now() + (opts.timeoutMs ?? 60_000)
-	const path = `/v1/modules/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}`
+	const path = `/v1/packs/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}`
 	let lastText = ""
 	while (true) {
 		const res = await request<VersionDetailResponse>(path, {
@@ -419,19 +419,19 @@ export async function inviteToOrg(opts: {
 }
 
 // ---------------------------------------------------------------------------
-// Module detail + version detail + previews (milestone 5,
+// Pack detail + version detail + previews (milestone 5,
 // cli-info-preview, VAL-DISC-030 / VAL-DISC-031).
 //
-// The CLI's `baka registry info` command fetches the module detail
+// The CLI's `baka registry info` command fetches the pack detail
 // AND the version detail (manifest) so the served JSON is
 // field-for-field equal to the registry's two endpoints (the
 // assertion pins byte-equal shape). The `baka registry preview`
-// command fetches the previews list AND, when `--action <id>` is
-// supplied, the per-action detail (file CONTENTS for `rendered`,
+// command fetches the previews list AND, when `--recipe <id>` is
+// supplied, the per-recipe detail (file CONTENTS for `rendered`,
 // needs-llm reason for that state). Both flows honor the same
-// visibility rules as the install path: an org-visibility module
+// visibility rules as the install path: an org-visibility pack
 // returns the uniform 404 envelope an outsider would see for a
-// missing module.
+// missing pack.
 //
 // The fetch helpers below narrow the response shapes to the
 // fields the CLI surfaces (mirroring the install surface's
@@ -443,7 +443,7 @@ export async function inviteToOrg(opts: {
 // ---------------------------------------------------------------------------
 
 /**
- * Module detail record from `GET /v1/modules/:scope/:name`. Mirrors
+ * Pack detail record from `GET /v1/packs/:scope/:name`. Mirrors
  * the JSON the registry serves (architecture §4.5, decision 25,
  * decision 31): scope, name, tier, visibility, description,
  * latestVersion (semver max of ready versions), and the full
@@ -454,7 +454,7 @@ export async function inviteToOrg(opts: {
  * directly; the type is a contract pin between the read endpoint
  * and the CLI's `--json` payload (VAL-DISC-030 byte-equal pin).
  */
-interface ModuleDetail {
+interface PackDetail {
 	scope: string
 	name: string
 	tier: string
@@ -466,8 +466,8 @@ interface ModuleDetail {
 
 /**
  * Version detail record from
- * `GET /v1/modules/:scope/:name/:version`. `baka registry info`
- * uses the `manifest` field to display every action with its
+ * `GET /v1/packs/:scope/:name/:version`. `baka registry info`
+ * uses the `manifest` field to display every recipe with its
  * params and descriptions, and the `screening` field to surface
  * the verdict (or `null` for unscreened versions). The full
  * version-detail response carries more (artifacts, commit sha,
@@ -497,53 +497,53 @@ interface VersionDetail {
 
 /**
  * One entry of the previews list from
- * `GET /v1/modules/:scope/:name/:version/previews` (decision 31).
+ * `GET /v1/packs/:scope/:name/:version/previews` (decision 31).
  * The `rendered` state carries `files`; the `needs-llm` state
- * carries no `files` (the per-action detail endpoint surfaces
+ * carries no `files` (the per-recipe detail endpoint surfaces
  * the rendered sentinel bytes separately when present). The CLI
  * prints both states honestly — fabricated code for `needs-llm`
  * is a contract violation. Internal type.
  */
-interface ModulePreviewEntry {
-	actionId: string
+interface PackPreviewEntry {
+	recipeId: string
 	state: "rendered" | "needs-llm"
 	files?: Array<{ path: string; size: number; sha256: string }>
 }
 
 /**
- * Single-action preview detail from
- * `GET /v1/modules/:scope/:name/:version/previews/:actionId`.
+ * Single-recipe preview detail from
+ * `GET /v1/packs/:scope/:name/:version/previews/:recipeId`.
  * The `rendered` state carries `files[]` with the actual bytes
  * (the CLI prints them byte-equal to the served response); the
  * `needs-llm` state carries a `reason` (the documented
- * "action skipped because it requires LLM reasoning" string)
+ * "recipe skipped because it requires LLM reasoning" string)
  * and optionally a `files[]` when a sentinel render was produced
  * (architecture §4.6 layer 2 + library/no-llm-sentinel-preview).
  * Internal type.
  */
-interface ActionPreview {
-	actionId: string
+interface RecipePreview {
+	recipeId: string
 	state: "rendered" | "needs-llm"
 	reason?: string
 	files?: Array<{ path: string; content: string; size: number; sha256: string }>
 }
 
 /**
- * Calls `GET /v1/modules/:scope/:name` for the `info` surface.
+ * Calls `GET /v1/packs/:scope/:name` for the `info` surface.
  * Returns the parsed detail on a 200, `null` on a 404 (the
  * caller surfaces this as "not found"). Any other non-2xx
  * response throws `RegistryHttpError`; transport failures throw
  * `RegistryTransportError`.
  */
-export async function getModuleDetail(opts: {
+export async function getPackDetail(opts: {
 	baseUrl: string
 	scope: string
 	name: string
 	apiKey?: string
 	fetchImpl?: typeof fetch
-}): Promise<ModuleDetail | null> {
-	const path = `/v1/modules/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}`
-	const res = await request<ModuleDetail>(path, {
+}): Promise<PackDetail | null> {
+	const path = `/v1/packs/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}`
+	const res = await request<PackDetail>(path, {
 		baseUrl: opts.baseUrl,
 		apiKey: opts.apiKey,
 		fetchImpl: opts.fetchImpl,
@@ -556,9 +556,9 @@ export async function getModuleDetail(opts: {
 }
 
 /**
- * Calls `GET /v1/modules/:scope/:name/:version` for the `info`
+ * Calls `GET /v1/packs/:scope/:name/:version` for the `info`
  * surface (the manifest lives on the version-detail endpoint,
- * not the module-detail endpoint). The CLI fetches BOTH endpoints
+ * not the pack-detail endpoint). The CLI fetches BOTH endpoints
  * so the served JSON is field-for-field equal to the two
  * registry responses (VAL-DISC-030 contract pin).
  */
@@ -570,7 +570,7 @@ export async function getVersionDetail(opts: {
 	apiKey?: string
 	fetchImpl?: typeof fetch
 }): Promise<VersionDetail | null> {
-	const path = `/v1/modules/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}`
+	const path = `/v1/packs/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}`
 	const res = await request<VersionDetail>(path, {
 		baseUrl: opts.baseUrl,
 		apiKey: opts.apiKey,
@@ -584,24 +584,24 @@ export async function getVersionDetail(opts: {
 }
 
 /**
- * Calls `GET /v1/modules/:scope/:name/:version/previews` (decision
+ * Calls `GET /v1/packs/:scope/:name/:version/previews` (decision
  * 31). Returns the list of preview records (one per manifest
- * action, with state `rendered` | `needs-llm`). An empty list
- * means the version was never screened (e.g. built-in modules
- * per decision 31, or org-visibility modules that skip the
+ * recipe, with state `rendered` | `needs-llm`). An empty list
+ * means the version was never screened (e.g. built-in packs
+ * per decision 31, or org-visibility packs that skip the
  * pipeline). The CLI surfaces the empty list as an explicit
  * "no preview available" line per the contract.
  */
-export async function getModulePreviews(opts: {
+export async function getPackPreviews(opts: {
 	baseUrl: string
 	scope: string
 	name: string
 	version: string
 	apiKey?: string
 	fetchImpl?: typeof fetch
-}): Promise<ModulePreviewEntry[]> {
-	const path = `/v1/modules/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}/previews`
-	const res = await request<{ previews: ModulePreviewEntry[] }>(path, {
+}): Promise<PackPreviewEntry[]> {
+	const path = `/v1/packs/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}/previews`
+	const res = await request<{ previews: PackPreviewEntry[] }>(path, {
 		baseUrl: opts.baseUrl,
 		apiKey: opts.apiKey,
 		fetchImpl: opts.fetchImpl,
@@ -614,24 +614,24 @@ export async function getModulePreviews(opts: {
 }
 
 /**
- * Calls `GET /v1/modules/:scope/:name/:version/previews/:actionId`
- * (decision 31, VAL-SCAN-004). Returns the per-action preview
+ * Calls `GET /v1/packs/:scope/:name/:version/previews/:recipeId`
+ * (decision 31, VAL-SCAN-004). Returns the per-recipe preview
  * detail (file CONTENTS for `rendered`, reason for `needs-llm`,
- * null on 404 — i.e. the action has no preview record). The CLI
+ * null on 404 — i.e. the recipe has no preview record). The CLI
  * distinguishes "no record" (404) from "needs-llm" (200 with
  * state=needs-llm) so the user can tell the two apart.
  */
-export async function getActionPreview(opts: {
+export async function getRecipePreview(opts: {
 	baseUrl: string
 	scope: string
 	name: string
 	version: string
-	actionId: string
+	recipeId: string
 	apiKey?: string
 	fetchImpl?: typeof fetch
-}): Promise<ActionPreview | null> {
-	const path = `/v1/modules/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}/previews/${encodeURIComponent(opts.actionId)}`
-	const res = await request<ActionPreview>(path, {
+}): Promise<RecipePreview | null> {
+	const path = `/v1/packs/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}/previews/${encodeURIComponent(opts.recipeId)}`
+	const res = await request<RecipePreview>(path, {
 		baseUrl: opts.baseUrl,
 		apiKey: opts.apiKey,
 		fetchImpl: opts.fetchImpl,
@@ -650,7 +650,7 @@ export async function getActionPreview(opts: {
 // through the configured registries, then for the winning registry
 // fetches (a) the version-detail JSON (which carries the manifest)
 // and (b) the tarball artifact. Both endpoints are gated by the
-// standard visibility rules: an org-visibility module returns 404 to
+// standard visibility rules: an org-visibility pack returns 404 to
 // non-members uniformly (VAL-AUTH-003 / VAL-PUB-017) so the CLI's
 // error message names both possibilities ("not found or private")
 // rather than leaking existence.
@@ -664,7 +664,7 @@ export async function getActionPreview(opts: {
 
 /**
  * Mirrors the version-detail JSON the registry serves at
- * `GET /v1/modules/:scope/:name/:version`. The CLI narrows this
+ * `GET /v1/packs/:scope/:name/:version`. The CLI narrows this
  * surface to the fields the install flow needs (manifest, content
  * hash, status). The full version-detail response carries more
  * (screening verdict, artifacts, etc.) — those fields are reserved
@@ -685,7 +685,7 @@ interface VersionDetailForInstall {
 		description?: string
 		dependencies?: string[]
 		conflictsWith?: string[]
-		actions?: Array<{
+		recipes?: Array<{
 			id: string
 			description?: string
 			params?: unknown[]
@@ -693,16 +693,16 @@ interface VersionDetailForInstall {
 			filePatterns?: string[]
 			validators?: string[]
 		}>
-		moduleValidators?: string[]
+		packValidators?: string[]
 		[key: string]: unknown
 	}
 }
 
 /**
- * Calls `GET /v1/modules/:scope/:name/:version` for the install
+ * Calls `GET /v1/packs/:scope/:name/:version` for the install
  * path. Returns the parsed detail on a 200, `null` on a 404 (so
  * the CLI can fall through to the next registry in precedence
- * order without confusing a missing module for a transport
+ * order without confusing a missing pack for a transport
  * failure). Any other non-2xx response throws `RegistryHttpError`;
  * transport failures throw `RegistryTransportError`.
  */
@@ -714,7 +714,7 @@ export async function getVersionDetailForInstall(opts: {
 	apiKey?: string
 	fetchImpl?: typeof fetch
 }): Promise<VersionDetailForInstall | null> {
-	const path = `/v1/modules/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}`
+	const path = `/v1/packs/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}`
 	const res = await request<VersionDetailForInstall>(path, {
 		baseUrl: opts.baseUrl,
 		apiKey: opts.apiKey,
@@ -735,10 +735,10 @@ export async function getVersionDetailForInstall(opts: {
  *
  * The function distinguishes three failure modes a CLI install
  * must surface honestly:
- *   - 404 (uniform for missing module / missing version / org-
+ *   - 404 (uniform for missing pack / missing version / org-
  *     visibility outsider) → caller throws "not found or private".
- *   - 410 (tombstoned module, only reachable for proven members)
- *     → caller throws "module was removed".
+ *   - 410 (tombstoned pack, only reachable for proven members)
+ *     → caller throws "pack was removed".
  *   - Transport failure → caller surfaces the registry URL.
  *   - HTTP 5xx with a JSON body → the error message from the
  *     registry (the CLI never invents context the server didn't
@@ -769,7 +769,7 @@ export async function downloadTarball(opts: {
 	}
 	if (res.status === 404) {
 		// Existence is not leaked — the registry returns 404 for
-		// missing module, missing version, AND org-visibility
+		// missing pack, missing version, AND org-visibility
 		// outsiders. The CLI surfaces this as "not found or
 		// private" so the caller cannot distinguish the two from
 		// the response alone (VAL-DISC-019, VAL-PUB-017).
@@ -790,7 +790,7 @@ export async function downloadTarball(opts: {
 /**
  * Distinguishes a uniform 404 from the download endpoint so the CLI
  * can render "not found or private" honestly (VAL-DISC-019). The
- * registry collapses three states (missing module, missing version,
+ * registry collapses three states (missing pack, missing version,
  * org-visibility outsider) into the same 404 envelope so existence
  * is not leaked — the CLI matches that contract.
  */
@@ -812,7 +812,7 @@ export class RegistryDownloadNotFound extends Error {
 }
 
 /**
- * The download endpoint returns 410 Gone for a tombstoned module
+ * The download endpoint returns 410 Gone for a tombstoned pack
  * (architecture §8 decision 1; VAL-PUB-030). Only members of the
  * owning org reach this branch — outsiders get the uniform 404
  * via `RegistryDownloadNotFound`.
@@ -824,7 +824,7 @@ export class RegistryDownloadGone extends Error {
 	readonly version: string
 	constructor(baseUrl: string, scope: string, name: string, version: string) {
 		super(
-			`registry ${baseUrl} returned 410 for ${scope}/${name}@${version} (module was removed; existing local installs are unaffected)`,
+			`registry ${baseUrl} returned 410 for ${scope}/${name}@${version} (pack was removed; existing local installs are unaffected)`,
 		)
 		this.name = "RegistryDownloadGone"
 		this.baseUrl = baseUrl

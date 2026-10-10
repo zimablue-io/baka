@@ -2,8 +2,8 @@ import { createLLMProvider, loadLLMConfig, validateLLMConfig } from "@repo/agent
 import {
 	executeWorkerStep,
 	loadPlan,
-	ModuleRegistry,
-	ranActions,
+	PackRegistry,
+	ranRecipes,
 	runSaga,
 	runValidators,
 	savePlan,
@@ -65,7 +65,7 @@ export async function runPlan(
 	}
 	const provider = createLLMProvider(config)
 
-	const state = await featurePlanningWorkflow(intent, ctx.cwd, provider, ctx.moduleDirs)
+	const state = await featurePlanningWorkflow(intent, ctx.cwd, provider, ctx.packDirs)
 
 	let planFile: string | undefined
 	let savedAt: string | undefined
@@ -89,7 +89,7 @@ export async function runPlan(
 
 interface ApplyToolOutput {
 	status: "SUCCESS" | "FAILED" | "VALIDATION_FAILED"
-	completedSteps: Array<{ id: string; module: string; action: string; output: unknown }>
+	completedSteps: Array<{ id: string; pack: string; recipe: string; output: unknown }>
 	failed: { id: string; error: string } | null
 	validation: ValidationResult
 	logs: string[]
@@ -103,11 +103,11 @@ export async function runApply(
 	const plan = loadPlan(planFile)
 	const provider = await setupProvider(ctx)
 
-	const registry = new ModuleRegistry(ctx.cwd, { moduleDirs: ctx.moduleDirs })
+	const registry = new PackRegistry(ctx.cwd, { packDirs: ctx.packDirs })
 	registry.discover(false)
 	const stepsByKey = new Map<string, WorkflowStep<unknown, unknown, unknown>>()
 	for (const m of registry.all()) {
-		for (const a of m.actions) {
+		for (const a of m.recipes) {
 			stepsByKey.set(`${m.name}:${a.id}`, executeWorkerStep as unknown as WorkflowStep<unknown, unknown, unknown>)
 		}
 	}
@@ -115,7 +115,7 @@ export async function runApply(
 	const state: OrchestrationState = {
 		userIntent: plan.meta.intent,
 		targetDirectory: ctx.cwd,
-		moduleDirs: ctx.moduleDirs,
+		packDirs: ctx.packDirs,
 		status: "PLANNING",
 		executionPlan: { steps: plan.resolvedSteps, currentStepIndex: 0 },
 		logs: ["[apply] starting"],
@@ -123,14 +123,14 @@ export async function runApply(
 	}
 	const saga = await runSaga(plan, state, { llmProvider: provider }, stepsByKey)
 
-	// Post-apply validators cover only the actions that ran in the SAGA, with
+	// Post-apply validators cover only the recipes that ran in the SAGA, with
 	// the same run context the CLI apply gives them.
-	const validation = await runValidators(registry, saga.state, { mode: "actions", ran: ranActions(saga.completed) })
+	const validation = await runValidators(registry, saga.state, { mode: "recipes", ran: ranRecipes(saga.completed) })
 
 	const completedSteps = saga.completed.map((c) => ({
 		id: c.id,
-		module: c.module,
-		action: c.action,
+		pack: c.pack,
+		recipe: c.recipe,
 		output: c.output,
 	}))
 

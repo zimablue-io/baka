@@ -125,7 +125,7 @@ export function createOrgRoutes(deps: OrgRoutesDeps): Hono {
 
 	// DELETE /v1/orgs/:slug → POST /api/auth/organization/delete (owner-only).
 	// The registry-side check (architecture §8 decision 2, VAL-AUTH-016)
-	// refuses to delete an org that owns any non-tombstoned modules; the
+	// refuses to delete an org that owns any non-tombstoned packs; the
 	// response names the block. When the org is empty, the request is
 	// forwarded to Better-Auth, which handles owner-only enforcement and
 	// cascades members / invitations (VAL-AUTH-015).
@@ -133,13 +133,13 @@ export function createOrgRoutes(deps: OrgRoutesDeps): Hono {
 		const slug = c.req.param("slug")
 		const lookup = await findOrgIdBySlug(auth, c.req.raw, slug)
 		if ("response" in lookup) return lookup.response
-		const ownsModules = await countOrgModules(pglite, slug)
-		if (ownsModules > 0) {
+		const ownsPacks = await countOrgPacks(pglite, slug)
+		if (ownsPacks > 0) {
 			return c.json(
 				{
-					error: `organization '${slug}' cannot be deleted because it owns ${ownsModules} published module(s); unpublish them first`,
+					error: `organization '${slug}' cannot be deleted because it owns ${ownsPacks} published pack(s); unpublish them first`,
 					scope: slug,
-					modulesOwned: ownsModules,
+					packsOwned: ownsPacks,
 				},
 				409,
 			)
@@ -440,17 +440,17 @@ function notFoundJson(): { response: Response } {
 }
 
 /**
- * Counts the non-tombstoned modules under a given org slug. Used by
- * the DELETE handler to enforce "orgs that own published modules
+ * Counts the non-tombstoned packs under a given org slug. Used by
+ * the DELETE handler to enforce "orgs that own published packs
  * cannot be deleted" (architecture §8 decision 2, VAL-AUTH-016).
- * Public and org-visibility modules both count; removed_at IS NULL
- * excludes tombstoned modules so an unpublished module does not
+ * Public and org-visibility packs both count; removed_at IS NULL
+ * excludes tombstoned packs so an unpublished pack does not
  * forever block its org's deletion.
  */
-async function countOrgModules(pglite: PGlite, slug: string): Promise<number> {
+async function countOrgPacks(pglite: PGlite, slug: string): Promise<number> {
 	const result = await pglite.query<{ count: string }>(
 		`SELECT COUNT(*)::text AS count
-		   FROM modules
+		   FROM packs
 		  WHERE scope = $1
 		    AND removed_at IS NULL`,
 		[slug],
@@ -652,7 +652,7 @@ function responseHeadersPreservingCache(response: Response): Record<string, stri
  *     avoids leaking cookies / keys into the next response).
  *
  * Defined as a small inline shim so the `enrich` helper stays
- * self-contained and doesn't pull the full `identity.ts` module
+ * self-contained and doesn't pull the full `identity.ts` pack
  * (which the registry already imports elsewhere via catalog routes).
  */
 async function resolveIdentityQuietly(

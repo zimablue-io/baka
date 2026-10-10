@@ -1,58 +1,58 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { BAKA_LOCKFILE_NAME, type BakaLock, BakaLockSchema, type ModuleManifest, type ModulePin } from "@repo/protocol"
-import { ActionError } from "./errors.js"
-import type { ModuleRegistry } from "./registry.js"
-import { compareUtf8, moduleContentHash } from "./tree-hash.js"
+import { BAKA_LOCKFILE_NAME, type BakaLock, BakaLockSchema, type PackManifest, type PackPin } from "@repo/protocol"
+import { RecipeError } from "./errors.js"
+import type { PackRegistry } from "./registry.js"
+import { compareUtf8, packContentHash } from "./tree-hash.js"
 
-/** The pin of one module as it stands on disk. */
-export function pinModule(moduleRoot: string, manifest: Pick<ModuleManifest, "name" | "version">): ModulePin {
-	return { id: manifest.name, version: manifest.version, contentHash: moduleContentHash(moduleRoot) }
+/** The pin of one pack as it stands on disk. */
+export function pinPack(packRoot: string, manifest: Pick<PackManifest, "name" | "version">): PackPin {
+	return { id: manifest.name, version: manifest.version, contentHash: packContentHash(packRoot) }
 }
 
 /**
- * Fail unless `pin` is exactly what `lock` records for that module. A module
+ * Fail unless `pin` is exactly what `lock` records for that pack. A pack
  * the lockfile does not list is `lock-unlisted`; a different version or
  * different files is `lock-mismatch`.
  */
-export function verifyPin(lock: BakaLock, pin: ModulePin): void {
-	const locked = lock.modules[pin.id]
+export function verifyPin(lock: BakaLock, pin: PackPin): void {
+	const locked = lock.packs[pin.id]
 	if (!locked) {
-		throw new ActionError(
+		throw new RecipeError(
 			"lock-unlisted",
-			`module "${pin.id}" is not in ${BAKA_LOCKFILE_NAME}; run \`baka lock\` to add it`,
+			`pack "${pin.id}" is not in ${BAKA_LOCKFILE_NAME}; run \`baka lock\` to add it`,
 		)
 	}
 	if (locked.version !== pin.version) {
-		throw new ActionError(
+		throw new RecipeError(
 			"lock-mismatch",
-			`module "${pin.id}" is locked at version ${locked.version} but version ${pin.version} was found`,
+			`pack "${pin.id}" is locked at version ${locked.version} but version ${pin.version} was found`,
 		)
 	}
 	if (locked.contentHash !== pin.contentHash) {
-		throw new ActionError(
+		throw new RecipeError(
 			"lock-mismatch",
-			`module "${pin.id}" ${pin.version} differs from ${BAKA_LOCKFILE_NAME}: locked contentHash ${locked.contentHash}, found ${pin.contentHash}`,
+			`pack "${pin.id}" ${pin.version} differs from ${BAKA_LOCKFILE_NAME}: locked contentHash ${locked.contentHash}, found ${pin.contentHash}`,
 		)
 	}
 }
 
 /**
- * Build a lock from the registry's modules (all of them, or just `names`).
+ * Build a lock from the registry's packs (all of them, or just `names`).
  * Keys are sorted so the serialized file is stable.
  */
-export function createLock(registry: ModuleRegistry, names?: readonly string[]): BakaLock {
-	const { modules } = registry.discover(false)
+export function createLock(registry: PackRegistry, names?: readonly string[]): BakaLock {
+	const { packs } = registry.discover(false)
 	const wanted = names ? new Set(names) : null
 	const entries: Array<[string, { version: string; contentHash: string }]> = []
-	for (const manifest of modules) {
+	for (const manifest of packs) {
 		if (wanted && !wanted.has(manifest.name)) continue
-		const root = registry.moduleRootFor(manifest.name)
+		const root = registry.packRootFor(manifest.name)
 		if (!root) continue
-		entries.push([manifest.name, { version: manifest.version, contentHash: moduleContentHash(root) }])
+		entries.push([manifest.name, { version: manifest.version, contentHash: packContentHash(root) }])
 	}
 	entries.sort(([a], [b]) => compareUtf8(a, b))
-	return { lockfileVersion: 1, modules: Object.fromEntries(entries) }
+	return { lockfileVersion: 1, packs: Object.fromEntries(entries) }
 }
 
 /** `<root>/baka.lock.json`. */

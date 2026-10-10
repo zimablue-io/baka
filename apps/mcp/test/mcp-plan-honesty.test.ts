@@ -27,22 +27,22 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest"
 
 const BAKA_REPO = join(__dirname, "..", "..", "..")
 const DIST_INDEX = join(BAKA_REPO, "apps", "mcp", "dist", "index.js")
-// Inline fixture: minimal manifest + a single non-reasoning `write` action.
+// Inline fixture: minimal manifest + a single non-reasoning `write` recipe.
 // We build the fixture into the scratch tree (no symlink to a separate
 // fixture dir, no `baka-sdk` import path required) so the loader sees the
-// module just like any other on-disk module.
+// pack just like any other on-disk pack.
 const HONEST_MOD_NAME = "honest-mod"
 const HONEST_MOD_MANIFEST = `// Inline fixture: see apps/mcp/test/mcp-plan-honesty.test.ts
 // for why this is inlined instead of loaded from a separate fixture file.
-import type { ModuleManifest } from "baka-sdk"
+import type { PackManifest } from "baka-sdk"
 
-export const Manifest: ModuleManifest = {
+export const Manifest: PackManifest = {
 \tname: "${HONEST_MOD_NAME}",
 \tversion: "0.0.0",
 \tdescription: "Inline non-reasoning fixture used by MCP plan honesty tests.",
 \tdependencies: [],
 \tconflictsWith: [],
-\tactions: [
+\trecipes: [
 \t\t{
 \t\t\tid: "write",
 \t\t\tdescription: "Write a marker file to the project root.",
@@ -52,14 +52,14 @@ export const Manifest: ModuleManifest = {
 \t\t\tparams: [],
 \t\t},
 \t],
-\tmoduleValidators: [],
+\tpackValidators: [],
 }
 `
-const HONEST_MOD_ACTION = `import { rmSync, writeFileSync } from "node:fs"
+const HONEST_MOD_RECIPE = `import { rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { AgentRole, type StepResponse, type WorkflowStep } from "baka-sdk"
 
-export const writeAction: WorkflowStep<Record<string, never>, boolean, { targetDirectory: string }> = {
+export const writeRecipe: WorkflowStep<Record<string, never>, boolean, { targetDirectory: string }> = {
 \tname: "${HONEST_MOD_NAME}.write",
 \trole: AgentRole.WORKER,
 
@@ -275,8 +275,8 @@ function planResponse(): string {
 		resolvedSteps: [
 			{
 				id: "step-1",
-				module: "honest-mod",
-				action: "write",
+				pack: "honest-mod",
+				recipe: "write",
 				params: {},
 			},
 		],
@@ -295,10 +295,10 @@ function trackDir(path: string): string {
 
 function prepareScratchWithFixture(prefix: string): string {
 	const scratch = trackDir(makeEmptyDir(prefix))
-	const modDir = join(scratch, "modules", HONEST_MOD_NAME)
+	const modDir = join(scratch, "packs", HONEST_MOD_NAME)
 	mkdirSync(join(modDir, "write"), { recursive: true })
 	writeFileSync(join(modDir, "manifest.ts"), HONEST_MOD_MANIFEST, "utf-8")
-	writeFileSync(join(modDir, "write", "action.ts"), HONEST_MOD_ACTION, "utf-8")
+	writeFileSync(join(modDir, "write", "recipe.ts"), HONEST_MOD_RECIPE, "utf-8")
 	return scratch
 }
 
@@ -487,12 +487,12 @@ describe("VAL-FOUND-008 baka_apply executes a saved plan", () => {
 			expect(applyResult.isError).toBeFalsy()
 			const applyParsed = JSON.parse(applyResult.content[0].text) as {
 				status: string
-				completedSteps: Array<{ module: string; action: string; output?: unknown }>
+				completedSteps: Array<{ pack: string; recipe: string; output?: unknown }>
 			}
 			expect(applyParsed.status).toBe("SUCCESS")
 			expect(applyParsed.completedSteps.length).toBeGreaterThan(0)
-			expect(applyParsed.completedSteps[0]).toMatchObject({ module: "honest-mod", action: "write" })
-			// Rich-output propagation: every completed step carries the action's
+			expect(applyParsed.completedSteps[0]).toMatchObject({ pack: "honest-mod", recipe: "write" })
+			// Rich-output propagation: every completed step carries the recipe's
 			// output payload. The MCP apply surface must mirror the CLI surface.
 			expect(applyParsed.completedSteps[0]).toHaveProperty("output")
 			expect(existsSync(join(scratch, "marker.txt"))).toBe(true)

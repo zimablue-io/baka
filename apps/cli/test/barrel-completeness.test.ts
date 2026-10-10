@@ -3,8 +3,8 @@
 //
 // What it asserts:
 //   The top-level workflow barrel
-//   (workflows/module-management/src/index.ts) re-exports every named
-//   export that `workflows/module-management/src/design/index.ts`
+//   (workflows/pack-management/src/index.ts) re-exports every named
+//   export that `workflows/pack-management/src/design/index.ts`
 //   exposes, so consumers that relied on `export * from "./design"` get
 //   the same surface as before the barrel fix.
 //
@@ -42,7 +42,7 @@ function loadDesignBarrelExportNames(): { values: string[]; types: string[] } {
 		"..",
 		"..",
 		"workflows",
-		"module-management",
+		"pack-management",
 		"src",
 		"design",
 		"index.ts",
@@ -77,7 +77,7 @@ const { values: VALUE_NAMES, types: TYPE_NAMES } = loadDesignBarrelExportNames()
 
 const PROBE_SOURCE = [
 	"// Probe script: enumerate every named export from the workflow barrel.",
-	'import * as m from "@repo/module-management-workflow"',
+	'import * as m from "@repo/pack-management-workflow"',
 	`const values = [${VALUE_NAMES.map((n) => JSON.stringify(n)).join(",")}]`,
 	`const types = [${TYPE_NAMES.map((n) => JSON.stringify(n)).join(",")}]`,
 	// biome-ignore lint/suspicious/noTemplateCurlyInString: these are code strings embedded in a generated script, not template literals
@@ -87,7 +87,7 @@ const PROBE_SOURCE = [
 	"",
 ].join("\n")
 
-describe("@repo/module-management-workflow barrel completeness", () => {
+describe("@repo/pack-management-workflow barrel completeness", () => {
 	beforeAll(() => {
 		if (!existsSync(PROBE_DIR)) mkdirSync(PROBE_DIR, { recursive: true })
 		writeFileSync(PROBE_PATH, PROBE_SOURCE, "utf-8")
@@ -146,7 +146,7 @@ describe("@repo/module-management-workflow barrel completeness", () => {
 		).toBe(0)
 
 		// Types at runtime resolve to `undefined` when imported via star (TS
-		// types are erased). So we can only verify they don't throw a module-
+		// types are erased). So we can only verify they don't throw a pack-
 		// not-found / circular-import crash. The shape-of-truth check here is
 		// "the probe ran at all under tsx".
 		// To get a positive signal, we re-check via a typed static import that

@@ -119,6 +119,6 @@ if (process.argv[1]?.endsWith("init.ts")) {
 	runInit().catch((err) => {
 		const message = err instanceof Error ? err.message : String(err)
 		if (message.includes("User force closed")) return
-		die(BAKA_EXIT_CODE.USER_ERROR, message)
+		die(BAKA_EXIT_CODE.BAD_INPUT, message)
 	})
 }

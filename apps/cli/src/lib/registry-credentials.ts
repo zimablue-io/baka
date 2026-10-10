@@ -17,7 +17,7 @@ import { normalizeRegistryUrl, type RegistryConfigMap, type RegistryCredential }
  * underlying file is never silently treated as empty (the role store
  * follows the same contract, see `packages/agent-engine/src/config/store.ts`).
  *
- * Note: this module does NOT call zod schemas at runtime. The zod
+ * Note: this pack does NOT call zod schemas at runtime. The zod
  * schemas in `@repo/protocol` exist for the contract surface; the CLI
  * uses lightweight manual validation here because the bundled CLI does
  * not depend on zod (and the tsup bundler renames re-exported schemas

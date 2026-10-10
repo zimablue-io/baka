@@ -1,7 +1,7 @@
 {
 	"name": "baka",
 	"version": "0.1.0",
-	"license": "MIT",
+	"license": "Apache-2.0",
 	"private": true,
 	"type": "module",
 	"bin": {
@@ -10,7 +10,8 @@
 	"files": [
 		"dist",
 		"README.md",
-		"LICENSE"
+		"LICENSE",
+		"NOTICE"
 	],
 	"scripts": {
 		"build": "tsup",
@@ -20,7 +21,7 @@
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"test:coverage": "vitest run --coverage",
-		"test:real-llm": "RUN_REAL_LLM=1 vitest run test/baka-module-create.test.ts"
+		"test:real-llm": "RUN_REAL_LLM=1 vitest run test/baka-pack-create.test.ts"
 	},
 	"dependencies": {
 		"@baka/engine": "workspace:*",
@@ -28,7 +29,7 @@
 		"@repo/agent-engine": "workspace:*",
 		"@repo/ast-tooling": "workspace:*",
 		"@repo/feature-planning-workflow": "workspace:*",
-		"@repo/module-management-workflow": "workspace:*",
+		"@repo/pack-management-workflow": "workspace:*",
 		"@repo/protocol": "workspace:*",
 		"commander": "^15.0.0",
 		"jiti": "^2.7.0"

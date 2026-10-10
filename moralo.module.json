@@ -1,0 +1,161 @@
+{
+	"manifest": 0,
+	"id": "zimablue-io/baka",
+	"name": "Baka",
+	"version": "0.1.0",
+	"summary": "Deterministic code generation: a recipe writes files from templates and a model only fills the named slots, so the same call gives the same tree.",
+	"publisher": {
+		"name": "zimablue-io",
+		"url": "https://github.com/zimablue-io"
+	},
+	"license": "Apache-2.0",
+	"commercial": {
+		"summary": "Private pack registry, hosted catalog, synced receipts and team add-ons; the open tool is free and complete.",
+		"url": "https://github.com/zimablue-io/baka/blob/main/COMMERCIAL.md"
+	},
+	"source": "https://github.com/zimablue-io/baka",
+	"docs": "https://github.com/zimablue-io/baka/blob/main/docs/CONTRACT.md",
+	"requires": {
+		"moralo": ">=0 <1"
+	},
+	"kinds": ["module"],
+	"transports": [
+		{
+			"type": "cli",
+			"command": "baka",
+			"json": true,
+			"handshake": ["version", "--json"],
+			"schemas": ["schema", "{id}"],
+			"env": {
+				"BAKA_ISOLATED": "1"
+			}
+		},
+		{
+			"type": "mcp",
+			"command": "baka-mcp"
+		},
+		{
+			"type": "http",
+			"command": "baka",
+			"args": ["serve", "--port", "{port}"],
+			"baseUrl": "http://127.0.0.1:{port}",
+			"auth": "bearer"
+		},
+		{
+			"type": "library",
+			"package": "@baka/core",
+			"entry": "."
+		}
+	],
+	"surfaces": [
+		{
+			"surface": "nodeKind",
+			"id": "run-recipe",
+			"label": "Run a recipe",
+			"ports": {
+				"in": ["params", "slots"],
+				"out": ["receipt"]
+			},
+			"transport": "cli",
+			"run": ["run", "{recipe}", "--json"],
+			"result": "baka.receipt/1",
+			"reproducible": true
+		},
+		{
+			"surface": "agentTool",
+			"id": "list-recipes",
+			"label": "List the recipes that can be run",
+			"transport": "mcp",
+			"tool": "baka_list_recipes"
+		},
+		{
+			"surface": "agentTool",
+			"id": "slots",
+			"label": "List the slots a recipe leaves to fill",
+			"transport": "mcp",
+			"tool": "baka_slots"
+		},
+		{
+			"surface": "agentTool",
+			"id": "run",
+			"label": "Run a recipe, supplying the slot values",
+			"transport": "mcp",
+			"tool": "baka_run"
+		},
+		{
+			"surface": "agentTool",
+			"id": "fill",
+			"label": "Pin the fill of one slot",
+			"transport": "mcp",
+			"tool": "baka_fill"
+		},
+		{
+			"surface": "command",
+			"id": "list-recipes",
+			"label": "List recipes",
+			"transport": "cli",
+			"run": ["list-packs", "--json"]
+		},
+		{
+			"surface": "command",
+			"id": "pin-packs",
+			"label": "Pin the packs a project uses",
+			"transport": "cli",
+			"run": ["lock", "--json"]
+		}
+	],
+	"permissions": [
+		{
+			"read": "project.files",
+			"why": "to see which files a recipe would create, change or leave alone"
+		},
+		{
+			"write": "project.files",
+			"why": "a recipe writes the files it generates",
+			"via": "proposal"
+		},
+		{
+			"network": ["{llm.baseUrl}"],
+			"why": "only when the caller passes a model for slots it did not fill itself"
+		}
+	],
+	"scope": {
+		"install": "org",
+		"enable": "project"
+	},
+	"runsOn": ["machine"],
+	"config": {
+		"type": "object",
+		"additionalProperties": false,
+		"properties": {
+			"packDirs": {
+				"type": "array",
+				"items": {
+					"type": "string"
+				},
+				"default": [],
+				"description": "Directories packs are drawn from, highest precedence first. When set, only these are searched (and the bundled starter pack is not)."
+			},
+			"isolated": {
+				"type": "boolean",
+				"default": true,
+				"description": "Read nothing from the machine's user directory: no user packs, no stored model, no user slot cache."
+			},
+			"llm": {
+				"$ref": "baka.llm-call/1",
+				"description": "A model for slots the caller does not fill. Optional: without one, open slots are reported."
+			}
+		}
+	},
+	"sandbox": {
+		"fixture": "./sandbox/fixture",
+		"entry": {
+			"surface": "nodeKind",
+			"id": "run-recipe"
+		},
+		"needs": ["machine"]
+	},
+	"health": {
+		"run": ["health", "--json"]
+	}
+}

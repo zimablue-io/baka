@@ -7,7 +7,7 @@ import { BAKA_PROJECT_PATHS, bakaHomeDir } from "@repo/protocol"
 // ---------------------------------------------------------------------------
 // Source string parsing
 //
-// A "Baka source" is a string that identifies a module package to install.
+// A "Baka source" is a string that identifies a pack package to install.
 // The pi-mono shape, which we adopt:
 //   npm:@scope/pkg[@version]
 //   git:host/path[@ref]
@@ -25,9 +25,9 @@ export interface ParsedSource {
 	// For git: the URL (without the leading "git:")
 	// For local: the absolute path
 	spec: string
-	// The name of the module to materialize under. Derived from the source
+	// The name of the pack to materialize under. Derived from the source
 	// (last path segment, normalized) for npm and git; the folder name for local.
-	moduleName: string
+	packName: string
 	// Whether the source is pinned (has a version, ref, or commit). Pinned
 	// sources always install at their pinned ref.
 	pinned: boolean
@@ -51,7 +51,7 @@ export function parseSource(raw: string): ParsedSource {
 			raw: trimmed,
 			type: "npm",
 			spec,
-			moduleName: npmNameToDirName(name),
+			packName: npmNameToDirName(name),
 			pinned: !!m && m[2] !== undefined,
 		}
 	}
@@ -65,19 +65,19 @@ export function parseSource(raw: string): ParsedSource {
 			raw: trimmed,
 			type: "git",
 			spec: cleanUrl,
-			moduleName: gitNameToDirName(cleanUrl),
+			packName: gitNameToDirName(cleanUrl),
 			pinned,
 		}
 	}
 
 	if (trimmed.startsWith("/") || trimmed.startsWith("./") || trimmed.startsWith("../") || trimmed.startsWith("~")) {
 		const abs = resolvePath(trimmed)
-		const moduleName = abs.split("/").filter(Boolean).pop() ?? "module"
+		const packName = abs.split("/").filter(Boolean).pop() ?? "pack"
 		return {
 			raw: trimmed,
 			type: "local",
 			spec: abs,
-			moduleName,
+			packName,
 			pinned: false,
 		}
 	}
@@ -87,7 +87,7 @@ export function parseSource(raw: string): ParsedSource {
 		// the canonical wire format the CLI uses after resolving a
 		// `@scope/name[@version]` spec through the configured registry
 		// (architecture §5.1 cli-install). The presence/absence of the
-		// trailing `@<version>` pin decides `pinned`. The `moduleName`
+		// trailing `@<version>` pin decides `pinned`. The `packName`
 		// is derived from the scoped name so the materialized dir
 		// matches the engine's bundled-scope layout (e.g.
 		// `registry:@acme/widget` -> dir `acme-widget`, same as the
@@ -122,7 +122,7 @@ export function parseSource(raw: string): ParsedSource {
 			type: "registry",
 			spec:
 				pinnedVersion.length > 0 ? `${scoped.scope}/${scoped.name}@${pinnedVersion}` : `${scoped.scope}/${scoped.name}`,
-			moduleName: `${scoped.scope}-${scoped.name}`,
+			packName: `${scoped.scope}-${scoped.name}`,
 			pinned: pinnedVersion.length > 0,
 		}
 	}
@@ -133,7 +133,7 @@ export function parseSource(raw: string): ParsedSource {
 }
 
 /**
- * Parses a scoped module name like `@acme/widget` into its scope +
+ * Parses a scoped pack name like `@acme/widget` into its scope +
  * name parts. Throws on malformed input (no leading `@`, no slash,
  * empty parts) — the caller is the `registry:` branch of
  * `parseSource` whose callers (the CLI install flow) have already
@@ -151,10 +151,10 @@ function parseScopedName(scoped: string): { scope: string; name: string } {
 	const scope = rest.slice(0, slash)
 	const name = rest.slice(slash + 1)
 	if (!/^[a-z0-9][a-z0-9._-]*$/i.test(scope)) {
-		throw new Error(`malformed registry source: scope '${scope}' is not a valid module identifier`)
+		throw new Error(`malformed registry source: scope '${scope}' is not a valid pack identifier`)
 	}
 	if (!/^[a-z0-9][a-z0-9._-]*$/i.test(name)) {
-		throw new Error(`malformed registry source: name '${name}' is not a valid module identifier`)
+		throw new Error(`malformed registry source: name '${name}' is not a valid pack identifier`)
 	}
 	return { scope, name }
 }
@@ -192,7 +192,7 @@ function gitNameToDirName(url: string): string {
 		.replace(/\.git$/, "")
 		.replace(/\/$/, "")
 	const parts = stripped.split("/")
-	return parts[parts.length - 1] || "module"
+	return parts[parts.length - 1] || "pack"
 }
 
 // ---------------------------------------------------------------------------
@@ -205,7 +205,7 @@ function gitNameToDirName(url: string): string {
 
 /**
  * A settings file: the installed `packages`, plus whatever else the project
- * keeps there (`registries`, `moduleDirs`), which every rewrite preserves.
+ * keeps there (`registries`, `packDirs`), which every rewrite preserves.
  */
 export interface BakaSettings {
 	packages: string[]
@@ -246,15 +246,15 @@ function writeSettingsTo(path: string, settings: BakaSettings): void {
 }
 
 // ---------------------------------------------------------------------------
-// Materialized module directory
+// Materialized pack directory
 // ---------------------------------------------------------------------------
 
-export function projectModulesDir(cwd: string): string {
-	return join(cwd, BAKA_PROJECT_PATHS.ROOT, "modules")
+export function projectPacksDir(cwd: string): string {
+	return join(cwd, BAKA_PROJECT_PATHS.ROOT, "packs")
 }
 
-export function userModulesDir(): string {
-	return join(bakaHomeDir(), "modules")
+export function userPacksDir(): string {
+	return join(bakaHomeDir(), "packs")
 }
 
 // ---------------------------------------------------------------------------
@@ -266,48 +266,48 @@ export interface InstallOptions {
 	cwd: string
 	// The path to the settings file where the source will be recorded.
 	settingsPath: string
-	// The directory where the module is materialized.
-	modulesDir: string
+	// The directory where the pack is materialized.
+	packsDir: string
 }
 
 export async function installSource(
 	source: string,
 	opts: InstallOptions,
-): Promise<{ moduleName: string; modulePath: string }> {
+): Promise<{ packName: string; packPath: string }> {
 	const parsed = parseSource(source)
 
 	// 1. Add to settings (project or user).
 	const settings = readSettingsFrom(opts.settingsPath)
 	if (settings.packages.includes(parsed.raw)) {
-		// Idempotent: source already listed. Ensure the module is materialized.
+		// Idempotent: source already listed. Ensure the pack is materialized.
 	} else {
 		settings.packages.push(parsed.raw)
 		writeSettingsTo(opts.settingsPath, settings)
 	}
 
-	// 2. Materialize the module on disk.
-	const modulePath = join(opts.modulesDir, parsed.moduleName)
-	mkdirSync(opts.modulesDir, { recursive: true })
+	// 2. Materialize the pack on disk.
+	const packPath = join(opts.packsDir, parsed.packName)
+	mkdirSync(opts.packsDir, { recursive: true })
 	// Remove any stale copy to keep the install fresh.
-	if (existsSync(modulePath)) {
-		rmSync(modulePath, { recursive: true, force: true })
+	if (existsSync(packPath)) {
+		rmSync(packPath, { recursive: true, force: true })
 	}
 
 	switch (parsed.type) {
 		case "local":
-			copyOrLink(parsed.spec, modulePath)
+			copyOrLink(parsed.spec, packPath)
 			break
 		case "npm":
-			await installFromNpm(parsed.spec, modulePath)
+			await installFromNpm(parsed.spec, packPath)
 			break
 		case "git":
-			await installFromGit(parsed.spec, parsed.raw.includes("@") ? parsed.raw.split("@").pop() : undefined, modulePath)
+			await installFromGit(parsed.spec, parsed.raw.includes("@") ? parsed.raw.split("@").pop() : undefined, packPath)
 			break
 		case "registry":
 			// The CLI layer handles registry materialization
 			// (tarball download + integrity verification + manifest
 			// write). The CLI calls `installSource` AFTER it has
-			// already materialized the module on disk — the
+			// already materialized the pack on disk — the
 			// switch's only job here is to keep the typed contract
 			// exhaustive. The CLI's command code path drives the
 			// registry flow directly via the dedicated
@@ -320,23 +320,23 @@ export async function installSource(
 			throw new Error("registry source must be materialized via materializeFromRegistry before installSource")
 	}
 
-	return { moduleName: parsed.moduleName, modulePath }
+	return { packName: parsed.packName, packPath }
 }
 
-export function removeSource(source: string, opts: { settingsPath: string; modulesDir: string }): { removed: boolean } {
+export function removeSource(source: string, opts: { settingsPath: string; packsDir: string }): { removed: boolean } {
 	const settings = readSettingsFrom(opts.settingsPath)
 	const idx = settings.packages.indexOf(source)
 	if (idx === -1) return { removed: false }
 	settings.packages.splice(idx, 1)
 	writeSettingsTo(opts.settingsPath, settings)
 
-	// Best-effort: remove the materialized module if it exists. We don't
+	// Best-effort: remove the materialized pack if it exists. We don't
 	// fail the remove if the materialization is missing.
 	const parsed = parseSource(source)
-	const modulePath = join(opts.modulesDir, parsed.moduleName)
-	if (existsSync(modulePath)) {
+	const packPath = join(opts.packsDir, parsed.packName)
+	if (existsSync(packPath)) {
 		try {
-			rmSync(modulePath, { recursive: true, force: true })
+			rmSync(packPath, { recursive: true, force: true })
 		} catch {
 			/* best effort */
 		}
@@ -347,10 +347,10 @@ export function removeSource(source: string, opts: { settingsPath: string; modul
 export function listInstalledPackages(cwd: string): Array<{
 	source: string
 	scope: "project" | "user"
-	moduleName: string
-	modulePath: string
+	packName: string
+	packPath: string
 }> {
-	const out: Array<{ source: string; scope: "project" | "user"; moduleName: string; modulePath: string }> = []
+	const out: Array<{ source: string; scope: "project" | "user"; packName: string; packPath: string }> = []
 	const project = readProjectSettings(cwd)
 	for (const raw of project.packages) {
 		try {
@@ -358,8 +358,8 @@ export function listInstalledPackages(cwd: string): Array<{
 			out.push({
 				source: raw,
 				scope: "project",
-				moduleName: parsed.moduleName,
-				modulePath: join(projectModulesDir(cwd), parsed.moduleName),
+				packName: parsed.packName,
+				packPath: join(projectPacksDir(cwd), parsed.packName),
 			})
 		} catch {
 			/* skip malformed */
@@ -370,12 +370,12 @@ export function listInstalledPackages(cwd: string): Array<{
 		try {
 			const parsed = parseSource(raw)
 			// Project wins on dedup.
-			if (out.some((o) => o.moduleName === parsed.moduleName)) continue
+			if (out.some((o) => o.packName === parsed.packName)) continue
 			out.push({
 				source: raw,
 				scope: "user",
-				moduleName: parsed.moduleName,
-				modulePath: join(userModulesDir(), parsed.moduleName),
+				packName: parsed.packName,
+				packPath: join(userPacksDir(), parsed.packName),
 			})
 		} catch {
 			/* skip malformed */
@@ -399,7 +399,7 @@ function copyOrLink(src: string, dest: string): void {
 async function installFromNpm(spec: string, dest: string): Promise<void> {
 	// We shell out to `npm pack` and extract the tarball. The pack command
 	// downloads the tarball, prints its filename, then we extract. We avoid
-	// the `npm` global install path on purpose — modules are project-local
+	// the `npm` global install path on purpose — packs are project-local
 	// and unzipped, not installed in node_modules.
 	const { spawn } = await import("node:child_process")
 	const cwd = process.cwd()
@@ -463,7 +463,7 @@ async function installFromGit(url: string, ref: string | undefined, dest: string
 // The CLI downloads a tarball from a registry's
 // `GET /v1/download/:scope/:name/:version` endpoint, verifies its
 // sha256 against the `x-content-sha256` response header (VAL-DISC-041),
-// and writes the module tree + a fresh `manifest.ts` at the install
+// and writes the pack tree + a fresh `manifest.ts` at the install
 // destination. The tarball excludes the manifest (architecture §8
 // decision 37 — manifest version bumps would otherwise invalidate
 // content-hash dedup), so the manifest is materialized from the
@@ -493,7 +493,7 @@ export interface ManifestJsonShape {
 	description?: string
 	dependencies?: string[]
 	conflictsWith?: string[]
-	actions?: Array<{
+	recipes?: Array<{
 		id: string
 		description?: string
 		params?: unknown[]
@@ -502,7 +502,7 @@ export interface ManifestJsonShape {
 		validators?: string[]
 		toolchain?: string
 	}>
-	moduleValidators?: string[]
+	packValidators?: string[]
 	[key: string]: unknown
 }
 
@@ -553,7 +553,7 @@ export function extractRegistryTarball(
 		const fullPath = join(dest, file.path)
 		// Path traversal guard: every entry must resolve inside
 		// `dest`. The registry never emits such entries (the
-		// packer walks the module tree only) but a malformed or
+		// packer walks the pack tree only) but a malformed or
 		// hostile tarball must not escape the install dir.
 		const resolvedFull = resolve(fullPath)
 		const resolvedDest = resolve(dest)
@@ -580,7 +580,7 @@ export function extractRegistryTarball(
 }
 
 /**
- * Writes a `manifest.ts` module descriptor at the install
+ * Writes a `manifest.ts` pack descriptor at the install
  * destination. The body is a tiny, deterministic TypeScript file
  * exporting a single default object literal — the same shape the
  * engine's loader reads (architecture §3 / baka-sdk). We render the

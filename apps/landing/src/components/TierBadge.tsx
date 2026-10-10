@@ -17,8 +17,8 @@ const LABELS: Record<RegistryTier, string> = {
 
 /**
  * Tier badge — a small, uppercased pill that surfaces the server-attached
- * tier of a module (architecture §8 decision 9 / 26 / 31). The same
- * component is reused on the catalog list and the module detail page so
+ * tier of a pack (architecture §8 decision 9 / 26 / 31). The same
+ * component is reused on the catalog list and the pack detail page so
  * the four-tier palette is visually consistent across the landing.
  *
  * The badge is "honest about the verdict": the `community-unverified`

@@ -3,16 +3,17 @@ import { createLLMProvider, loadLLMConfig, validateLLMConfig } from "@repo/agent
 import {
 	listPlans,
 	loadPlan,
-	ModuleRegistry,
-	ranActions,
+	PackRegistry,
+	ranRecipes,
 	runValidators,
 	StructuredLog,
 	savePlan,
 } from "@repo/ast-tooling"
 import { featurePlanningWorkflow } from "@repo/feature-planning-workflow"
-import type { LLMProvider, ModuleManifest, OrchestrationState, ResolvedLLMConfig, WorkflowStep } from "@repo/protocol"
+import type { LLMProvider, OrchestrationState, PackManifest, ResolvedLLMConfig, WorkflowStep } from "@repo/protocol"
 import { BAKA_EXIT_CODE } from "@repo/protocol"
 import { createJiti } from "jiti"
+import { type CallOptions, dieOnApiError, engineInit } from "../call"
 
 function die(code: number, msg: string): never {
 	process.stderr.write(`baka: ${msg}\n`)
@@ -21,7 +22,7 @@ function die(code: number, msg: string): never {
 
 interface PlanOpts {
 	cwd?: string
-	moduleDirs?: string[]
+	packDirs?: string[]
 	dryRun?: boolean
 	save?: boolean
 	json?: boolean
@@ -30,7 +31,7 @@ interface PlanOpts {
 export async function runPlanCommand(intent: string, opts: PlanOpts): Promise<void> {
 	const cwd = opts.cwd ?? process.cwd()
 	if (intent.trim() === "") {
-		const diagnostic = "no module matched: empty intent"
+		const diagnostic = "no pack matched: empty intent"
 		if (opts.json) {
 			const result: Record<string, unknown> = {
 				status: "FAILED",
@@ -41,31 +42,31 @@ export async function runPlanCommand(intent: string, opts: PlanOpts): Promise<vo
 		} else {
 			console.log(`baka: ${diagnostic}`)
 		}
-		process.exit(BAKA_EXIT_CODE.ENGINE_ERROR)
+		process.exit(BAKA_EXIT_CODE.FAILED)
 	}
 	let config: ResolvedLLMConfig
 	try {
 		config = await loadLLMConfig({ role: "worker", cwd })
 	} catch (err) {
-		die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
+		die(BAKA_EXIT_CODE.BAD_INPUT, err instanceof Error ? err.message : String(err))
 	}
 	try {
 		validateLLMConfig(config)
 	} catch (err) {
-		die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
+		die(BAKA_EXIT_CODE.BAD_INPUT, err instanceof Error ? err.message : String(err))
 	}
 	let provider: LLMProvider
 	try {
 		provider = createLLMProvider(config)
 	} catch (err) {
-		die(BAKA_EXIT_CODE.PROVIDER_ERROR, err instanceof Error ? err.message : String(err))
+		die(BAKA_EXIT_CODE.UNAVAILABLE, err instanceof Error ? err.message : String(err))
 	}
 
 	const runId = `plan-${Date.now()}`
 	const log = new StructuredLog(runId)
 	log.write({ level: "info", source: "baka.plan", message: "starting plan", intent, runId })
 
-	const state = await featurePlanningWorkflow(intent, cwd, provider, opts.moduleDirs)
+	const state = await featurePlanningWorkflow(intent, cwd, provider, opts.packDirs)
 
 	// --save runs BEFORE the JSON-mode early-return so `--save --json` together
 	// emits both the documented JSON contract AND the persisted .plan.json file.
@@ -90,24 +91,24 @@ export async function runPlanCommand(intent: string, opts: PlanOpts): Promise<vo
 		}
 		console.log(JSON.stringify(result, null, 2))
 		if (state.status === "FAILED") {
-			process.exit(BAKA_EXIT_CODE.ENGINE_ERROR)
+			process.exit(BAKA_EXIT_CODE.FAILED)
 		}
 		return
 	}
 
 	console.log(`\nplan: ${state.executionPlan.steps.length} step(s)`)
 	for (const step of state.executionPlan.steps) {
-		console.log(`  - ${step.module}:${step.action}`)
+		console.log(`  - ${step.pack}:${step.recipe}`)
 	}
 
 	if (state.status === "FAILED") {
 		log.write({ level: "error", source: "baka.plan", message: "plan failed", intent, logs: state.logs })
-		// Surface the engine's own diagnostics (e.g. an action-id collision
+		// Surface the engine's own diagnostics (e.g. a recipe-id collision
 		// refusal) instead of a bare "see logs" pointer.
 		for (const line of state.logs.filter((l) => l.startsWith("[plan]"))) {
 			console.error(`baka: ${line}`)
 		}
-		die(BAKA_EXIT_CODE.ENGINE_ERROR, "planning failed; see logs for details")
+		die(BAKA_EXIT_CODE.FAILED, "planning failed; see logs for details")
 	}
 
 	if (savedPlanFile) {
@@ -140,50 +141,50 @@ export function runListPlans(cwd: string): void {
 
 export async function runApplyCommand(
 	planFile: string,
-	scope: { cwd: string; moduleDirs?: string[] },
+	scope: { cwd: string; packDirs?: string[] },
 	opts: { json?: boolean } = {},
 ): Promise<void> {
-	const { cwd, moduleDirs } = scope
+	const { cwd, packDirs } = scope
 	const plan = loadPlan(planFile)
 	const runId = `apply-${Date.now()}`
 	const log = new StructuredLog(runId)
 	log.write({ level: "info", source: "baka.apply", message: "loading plan", file: planFile, intent: plan.meta.intent })
 
-	// Resolve every module the plan references via the registry's
-	// resolveModuleRoot path — the same path the Worker uses at
+	// Resolve every pack the plan references via the registry's
+	// resolvePackRoot path — the same path the Worker uses at
 	// execution time. Unlike `discover()`, this is NOT gated on the
-	// cwd's package.json, so a bare temp dir (no .baka/modules/ and no
-	// in-tree modules/) still resolves whatever is installed for that
+	// cwd's package.json, so a bare temp dir (no .baka/packs/ and no
+	// in-tree packs/) still resolves whatever is installed for that
 	// project. The apply surface and the worker surface therefore
-	// resolve modules from any cwd identically.
+	// resolve packs from any cwd identically.
 	const { runSaga: runSagaImpl, executeWorkerStep } = await import("@repo/ast-tooling")
-	const registry = new ModuleRegistry(cwd, { moduleDirs })
-	const moduleNames = new Set<string>()
+	const registry = new PackRegistry(cwd, { packDirs })
+	const packNames = new Set<string>()
 	for (const planStep of plan.resolvedSteps) {
-		// Normalize the module name by stripping the version suffix the
+		// Normalize the pack name by stripping the version suffix the
 		// planner emits (e.g. "hello v0.1.0" → "hello") since worker steps
 		// are keyed by name only.
-		moduleNames.add(planStep.module.split(" v")[0] ?? planStep.module)
+		packNames.add(planStep.pack.split(" v")[0] ?? planStep.pack)
 	}
 	const stepsByKey = new Map<string, WorkflowStep<unknown, unknown, unknown>>()
-	const resolvedManifests = new Map<string, ModuleManifest>()
+	const resolvedManifests = new Map<string, PackManifest>()
 	let requiresReasoning = false
-	for (const moduleName of moduleNames) {
-		const moduleRoot = registry.resolveModuleRoot(moduleName)
-		if (!moduleRoot) continue // saga will surface "no worker step registered for X:Y"
-		const manifest = loadModuleManifest(moduleRoot, moduleName)
+	for (const packName of packNames) {
+		const packRoot = registry.resolvePackRoot(packName)
+		if (!packRoot) continue // saga will surface "no worker step registered for X:Y"
+		const manifest = loadPackManifest(packRoot, packName)
 		if (!manifest) continue
-		resolvedManifests.set(moduleName, manifest)
-		for (const a of manifest.actions) {
-			stepsByKey.set(`${moduleName}:${a.id}`, executeWorkerStep as unknown as WorkflowStep<unknown, unknown, unknown>)
+		resolvedManifests.set(packName, manifest)
+		for (const a of manifest.recipes) {
+			stepsByKey.set(`${packName}:${a.id}`, executeWorkerStep as unknown as WorkflowStep<unknown, unknown, unknown>)
 		}
 	}
 	for (const planStep of plan.resolvedSteps) {
-		const moduleName = planStep.module.split(" v")[0] ?? planStep.module
-		const manifest = resolvedManifests.get(moduleName)
+		const packName = planStep.pack.split(" v")[0] ?? planStep.pack
+		const manifest = resolvedManifests.get(packName)
 		if (!manifest) continue
-		const action = manifest.actions.find((a) => a.id === planStep.action)
-		if (action?.requiresReasoning) {
+		const recipe = manifest.recipes.find((a) => a.id === planStep.recipe)
+		if (recipe?.requiresReasoning) {
 			requiresReasoning = true
 			break
 		}
@@ -201,7 +202,7 @@ export async function runApplyCommand(
 		try {
 			config = await loadLLMConfig({ role: "worker", cwd })
 		} catch (err) {
-			die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.BAD_INPUT, err instanceof Error ? err.message : String(err))
 		}
 		provider = createLLMProvider(config)
 	}
@@ -209,7 +210,7 @@ export async function runApplyCommand(
 	const state: OrchestrationState = {
 		userIntent: plan.meta.intent,
 		targetDirectory: cwd,
-		moduleDirs,
+		packDirs,
 		status: "PLANNING",
 		executionPlan: { steps: plan.resolvedSteps, currentStepIndex: 0 },
 		logs: ["[apply] starting"],
@@ -218,15 +219,15 @@ export async function runApplyCommand(
 	const saga = await runSagaImpl(plan, state, { llmProvider: provider }, stepsByKey)
 	log.write({ level: "info", source: "baka.apply", message: "saga finished", status: saga.state.status })
 
-	// Post-apply: run validators, including action-level ones that need the
+	// Post-apply: run validators, including recipe-level ones that need the
 	// compensation data each step returned (so they can assert on what was
 	// actually produced, not just the structural shape).
-	const validation = await runValidators(registry, saga.state, { mode: "actions", ran: ranActions(saga.completed) })
+	const validation = await runValidators(registry, saga.state, { mode: "recipes", ran: ranRecipes(saga.completed) })
 
 	const completedSteps = saga.completed.map((c) => ({
 		id: c.id,
-		module: c.module,
-		action: c.action,
+		pack: c.pack,
+		recipe: c.recipe,
 		output: c.output,
 	}))
 
@@ -236,23 +237,23 @@ export async function runApplyCommand(
 		const result = { status, completedSteps, failed: saga.failed, validation, logs: saga.state.logs }
 		console.log(JSON.stringify(result, null, 2))
 		if (saga.failed) {
-			process.exit(BAKA_EXIT_CODE.ENGINE_ERROR)
+			process.exit(BAKA_EXIT_CODE.FAILED)
 		}
 		if (validation.kind === "fail") {
-			process.exit(BAKA_EXIT_CODE.VALIDATION_ERROR)
+			process.exit(BAKA_EXIT_CODE.FAILED)
 		}
 		return
 	}
 
 	if (saga.failed) {
-		die(BAKA_EXIT_CODE.ENGINE_ERROR, `apply failed: ${saga.failed.error}`)
+		die(BAKA_EXIT_CODE.FAILED, `apply failed: ${saga.failed.error}`)
 	}
 	if (validation.kind === "fail") {
 		console.log("\napply: VALIDATION FAILED")
 		for (const d of validation.diagnostics) {
 			console.log(`  - [${d.severity}] ${d.rule}: ${d.message}${d.validator ? ` (${d.validator})` : ""}`)
 		}
-		process.exit(BAKA_EXIT_CODE.VALIDATION_ERROR)
+		process.exit(BAKA_EXIT_CODE.FAILED)
 	}
 	console.log("\napply: success (validators passed)")
 	for (const d of validation.diagnostics) {
@@ -261,42 +262,39 @@ export async function runApplyCommand(
 }
 
 /**
- * Load a module's manifest from disk via jiti. The apply command
- * resolves modules through ModuleRegistry.resolveModuleRoot (which
- * works from any cwd), then uses this helper to read each module's
+ * Load a pack's manifest from disk via jiti. The apply command
+ * resolves packs through PackRegistry.resolvePackRoot (which
+ * works from any cwd), then uses this helper to read each pack's
  * `Manifest` export without depending on `discover()` (which gates
- * the bundled scope on a cwd `package.json` and would hide modules
+ * the bundled scope on a cwd `package.json` and would hide packs
  * from bare temp dirs).
  */
-function loadModuleManifest(moduleRoot: string, _moduleName: string): ModuleManifest | null {
-	const manifestPath = `${moduleRoot}/manifest.ts`
-	const jiti = createJiti(moduleRoot, { interopDefault: true })
-	const mod = jiti(manifestPath) as { Manifest?: ModuleManifest }
+function loadPackManifest(packRoot: string, _packName: string): PackManifest | null {
+	const manifestPath = `${packRoot}/manifest.ts`
+	const jiti = createJiti(packRoot, { interopDefault: true })
+	const mod = jiti(manifestPath) as { Manifest?: PackManifest }
 	if (!mod.Manifest) return null
 	return mod.Manifest
 }
 
 export async function runValidateCommand(
-	scope: { cwd: string; moduleDirs?: string[] },
-	opts: { json?: boolean; module?: string } = {},
+	scope: CallOptions,
+	opts: { json?: boolean; pack?: string } = {},
 ): Promise<void> {
 	const { status, json } = await engineRequest(scope.cwd, "/v1/validate", {
-		moduleDirs: scope.moduleDirs,
+		...engineInit(scope),
 		method: "POST",
-		body: opts.module ? { module: opts.module } : {},
+		body: opts.pack ? { pack: opts.pack } : {},
 	})
+	dieOnApiError(status, json)
 	const body = json as {
-		error?: string
 		valid?: boolean
-		modulesDiscovered?: number
-		moduleName?: string
+		packsDiscovered?: number
+		packName?: string
 		validation?: {
 			kind: "pass" | "fail"
 			diagnostics?: Array<{ severity: string; rule: string; message: string; validator?: string }>
 		}
-	}
-	if (status >= 400) {
-		die(BAKA_EXIT_CODE.USER_ERROR, body.error ?? "validate failed")
 	}
 	const result = body.validation ?? { kind: body.valid === false ? "fail" : "pass", diagnostics: [] }
 
@@ -305,29 +303,29 @@ export async function runValidateCommand(
 			(d) => d.severity === "error" && /missing LLM config/.test(d.message),
 		)
 		if (missingConfig) {
-			die(BAKA_EXIT_CODE.USER_ERROR, missingConfig.message)
+			die(BAKA_EXIT_CODE.BAD_INPUT, missingConfig.message)
 		}
 	}
 
 	if (opts.json) {
 		const payload: Record<string, unknown> = {
 			valid: result.kind !== "fail",
-			modulesDiscovered: body.modulesDiscovered ?? 0,
+			packsDiscovered: body.packsDiscovered ?? 0,
 			validation: result,
 		}
-		if (opts.module) payload.moduleName = opts.module
+		if (opts.pack) payload.packName = opts.pack
 		console.log(JSON.stringify(payload, null, 2))
 		if (result.kind === "fail") {
-			process.exit(BAKA_EXIT_CODE.VALIDATION_ERROR)
+			process.exit(BAKA_EXIT_CODE.FAILED)
 		}
 		return
 	}
 
-	console.log(`discovered ${body.modulesDiscovered ?? 0} module(s)`)
-	if (opts.module) console.log(`filtered to module: ${opts.module}`)
+	console.log(`discovered ${body.packsDiscovered ?? 0} pack(s)`)
+	if (opts.pack) console.log(`filtered to pack: ${opts.pack}`)
 	console.log(result.kind === "pass" ? "\nvalidation: PASS" : "\nvalidation: FAIL")
 	for (const d of result.diagnostics ?? []) {
 		console.log(`  - [${d.severity}] ${d.rule}: ${d.message}${d.validator ? ` (${d.validator})` : ""}`)
 	}
-	if (result.kind === "fail") process.exit(BAKA_EXIT_CODE.VALIDATION_ERROR)
+	if (result.kind === "fail") process.exit(BAKA_EXIT_CODE.FAILED)
 }

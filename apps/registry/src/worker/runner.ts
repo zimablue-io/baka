@@ -11,7 +11,7 @@ import { runIngestJob } from "./ingest"
  * proved incompatible with pglite-socket's connection
  * multiplexer (prepared-statement caching interacts poorly with
  * the per-connection rotation); the polling loop below avoids
- * that pathway by claiming rows from `module_versions` directly
+ * that pathway by claiming rows from `pack_versions` directly
  * — see `library/registry-ingest-worker.md` and architecture §8
  * decision 35 for the full abandonment note. The semantics are
  * identical to a job-queue abstraction:
@@ -25,7 +25,7 @@ import { runIngestJob } from "./ingest"
  * Tradeoffs vs a dedicated job queue:
  *
  *   - (+) No pglite-socket interaction issues.
- *   - (+) Job retention is the `module_versions` row itself; no
+ *   - (+) Job retention is the `pack_versions` row itself; no
  *     extra job-queue tables to keep in sync.
  *   - (-) No cron support (out of scope for v1).
  *   - (-) No retry-with-backoff (out of scope; v1 is `maxAttempts: 1`).
@@ -54,7 +54,7 @@ export interface WorkerHandle {
 }
 
 /**
- * Polls `module_versions` for rows with status='pending' (after a
+ * Polls `pack_versions` for rows with status='pending' (after a
  * sweep may have just reset stale ingesting rows) and dispatches
  * them to `runIngestJob`. Returns a handle the caller can use to
  * stop the worker.
@@ -80,7 +80,7 @@ export async function startWorker(opts: {
 	 */
 	sweepThresholdMs?: number
 	/**
-	 * Per-action dry-run timeout in milliseconds (architecture §8
+	 * Per-recipe dry-run timeout in milliseconds (architecture §8
 	 * decision 6). Forwarded to `runIngestJob` so the dry-run
 	 * executor (layer 2 of screening) sees the operator's override.
 	 * The default (60_000, 60s) is the documented ceiling; tests
@@ -110,7 +110,7 @@ export async function startWorker(opts: {
 				await currentJob
 			} catch {
 				// ignore — the row's terminal state is already
-				// durable in module_versions; the runner's own
+				// durable in pack_versions; the runner's own
 				// catch recorded it for the operator log.
 			}
 		}
@@ -189,7 +189,7 @@ export async function startWorker(opts: {
 }
 
 /**
- * Atomically claims the next `pending` row in `module_versions` and
+ * Atomically claims the next `pending` row in `pack_versions` and
  * marks it `ingesting`. Returns the claimed row's id + version, or
  * `null` if no row was available. The atomic claim ensures only
  * one worker can hold a row at a time across concurrent polling
@@ -204,18 +204,18 @@ async function claimNextPendingRow(pglite: PGlite): Promise<{ id: string; versio
 	const claimed = await pglite.query<{ id: string; version: string; commit_sha: string }>(
 		`WITH next AS (
 			SELECT id
-				FROM module_versions
+				FROM pack_versions
 				WHERE status = 'pending'
 				ORDER BY updated_at ASC
 				FOR UPDATE SKIP LOCKED
 				LIMIT 1
 		)
-		UPDATE module_versions
+		UPDATE pack_versions
 			SET status = 'ingesting',
 			    updated_at = NOW()
 			FROM next
-			WHERE module_versions.id = next.id
-		RETURNING module_versions.id, module_versions.version, module_versions.commit_sha`,
+			WHERE pack_versions.id = next.id
+		RETURNING pack_versions.id, pack_versions.version, pack_versions.commit_sha`,
 	)
 	const row = claimed.rows[0]
 	if (!row) return null
@@ -232,7 +232,7 @@ async function claimNextPendingRow(pglite: PGlite): Promise<{ id: string; versio
 async function sweepStaleIngestingRows(pglite: PGlite, opts: { thresholdMs: number }): Promise<void> {
 	const thresholdSeconds = Math.max(1, Math.floor(opts.thresholdMs / 1_000))
 	await pglite.query(
-		`UPDATE module_versions
+		`UPDATE pack_versions
 			SET status = 'pending',
 			    updated_at = NOW()
 			WHERE status = 'ingesting'

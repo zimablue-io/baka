@@ -24,7 +24,7 @@ import { buildPublishTestStack, type PublishTestStack } from "./publish-endpoint
  *   - 401: no credential presented (VAL-AUTH-002).
  *   - 403: role/plan-limit enforcement (VAL-AUTH-009,
  *     VAL-SELF-006). The plan-limit body names both the
- *     limit (`max_private_modules`) and the plan (`free`).
+ *     limit (`max_private_packs`) and the plan (`free`).
  *   - 404: org slug does not exist (VAL-PUB-011).
  *   - 422: tag is not valid semver (VAL-PUB-032) or repo
  *     URL is malformed (VAL-PUB-021). Both pre-empts any
@@ -112,14 +112,14 @@ describe("POST /v1/publish — request validation, role, and plan limits", () =>
 			expect(res.status).toBe(400)
 		})
 
-		it("no module or version row is created when body validation fails", async () => {
-			const before = await fx.pglite.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM modules`)
+		it("no pack or version row is created when body validation fails", async () => {
+			const before = await fx.pglite.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM packs`)
 			await fx.app.request("/v1/publish", {
 				method: "POST",
 				headers: { "content-type": "application/json", "x-api-key": fx.keys.owner },
 				body: JSON.stringify({ tag: "v1.0.0", org: "acme" }),
 			})
-			const after = await fx.pglite.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM modules`)
+			const after = await fx.pglite.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM packs`)
 			expect(after.rows[0]?.count).toBe(before.rows[0]?.count)
 		})
 	})
@@ -133,7 +133,7 @@ describe("POST /v1/publish — request validation, role, and plan limits", () =>
 			})
 			expect([400, 422]).toContain(res.status)
 			const after = await fx.pglite.query<{ count: string }>(
-				`SELECT COUNT(*)::text AS count FROM modules WHERE scope = 'acme'`,
+				`SELECT COUNT(*)::text AS count FROM packs WHERE scope = 'acme'`,
 			)
 			expect(Number.parseInt(after.rows[0]?.count ?? "0", 10)).toBe(0)
 		})
@@ -179,14 +179,14 @@ describe("POST /v1/publish — request validation, role, and plan limits", () =>
 			expect(res.status).toBe(422)
 		})
 
-		it("no module_versions row is created when the tag is not valid semver", async () => {
-			const before = await fx.pglite.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM module_versions`)
+		it("no pack_versions row is created when the tag is not valid semver", async () => {
+			const before = await fx.pglite.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM pack_versions`)
 			await fx.app.request("/v1/publish", {
 				method: "POST",
 				headers: { "content-type": "application/json", "x-api-key": fx.keys.owner },
 				body: JSON.stringify({ repo: "https://github.com/acme/widget", tag: "release-1", org: "acme" }),
 			})
-			const after = await fx.pglite.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM module_versions`)
+			const after = await fx.pglite.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM pack_versions`)
 			expect(after.rows[0]?.count).toBe(before.rows[0]?.count)
 		})
 	})
@@ -282,17 +282,17 @@ describe("POST /v1/publish — request validation, role, and plan limits", () =>
 	})
 
 	describe("plan limit enforcement at publish (VAL-SELF-006)", () => {
-		it("returns 403 with body naming max_private_modules and the plan when the free plan limit is reached", async () => {
-			// Set plan_limits.free.max_private_modules = 0 so the very
+		it("returns 403 with body naming max_private_packs and the plan when the free plan limit is reached", async () => {
+			// Set plan_limits.free.max_private_packs = 0 so the very
 			// first private publish attempt is over the limit. The
 			// body must name BOTH the limit and the plan. The plan-
 			// limit gate runs after the clone (it needs the manifest
-			// to know the resolved moduleName), so the test uses a
+			// to know the resolved packName), so the test uses a
 			// real local bare repo to get past the clone step.
 			const git = await createGitFixture()
 			try {
 				await git.commitManifest({ name: "@acme/widget", version: "1.0.0", tag: "v1.0.0" })
-				await fx.pglite.query(`UPDATE plan_limits SET max_private_modules = 0 WHERE plan = 'free'`)
+				await fx.pglite.query(`UPDATE plan_limits SET max_private_packs = 0 WHERE plan = 'free'`)
 
 				const res = await fx.app.request("/v1/publish", {
 					method: "POST",
@@ -306,17 +306,17 @@ describe("POST /v1/publish — request validation, role, and plan limits", () =>
 				})
 				expect(res.status).toBe(403)
 				const body = (await res.json()) as { error?: string }
-				expect(body.error?.toLowerCase()).toContain("max_private_modules")
+				expect(body.error?.toLowerCase()).toContain("max_private_packs")
 				expect(body.error?.toLowerCase()).toContain("free")
 			} finally {
 				await git.cleanup()
 			}
 		})
 
-		it("the plan-limit 403 leaves NO module or version row", async () => {
-			await fx.pglite.query(`UPDATE plan_limits SET max_private_modules = 0 WHERE plan = 'free'`)
-			const beforeModules = Number.parseInt(
-				(await fx.pglite.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM modules`)).rows[0]?.count ?? "0",
+		it("the plan-limit 403 leaves NO pack or version row", async () => {
+			await fx.pglite.query(`UPDATE plan_limits SET max_private_packs = 0 WHERE plan = 'free'`)
+			const beforePacks = Number.parseInt(
+				(await fx.pglite.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM packs`)).rows[0]?.count ?? "0",
 				10,
 			)
 			await fx.app.request("/v1/publish", {
@@ -329,15 +329,15 @@ describe("POST /v1/publish — request validation, role, and plan limits", () =>
 					visibility: "org",
 				}),
 			})
-			const afterModules = Number.parseInt(
-				(await fx.pglite.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM modules`)).rows[0]?.count ?? "0",
+			const afterPacks = Number.parseInt(
+				(await fx.pglite.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM packs`)).rows[0]?.count ?? "0",
 				10,
 			)
-			expect(afterModules).toBe(beforeModules)
+			expect(afterPacks).toBe(beforePacks)
 		})
 
-		it("public visibility (community publish) does not consume the private-module quota", async () => {
-			await fx.pglite.query(`UPDATE plan_limits SET max_private_modules = 0 WHERE plan = 'free'`)
+		it("public visibility (community publish) does not consume the private-pack quota", async () => {
+			await fx.pglite.query(`UPDATE plan_limits SET max_private_packs = 0 WHERE plan = 'free'`)
 			const res = await fx.app.request("/v1/publish", {
 				method: "POST",
 				headers: { "content-type": "application/json", "x-api-key": fx.keys.owner },
@@ -348,7 +348,7 @@ describe("POST /v1/publish — request validation, role, and plan limits", () =>
 					visibility: "public",
 				}),
 			})
-			// public visibility bypasses the max_private_modules check —
+			// public visibility bypasses the max_private_packs check —
 			// the request was NOT rejected on plan grounds. The repo
 			// is unreachable so the response is not a 202 (the clone
 			// path will fail later), but the status must not be 403.

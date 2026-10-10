@@ -187,7 +187,7 @@ export async function buildIngestTestStack(
 
 	// Start the polling worker LAST so it observes rows that the
 	// app creates via the publish endpoint. The worker reads
-	// `module_versions.status='pending'` directly.
+	// `pack_versions.status='pending'` directly.
 	const worker = await startWorker({
 		pglite,
 		storage,
@@ -212,7 +212,7 @@ export async function buildIngestTestStack(
 				error: string | null
 				content_hash: string
 				commit_sha: string
-			}>(`SELECT status, error, content_hash, commit_sha FROM module_versions WHERE id = $1`, [versionId])
+			}>(`SELECT status, error, content_hash, commit_sha FROM pack_versions WHERE id = $1`, [versionId])
 			const r = row.rows[0]
 			if (r && (r.status === "ready" || r.status === "failed")) {
 				return {
@@ -224,7 +224,7 @@ export async function buildIngestTestStack(
 			}
 			await new Promise((r2) => setTimeout(r2, 200))
 		}
-		const finalRow = await pglite.query<{ status: string }>(`SELECT status FROM module_versions WHERE id = $1`, [
+		const finalRow = await pglite.query<{ status: string }>(`SELECT status FROM pack_versions WHERE id = $1`, [
 			versionId,
 		])
 		const status = (finalRow.rows[0]?.status ?? "pending") as "pending" | "ingesting" | "ready" | "failed"

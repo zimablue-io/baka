@@ -11,10 +11,10 @@
 //
 // Coverage map (per validation-contract.md):
 //   VAL-DISC-011  baka search <q> returns live catalog entries from
-//                  GET /v1/modules on the local registry
-//   VAL-DISC-012  search with no matches prints a clean "no modules
+//                  GET /v1/packs on the local registry
+//   VAL-DISC-012  search with no matches prints a clean "no packs
 //                  matching" line, exits 0
-//   VAL-DISC-013  search with the registry DOWN fails with exit 2,
+//   VAL-DISC-013  search with the registry DOWN fails with exit 1,
 //                  names the URL and the transport failure
 //   VAL-DISC-021  --registry > BAKA_REGISTRY_URL > .baka/settings.json
 //                  precedence (every step is observed via the per-hit
@@ -173,7 +173,7 @@ let otherBaseUrl: string
 async function bootOtherServer(): Promise<void> {
 	// Boot a second seed-publishing-server on a different ephemeral port
 	// to exercise multi-registry merge (VAL-DISC-021, 035, 036). Both
-	// share the same built-in catalog, so module fields are identical;
+	// share the same built-in catalog, so pack fields are identical;
 	// the test pins the per-hit `registry` attribution to disambiguate.
 	const otherDataDir = mkdtempSync(join(tmpdir(), "baka-search-e2e-other-"))
 	const otherCreds = join(otherDataDir, "creds.json")
@@ -251,7 +251,7 @@ afterAll(async () => {
 // ---------------------------------------------------------------------------
 
 describe("VAL-DISC-011 baka search returns live catalog entries from the local registry", () => {
-	it("lists the built-in modules and prints a clean human-readable result", async () => {
+	it("lists the built-in packs and prints a clean human-readable result", async () => {
 		const cwd = makeIsolatedHome("baka-search-live-")
 		const env = { BAKA_REGISTRY_URL: serverBaseUrl }
 		const res = await spawnCli(["search", "hello"], cwd, env, 30_000)
@@ -286,29 +286,29 @@ describe("VAL-DISC-011 baka search returns live catalog entries from the local r
 // ---------------------------------------------------------------------------
 
 describe("VAL-DISC-012 baka search with no matches is a clean empty result", () => {
-	it("exits 0 and prints an explicit 'no modules matching' line, not an error", async () => {
+	it("exits 0 and prints an explicit 'no packs matching' line, not an error", async () => {
 		const cwd = makeIsolatedHome("baka-search-empty-")
 		const env = { BAKA_REGISTRY_URL: serverBaseUrl }
-		const res = await spawnCli(["search", "zzz-no-such-module-zzz"], cwd, env, 30_000)
+		const res = await spawnCli(["search", "zzz-no-such-pack-zzz"], cwd, env, 30_000)
 		expect(res.code, `stderr=${res.stderr}`).toBe(0)
-		expect(res.stdout).toContain('no modules matching "zzz-no-such-module-zzz"')
+		expect(res.stdout).toContain('no packs matching "zzz-no-such-pack-zzz"')
 		expect(res.stdout).not.toContain("Error")
 		expect(res.stdout).not.toContain("error:")
 	})
 })
 
 // ---------------------------------------------------------------------------
-// VAL-DISC-013 — registry DOWN fails honestly with exit 2
+// VAL-DISC-013 — registry DOWN fails honestly with exit 1
 // ---------------------------------------------------------------------------
 
 describe("VAL-DISC-013 baka search with the registry DOWN fails honestly", () => {
-	it("exits 2 with a one-line error naming the URL and the transport failure", async () => {
+	it("exits 1 with a one-line error naming the URL and the transport failure", async () => {
 		const cwd = makeIsolatedHome("baka-search-down-")
 		// Pick a dead port (bound-then-closed).
 		const deadPort = await pickEphemeralPort()
 		const env = { BAKA_REGISTRY_URL: `http://127.0.0.1:${deadPort}` }
 		const res = await spawnCli(["search", "anything"], cwd, env, 30_000)
-		expect(res.code, `unexpected exit; stderr=${res.stderr}`).toBe(2)
+		expect(res.code, `unexpected exit; stderr=${res.stderr}`).toBe(1)
 		expect(res.stderr).toContain(`http://127.0.0.1:${deadPort}`)
 		expect(res.stderr.toLowerCase()).toContain("unreachable")
 		expect(res.stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
@@ -385,11 +385,11 @@ describe("VAL-DISC-022 per-project registries in .baka/settings.json are honored
 		}
 
 		// Without project list AND no env: queries the default (which is NOT
-		// running here, so it exits 2 — that proves the entry-point picks the
+		// running here, so it exits 1 — that proves the entry-point picks the
 		// default when nothing is configured).
 		rmSync(join(cwd, ".baka", "settings.json"))
 		const withoutList = await spawnCli(["search", "hello"], cwd, {}, 30_000)
-		expect(withoutList.code, `unexpected code; stderr=${withoutList.stderr}`).toBe(2)
+		expect(withoutList.code, `unexpected code; stderr=${withoutList.stderr}`).toBe(1)
 		expect(withoutList.stderr).toContain("localhost:4300")
 	})
 })
@@ -449,7 +449,7 @@ describe("VAL-DISC-036 multi-registry search merges with per-source attribution 
 	it("(a) when both registries serve the same catalog, every hit carries its source `registry`", async () => {
 		const cwd = makeIsolatedHome("baka-search-mergesources-")
 		// Order matters: first-listed wins, and both registries expose the
-		// same built-in modules, so the per-hit attribution disambiguates.
+		// same built-in packs, so the per-hit attribution disambiguates.
 		const env = { BAKA_REGISTRY_URL: serverBaseUrl }
 		seedProjectRegistries(cwd, [otherBaseUrl])
 		const res = await spawnCli(["search", "hello", "--json"], cwd, env, 30_000)

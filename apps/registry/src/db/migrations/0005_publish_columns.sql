@@ -1,7 +1,7 @@
 -- Publish-endpoint feature (architecture §4.5, decision 30).
 --
 -- Version: 0005_publish_columns
--- Purpose: align the `modules.created_by` column with Better-Auth's
+-- Purpose: align the `packs.created_by` column with Better-Auth's
 -- `user.id` shape. The original migration (0002) declared the column
 -- as UUID, which assumed the registry's own user id namespace; in
 -- practice the registry uses Better-Auth's organization + member
@@ -19,11 +19,11 @@
 --     re-applies the ALTER, which is a no-op because the columns
 --     already match (the migration runner records the row in
 --     `app_migrations` and skips on subsequent boots).
---   - No data backfill is needed: no `modules` rows have ever been
+--   - No data backfill is needed: no `packs` rows have ever been
 --     written with a populated `created_by` (the column was a UUID
 --     and no real id matched that shape). Existing rows keep `NULL`.
 
-ALTER TABLE modules
+ALTER TABLE packs
   ALTER COLUMN created_by TYPE TEXT USING created_by::text;
 
 -- Record this migration as applied (the applyMigrations runner also

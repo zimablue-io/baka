@@ -16,7 +16,7 @@ import { buildIngestTestStack, type IngestTestStack } from "./ingest-worker-fixt
  *     row, identical commit_sha/content_hash).
  *   - VAL-PUB-009: same content stored once (artifact blob dedup).
  *   - VAL-PUB-012: invalid manifest → `failed` with diagnostic.
- *   - VAL-PUB-014: unloadable action → `failed` with the action id
+ *   - VAL-PUB-014: unloadable recipe → `failed` with the recipe id
  *     in the error message.
  *   - VAL-PUB-015: missing tag → `failed` with the ref name.
  *   - VAL-PUB-018: failed versions stay visible (not deleted).
@@ -25,7 +25,7 @@ import { buildIngestTestStack, type IngestTestStack } from "./ingest-worker-fixt
  *     continues to process subsequent jobs.
  *   - VAL-PUB-026: concurrent publish of the same tag yields
  *     exactly one row.
- *   - VAL-PUB-027: modulePath locates the module inside a monorepo.
+ *   - VAL-PUB-027: packPath locates the pack inside a monorepo.
  *   - VAL-PUB-028: a server restart mid-ingest does not strand a
  *     version (stale `ingesting` rows are swept back to `pending`).
  *   - VAL-CROSS-027: kill mid-ingest + restart produces exactly one
@@ -37,7 +37,7 @@ import { buildIngestTestStack, type IngestTestStack } from "./ingest-worker-fixt
  *   - two-pending-versions: each row ingests from its OWN
  *     _publish payload (no cross-row redirect).
  *   - missing-validator-fixture-fails: loadability gate covers
- *     moduleValidators AND per-action validators.
+ *     packValidators AND per-recipe validators.
  *   - commit_sha-verified-on-re-clone: tag-moved divergence fails
  *     the version (decision 11 served version equals git tag).
  *   - long-path-ustar: pack handles paths over 100 bytes via
@@ -59,12 +59,12 @@ describe("ingest pipeline", () => {
 	})
 
 	describe("happy path (VAL-PUB-003 / 004)", () => {
-		it("ingests a valid module to `ready` with commit_sha + content_hash + no error", async () => {
+		it("ingests a valid pack to `ready` with commit_sha + content_hash + no error", async () => {
 			await git.commitManifest({
 				name: "@acme/widget",
 				version: "1.0.0",
 				description: "acme widget",
-				actions: [{ id: "scaffold", description: "scaffold" }],
+				recipes: [{ id: "scaffold", description: "scaffold" }],
 				tag: "v1.0.0",
 			})
 
@@ -86,12 +86,12 @@ describe("ingest pipeline", () => {
 			expect(terminal.commitSha?.length).toBeGreaterThan(0)
 		})
 
-		it("the served manifest equals the source manifest (name, version, description, action ids)", async () => {
+		it("the served manifest equals the source manifest (name, version, description, recipe ids)", async () => {
 			await git.commitManifest({
 				name: "@acme/widget",
 				version: "1.0.0",
 				description: "acme widget",
-				actions: [
+				recipes: [
 					{ id: "scaffold", description: "scaffold", filePatterns: ["package.json"] },
 					{ id: "lint", description: "lint" },
 				],
@@ -107,9 +107,9 @@ describe("ingest pipeline", () => {
 			const terminal = await fx.waitForTerminal(versionId)
 			expect(terminal.status).toBe("ready")
 
-			// Module is org-visibility by default; the read endpoint
+			// Pack is org-visibility by default; the read endpoint
 			// requires a member credential.
-			const detail = await fx.app.request("/v1/modules/acme/widget/v1.0.0", {
+			const detail = await fx.app.request("/v1/packs/acme/widget/v1.0.0", {
 				headers: { "x-api-key": fx.keys.owner },
 			})
 			expect(detail.status).toBe(200)
@@ -118,15 +118,15 @@ describe("ingest pipeline", () => {
 					name: string
 					version: string
 					description: string
-					actions: Array<{ id: string }>
+					recipes: Array<{ id: string }>
 				}
 				_publish?: unknown
 			}
 			expect(body.manifest.name).toBe("@acme/widget")
 			expect(body.manifest.version).toBe("1.0.0")
 			expect(body.manifest.description).toBe("acme widget")
-			const actionIds = body.manifest.actions.map((a) => a.id).sort()
-			expect(actionIds).toEqual(["lint", "scaffold"])
+			const recipeIds = body.manifest.recipes.map((a) => a.id).sort()
+			expect(recipeIds).toEqual(["lint", "scaffold"])
 			// The private `_publish` payload MUST NOT leak into
 			// served metadata.
 			expect(body._publish).toBeUndefined()
@@ -151,7 +151,7 @@ describe("ingest pipeline", () => {
 			expect(terminal.status).toBe("ready")
 
 			const detail = (await (
-				await fx.app.request("/v1/modules/acme/widget/v1.0.0", {
+				await fx.app.request("/v1/packs/acme/widget/v1.0.0", {
 					headers: { "x-api-key": fx.keys.owner },
 				})
 			).json()) as {
@@ -207,7 +207,7 @@ describe("ingest pipeline", () => {
 
 			// Re-publish the same tag — the ON CONFLICT clause resets
 			// the row to pending and the worker re-runs. The unique
-			// (module_id, version) constraint prevents a second row.
+			// (pack_id, version) constraint prevents a second row.
 			const second = await fx.app.request("/v1/publish", {
 				method: "POST",
 				headers: { "content-type": "application/json", "x-api-key": fx.keys.owner },
@@ -221,7 +221,7 @@ describe("ingest pipeline", () => {
 				`SELECT COUNT(*)::text AS count,
 				        MAX(commit_sha) AS commit_sha,
 				        MAX(content_hash) AS content_hash
-				   FROM module_versions WHERE module_id = (SELECT id FROM modules WHERE scope='acme' AND name='widget')`,
+				   FROM pack_versions WHERE pack_id = (SELECT id FROM packs WHERE scope='acme' AND name='widget')`,
 			)
 			const row = versions.rows[0]
 			expect(Number.parseInt(row?.count ?? "0", 10)).toBe(1)
@@ -238,7 +238,7 @@ describe("ingest pipeline", () => {
 	describe("content-hash dedup (VAL-PUB-009)", () => {
 		it("two versions of byte-identical trees share one artifact blob on disk", async () => {
 			// First version — acme/widget@v1.0.0. The tree is a single
-			// manifest + one loadable action.
+			// manifest + one loadable recipe.
 			await git.commitManifest({
 				name: "@acme/widget",
 				version: "1.0.0",
@@ -253,9 +253,9 @@ describe("ingest pipeline", () => {
 			const firstTerminal = await fx.waitForTerminal(firstBody.versionId)
 			expect(firstTerminal.status).toBe("ready")
 
-			// Second version — same module at a NEW tag (v1.0.1) with
-			// the manifest version bumped to match. The ACTION TREE
-			// is byte-identical to the first commit (same actions,
+			// Second version — same pack at a NEW tag (v1.0.1) with
+			// the manifest version bumped to match. The RECIPE TREE
+			// is byte-identical to the first commit (same recipes,
 			// same files) — only the manifest content differs
 			// (1.0.0 → 1.0.1). The tarball pack EXCLUDES the
 			// manifest file (it's metadata, not content), so the
@@ -291,14 +291,14 @@ describe("ingest pipeline", () => {
 
 	describe("failure modes (VAL-PUB-012 / 014 / 015 / 018 / 022)", () => {
 		it("invalid manifest schema terminates `failed` with a diagnostic naming the failure", async () => {
-			// Manifest is missing the required `actions` array — the
-			// full ModuleManifestSchema will reject it.
+			// Manifest is missing the required `recipes` array — the
+			// full PackManifestSchema will reject it.
 			const { writeFile } = await import("node:fs/promises")
 			const { join } = await import("node:path")
 			const manifestPath = join(git.workDir, "manifest.ts")
 			await writeFile(
 				manifestPath,
-				`export default { name: "@acme/widget", version: "1.0.0", description: "no actions" }\n`,
+				`export default { name: "@acme/widget", version: "1.0.0", description: "no recipes" }\n`,
 				"utf8",
 			)
 			const { execFileSync } = await import("node:child_process")
@@ -320,11 +320,11 @@ describe("ingest pipeline", () => {
 			expect(terminal.contentHash).toBe("")
 		})
 
-		it("unloadable action terminates `failed` with the action id named in the error (VAL-PUB-014)", async () => {
+		it("unloadable recipe terminates `failed` with the recipe id named in the error (VAL-PUB-014)", async () => {
 			await git.commitManifest({
 				name: "@acme/widget",
 				version: "1.0.0",
-				actions: [{ id: "unloadable", description: "intentionally unloadable", loadable: false }],
+				recipes: [{ id: "unloadable", description: "intentionally unloadable", loadable: false }],
 				tag: "v1.0.0",
 			})
 
@@ -372,7 +372,7 @@ describe("ingest pipeline", () => {
 			await git.commitManifest({
 				name: "@acme/widget",
 				version: "1.0.0",
-				actions: [{ id: "unloadable", description: "no action.ts", loadable: false }],
+				recipes: [{ id: "unloadable", description: "no recipe.ts", loadable: false }],
 				tag: "v1.0.0",
 			})
 
@@ -384,7 +384,7 @@ describe("ingest pipeline", () => {
 			const { versionId } = (await res.json()) as { versionId: string }
 			await fx.waitForTerminal(versionId)
 
-			const versions = await fx.app.request("/v1/modules/acme/widget/versions", {
+			const versions = await fx.app.request("/v1/packs/acme/widget/versions", {
 				headers: { "x-api-key": fx.keys.owner },
 			})
 			expect(versions.status).toBe(200)
@@ -425,13 +425,13 @@ describe("ingest pipeline", () => {
 			// 202 (first publish / non-ready retry), or 409 (the
 			// immutability carve-out: same-commit re-publish of a
 			// ready version may also be 409). NEVER two duplicate
-			// rows, NEVER a 500. The (module_id, version) unique
+			// rows, NEVER a 500. The (pack_id, version) unique
 			// index collapses concurrent inserts to one row regardless.
 			expect([200, 202, 409]).toContain(a.status)
 			expect([200, 202, 409]).toContain(b.status)
 			const aBody = (await a.json()) as { versionId: string }
 			const bBody = (await b.json()) as { versionId: string }
-			// The (module_id, version) unique index collapses the
+			// The (pack_id, version) unique index collapses the
 			// two publishes into one row; the worker's atomic claim
 			// then picks it up once and never re-runs (the second
 			// claim finds the row terminal).
@@ -440,18 +440,18 @@ describe("ingest pipeline", () => {
 			await fx.waitForTerminal(aBody.versionId)
 
 			const versions = await fx.pglite.query<{ count: string }>(
-				`SELECT COUNT(*)::text AS count FROM module_versions WHERE module_id = (SELECT id FROM modules WHERE scope='acme' AND name='widget')`,
+				`SELECT COUNT(*)::text AS count FROM pack_versions WHERE pack_id = (SELECT id FROM packs WHERE scope='acme' AND name='widget')`,
 			)
 			expect(Number.parseInt(versions.rows[0]?.count ?? "0", 10)).toBe(1)
 		})
 	})
 
-	describe("modulePath (VAL-PUB-027)", () => {
-		it("locates the module inside a subdirectory when modulePath is provided", async () => {
+	describe("packPath (VAL-PUB-027)", () => {
+		it("locates the pack inside a subdirectory when packPath is provided", async () => {
 			await git.commitManifest({
 				name: "@acme/widget",
 				version: "1.0.0",
-				modulePath: "packages/widget",
+				packPath: "packages/widget",
 				tag: "v1.0.0",
 			})
 
@@ -462,7 +462,7 @@ describe("ingest pipeline", () => {
 					repo: git.bareUrl,
 					tag: "v1.0.0",
 					org: "acme",
-					modulePath: "packages/widget",
+					packPath: "packages/widget",
 				}),
 			})
 			const { versionId } = (await res.json()) as { versionId: string }
@@ -470,7 +470,7 @@ describe("ingest pipeline", () => {
 			expect(terminal.status).toBe("ready")
 
 			const detail = (await (
-				await fx.app.request("/v1/modules/acme/widget/v1.0.0", {
+				await fx.app.request("/v1/packs/acme/widget/v1.0.0", {
 					headers: { "x-api-key": fx.keys.owner },
 				})
 			).json()) as {
@@ -479,11 +479,11 @@ describe("ingest pipeline", () => {
 			expect(detail.manifest.name).toBe("@acme/widget")
 		})
 
-		it("a modulePath pointing at a directory without a manifest fails the publish at 422", async () => {
+		it("a packPath pointing at a directory without a manifest fails the publish at 422", async () => {
 			await git.commitManifest({
 				name: "@acme/widget",
 				version: "1.0.0",
-				modulePath: "packages/widget",
+				packPath: "packages/widget",
 				tag: "v1.0.0",
 			})
 
@@ -494,7 +494,7 @@ describe("ingest pipeline", () => {
 					repo: git.bareUrl,
 					tag: "v1.0.0",
 					org: "acme",
-					modulePath: "packages/no-such-module",
+					packPath: "packages/no-such-pack",
 				}),
 			})
 			// Publish endpoint fails fast: no row is created, so no
@@ -518,24 +518,24 @@ describe("ingest pipeline", () => {
 			// `ingesting` with an old updated_at, the way the
 			// worker left it before the kill.
 			const inserted = await fx.pglite.query<{ id: string }>(
-				`INSERT INTO modules (scope, name, visibility, tier, description)
+				`INSERT INTO packs (scope, name, visibility, tier, description)
 				   VALUES ('acme', 'orphan', 'org', 'community-unverified', '')
 				 ON CONFLICT (scope, name) DO UPDATE SET updated_at = NOW()
 				 RETURNING id`,
 			)
-			const moduleId = inserted.rows[0]?.id ?? ""
+			const packId = inserted.rows[0]?.id ?? ""
 			const v = await fx.pglite.query<{ id: string }>(
-				`INSERT INTO module_versions (module_id, version, commit_sha, content_hash, manifest, status, error, created_at, updated_at)
+				`INSERT INTO pack_versions (pack_id, version, commit_sha, content_hash, manifest, status, error, created_at, updated_at)
 				   VALUES ($1, 'v0.0.1', 'abc123', '', $2::jsonb, 'ingesting', NULL, NOW() - interval '1 hour', NOW() - interval '1 hour')
 				 RETURNING id`,
 				[
-					moduleId,
+					packId,
 					JSON.stringify({
 						name: "@acme/orphan",
 						version: "0.0.1",
 						description: "stuck",
-						actions: [],
-						moduleValidators: [],
+						recipes: [],
+						packValidators: [],
 					}),
 				],
 			)
@@ -572,7 +572,7 @@ describe("ingest pipeline", () => {
 			let orphanError: string | null = null
 			while (Date.now() < deadline) {
 				const row = await fx.pglite.query<{ status: string; error: string | null }>(
-					`SELECT status, error FROM module_versions WHERE id = $1`,
+					`SELECT status, error FROM pack_versions WHERE id = $1`,
 					[orphanVersionId],
 				)
 				orphanStatus = row.rows[0]?.status ?? null
@@ -611,7 +611,7 @@ describe("ingest pipeline", () => {
 
 			const versions = await fx.pglite.query<{ count: string; content_hash: string }>(
 				`SELECT COUNT(*)::text AS count, MAX(content_hash) AS content_hash
-				   FROM module_versions WHERE module_id = (SELECT id FROM modules WHERE scope='acme' AND name='widget')`,
+				   FROM pack_versions WHERE pack_id = (SELECT id FROM packs WHERE scope='acme' AND name='widget')`,
 			)
 			expect(Number.parseInt(versions.rows[0]?.count ?? "0", 10)).toBe(1)
 			expect(versions.rows[0]?.content_hash?.length).toBe(64)
@@ -639,7 +639,7 @@ describe("ingest pipeline", () => {
 			const { versionId } = (await res.json()) as { versionId: string }
 			await fx.waitForTerminal(versionId)
 
-			const versions = await fx.app.request("/v1/modules/acme/widget/versions", {
+			const versions = await fx.app.request("/v1/packs/acme/widget/versions", {
 				headers: { "x-api-key": fx.keys.owner },
 			})
 			expect(versions.status).toBe(200)
@@ -681,7 +681,7 @@ describe("ingest pipeline", () => {
 			})
 			expect(res.status).toBe(202)
 			const { versionId } = (await res.json()) as { versionId: string }
-			const row = await fx.pglite.query<{ status: string }>(`SELECT status FROM module_versions WHERE id = $1`, [
+			const row = await fx.pglite.query<{ status: string }>(`SELECT status FROM pack_versions WHERE id = $1`, [
 				versionId,
 			])
 			expect(row.rows[0]?.status).toBe("pending")
@@ -767,11 +767,11 @@ describe("ingest pipeline", () => {
 				// sources (and the older row's tarball pack would
 				// match the newer source's tree).
 				const rowA = await fx.pglite.query<{ commit_sha: string }>(
-					`SELECT commit_sha FROM module_versions WHERE id = $1`,
+					`SELECT commit_sha FROM pack_versions WHERE id = $1`,
 					[firstBody.versionId],
 				)
 				const rowB = await fx.pglite.query<{ commit_sha: string }>(
-					`SELECT commit_sha FROM module_versions WHERE id = $1`,
+					`SELECT commit_sha FROM pack_versions WHERE id = $1`,
 					[secondBody.versionId],
 				)
 				const expectedShaA = "DEADBEEF-MAYBE-PRESENT-IN-FIXTURE-BUT-SHOULD-NOT-EQUAL-B"
@@ -789,12 +789,12 @@ describe("ingest pipeline", () => {
 			}
 		})
 
-		it("a module with a missing module-validator file fails the loadability gate", async () => {
+		it("a pack with a missing pack-validator file fails the loadability gate", async () => {
 			await git.commitManifest({
 				name: "@acme/widget",
 				version: "1.0.0",
-				actions: [{ id: "scaffold", description: "scaffold" }],
-				moduleValidators: ["ghostValidator"],
+				recipes: [{ id: "scaffold", description: "scaffold" }],
+				packValidators: ["ghostValidator"],
 				tag: "v1.0.0",
 			})
 
@@ -807,17 +807,17 @@ describe("ingest pipeline", () => {
 			const terminal = await fx.waitForTerminal(versionId)
 			expect(terminal.status).toBe("failed")
 			expect(terminal.error).toContain("ghostValidator")
-			expect(terminal.error).toMatch(/module validator/i)
+			expect(terminal.error).toMatch(/pack validator/i)
 		})
 
-		it("a module with an unloadable per-action validator fails the loadability gate", async () => {
-			// Write the fixture by hand: valid action + a validator
-			// id declared in the manifest's actions[].validators,
-			// but NO matching file under `<actionId>/validators/`.
+		it("a pack with an unloadable per-recipe validator fails the loadability gate", async () => {
+			// Write the fixture by hand: valid recipe + a validator
+			// id declared in the manifest's recipes[].validators,
+			// but NO matching file under `<recipeId>/validators/`.
 			await git.commitManifest({
 				name: "@acme/widget",
 				version: "1.0.0",
-				actions: [
+				recipes: [
 					{
 						id: "scaffold",
 						description: "scaffold",
@@ -836,14 +836,14 @@ describe("ingest pipeline", () => {
 			const terminal = await fx.waitForTerminal(versionId)
 			expect(terminal.status).toBe("failed")
 			expect(terminal.error).toContain("missingValidator")
-			expect(terminal.error).toMatch(/action 'scaffold' validator/i)
+			expect(terminal.error).toMatch(/recipe 'scaffold' validator/i)
 		})
 
 		it("a tarball pack round-trip preserves files whose relative path exceeds 100 bytes (ustar prefix field)", async () => {
 			// Sanity pin for the ustar hygiene fix: the packer uses
 			// the 155-byte ustar prefix field for files whose
 			// relative path is longer than 100 bytes. Monorepo
-			// modulePath trees can hit this; without the fix,
+			// packPath trees can hit this; without the fix,
 			// `Buffer.write` clamped to 512 bytes and the mode/uid/
 			// gid region was corrupted. We exercise the path
 			// through the tarball helper directly.
@@ -861,7 +861,7 @@ describe("ingest pipeline", () => {
 			try {
 				const dirWithLongName = `packages/${"a".repeat(120)}`
 				await mkdir(join(dir, dirWithLongName), { recursive: true })
-				await writeFile(join(dir, dirWithLongName, "action.ts"), "// exists\n", "utf8")
+				await writeFile(join(dir, dirWithLongName, "recipe.ts"), "// exists\n", "utf8")
 				const pack = await packTarball(dir)
 				// The archive must contain at least one tar entry
 				// (the 512-byte header prefix) — a 1024-byte all-zero
@@ -872,15 +872,15 @@ describe("ingest pipeline", () => {
 				expect(pack.bytes.byteLength).toBeGreaterThan(1024)
 				expect(pack.contentHash.length).toBe(64)
 				// The header name region (offset 0..99) holds only
-				// the leaf `action.ts` (9 bytes) + NULs — the long
+				// the leaf `recipe.ts` (9 bytes) + NULs — the long
 				// directory portion is in the prefix field at offset
 				// 345. If the unfixed packer clamped `Buffer.write`
 				// to 512 bytes, the mode/uid/gid digit sequences
 				// would have bled into the name region.
 				const firstHeader = pack.bytes.subarray(0, 512)
 				const nameBytes = firstHeader.subarray(0, 100)
-				// The first 9 bytes are "action.ts"; the rest are NUL.
-				expect(nameBytes.subarray(0, 9).toString("utf8")).toBe("action.ts")
+				// The first 9 bytes are "recipe.ts"; the rest are NUL.
+				expect(nameBytes.subarray(0, 9).toString("utf8")).toBe("recipe.ts")
 				for (let i = 9; i < 100; i++) {
 					expect(nameBytes[i]).toBe(0)
 				}
@@ -918,10 +918,9 @@ describe("ingest pipeline", () => {
 				body: JSON.stringify({ repo: git.bareUrl, tag: "v1.0.0", org: "acme" }),
 			})
 			const { versionId } = (await res.json()) as { versionId: string }
-			const row = await fx.pglite.query<{ commit_sha: string }>(
-				`SELECT commit_sha FROM module_versions WHERE id = $1`,
-				[versionId],
-			)
+			const row = await fx.pglite.query<{ commit_sha: string }>(`SELECT commit_sha FROM pack_versions WHERE id = $1`, [
+				versionId,
+			])
 			const originalCommitSha = row.rows[0]?.commit_sha ?? ""
 			expect(originalCommitSha.length).toBeGreaterThan(0)
 
@@ -959,7 +958,7 @@ describe("ingest pipeline", () => {
 			// preserved on the row so an operator can see what was
 			// originally recorded vs what the repo now serves.
 			const stillPinned = await fx.pglite.query<{ commit_sha: string }>(
-				`SELECT commit_sha FROM module_versions WHERE id = $1`,
+				`SELECT commit_sha FROM pack_versions WHERE id = $1`,
 				[versionId],
 			)
 			expect(stillPinned.rows[0]?.commit_sha).toBe(originalCommitSha)

@@ -29,7 +29,7 @@ function isEditableField(value: string): value is EditableField {
 
 function parseNumber(field: EditableField, value: string): number {
 	const n = Number(value)
-	if (Number.isNaN(n)) die(BAKA_EXIT_CODE.USER_ERROR, `${field} must be a number; got '${value}'`)
+	if (Number.isNaN(n)) die(BAKA_EXIT_CODE.BAD_INPUT, `${field} must be a number; got '${value}'`)
 	return n
 }
 
@@ -55,19 +55,19 @@ interface RunRoleOpts {
 export async function runRole(role: string, opts: RunRoleOpts): Promise<void> {
 	if (!isRoleName(role)) {
 		const known = SUPPORTED_ROLES.join(", ")
-		die(BAKA_EXIT_CODE.USER_ERROR, `unknown role "${role}". Known roles: ${known}`)
+		die(BAKA_EXIT_CODE.BAD_INPUT, `unknown role "${role}". Known roles: ${known}`)
 	}
 	const existing = readRoleConfig(role)
 	if (!existing) {
-		die(BAKA_EXIT_CODE.USER_ERROR, `role "${role}" is not configured. Run \`baka init\` to set it up.`)
+		die(BAKA_EXIT_CODE.BAD_INPUT, `role "${role}" is not configured. Run \`baka init\` to set it up.`)
 	}
 
 	if (opts.field) {
 		if (!opts.value && opts.field !== "apiKey") {
-			die(BAKA_EXIT_CODE.USER_ERROR, `--value is required when --field is set`)
+			die(BAKA_EXIT_CODE.BAD_INPUT, `--value is required when --field is set`)
 		}
 		if (!isEditableField(opts.field)) {
-			die(BAKA_EXIT_CODE.USER_ERROR, `unknown field "${opts.field}". Editable: ${EDITABLE_FIELDS.join(", ")}`)
+			die(BAKA_EXIT_CODE.BAD_INPUT, `unknown field "${opts.field}". Editable: ${EDITABLE_FIELDS.join(", ")}`)
 		}
 		const updated = setField(existing, opts.field, opts.value ?? "")
 		writeRoleConfig(role, updated)
@@ -121,11 +121,11 @@ export async function runRole(role: string, opts: RunRoleOpts): Promise<void> {
 export function runRoleShow(role: string): void {
 	if (!isRoleName(role)) {
 		const known = SUPPORTED_ROLES.join(", ")
-		die(BAKA_EXIT_CODE.USER_ERROR, `unknown role "${role}". Known roles: ${known}`)
+		die(BAKA_EXIT_CODE.BAD_INPUT, `unknown role "${role}". Known roles: ${known}`)
 	}
 	const block = readRoleConfig(role)
 	if (!block) {
-		die(BAKA_EXIT_CODE.USER_ERROR, `role "${role}" is not configured. Run \`baka init\` to set it up.`)
+		die(BAKA_EXIT_CODE.BAD_INPUT, `role "${role}" is not configured. Run \`baka init\` to set it up.`)
 	}
 	console.log(`role: ${role}`)
 	console.log(`  baseUrl:   ${block.baseUrl}`)

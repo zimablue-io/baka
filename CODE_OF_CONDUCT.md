@@ -26,7 +26,7 @@ Examples of unacceptable behavior include:
 
 ## Enforcement responsibilities
 
-Community leaders are responsible for clarifying and enforcing our standards of acceptable behavior and will take appropriate and fair corrective action in response to any behavior that they deem inappropriate, threatening, offensive, or harmful.
+Community leaders are responsible for clarifying and enforcing our standards of acceptable behavior and will take appropriate and fair corrective recipe in response to any behavior that they deem inappropriate, threatening, offensive, or harmful.
 
 Community leaders have the right and responsibility to remove, edit, or reject comments, commits, code, wiki edits, issues, and other contributions that are not aligned to this Code of Conduct, and will communicate reasons for moderation decisions when appropriate.
 
@@ -42,7 +42,7 @@ All community leaders are obligated to respect the privacy and security of the r
 
 ## Enforcement guidelines
 
-Community leaders will follow these Community Impact Guidelines in determining the consequences of any action they deem in violation of this Code of Conduct:
+Community leaders will follow these Community Impact Guidelines in determining the consequences of any recipe they deem in violation of this Code of Conduct:
 
 ### 1. Correction
 
@@ -52,7 +52,7 @@ Community leaders will follow these Community Impact Guidelines in determining t
 
 ### 2. Warning
 
-**Community impact**: A violation through a single incident or series of actions.
+**Community impact**: A violation through a single incident or series of recipes.
 
 **Consequence**: A warning with consequences for continued behavior. No interaction with the people involved, including unsolicited interaction with those enforcing the Code of Conduct, for a specified period of time. This includes avoiding interactions in community spaces as well as external channels like social media. Violating these terms may lead to a temporary or permanent ban.
 

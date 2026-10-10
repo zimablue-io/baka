@@ -8,8 +8,9 @@ import {
 	type LLMMessage,
 	type LLMProvider,
 	type LLMRequest,
-	type ModuleManifest,
+	type LlmCall,
 	type OrchestrationState,
+	type PackManifest,
 	type ResolvedLLMConfig,
 	type ResolvedPlan,
 	type StepResponse,
@@ -24,7 +25,7 @@ import { isRoleName, type RoleName, readRoleConfig } from "./config/store.js"
 
 export interface PlanningInput {
 	intent: string
-	availableModules: ModuleManifest[]
+	availablePacks: PackManifest[]
 }
 
 export type PlanningOutput = ResolvedPlan
@@ -67,8 +68,8 @@ export interface LoadConfigOptions {
  * `${BAKA_HOME:-$HOME/.baka}/config.json`.
  *
  * Hard-fails when the role block is absent or missing required fields.
- * Callers should treat `role: "worker"` for plan/apply/module-design and
- * `role: "validator"` for any module validator that needs the
+ * Callers should treat `role: "worker"` for plan/apply/pack-design and
+ * `role: "validator"` for any pack validator that needs the
  * validator-role LLM.
  */
 export async function loadLLMConfig(opts: LoadConfigOptions): Promise<ResolvedLLMConfig> {
@@ -118,6 +119,98 @@ export async function loadLLMConfig(opts: LoadConfigOptions): Promise<ResolvedLL
 		timeoutMs,
 		...(seed !== undefined ? { seed } : {}),
 		providerOptions: { role: opts.role },
+	}
+}
+
+/** The variables a host sets to choose a model for the processes it spawns, with no config file. */
+export const LLM_ENV = {
+	BASE_URL: "BAKA_LLM_BASE_URL",
+	MODEL: "BAKA_LLM_MODEL",
+	API_KEY: "BAKA_LLM_API_KEY",
+} as const
+
+/** The model named by `BAKA_LLM_*` in `env`, if any of them is set. */
+export function llmCallFromEnv(env: NodeJS.ProcessEnv): LlmCall | undefined {
+	const call: LlmCall = {
+		...(env[LLM_ENV.BASE_URL] ? { baseUrl: env[LLM_ENV.BASE_URL] } : {}),
+		...(env[LLM_ENV.MODEL] ? { model: env[LLM_ENV.MODEL] } : {}),
+		...(env[LLM_ENV.API_KEY] ? { apiKey: env[LLM_ENV.API_KEY] } : {}),
+	}
+	return Object.keys(call).length > 0 ? call : undefined
+}
+
+/** `BAKA_ISOLATED=1` (or `true`): the host asks for a call that reads nothing from the user directory. */
+export function isolatedFromEnv(env: NodeJS.ProcessEnv): boolean {
+	return env.BAKA_ISOLATED === "1" || env.BAKA_ISOLATED === "true"
+}
+
+/** A per-call model that cannot be used as asked (an `apiKeyEnv` that names nothing, a half-specified model). */
+export class LlmCallError extends Error {
+	constructor(message: string) {
+		super(message)
+		this.name = "LlmCallError"
+	}
+}
+
+/**
+ * The worker model for one call, or null when there is none.
+ *
+ * The call's own `llm` wins field by field. A call that names a base URL and a
+ * model is complete on its own (the key may be absent: local servers need none).
+ * Otherwise, unless `isolated`, the missing fields come from the user's stored
+ * worker role; when that is absent too there is no model (null), which is not
+ * an error: a run then reports its open slots. `isolated` never reads the user
+ * directory, so a host controls everything a call does by what it passes.
+ */
+export async function resolveCallLLM(opts: {
+	call?: LlmCall
+	cwd: string
+	isolated?: boolean
+	env?: NodeJS.ProcessEnv
+}): Promise<ResolvedLLMConfig | null> {
+	const call = opts.call ?? {}
+	let apiKey = call.apiKey
+	if (call.apiKeyEnv !== undefined) {
+		const fromEnv = (opts.env ?? process.env)[call.apiKeyEnv]
+		if (!fromEnv) throw new LlmCallError(`llm.apiKeyEnv names ${call.apiKeyEnv}, which is not set in the environment`)
+		apiKey = fromEnv
+	}
+	const overrides: RoleConfigOverrides = {
+		...(call.baseUrl ? { baseUrl: call.baseUrl } : {}),
+		...(call.model ? { model: call.model } : {}),
+		...(apiKey ? { apiKey } : {}),
+		...(call.temperature !== undefined ? { temperature: call.temperature } : {}),
+		...(call.maxTokens !== undefined ? { maxTokens: call.maxTokens } : {}),
+		...(call.timeoutMs !== undefined ? { timeoutMs: call.timeoutMs } : {}),
+		...(call.seed !== undefined ? { seed: call.seed } : {}),
+	}
+	if (overrides.baseUrl && overrides.model) {
+		return {
+			baseUrl: overrides.baseUrl,
+			model: overrides.model,
+			apiKey: overrides.apiKey ?? "none",
+			temperature: overrides.temperature ?? 0,
+			maxTokens: overrides.maxTokens ?? 8192,
+			timeoutMs: overrides.timeoutMs ?? 120_000,
+			...(overrides.seed !== undefined ? { seed: overrides.seed } : {}),
+			providerOptions: { role: "worker" },
+		}
+	}
+	if (opts.isolated) {
+		if (overrides.baseUrl || overrides.model) {
+			throw new LlmCallError(
+				"llm needs both baseUrl and model when isolated: there is no stored config to fill the rest",
+			)
+		}
+		return null
+	}
+	try {
+		const config = await loadLLMConfig({ role: "worker", cwd: opts.cwd, overrides })
+		validateLLMConfig(config)
+		return config
+	} catch (err) {
+		if ((err as Error & { code?: string }).code === "BAKA_CONFIG_MISSING") return null
+		throw err
 	}
 }
 
@@ -171,8 +264,8 @@ const PLANNING_OUTPUT_SCHEMA: z.ZodType<ResolvedPlan> = z.object({
 	resolvedSteps: z.array(
 		z.object({
 			id: z.string(),
-			module: z.string(),
-			action: z.string(),
+			pack: z.string(),
+			recipe: z.string(),
 			params: z.record(z.string(), z.any()),
 		}),
 	),
@@ -197,15 +290,15 @@ export function createOrchestratePlanningStep(
 						role: "system",
 						content:
 							"You are the baka Orchestrator. You decompose a user intent into a sequence of steps. " +
-							"You may only use modules and actions that appear in the provided module catalog. " +
-							"Each step is {id, module, action, params} where params is a flat object whose keys are the exact param names declared in the catalog. " +
+							"You may only use packs and recipes that appear in the provided pack catalog. " +
+							"Each step is {id, pack, recipe, params} where params is a flat object whose keys are the exact param names declared in the catalog. " +
 							"Param values are JSON primitives (string, number, boolean) or arrays of strings. " +
 							'Do not wrap values in extra objects (e.g. {"name": {"value": "x"}} is wrong; {"name": "x"} is right). ' +
 							"Respond with a single JSON object matching the schema; do not include any prose, markdown fences, or commentary.",
 					},
 					{
 						role: "user",
-						content: buildPlanningPrompt(input.intent, input.availableModules),
+						content: buildPlanningPrompt(input.intent, input.availablePacks),
 					},
 				]
 
@@ -243,10 +336,10 @@ export function createOrchestratePlanningStep(
 	}
 }
 
-function buildPlanningPrompt(intent: string, modules: ModuleManifest[]): string {
-	const catalog = modules
+function buildPlanningPrompt(intent: string, packs: PackManifest[]): string {
+	const catalog = packs
 		.map((m) => {
-			const actions = m.actions
+			const recipes = m.recipes
 				.map((a) => {
 					const paramList = a.params
 						.map((p) => {
@@ -257,7 +350,7 @@ function buildPlanningPrompt(intent: string, modules: ModuleManifest[]): string 
 						.join("\n")
 					const paramsBlock = a.params.length > 0 ? `\n      params:\n${paramList}` : "\n      params: (none)"
 					return (
-						`    - action: ${a.id}` +
+						`    - recipe: ${a.id}` +
 						`\n      description: ${a.description}` +
 						(a.requiresReasoning ? "\n      requiresReasoning: true" : "") +
 						(a.compensatesWith ? `\n      compensatesWith: ${a.compensatesWith}` : "") +
@@ -265,42 +358,42 @@ function buildPlanningPrompt(intent: string, modules: ModuleManifest[]): string 
 					)
 				})
 				.join("\n")
-			return `  module: ${m.name} v${m.version}\n    description: ${m.description || "(no description)"}\n    actions:\n${actions}`
+			return `  pack: ${m.name} v${m.version}\n    description: ${m.description || "(no description)"}\n    recipes:\n${recipes}`
 		})
 		.join("\n\n")
 
-	const prefs = loadModulePreferences(modules)
-	return `Intent: ${intent}\n\nModule catalog (use only these modules and actions):\n\n${catalog || "  (empty - no modules are installed)"}\n\n${prefs}`
+	const prefs = loadPackPreferences(packs)
+	return `Intent: ${intent}\n\nPack catalog (use only these packs and recipes):\n\n${catalog || "  (empty - no packs are installed)"}\n\n${prefs}`
 }
 
 /**
- * Loads PREFERENCES.md for any module in the catalog that has one, and
+ * Loads PREFERENCES.md for any pack in the catalog that has one, and
  * returns a section to append to the planning prompt. This is what makes
  * the user's design choices sticky across all agent sessions.
  */
-function loadModulePreferences(modules: ModuleManifest[]): string {
+function loadPackPreferences(packs: PackManifest[]): string {
 	const lines: string[] = []
-	for (const m of modules) {
+	for (const m of packs) {
 		// Try the cwd first (caller is responsible for setting it), then the
 		// user marketplace. We can't always know the project root from here
 		// (the orchestrator step is provider-agnostic), so we look in the
 		// current working directory and the baka user dir.
 		const candidates = [
-			join(process.cwd(), "modules", m.name, "PREFERENCES.md"),
-			join(process.cwd(), BAKA_PROJECT_PATHS.ROOT, "modules", m.name, "PREFERENCES.md"),
-			join(bakaHomeDir(), "modules", m.name, "PREFERENCES.md"),
+			join(process.cwd(), "packs", m.name, "PREFERENCES.md"),
+			join(process.cwd(), BAKA_PROJECT_PATHS.ROOT, "packs", m.name, "PREFERENCES.md"),
+			join(bakaHomeDir(), "packs", m.name, "PREFERENCES.md"),
 		]
 		for (const path of candidates) {
 			if (existsSync(path)) {
 				const body = readFileSync(path, "utf-8")
-				lines.push(`### Module-specific preferences for \`${m.name}\` (from ${path})`)
+				lines.push(`### Pack-specific preferences for \`${m.name}\` (from ${path})`)
 				lines.push("")
 				lines.push(body.trim())
 				lines.push("")
 				lines.push(
-					`When you plan an action from module \`${m.name}\`, you MUST honor these preferences: ` +
+					`When you plan a recipe from pack \`${m.name}\`, you MUST honor these preferences: ` +
 						`use the conventions, respect the anti-patterns, and follow the examples. ` +
-						`If a plan you produce would violate them, choose a different action or param.`,
+						`If a plan you produce would violate them, choose a different recipe or param.`,
 				)
 				lines.push("")
 				break
@@ -308,7 +401,7 @@ function loadModulePreferences(modules: ModuleManifest[]): string {
 		}
 	}
 	if (lines.length === 0) return ""
-	return `## Module-specific preferences\n\n${lines.join("\n")}`
+	return `## Pack-specific preferences\n\n${lines.join("\n")}`
 }
 
 /**
@@ -322,8 +415,8 @@ function normalizePlan(plan: ResolvedPlan): ResolvedPlan {
 	return {
 		resolvedSteps: plan.resolvedSteps.map((step) => ({
 			id: step.id,
-			module: step.module,
-			action: step.action,
+			pack: step.pack,
+			recipe: step.recipe,
 			params: normalizeParams(step.params as Record<string, unknown>),
 		})),
 	}

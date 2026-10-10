@@ -2,8 +2,8 @@ import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 
 /**
- * `baka-sdk` is a types-only boundary for module code: it is not installed
- * next to a module and the engine does not alias it at run time, so a
+ * `baka-sdk` is a types-only boundary for pack code: it is not installed
+ * next to a pack and the engine does not alias it at run time, so a
  * runtime import fails to load in any catalog without its own node_modules.
  * `import type { X } from "baka-sdk"` and `import { type X } from "baka-sdk"`
  * are erased when the file is loaded and are fine; everything else that
@@ -60,12 +60,12 @@ export function findRuntimeSdkImports(source: string): SdkImportFinding[] {
 const SKIP_DIRS = new Set(["node_modules", ".git", "out", "test", "tests", "__tests__", "types"])
 
 /**
- * Runtime `baka-sdk` imports across the TypeScript a module ships and the
- * engine can load: everything under the module root except `node_modules`,
+ * Runtime `baka-sdk` imports across the TypeScript a pack ships and the
+ * engine can load: everything under the pack root except `node_modules`,
  * test and type-declaration directories, `*.d.ts`, and `*.test.ts` /
- * `*.spec.ts`. Paths are relative to the module root, POSIX-separated.
+ * `*.spec.ts`. Paths are relative to the pack root, POSIX-separated.
  */
-export function findModuleSdkImports(moduleRoot: string): Array<SdkImportFinding & { file: string }> {
+export function findPackSdkImports(packRoot: string): Array<SdkImportFinding & { file: string }> {
 	const out: Array<SdkImportFinding & { file: string }> = []
 	const walk = (dir: string, rel: string): void => {
 		for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
@@ -83,6 +83,6 @@ export function findModuleSdkImports(moduleRoot: string): Array<SdkImportFinding
 			}
 		}
 	}
-	walk(moduleRoot, "")
+	walk(packRoot, "")
 	return out
 }

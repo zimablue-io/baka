@@ -21,13 +21,13 @@ export const SITE = {
 	},
 	docs: {
 		philosophy: "docs/PHILOSOPHY.md",
-		modules: "docs/MODULES.md",
+		packs: "docs/PACKS.md",
 		agent: "docs/AGENT.md",
 	},
 	cli: {
 		// The CLI binary name (also the package name).
 		name: BRAND,
-		// For the "baka module create <name>" hint in the modules section.
-		moduleCreateHint: (name = "<name>"): string => `${BRAND} module create ${name}`,
+		// For the "baka pack create <name>" hint in the packs section.
+		packCreateHint: (name = "<name>"): string => `${BRAND} pack create ${name}`,
 	},
 } as const

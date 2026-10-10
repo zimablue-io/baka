@@ -7,7 +7,7 @@ agent needs lives in `.agents/` (rules + project memory) or `docs/`.
 |------|-------|
 | `.agents/rules/` | Coding rules. See `.agents/README.md` for the index. |
 | `.agents/memories.md` | Project-specific constraints and past decisions. |
-| `docs/` | Human-facing docs: philosophy, module format, research. |
+| `docs/` | Human-facing docs: philosophy, pack format, research. |
 | `.mcp.json` | MCP server registration (`baka`), read by MCP-aware hosts. |
 
 ## Proactive Memory Capture

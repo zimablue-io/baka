@@ -7,12 +7,12 @@ import { authedFetch, buildOrgTestStack, createApiKey, type OrgTestStack, signUp
  *
  *   - VAL-AUTH-015: empty org deletes cleanly; the slug becomes
  *     reusable; no inherited state from the deleted org.
- *   - VAL-AUTH-016: orgs that own published modules cannot be deleted
+ *   - VAL-AUTH-016: orgs that own published packs cannot be deleted
  *     (4xx naming the block).
  *
  * The owner-only role enforcement already lives on Better-Auth's
  * `organization/delete` route (VAL-AUTH-008), so this suite focuses
- * on the registry-side check: refuse when the org owns modules.
+ * on the registry-side check: refuse when the org owns packs.
  */
 
 interface SeededUsers {
@@ -80,9 +80,9 @@ async function deleteOrgAs(fx: OrgTestStack, apiKey: string, slug: string): Prom
 	})
 }
 
-async function insertModuleInOrgScope(fx: OrgTestStack, scope: string, name: string): Promise<void> {
+async function insertPackInOrgScope(fx: OrgTestStack, scope: string, name: string): Promise<void> {
 	await fx.pglite.query(
-		`INSERT INTO modules (scope, name, visibility, tier, description)
+		`INSERT INTO packs (scope, name, visibility, tier, description)
 		   VALUES ($1, $2, 'org', 'community-unverified', '')`,
 		[scope, name],
 	)
@@ -185,10 +185,10 @@ describe("VAL-AUTH-015 — empty org deletion", () => {
 })
 
 // ----------------------------------------------------------------------------
-// VAL-AUTH-016 — Org owning published modules cannot be deleted
+// VAL-AUTH-016 — Org owning published packs cannot be deleted
 // ----------------------------------------------------------------------------
 
-describe("VAL-AUTH-016 — org owning modules cannot be deleted", () => {
+describe("VAL-AUTH-016 — org owning packs cannot be deleted", () => {
 	let fx: OrgTestStack
 	let seeded: SeededUsers
 	beforeEach(async () => {
@@ -201,8 +201,8 @@ describe("VAL-AUTH-016 — org owning modules cannot be deleted", () => {
 		await fx.close()
 	})
 
-	it("DELETE /v1/orgs/:slug as owner returns 4xx with an error body naming the block when the org owns a module", async () => {
-		await insertModuleInOrgScope(fx, "acme", "widget")
+	it("DELETE /v1/orgs/:slug as owner returns 4xx with an error body naming the block when the org owns a pack", async () => {
+		await insertPackInOrgScope(fx, "acme", "widget")
 
 		const del = await deleteOrgAs(fx, seeded.owner.apiKey, "acme")
 		expect(del.status).toBeGreaterThanOrEqual(400)
@@ -210,13 +210,13 @@ describe("VAL-AUTH-016 — org owning modules cannot be deleted", () => {
 		expect(del.headers.get("content-type")).toMatch(/application\/json/)
 		const body = (await del.json()) as { error?: string; message?: string }
 		const named = body.error ?? body.message ?? ""
-		expect(named.toLowerCase()).toContain("module")
+		expect(named.toLowerCase()).toContain("pack")
 		expect(named.toLowerCase()).not.toBe("not found")
 	})
 
-	it("after the refused delete, the org, its memberships, and its modules are all still readable", async () => {
-		await insertModuleInOrgScope(fx, "acme", "widget")
-		await insertModuleInOrgScope(fx, "acme", "gadget")
+	it("after the refused delete, the org, its memberships, and its packs are all still readable", async () => {
+		await insertPackInOrgScope(fx, "acme", "widget")
+		await insertPackInOrgScope(fx, "acme", "gadget")
 
 		const del = await deleteOrgAs(fx, seeded.owner.apiKey, "acme")
 		expect(del.status).toBeGreaterThanOrEqual(400)
@@ -225,18 +225,18 @@ describe("VAL-AUTH-016 — org owning modules cannot be deleted", () => {
 		const members = await authedFetch(fx, "/v1/orgs/acme/members", { apiKey: seeded.owner.apiKey })
 		expect(members.status).toBe(200)
 
-		// Modules are still readable via the catalog/detail surface
-		// (the module is org-visibility, so the request carries the
+		// Packs are still readable via the catalog/detail surface
+		// (the pack is org-visibility, so the request carries the
 		// owner's API key — see catalog/routes.ts checkOrgMembership).
-		const detail = await fx.app.request("/v1/modules/acme/widget", {
+		const detail = await fx.app.request("/v1/packs/acme/widget", {
 			headers: { "x-api-key": seeded.owner.apiKey },
 		})
 		expect(detail.status).toBe(200)
 	})
 
-	it("once the modules are removed (tombstoned), the org can be deleted cleanly", async () => {
-		await insertModuleInOrgScope(fx, "acme", "widget")
-		await fx.pglite.query(`UPDATE modules SET removed_at = NOW() WHERE scope = 'acme' AND name = 'widget'`)
+	it("once the packs are removed (tombstoned), the org can be deleted cleanly", async () => {
+		await insertPackInOrgScope(fx, "acme", "widget")
+		await fx.pglite.query(`UPDATE packs SET removed_at = NOW() WHERE scope = 'acme' AND name = 'widget'`)
 
 		const del = await deleteOrgAs(fx, seeded.owner.apiKey, "acme")
 		expect(del.status).toBe(200)

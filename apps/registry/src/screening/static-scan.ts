@@ -1,18 +1,18 @@
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import { extname, join, relative, resolve } from "node:path"
-import type { ModuleManifest } from "@repo/protocol"
+import type { PackManifest } from "@repo/protocol"
 import ts from "typescript"
 
 /**
  * Static capability scan (architecture §4.6 layer 1).
  *
- * The scanner parses every `.ts` file in the module and every
+ * The scanner parses every `.ts` file in the pack and every
  * Handlebars template (`.hbs` / `.handlebars`), looking for
  * capabilities the registry refuses to ship:
  *
  *   - network APIs: `fetch`, `WebSocket`, `http` / `https` /
- *     `net` / `dns` module imports
- *   - `child_process` module imports
+ *     `net` / `dns` pack imports
+ *   - `child_process` pack imports
  *   - `eval(...)` and `new Function(...)`
  *   - dynamic `import(<specifier>)` of non-allowlisted specifiers
  *     (allowlist: `baka-sdk`, `node:` builtins)
@@ -25,7 +25,7 @@ import ts from "typescript"
  *     constructs are denied)
  *
  * The scan is a pure function over a directory on disk — no
- * network, no module loading, no execution of the module's
+ * network, no module loading, no execution of the pack's
  * own code. It runs in-process on the worker before the
  * tarball pack.
  *
@@ -37,7 +37,7 @@ import ts from "typescript"
 export interface StaticScanFinding {
 	/** Capability tag: "network" | "child_process" | "eval" | "dynamic-import" | "writes-outside-patterns" | "handlebars-helper". */
 	capability: string
-	/** Path relative to the module dir, POSIX-style. Never absolute. */
+	/** Path relative to the pack dir, POSIX-style. Never absolute. */
 	file: string
 	/** 1-based line number. */
 	line: number
@@ -50,9 +50,9 @@ export interface StaticScanFinding {
 export interface StaticScanResult {
 	/** True iff `findings` is empty. */
 	passed: boolean
-	/** Every denied construct detected in the module. */
+	/** Every denied construct detected in the pack. */
 	findings: StaticScanFinding[]
-	/** Human-readable summary the worker records in `module_versions.error`. */
+	/** Human-readable summary the worker records in `pack_versions.error`. */
 	summary: string
 }
 
@@ -62,7 +62,7 @@ const CHILD_PROCESS_MODULE = "child_process"
 
 /**
  * Dynamic-import allowlist (VAL-SCAN-016). `baka-sdk` is the
- * module-author boundary (workflows import from it; modules
+ * pack-author boundary (workflows import from it; packs
  * import from it too). `node:` builtins are pure computation
  * primitives — no network, no process spawn, no fs. Anything
  * else is denied (a `require('fs')`-style shadow attempt would
@@ -120,29 +120,29 @@ const FILE_PATTERN_AWARE_FUNCTIONS = new Set([
 ])
 
 /**
- * Walks the module dir, scans every `.ts` file via the TypeScript
+ * Walks the pack dir, scans every `.ts` file via the TypeScript
  * Compiler API, and scans every `.hbs` / `.handlebars` file with a
  * regex-based helper detector. The manifest is used to:
  *
  *   - decide which file-write paths are declared (`filePatterns`)
- *     — actions without an explicit list fall back to the empty set
- *     (the conservative interpretation: an action that does not
+ *     — recipes without an explicit list fall back to the empty set
+ *     (the conservative interpretation: a recipe that does not
  *     declare any allowed writes gets the strictest gate)
  *   - mark the scan's `summary` so the worker can surface the
- *     manifest name + action id in the diagnostic
+ *     manifest name + recipe id in the diagnostic
  *
  * The function never throws on a malformed source file — a parse
  * error is recorded as a finding so the worker surfaces it as
  * `verdict: "failed"` rather than crashing the pipeline
  * (VAL-SCAN-018).
  */
-export async function runStaticScan(moduleDir: string, manifest: ModuleManifest): Promise<StaticScanResult> {
-	const root = resolve(moduleDir)
+export async function runStaticScan(packDir: string, manifest: PackManifest): Promise<StaticScanResult> {
+	const root = resolve(packDir)
 	const findings: StaticScanFinding[] = []
 
 	const allowedFilePatterns = collectAllowedFilePatterns(manifest)
 
-	for (const file of walkModuleFiles(root)) {
+	for (const file of walkPackFiles(root)) {
 		const relPath = relative(root, file).split("\\").join("/")
 		const ext = extname(file)
 		if (ext === ".ts" || ext === ".tsx" || ext === ".cts" || ext === ".mts") {
@@ -154,15 +154,15 @@ export async function runStaticScan(moduleDir: string, manifest: ModuleManifest)
 
 	const passed = findings.length === 0
 	const summary = passed
-		? `static scan passed for module '${manifest.name}' (${countScannedFiles(root)} file(s) inspected)`
-		: `static scan failed for module '${manifest.name}': ${findings.length} finding(s) — ${summarizeFindings(findings)}`
+		? `static scan passed for pack '${manifest.name}' (${countScannedFiles(root)} file(s) inspected)`
+		: `static scan failed for pack '${manifest.name}': ${findings.length} finding(s) — ${summarizeFindings(findings)}`
 
 	return { passed, findings, summary }
 }
 
 function countScannedFiles(root: string): number {
 	let count = 0
-	for (const file of walkModuleFiles(root)) {
+	for (const file of walkPackFiles(root)) {
 		void file
 		count++
 	}
@@ -179,10 +179,10 @@ function summarizeFindings(findings: StaticScanFinding[]): string {
 		.join(", ")
 }
 
-function collectAllowedFilePatterns(manifest: ModuleManifest): Set<string> {
+function collectAllowedFilePatterns(manifest: PackManifest): Set<string> {
 	const out = new Set<string>()
-	for (const action of manifest.actions) {
-		for (const pattern of action.filePatterns) {
+	for (const recipe of manifest.recipes) {
+		for (const pattern of recipe.filePatterns) {
 			out.add(pattern)
 		}
 	}
@@ -190,16 +190,16 @@ function collectAllowedFilePatterns(manifest: ModuleManifest): Set<string> {
 }
 
 /**
- * Walks the module dir, returning every regular file (the module's
+ * Walks the pack dir, returning every regular file (the pack's
  * own tree only — dependencies and `node_modules` are deliberately
  * skipped, matching architecture §8 decision 7: screening covers
- * the module's own tree only).
+ * the pack's own tree only).
  *
- * Symlinks are NOT followed: a malicious module could otherwise
+ * Symlinks are NOT followed: a malicious pack could otherwise
  * point at a sibling directory the worker should not inspect. The
  * `statSync` falls back to `lstatSync` semantics (no follow).
  */
-function walkModuleFiles(root: string): string[] {
+function walkPackFiles(root: string): string[] {
 	const out: string[] = []
 	const stack: string[] = [root]
 	while (stack.length > 0) {
@@ -285,7 +285,7 @@ function scanTypeScriptFile(
 	// import / writeFile calls anywhere in the tree. The walker
 	// visits every node once. A detector exception becomes an
 	// stderr log, never a finding — a detector bug MUST NOT
-	// cause a clean module to fail.
+	// cause a clean pack to fail.
 	const visit = (node: ts.Node): void => {
 		try {
 			if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
@@ -390,7 +390,7 @@ function detectCallExpression(
 	// `import` keyword (SyntaxKind.ImportKeyword) wrapping the
 	// specifier argument. We accept string literals only; computed
 	// specifiers are undecidable statically and we conservatively
-	// deny them so a malicious module cannot smuggle an arbitrary
+	// deny them so a malicious pack cannot smuggle an arbitrary
 	// specifier behind a runtime-evaluated string.
 	if (isImportCall(node, sourceFile)) {
 		const arg = node.arguments[0]
@@ -464,7 +464,7 @@ function detectImportModule(
 		return
 	}
 	// Bare `import "http"` (side-effect) without a binding — covered
-	// by the same logic since we read the module specifier off the
+	// by the same logic since we read the pack specifier off the
 	// declaration node.
 }
 
@@ -472,7 +472,7 @@ function detectImportModule(
  * Detects `type X = import("...")` (TypeScript type-only import)
  * — same denylist as runtime imports. A type-only import can be
  * elided at runtime, but it is still an observable capability
- * declaration the user might rely on, and shipping a module that
+ * declaration the user might rely on, and shipping a pack that
  * pretends to type-check against `http` types but actually calls
  * into `http` would defeat the static layer. We deny uniformly.
  */
@@ -525,12 +525,12 @@ function detectImportTypeNode(
  *     dry-run layer catches them when they materialize
  *   - dynamic expressions (template literals, binary `+`, calls
  *     returning strings) are skipped for the same reason
- *   - The check is per-action: when an `action.ts` calls
+ *   - The check is per-recipe: when a `recipe.ts` calls
  *     `writeFile` with a literal path, the literal must appear
- *     in *that* action's `filePatterns` OR the union of all
+ *     in *that* recipe's `filePatterns` OR the union of all
  *     declared `filePatterns`. We use the union for simplicity
- *     — the manifest author declares the module's surface area
- *     across every action, and any literal in any action file
+ *     — the manifest author declares the pack's surface area
+ *     across every recipe, and any literal in any recipe file
  *     must resolve to a declared pattern.
  */
 function detectWriteCallExpression(
@@ -721,7 +721,7 @@ function isImportCall(node: ts.Node, sourceFile: ts.SourceFile): node is ts.Call
 }
 
 /**
- * Strips a Node.js builtin prefix so the bare module name can be
+ * Strips a Node.js builtin prefix so the bare pack name can be
  * matched against the network / child_process denylists.
  *
  * Handles two forms:

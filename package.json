@@ -9,6 +9,7 @@
 		"test": "turbo run test",
 		"check-types": "turbo run check-types",
 		"verify:core": "node scripts/verify-core-pack.mjs",
+		"verify:cli": "node scripts/verify-cli-pack.mjs",
 		"pack": "rm -rf dist-tarballs && mkdir -p dist-tarballs && node scripts/pack.mjs baka --out \"$PWD/dist-tarballs\" && node scripts/pack.mjs @baka/mcp-server --out \"$PWD/dist-tarballs\" && node scripts/pack.mjs @baka/core --out \"$PWD/dist-tarballs\"",
 		"knip": "node node_modules/knip/bin/knip.js --treat-config-hints-as-errors",
 		"format": "biome format --write .",
@@ -20,7 +21,7 @@
 		"mcp": "pnpm --filter @baka/mcp-server dev",
 		"link:global": "pnpm --filter baka --filter @baka/mcp-server exec pnpm link --global"
 	},
-	"license": "MIT",
+	"license": "Apache-2.0",
 	"devDependencies": {
 		"@biomejs/biome": "2.5.0",
 		"@types/node": "^22.19.15",

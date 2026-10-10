@@ -2,12 +2,12 @@
  * Ingest enqueue seam (architecture §4.5).
  *
  * The publish endpoint calls `enqueueIngest(versionId)` after
- * creating a new `module_versions` row. With the polling-loop
+ * creating a new `pack_versions` row. With the polling-loop
  * worker this is a best-effort "tell the worker a new row is
  * ready" notification — the worker actually discovers pending
- * rows by polling `module_versions.status='pending'` on each
+ * rows by polling `pack_versions.status='pending'` on each
  * cycle. Concurrent same-tag publishes are deduped by the
- * `(module_id, version)` UNIQUE index (VAL-PUB-026) plus the
+ * `(pack_id, version)` UNIQUE index (VAL-PUB-026) plus the
  * worker's `FOR UPDATE SKIP LOCKED` claim: two concurrent polls
  * pick two different rows, never the same one.
  *

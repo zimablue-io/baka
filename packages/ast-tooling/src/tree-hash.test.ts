@@ -5,9 +5,9 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
 	diffSnapshots,
-	MODULE_HASH_DOMAIN,
-	moduleContentHash,
 	outputTreeHash,
+	PACK_HASH_DOMAIN,
+	packContentHash,
 	sha256Hex,
 	snapshotTree,
 	TREE_HASH_DOMAIN,
@@ -23,8 +23,8 @@ const sha = (s: string) => createHash("sha256").update(s).digest("hex")
 describe("the hash domain tags", () => {
 	it("are the exported strings the digests are built from, so a consumer never re-declares them", () => {
 		expect(outputTreeHash([])).toBe(sha(`${TREE_HASH_DOMAIN}\n`))
-		expect(moduleContentHash).toBeTypeOf("function")
-		expect(MODULE_HASH_DOMAIN).toBe("baka.module.v1")
+		expect(packContentHash).toBeTypeOf("function")
+		expect(PACK_HASH_DOMAIN).toBe("baka.pack.v1")
 		expect(TREE_HASH_DOMAIN).toBe("workspace.tree.v1")
 	})
 })

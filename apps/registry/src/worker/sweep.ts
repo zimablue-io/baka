@@ -102,7 +102,7 @@ function readSweepThresholdFromEnv(): number {
  */
 export async function bootSweepIngestingRows(pglite: PGlite): Promise<{ rowsReset: number }> {
 	const result = await pglite.query<{ id: string }>(
-		`UPDATE module_versions
+		`UPDATE pack_versions
 		    SET status = 'pending',
 		        error = NULL,
 		        updated_at = NOW()
@@ -137,7 +137,7 @@ export async function sweepStaleIngestingRows(
 	const thresholdMs = opts.thresholdMs ?? readSweepThresholdFromEnv()
 	const intervalLiteral = `${Math.floor(thresholdMs / 1000)} seconds`
 	const result = await pglite.query<{ id: string }>(
-		`UPDATE module_versions
+		`UPDATE pack_versions
 		    SET status = 'pending',
 		        error = NULL,
 		        updated_at = NOW()

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Mock registry for testing the landing app's empty catalog UI.
- * Returns {"modules":[]} on GET /v1/modules so the landing app
+ * Returns {"packs":[]} on GET /v1/packs so the landing app
  * can render its explicit empty state (data-testid="catalog-empty").
  *
  * Usage:
@@ -28,15 +28,15 @@ const routes = {
 		res.writeHead(200, { "content-type": "application/json" })
 		res.end(JSON.stringify({ status: "ok" }))
 	},
-	"/v1/modules": (_req, res) => {
+	"/v1/packs": (_req, res) => {
 		res.writeHead(200, { "content-type": "application/json" })
-		res.end(JSON.stringify({ modules: [] }))
+		res.end(JSON.stringify({ packs: [] }))
 	},
-	"/v1/modules/:scope/:name": (_req, res) => {
+	"/v1/packs/:scope/:name": (_req, res) => {
 		res.writeHead(404, { "content-type": "application/json" })
 		res.end(JSON.stringify({ error: "not found" }))
 	},
-	"/v1/modules/:scope/:name/versions/:version": (_req, res) => {
+	"/v1/packs/:scope/:name/versions/:version": (_req, res) => {
 		res.writeHead(404, { "content-type": "application/json" })
 		res.end(JSON.stringify({ error: "not found" }))
 	},

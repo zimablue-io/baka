@@ -8,7 +8,7 @@ import { extractManifestFields } from "../src/publish/manifest"
  * `extractManifestFields` (scrutiny-round-1 fix #1): the publish-
  * endpoint manifest reader applies the same `..` / absolute-path
  * confinement the worker already enforces (worker/ingest.ts
- * `resolveModuleDir`). A modulePath that would escape the clone
+ * `resolvePackDir`). A packPath that would escape the clone
  * dir returns `null`, which the publish endpoint surfaces as a
  * 422 with a field-naming body — never reads or evaluates a
  * manifest outside the cloned repo.
@@ -20,7 +20,7 @@ import { extractManifestFields } from "../src/publish/manifest"
  * version fields would surface.
  */
 
-describe("extractManifestFields — modulePath confinement", () => {
+describe("extractManifestFields — packPath confinement", () => {
 	let dir: string
 	let siblingDir: string
 	beforeEach(() => {
@@ -40,7 +40,7 @@ describe("extractManifestFields — modulePath confinement", () => {
 		rmSync(siblingDir, { recursive: true, force: true })
 	})
 
-	it("rejects a modulePath containing `..` — sibling manifest is NOT read", async () => {
+	it("rejects a packPath containing `..` — sibling manifest is NOT read", async () => {
 		const result = await extractManifestFields(dir, `../${basename(siblingDir)}`)
 		expect(result).toBeNull()
 	})
@@ -65,12 +65,12 @@ describe("extractManifestFields — modulePath confinement", () => {
 		}
 	})
 
-	it("rejects an absolute modulePath like `/tmp/<sibling>/manifest`", async () => {
+	it("rejects an absolute packPath like `/tmp/<sibling>/manifest`", async () => {
 		const result = await extractManifestFields(dir, siblingDir)
 		expect(result).toBeNull()
 	})
 
-	it("accepts a normal nested modulePath that points at a manifest inside the clone dir", async () => {
+	it("accepts a normal nested packPath that points at a manifest inside the clone dir", async () => {
 		const subdir = join(dir, "packages", "widget")
 		require("node:fs").mkdirSync(subdir, { recursive: true })
 		writeFileSync(join(subdir, "manifest.ts"), `export default { name: "@acme/widget", version: "1.0.0" }`, "utf8")

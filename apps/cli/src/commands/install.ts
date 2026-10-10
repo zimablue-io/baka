@@ -4,9 +4,9 @@ import { dirname } from "node:path"
 import {
 	extractRegistryTarball,
 	type ManifestJsonShape,
-	projectModulesDir,
+	projectPacksDir,
 	projectSettingsPath,
-	userModulesDir,
+	userPacksDir,
 	userSettingsPath,
 	verifyTarballIntegrity,
 } from "@repo/ast-tooling"
@@ -36,8 +36,8 @@ import { readRegistryCredential } from "../lib/registry-credentials"
  *
  * The CLI downloads the tarball from `GET /v1/download/...`,
  * verifies its sha256 against the `x-content-sha256` response
- * header (VAL-DISC-041), extracts it into `.baka/modules/` (project
- * scope) or `${BAKA_HOME:-$HOME/.baka}/modules/` (user scope via
+ * header (VAL-DISC-041), extracts it into `.baka/packs/` (project
+ * scope) or `${BAKA_HOME:-$HOME/.baka}/packs/` (user scope via
  * `--user`, architecture §8 decision 32), writes a fresh
  * `manifest.ts` derived from the version-detail JSON, and registers
  * the source string in `.baka/settings.json` (project) or
@@ -47,7 +47,7 @@ import { readRegistryCredential } from "../lib/registry-credentials"
  *   - same `scope/name` at the same version → "already installed"
  *     no-op (idempotent install).
  *   - same `scope/name` at a DIFFERENT version → upgrade in place
- *     (the module dir is replaced; the registration is updated to
+ *     (the pack dir is replaced; the registration is updated to
  *     the new pinned version).
  *   - different `scope/name` whose bare name collides with an
  *     existing install (decision 5) → REFUSED with an explicit
@@ -58,16 +58,16 @@ import { readRegistryCredential } from "../lib/registry-credentials"
  * §8 decision 32). The user scope is namespaced under
  * `${BAKA_HOME:-$HOME/.baka}` (architecture §8 decision 33); the
  * same BAKA_HOME from a second project sees the same installed
- * module without needing a re-install.
+ * pack without needing a re-install.
  *
  * `baka uninstall <spec>` is the inverse: it strips the
- * registration AND removes the materialized module dir.
+ * registration AND removes the materialized pack dir.
  */
 
 /**
  * Internal error thrown by `die` so unit tests can assert the
  * exit code without actually exiting the process. The CLI's
- * top-level `action` handler catches this error and exits with
+ * top-level `recipe` handler catches this error and exits with
  * the carried code (see `apps/cli/src/index.ts`).
  */
 export class InstallCommandError extends Error {
@@ -111,7 +111,7 @@ interface InstallResultPayload {
 	version: string | null
 	previousVersion: string | null
 	registry: string | null
-	modulePath: string
+	packPath: string
 	settingsPath: string
 }
 
@@ -236,11 +236,11 @@ function parseInstallSpec(spec: string): ParsedInstallSpec {
 				`install spec '${trimmed}' is malformed; '@<scope>/<name>' takes exactly one '/' separator (found '${name.split("/").length - 1}' extra)`,
 			)
 		}
-		if (!isValidModuleIdentifier(scope)) {
+		if (!isValidPackIdentifier(scope)) {
 			throw new Error(`install spec '${trimmed}' has an invalid scope name '${scope}'`)
 		}
-		if (!isValidModuleIdentifier(name)) {
-			throw new Error(`install spec '${trimmed}' has an invalid module name '${name}'`)
+		if (!isValidPackIdentifier(name)) {
+			throw new Error(`install spec '${trimmed}' has an invalid pack name '${name}'`)
 		}
 		return { kind: "registry", scope, name, pinnedVersion }
 	}
@@ -252,8 +252,8 @@ function parseInstallSpec(spec: string): ParsedInstallSpec {
 	if (slash >= 0) {
 		throw new Error(`install spec '${trimmed}' is malformed; bare-name specs take no '/' (got '${inner}')`)
 	}
-	if (!isValidModuleIdentifier(inner)) {
-		throw new Error(`install spec '${trimmed}' has an invalid module name '${inner}'`)
+	if (!isValidPackIdentifier(inner)) {
+		throw new Error(`install spec '${trimmed}' has an invalid pack name '${inner}'`)
 	}
 	return { kind: "registry", scope: null as unknown as string, name: inner, pinnedVersion }
 }
@@ -274,7 +274,7 @@ function isValidSemverTag(input: string): boolean {
 	return m !== null
 }
 
-function isValidModuleIdentifier(input: string): boolean {
+function isValidPackIdentifier(input: string): boolean {
 	if (input.length === 0) return false
 	return /^[a-z0-9][a-z0-9._-]*$/i.test(input)
 }
@@ -291,7 +291,7 @@ function stripVersionPrefix(version: string): string {
 	return version
 }
 
-interface ResolvedRegistryModule {
+interface ResolvedRegistryPack {
 	registryBaseUrl: string
 	scope: string
 	name: string
@@ -305,8 +305,8 @@ interface ResolvedRegistryModule {
 
 /**
  * Walks every configured registry in order, asking each one for
- * the module. The first registry that returns 200 for both the
- * module detail AND the version detail wins. A non-2xx response
+ * the pack. The first registry that returns 200 for both the
+ * pack detail AND the version detail wins. A non-2xx response
  * other than 404 throws `RegistryHttpError` so the calling
  * installer knows it's a 401 / 403 / 5xx, not "not found".
  *
@@ -315,12 +315,12 @@ interface ResolvedRegistryModule {
  * only against the registry serving the official scope). Scoped
  * specs use their own scope.
  */
-async function resolveRegistryModuleForInstall(opts: {
+async function resolveRegistryPackForInstall(opts: {
 	spec: ParsedInstallSpec & { kind: "registry" }
 	registries: string[]
 	credentialLookup: (baseUrl: string) => { apiKey: string } | undefined
 	fetchImpl: typeof fetch | undefined
-}): Promise<ResolvedRegistryModule | { error: string; transport: boolean; notFound: boolean }> {
+}): Promise<ResolvedRegistryPack | { error: string; transport: boolean; notFound: boolean }> {
 	const scopeForFetch = opts.spec.scope ?? "baka"
 	let lastTransport: string | null = null
 	let lastNotFound = false
@@ -329,12 +329,12 @@ async function resolveRegistryModuleForInstall(opts: {
 		const apiKey = credential?.apiKey
 		// Resolve the version: a pinned spec uses the explicit
 		// version; an unpinned spec resolves the latest ready
-		// version via `getModuleDetail` (which surfaces the
+		// version via `getPackDetail` (which surfaces the
 		// server-attached `latestVersion` semver pointer).
 		let versionToFetch = opts.spec.pinnedVersion
 		if (versionToFetch === null) {
 			try {
-				const detailRes = await fetchModuleDetail({
+				const detailRes = await fetchPackDetail({
 					baseUrl,
 					scope: scopeForFetch,
 					name: opts.spec.name,
@@ -409,7 +409,7 @@ async function resolveRegistryModuleForInstall(opts: {
 	if (lastNotFound) {
 		const label = opts.spec.scope === null ? opts.spec.name : `${opts.spec.scope}/${opts.spec.name}`
 		return {
-			error: `module '${label}' not found in any configured registry (bare names resolve against the registry serving the official scope; configure registries in .baka/settings.json or pass --registry)`,
+			error: `pack '${label}' not found in any configured registry (bare names resolve against the registry serving the official scope; configure registries in .baka/settings.json or pass --registry)`,
 			transport: false,
 			notFound: true,
 		}
@@ -422,11 +422,11 @@ async function resolveRegistryModuleForInstall(opts: {
 }
 
 /**
- * Inlined helper for `getModuleDetail` from registry-client. Kept
+ * Inlined helper for `getPackDetail` from registry-client. Kept
  * local to this file so the install flow does not need to import
  * the catalog shape (we only need `latestVersion` here).
  */
-async function fetchModuleDetail(opts: {
+async function fetchPackDetail(opts: {
 	baseUrl: string
 	scope: string
 	name: string
@@ -434,7 +434,7 @@ async function fetchModuleDetail(opts: {
 	fetchImpl?: typeof fetch
 }): Promise<{ latestVersion: string | null } | null> {
 	const f = opts.fetchImpl ?? globalThis.fetch
-	const path = `/v1/modules/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}`
+	const path = `/v1/packs/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}`
 	const headers: Record<string, string> = {}
 	if (opts.apiKey) headers["x-api-key"] = opts.apiKey
 	let res: Response
@@ -462,9 +462,9 @@ async function fetchModuleDetail(opts: {
  * NOT a collision (that's the upgrade path per decision 15).
  *
  * The check scans every install surface that produces a discoverable
- * module name:
- *   - `.baka/modules/<scope>-<name>` (project scope)
- *   - `${BAKA_HOME:-$HOME/.baka}/modules/<scope>-<name>` (user scope)
+ * pack name:
+ *   - `.baka/packs/<scope>-<name>` (project scope)
+ *   - `${BAKA_HOME:-$HOME/.baka}/packs/<scope>-<name>` (user scope)
  * The engine does not ship reserved bundled names.
  *
  * The function returns `null` when no collision exists; otherwise
@@ -483,23 +483,23 @@ function detectNameCollision(
 	name: string,
 	projectSettingsPath: string,
 	userSettingsPathValue: string,
-	projectModulesDirPath: string,
-	userModulesDirPath: string,
+	projectPacksDirPath: string,
+	userPacksDirPath: string,
 ): Collision | null {
 	// Same scope + same name is the upgrade path — NOT a collision.
-	const moduleName = `${scope}-${name}`
-	// Project scope: scan `.baka/modules/<name>/manifest.ts` for
-	// the scope that owns the existing install. The module dir's
+	const packName = `${scope}-${name}`
+	// Project scope: scan `.baka/packs/<name>/manifest.ts` for
+	// the scope that owns the existing install. The pack dir's
 	// manifest is the canonical source of the installed scope.
-	if (existsSync(`${projectModulesDirPath}/${moduleName}`)) {
-		const existingScope = readScopeFromManifest(`${projectModulesDirPath}/${moduleName}`)
+	if (existsSync(`${projectPacksDirPath}/${packName}`)) {
+		const existingScope = readScopeFromManifest(`${projectPacksDirPath}/${packName}`)
 		if (existingScope !== null && existingScope !== scope) {
 			return { existingScope, existingName: name, registration: "project" }
 		}
 	}
 	// User scope: same check, under the user marketplace.
-	if (existsSync(`${userModulesDirPath}/${moduleName}`)) {
-		const existingScope = readScopeFromManifest(`${userModulesDirPath}/${moduleName}`)
+	if (existsSync(`${userPacksDirPath}/${packName}`)) {
+		const existingScope = readScopeFromManifest(`${userPacksDirPath}/${packName}`)
 		if (existingScope !== null && existingScope !== scope) {
 			return { existingScope, existingName: name, registration: "user" }
 		}
@@ -507,7 +507,7 @@ function detectNameCollision(
 	// Belt-and-braces: also check the project/user settings files
 	// for a source string that would conflict. Settings source
 	// strings are NOT used to compute collisions (the materialized
-	// module dir is the canonical signal) — but if a registration
+	// pack dir is the canonical signal) — but if a registration
 	// is present without a materialized dir, we still surface it
 	// as a conflict.
 	const projectSettings = readProjectSettingsSafe(projectSettingsPath)
@@ -524,19 +524,19 @@ function detectNameCollision(
 			return { existingScope: reg.scope, existingName: name, registration: "user" }
 		}
 	}
-	void moduleName
+	void packName
 	return null
 }
 
 /**
- * Reads the `manifest.ts` from a materialized module directory
+ * Reads the `manifest.ts` from a materialized pack directory
  * and extracts the manifest's `name` field. Returns `null` on
  * any parse failure so the collision detector degrades to "no
  * evidence of a different scope" — a missing/corrupt manifest
  * never blocks an install.
  */
-function readScopeFromManifest(modulePath: string): string | null {
-	const manifestPath = `${modulePath}/manifest.ts`
+function readScopeFromManifest(packPath: string): string | null {
+	const manifestPath = `${packPath}/manifest.ts`
 	if (!existsSync(manifestPath)) return null
 	try {
 		const text = readFileSync(manifestPath, "utf-8")
@@ -565,7 +565,7 @@ function readScopeFromManifest(modulePath: string): string | null {
 /**
  * Reads a settings file defensively (parse failure → empty
  * packages; keys other than `packages` are kept so a rewrite never drops them). The settings reader in ast-tooling already handles
- * missing files; we keep a local copy here so the install module
+ * missing files; we keep a local copy here so the install pack
  * does not need to import the settings writer into the collision
  * path.
  */
@@ -630,8 +630,8 @@ function parseRegistrationScopeName(raw: string): { scope: string; name: string 
  *   - Empty spec → "usage: baka install <spec>"
  *   - Malformed spec → "install spec ... is malformed; expected ..."
  *   - Registry unreachable → exit 2, names the registry URL
- *   - Module not found in any registry → exit 1, names the spec
- *   - Module is org-private and the caller is not a member → exit
+ *   - Pack not found in any registry → exit 1, names the spec
+ *   - Pack is org-private and the caller is not a member → exit
  *     1, "not found or private" (uniform with VAL-DISC-019)
  *   - Cross-scope name collision → exit 1, names the existing
  *     install's scope + registration
@@ -641,13 +641,13 @@ function parseRegistrationScopeName(raw: string): { scope: string; name: string 
  *     names the registry's recorded error (VAL-PUB-018)
  */
 export async function runInstallCommand(spec: string, opts: InstallOptions): Promise<void> {
-	if (!spec) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka install <spec>")
+	if (!spec) die(BAKA_EXIT_CODE.BAD_INPUT, "usage: baka install <spec>")
 
 	let parsedSpec: ParsedInstallSpec
 	try {
 		parsedSpec = parseInstallSpec(spec)
 	} catch (err) {
-		die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
+		die(BAKA_EXIT_CODE.BAD_INPUT, err instanceof Error ? err.message : String(err))
 	}
 
 	if (parsedSpec.kind === "source") {
@@ -660,7 +660,7 @@ export async function runInstallCommand(spec: string, opts: InstallOptions): Pro
 
 	const registries = opts.registries ?? resolveRegistriesForInstall(opts)
 	if (registries.length === 0) {
-		die(BAKA_EXIT_CODE.USER_ERROR, "no registries configured; add one with --registry <url> or BAKA_REGISTRY_URL")
+		die(BAKA_EXIT_CODE.BAD_INPUT, "no registries configured; add one with --registry <url> or BAKA_REGISTRY_URL")
 	}
 
 	const credentialLookup =
@@ -670,7 +670,7 @@ export async function runInstallCommand(spec: string, opts: InstallOptions): Pro
 			return c ? { apiKey: c.apiKey } : undefined
 		})
 
-	const resolution = await resolveRegistryModuleForInstall({
+	const resolution = await resolveRegistryPackForInstall({
 		spec: parsedSpec,
 		registries,
 		credentialLookup,
@@ -678,30 +678,30 @@ export async function runInstallCommand(spec: string, opts: InstallOptions): Pro
 	})
 	if ("error" in resolution) {
 		if (resolution.transport) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, `cannot reach registry: ${resolution.error}`)
+			die(BAKA_EXIT_CODE.FAILED, `cannot reach registry: ${resolution.error}`)
 		}
-		die(BAKA_EXIT_CODE.USER_ERROR, resolution.error)
+		die(BAKA_EXIT_CODE.BAD_INPUT, resolution.error)
 	}
 
 	// Conflict check BEFORE any download. Same scope+name is the
 	// upgrade path (decision 15); a different scope/registration
 	// with the same bare name is a refusal (decision 5).
-	const moduleName = `${resolution.scope}-${resolution.name}`
+	const packName = `${resolution.scope}-${resolution.name}`
 	const projectSettings = opts.scope === "project" ? projectSettingsPath(opts.cwd) : userSettingsPath()
-	const projectModules = opts.scope === "project" ? projectModulesDir(opts.cwd) : userModulesDir()
+	const projectPacks = opts.scope === "project" ? projectPacksDir(opts.cwd) : userPacksDir()
 	const otherSettings = opts.scope === "project" ? userSettingsPath() : projectSettingsPath(opts.cwd)
-	const otherModules = opts.scope === "project" ? userModulesDir() : projectModulesDir(opts.cwd)
+	const otherPacks = opts.scope === "project" ? userPacksDir() : projectPacksDir(opts.cwd)
 	const collision = detectNameCollision(
 		resolution.scope,
 		resolution.name,
 		projectSettings,
 		otherSettings,
-		projectModules,
-		otherModules,
+		projectPacks,
+		otherPacks,
 	)
 	if (collision !== null) {
 		die(
-			BAKA_EXIT_CODE.USER_ERROR,
+			BAKA_EXIT_CODE.BAD_INPUT,
 			`install conflict: '${resolution.scope}/${resolution.name}' collides with an existing ` +
 				`install of '${collision.existingScope}/${collision.existingName}' (registration: ${collision.registration}); ` +
 				`remove the existing install with \`baka uninstall ${collision.existingScope}/${collision.existingName}\` before installing a different scope under the same name`,
@@ -710,9 +710,9 @@ export async function runInstallCommand(spec: string, opts: InstallOptions): Pro
 
 	// Determine the previous version (for the upgrade branch and
 	// the JSON payload). We pull it from the manifest of the
-	// currently-installed module dir, when one exists.
-	const modulePath = `${projectModules}/${moduleName}`
-	const previousVersion = readInstalledVersion(modulePath)
+	// currently-installed pack dir, when one exists.
+	const packPath = `${projectPacks}/${packName}`
+	const previousVersion = readInstalledVersion(packPath)
 	const isUpgrade = previousVersion !== null && previousVersion !== resolution.version
 
 	// Download + integrity verification. On any failure, NOTHING
@@ -733,41 +733,41 @@ export async function runInstallCommand(spec: string, opts: InstallOptions): Pro
 	} catch (err) {
 		if (err instanceof RegistryDownloadNotFound) {
 			die(
-				BAKA_EXIT_CODE.USER_ERROR,
-				`module not found or private: '${resolution.scope}/${resolution.name}@${resolution.version}' ` +
-					`(the registry returned a uniform not-found response; org-visibility modules are inaccessible to non-members per VAL-DISC-019)`,
+				BAKA_EXIT_CODE.BAD_INPUT,
+				`pack not found or private: '${resolution.scope}/${resolution.name}@${resolution.version}' ` +
+					`(the registry returned a uniform not-found response; org-visibility packs are inaccessible to non-members per VAL-DISC-019)`,
 			)
 		}
 		if (err instanceof RegistryDownloadGone) {
 			die(
-				BAKA_EXIT_CODE.USER_ERROR,
-				`module was removed: '${resolution.scope}/${resolution.name}@${resolution.version}' ` +
+				BAKA_EXIT_CODE.BAD_INPUT,
+				`pack was removed: '${resolution.scope}/${resolution.name}@${resolution.version}' ` +
 					`is no longer served by the registry (tombstoned at ${resolution.registryBaseUrl}); existing local installs are unaffected`,
 			)
 		}
 		if (err instanceof RegistryTransportError) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, `cannot reach registry: ${err.message}`)
+			die(BAKA_EXIT_CODE.FAILED, `cannot reach registry: ${err.message}`)
 		}
 		if (err instanceof RegistryHttpError) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, `registry download failed: ${err.message}`)
+			die(BAKA_EXIT_CODE.FAILED, `registry download failed: ${err.message}`)
 		}
 		throw err
 	}
 
 	if (download.expectedSha256 === null) {
 		die(
-			BAKA_EXIT_CODE.ENGINE_ERROR,
+			BAKA_EXIT_CODE.FAILED,
 			`registry ${resolution.registryBaseUrl} did not include an x-content-sha256 header on the tarball response; cannot verify integrity (VAL-DISC-041)`,
 		)
 	}
 	const actualSha256 = createHash("sha256").update(download.bytes).digest("hex")
 	if (actualSha256 !== download.expectedSha256) {
-		// Cleanup any stale module dir to leave the tree in a
+		// Cleanup any stale pack dir to leave the tree in a
 		// known-good state (the dir may have existed from a prior
 		// install — we don't touch it on upgrade either, until
 		// integrity passes).
 		die(
-			BAKA_EXIT_CODE.ENGINE_ERROR,
+			BAKA_EXIT_CODE.FAILED,
 			`tarball integrity mismatch for ${resolution.scope}/${resolution.name}@${resolution.version}: ` +
 				`expected sha256=${download.expectedSha256}, got sha256=${actualSha256}; refusing to install`,
 		)
@@ -781,11 +781,11 @@ export async function runInstallCommand(spec: string, opts: InstallOptions): Pro
 	let result: InstallResultPayload
 	try {
 		const bytes = verifyTarballIntegrity({ bytes: download.bytes, expectedSha256: download.expectedSha256 })
-		// Pre-clean: the upgrade path replaces the module dir; the
+		// Pre-clean: the upgrade path replaces the pack dir; the
 		// idempotent-same-version path keeps it (the bytes will be
 		// re-extracted on top, but the result is the same tree).
-		if (existsSync(modulePath)) rmSync(modulePath, { recursive: true, force: true })
-		extractRegistryTarball(bytes, modulePath, resolution.manifest)
+		if (existsSync(packPath)) rmSync(packPath, { recursive: true, force: true })
+		extractRegistryTarball(bytes, packPath, resolution.manifest)
 		// Register the source string. The format is
 		// `registry:@scope/name@version` — parseSource recognizes
 		// the `registry:` prefix and routes to a no-op switch
@@ -813,14 +813,14 @@ export async function runInstallCommand(spec: string, opts: InstallOptions): Pro
 			version: resolution.version,
 			previousVersion,
 			registry: resolution.registryBaseUrl,
-			modulePath,
+			packPath,
 			settingsPath: projectSettings,
 		}
 	} catch (err) {
-		// Materialization failed AFTER the module dir was cleaned
+		// Materialization failed AFTER the pack dir was cleaned
 		// (or never existed). We never wrote a registration, so
 		// there is nothing to roll back. Surface the failure.
-		die(BAKA_EXIT_CODE.ENGINE_ERROR, `install failed: ${err instanceof Error ? err.message : String(err)}`)
+		die(BAKA_EXIT_CODE.FAILED, `install failed: ${err instanceof Error ? err.message : String(err)}`)
 	}
 
 	// Honor VAL-DISC-033: the apiKey never appears in any output.
@@ -838,18 +838,18 @@ export async function runInstallCommand(spec: string, opts: InstallOptions): Pro
 	process.stdout.write(
 		`${verb} ${result.scope}/${result.name}@${result.version} ` +
 			`(was: ${result.previousVersion ?? "<none>"}, registry: ${result.registry ?? "<unknown>"}) ` +
-			`-> ${result.modulePath}\n`,
+			`-> ${result.packPath}\n`,
 	)
 }
 
 /**
- * Reads the installed version of an already-materialized module
+ * Reads the installed version of an already-materialized pack
  * dir. Returns `null` when no manifest is found or the manifest
  * cannot be parsed — the collision-free install proceeds in that
  * case (the "upgrade" detection is best-effort).
  */
-function readInstalledVersion(modulePath: string): string | null {
-	const manifestPath = `${modulePath}/manifest.ts`
+function readInstalledVersion(packPath: string): string | null {
+	const manifestPath = `${packPath}/manifest.ts`
 	if (!existsSync(manifestPath)) return null
 	try {
 		const text = readFileSync(manifestPath, "utf-8")
@@ -870,7 +870,7 @@ function readInstalledVersion(modulePath: string): string | null {
  * Legacy source-URI install path (npm:/git:/path/url). Behavior is
  * unchanged from the prior marketplace command: parses the source
  * string, registers it in the project or user settings, and lets
- * `@repo/ast-tooling#installSource` materialize the module.
+ * `@repo/ast-tooling#installSource` materialize the pack.
  *
  * The settings registration is preserved when materialization
  * fails — npm/git installs are NOT atomic in v1 (they always
@@ -885,17 +885,17 @@ async function runSourceInstall(spec: string, opts: InstallOptions): Promise<voi
 	try {
 		parsed = parseSource(spec)
 	} catch (err) {
-		die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
+		die(BAKA_EXIT_CODE.BAD_INPUT, err instanceof Error ? err.message : String(err))
 	}
 	const settingsPath = opts.scope === "project" ? projectSettingsPath(opts.cwd) : userSettingsPath()
-	const modulesDir = opts.scope === "project" ? projectModulesDir(opts.cwd) : userModulesDir()
+	const packsDir = opts.scope === "project" ? projectPacksDir(opts.cwd) : userPacksDir()
 
 	try {
 		const result = await installSource(spec, {
 			scope: opts.scope,
 			cwd: opts.cwd,
 			settingsPath,
-			modulesDir,
+			packsDir,
 		})
 		if (opts.json) {
 			process.stdout.write(
@@ -904,7 +904,7 @@ async function runSourceInstall(spec: string, opts: InstallOptions): Promise<voi
 						status: "installed",
 						type: parsed.type,
 						spec: parsed.raw,
-						modulePath: result.modulePath,
+						packPath: result.packPath,
 						settingsPath,
 					},
 					null,
@@ -913,18 +913,18 @@ async function runSourceInstall(spec: string, opts: InstallOptions): Promise<voi
 			)
 			return
 		}
-		process.stdout.write(`installed ${parsed.type}: ${parsed.raw} -> ${result.modulePath} (${opts.scope} scope)\n`)
+		process.stdout.write(`installed ${parsed.type}: ${parsed.raw} -> ${result.packPath} (${opts.scope} scope)\n`)
 	} catch (err) {
 		// Best-effort rollback for the legacy path: if the
 		// registration was added but the materializer failed,
 		// strip the registration so the project state stays
 		// consistent with what the CLI claims.
 		try {
-			removeSource(spec, { settingsPath, modulesDir })
+			removeSource(spec, { settingsPath, packsDir })
 		} catch {
 			/* best effort */
 		}
-		die(BAKA_EXIT_CODE.ENGINE_ERROR, `install failed: ${err instanceof Error ? err.message : String(err)}`)
+		die(BAKA_EXIT_CODE.FAILED, `install failed: ${err instanceof Error ? err.message : String(err)}`)
 	}
 }
 
@@ -964,7 +964,7 @@ function readProjectRegistries(cwd: string): string[] {
 // ---------------------------------------------------------------------------
 // `baka uninstall <spec>` — inverse of `baka install` for the
 // registry-sourced surface. Strips the registration from the
-// settings file AND removes the materialized module dir. The same
+// settings file AND removes the materialized pack dir. The same
 // collision-detection / version-pinning logic is intentionally
 // NOT applied: uninstall is a destructive operation, the user
 // already knows what they installed.
@@ -977,17 +977,17 @@ interface UninstallOptions {
 }
 
 export async function runUninstallCommand(spec: string, opts: UninstallOptions): Promise<void> {
-	if (!spec) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka uninstall <spec>")
+	if (!spec) die(BAKA_EXIT_CODE.BAD_INPUT, "usage: baka uninstall <spec>")
 
 	let parsedSpec: ParsedInstallSpec
 	try {
 		parsedSpec = parseInstallSpec(spec)
 	} catch (err) {
-		die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
+		die(BAKA_EXIT_CODE.BAD_INPUT, err instanceof Error ? err.message : String(err))
 	}
 	if (parsedSpec.kind !== "registry") {
 		die(
-			BAKA_EXIT_CODE.USER_ERROR,
+			BAKA_EXIT_CODE.BAD_INPUT,
 			`uninstall spec '${spec}' must be a registry spec (@<scope>/<name> or <name>); ` +
 				`non-registry sources use \`baka remove\``,
 		)
@@ -995,9 +995,9 @@ export async function runUninstallCommand(spec: string, opts: UninstallOptions):
 
 	const scope = parsedSpec.scope ?? "baka"
 	const name = parsedSpec.name
-	const moduleName = `${scope}-${name}`
+	const packName = `${scope}-${name}`
 	const settingsPath = opts.scope === "project" ? projectSettingsPath(opts.cwd) : userSettingsPath()
-	const modulesDir = opts.scope === "project" ? projectModulesDir(opts.cwd) : userModulesDir()
+	const packsDir = opts.scope === "project" ? projectPacksDir(opts.cwd) : userPacksDir()
 
 	const settings = readProjectSettingsSafe(settingsPath)
 	const sourceStrings = settings.packages.filter((raw: string) => {
@@ -1005,7 +1005,7 @@ export async function runUninstallCommand(spec: string, opts: UninstallOptions):
 		return reg !== null && reg.scope === scope && reg.name === name
 	})
 	if (sourceStrings.length === 0) {
-		die(BAKA_EXIT_CODE.USER_ERROR, `no install of '${scope}/${name}' found in ${opts.scope} settings (${settingsPath})`)
+		die(BAKA_EXIT_CODE.BAD_INPUT, `no install of '${scope}/${name}' found in ${opts.scope} settings (${settingsPath})`)
 	}
 
 	// Strip every matching registration (a multi-version install
@@ -1018,16 +1018,16 @@ export async function runUninstallCommand(spec: string, opts: UninstallOptions):
 	mkdirSync(dirname(settingsPath), { recursive: true })
 	writeFileSync(settingsPath, JSON.stringify({ ...settings, packages: remaining }, null, 2))
 
-	const modulePath = `${modulesDir}/${moduleName}`
-	if (existsSync(modulePath)) {
-		rmSync(modulePath, { recursive: true, force: true })
+	const packPath = `${packsDir}/${packName}`
+	if (existsSync(packPath)) {
+		rmSync(packPath, { recursive: true, force: true })
 	}
 
 	const payload = {
 		status: "uninstalled" as const,
 		scope,
 		name,
-		modulePath,
+		packPath,
 		settingsPath,
 		removedRegistrations: sourceStrings.length,
 	}
@@ -1036,7 +1036,7 @@ export async function runUninstallCommand(spec: string, opts: UninstallOptions):
 		return
 	}
 	process.stdout.write(
-		`uninstalled ${scope}/${name}: removed ${sourceStrings.length} registration(s) from ${opts.scope} settings; module dir cleared\n`,
+		`uninstalled ${scope}/${name}: removed ${sourceStrings.length} registration(s) from ${opts.scope} settings; pack dir cleared\n`,
 	)
 }
 
@@ -1048,7 +1048,7 @@ export const __test__ = {
 	parseInstallSpec,
 	parseRegistrationScopeName,
 	isValidSemverTag,
-	isValidModuleIdentifier,
+	isValidPackIdentifier,
 	detectNameCollision,
-	resolveRegistryModuleForInstall,
+	resolveRegistryPackForInstall,
 }

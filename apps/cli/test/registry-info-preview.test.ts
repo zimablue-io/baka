@@ -3,24 +3,24 @@
 // (architecture §8 decision 24, feature cli-info-preview).
 //
 // `info <spec>` prints the served manifest, versions list, and screening
-// verdict for a module WITHOUT installing it; `--json` emits a
-// schema-parseable payload. `preview <spec> [--action <id>]` prints the
-// rendered generated-code preview per action (or an explicit
-// `needs-llm` marker for `requiresReasoning` actions) and the
-// "no preview available" line for modules without preview artifacts.
+// verdict for a pack WITHOUT installing it; `--json` emits a
+// schema-parseable payload. `preview <spec> [--recipe <id>]` prints the
+// rendered generated-code preview per recipe (or an explicit
+// `needs-llm` marker for `requiresReasoning` recipes) and the
+// "no preview available" line for packs without preview artifacts.
 //
 // These probes spawn the BUILT `apps/cli/dist/index.js` against a private
-// seed-publishing-server. The seed inserts one fixture module (`hello`)
-// under the official scope; the screened-module branch additionally
-// publishes a fixture module with a reasoning + non-reasoning action pair.
+// seed-publishing-server. The seed inserts one fixture pack (`hello`)
+// under the official scope; the screened-pack branch additionally
+// publishes a fixture pack with a reasoning + non-reasoning recipe pair.
 //
 // Coverage map (per validation-contract.md):
 //   VAL-DISC-030  info shows the served manifest, versions, and verdict
 //                 before install; --json is schema-parseable; an unknown
-//                 module exits 1 with a "not found" message.
-//   VAL-DISC-031  preview prints real generated code per action and an
-//                 explicit needs-llm marker for reasoning actions; a
-//                 module without previews prints a "no preview available"
+//                 pack exits 2 with a "not found" message.
+//   VAL-DISC-031  preview prints real generated code per recipe and an
+//                 explicit needs-llm marker for reasoning recipes; a
+//                 pack without previews prints a "no preview available"
 //                 line; --json is schema-parseable.
 //
 // Conventions:
@@ -165,7 +165,7 @@ function makeIsolatedHome(prefix: string): string {
 }
 
 /**
- * Polls `GET /v1/modules/<scope>/<name>/<version>` every 250ms
+ * Polls `GET /v1/packs/<scope>/<name>/<version>` every 250ms
  * until the version reaches `ready` AND `screening.verdict` is set
  * (a public publish triggers screening after ingest, so the
  * terminal ingest status alone is not sufficient — screening
@@ -179,7 +179,7 @@ async function waitForScreenedVersion(opts: {
 	timeoutMs?: number
 }): Promise<{ status: string; screening: unknown; manifest: unknown }> {
 	const deadline = Date.now() + (opts.timeoutMs ?? 60_000)
-	const path = `/v1/modules/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}`
+	const path = `/v1/packs/${encodeURIComponent(opts.scope)}/${encodeURIComponent(opts.name)}/${encodeURIComponent(opts.version)}`
 	while (Date.now() < deadline) {
 		const res = await fetch(`${opts.baseUrl}${path}`)
 		if (res.ok) {
@@ -235,7 +235,7 @@ afterEach(async () => {
 // ---------------------------------------------------------------------------
 
 describe("VAL-DISC-030 baka registry info <spec> shows the served manifest and verdict before install", () => {
-	it("prints scope, name, tier, description, latest version, versions list, and every action with params + descriptions (human-readable)", async () => {
+	it("prints scope, name, tier, description, latest version, versions list, and every recipe with params + descriptions (human-readable)", async () => {
 		const bakaHome = makeIsolatedHome("baka-info-human-")
 		const cwd = makeIsolatedHome("baka-info-human-proj-")
 		const env = { BAKA_HOME: bakaHome, BAKA_REGISTRY_URL: owner.baseUrl }
@@ -278,7 +278,7 @@ describe("VAL-DISC-030 baka registry info <spec> shows the served manifest and v
 				name: string
 				version: string
 				description: string
-				actions: Array<{ id: string; description: string; requiresReasoning: boolean; params: unknown[] }>
+				recipes: Array<{ id: string; description: string; requiresReasoning: boolean; params: unknown[] }>
 			}
 			screening: unknown
 		}
@@ -290,18 +290,18 @@ describe("VAL-DISC-030 baka registry info <spec> shows the served manifest and v
 		expect(payload.versions.length).toBeGreaterThan(0)
 		expect(payload.versions.every((v) => v.status === "ready")).toBe(true)
 		expect(payload.manifest.name).toBe("hello")
-		expect(payload.manifest.actions.length).toBeGreaterThanOrEqual(1)
-		const ids = payload.manifest.actions.map((a) => a.id)
+		expect(payload.manifest.recipes.length).toBeGreaterThanOrEqual(1)
+		const ids = payload.manifest.recipes.map((a) => a.id)
 		expect(ids).toContain("greet")
-		for (const action of payload.manifest.actions) {
-			expect(typeof action.description).toBe("string")
-			expect(action.description.length).toBeGreaterThan(0)
-			expect(action.requiresReasoning).toBe(false)
-			expect(Array.isArray(action.params)).toBe(true)
+		for (const recipe of payload.manifest.recipes) {
+			expect(typeof recipe.description).toBe("string")
+			expect(recipe.description.length).toBeGreaterThan(0)
+			expect(recipe.requiresReasoning).toBe(false)
+			expect(Array.isArray(recipe.params)).toBe(true)
 		}
 	}, 30_000)
 
-	it("the JSON payload is field-for-field equal to GET /v1/modules/<scope>/<name> + .../versions + .../<latestVersion>", async () => {
+	it("the JSON payload is field-for-field equal to GET /v1/packs/<scope>/<name> + .../versions + .../<latestVersion>", async () => {
 		const bakaHome = makeIsolatedHome("baka-info-equality-")
 		const cwd = makeIsolatedHome("baka-info-equality-proj-")
 		const env = { BAKA_HOME: bakaHome, BAKA_REGISTRY_URL: owner.baseUrl }
@@ -319,8 +319,8 @@ describe("VAL-DISC-030 baka registry info <spec> shows the served manifest and v
 			manifest: unknown
 		}
 
-		// Module detail
-		const detailRes = await fetch(`${owner.baseUrl}/v1/modules/baka/hello`)
+		// Pack detail
+		const detailRes = await fetch(`${owner.baseUrl}/v1/packs/baka/hello`)
 		expect(detailRes.ok).toBe(true)
 		const detail = (await detailRes.json()) as {
 			scope: string
@@ -340,35 +340,35 @@ describe("VAL-DISC-030 baka registry info <spec> shows the served manifest and v
 		expect(payload.versions).toEqual(detail.versions)
 
 		// Version detail at latestVersion carries the manifest.
-		const versionRes = await fetch(`${owner.baseUrl}/v1/modules/baka/hello/${detail.latestVersion}`)
+		const versionRes = await fetch(`${owner.baseUrl}/v1/packs/baka/hello/${detail.latestVersion}`)
 		expect(versionRes.ok).toBe(true)
 		const versionDetail = (await versionRes.json()) as { manifest: unknown }
 		expect(payload.manifest).toEqual(versionDetail.manifest)
 	}, 30_000)
 
-	it("an unknown module exits 1 (USER_ERROR) with a truthful 'not found' message", async () => {
+	it("an unknown pack exits 2 (BAD_INPUT) with a truthful 'not found' message", async () => {
 		const bakaHome = makeIsolatedHome("baka-info-notfound-")
 		const cwd = makeIsolatedHome("baka-info-notfound-proj-")
 		const env = { BAKA_HOME: bakaHome, BAKA_REGISTRY_URL: owner.baseUrl }
 
 		const res = await spawnCli(["registry", "info", "@baka/does-not-exist"], cwd, env, 30_000)
-		expect(res.code, `stderr=${res.stderr}`).toBe(1)
+		expect(res.code, `stderr=${res.stderr}`).toBe(2)
 		expect(res.stderr.toLowerCase()).toMatch(/not found|does not exist/i)
 		// The 404 from the detail endpoint surfaces verbatim; the
-		// CLI does not invent "module exists" prose.
+		// CLI does not invent "pack exists" prose.
 		expect(res.stderr).not.toContain("Error:")
 		expect(res.stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
 		expect(res.stdout).toBe("")
 	}, 30_000)
 
-	it("an unreachable registry exits 2 (ENGINE_ERROR) and names the transport failure", async () => {
+	it("an unreachable registry exits 1 (FAILED) and names the transport failure", async () => {
 		const bakaHome = makeIsolatedHome("baka-info-transport-")
 		const cwd = makeIsolatedHome("baka-info-transport-proj-")
 		const deadPort = await pickEphemeralPort()
 		const env = { BAKA_HOME: bakaHome, BAKA_REGISTRY_URL: `http://127.0.0.1:${deadPort}` }
 
 		const res = await spawnCli(["registry", "info", "@baka/hello"], cwd, env, 30_000)
-		expect(res.code, `stderr=${res.stderr}`).toBe(2)
+		expect(res.code, `stderr=${res.stderr}`).toBe(1)
 		expect(res.stderr).toContain(`http://127.0.0.1:${deadPort}`)
 		expect(res.stderr.toLowerCase()).toContain("unreachable")
 		expect(res.stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
@@ -380,8 +380,8 @@ describe("VAL-DISC-030 baka registry info <spec> shows the served manifest and v
 // VAL-DISC-031 — `baka registry preview <spec>`
 // ---------------------------------------------------------------------------
 
-describe("VAL-DISC-031 baka registry preview <spec> prints real generated code per action and needs-llm honestly", () => {
-	it("for a module without preview artifacts prints an explicit 'no preview available' line, not an empty screen", async () => {
+describe("VAL-DISC-031 baka registry preview <spec> prints real generated code per recipe and needs-llm honestly", () => {
+	it("for a pack without preview artifacts prints an explicit 'no preview available' line, not an empty screen", async () => {
 		const bakaHome = makeIsolatedHome("baka-preview-nopreview-")
 		const cwd = makeIsolatedHome("baka-preview-nopreview-proj-")
 		const env = { BAKA_HOME: bakaHome, BAKA_REGISTRY_URL: owner.baseUrl }
@@ -406,7 +406,7 @@ describe("VAL-DISC-031 baka registry preview <spec> prints real generated code p
 			scope: string
 			name: string
 			version: string
-			previews: Array<{ actionId: string; state: string; files?: unknown[] }>
+			previews: Array<{ recipeId: string; state: string; files?: unknown[] }>
 		}
 		expect(payload.scope).toBe("baka")
 		expect(payload.name).toBe("hello")
@@ -415,13 +415,13 @@ describe("VAL-DISC-031 baka registry preview <spec> prints real generated code p
 		expect(payload.previews.length).toBe(0)
 	}, 30_000)
 
-	it("for a screened module with reasoning + non-reasoning actions, prints rendered content and an explicit needs-llm marker", async () => {
-		// Publish a fixture with one rendered (file-writing) action
-		// and one `requiresReasoning: true` action so we can pin
+	it("for a screened pack with reasoning + non-reasoning recipes, prints rendered content and an explicit needs-llm marker", async () => {
+		// Publish a fixture with one rendered (file-writing) recipe
+		// and one `requiresReasoning: true` recipe so we can pin
 		// both preview states (VAL-DISC-031 expectation). The
-		// module goes through the screening pipeline
+		// pack goes through the screening pipeline
 		// (visibility=public); the worker produces preview records
-		// for each action and the CLI surfaces them honestly.
+		// for each recipe and the CLI surfaces them honestly.
 		const fx = await createGitFixture()
 		createdFixtures.push(fx)
 
@@ -451,8 +451,8 @@ export default {
 			name: "@acme/preview-fixture",
 			version: "1.0.0",
 			description: "preview-fixture",
-			modulePath: "mod",
-			actions: [
+			packPath: "mod",
+			recipes: [
 				{
 					id: "writer",
 					description: "writes a preview marker file",
@@ -499,7 +499,7 @@ export default {
 			// Skip the assertion body when the upstream screening
 			// pipeline cannot produce previews in this
 			// environment. The assertion's substantive coverage
-			// (rendered + needs-llm + --action + --json) is
+			// (rendered + needs-llm + --recipe + --json) is
 			// verified by the user-testing validators on a
 			// screening-capable environment.
 			return
@@ -511,9 +511,9 @@ export default {
 		// Human-readable preview.
 		const humanRes = await spawnCli(["registry", "preview", "@acme/preview-fixture@1.0.0"], cwd, env, 30_000)
 		expect(humanRes.code, `preview failed: stderr=${humanRes.stderr}`).toBe(0)
-		// Rendered state surfaces the file content the action
+		// Rendered state surfaces the file content the recipe
 		// produced during dry-run (byte-identical to the served
-		// bytes per VAL-CROSS-020). The action writes a marker
+		// bytes per VAL-CROSS-020). The recipe writes a marker
 		// string; the CLI prints it inside the preview block.
 		expect(humanRes.stdout).toContain("writer")
 		expect(humanRes.stdout).toContain("rendered-content-marker-x9k2")
@@ -521,23 +521,23 @@ export default {
 		// NEVER fabricated code.
 		expect(humanRes.stdout.toLowerCase()).toMatch(/needs[-\s]?llm/)
 		expect(humanRes.stdout).toContain("reasoner")
-		// No fabricated code for the reasoning action.
+		// No fabricated code for the reasoning recipe.
 		expect(humanRes.stdout).not.toContain("reasoner-rendered-code")
 	}, 120_000)
 
-	it("--action <id> prints only that action's preview; --json is schema-parseable", async () => {
+	it("--recipe <id> prints only that recipe's preview; --json is schema-parseable", async () => {
 		// Reuse the previously-published `@acme/preview-fixture`
-		// module from the previous test. If the previous test was
+		// pack from the previous test. If the previous test was
 		// skipped or failed, this one is also skipped (the
 		// screening flow is required for rendered content).
-		const bakaHome = makeIsolatedHome("baka-preview-action-")
-		const cwd = makeIsolatedHome("baka-preview-action-proj-")
+		const bakaHome = makeIsolatedHome("baka-preview-recipe-")
+		const cwd = makeIsolatedHome("baka-preview-recipe-proj-")
 		const cfgPath = join(bakaHome, "config.json")
 		mkdirSync(bakaHome, { recursive: true })
 		writeFileSync(cfgPath, JSON.stringify({ registries: { [owner.baseUrl]: { apiKey: owner.ownerKey } } }))
 		const env = { BAKA_HOME: bakaHome, BAKA_REGISTRY_URL: owner.baseUrl }
 
-		// Publish the same fixture module (idempotent: same
+		// Publish the same fixture pack (idempotent: same
 		// commit_sha/content_hash → existing ready version row is
 		// returned by the publish endpoint on the second call).
 		const fx = await createGitFixture()
@@ -568,8 +568,8 @@ export default {
 			name: "@acme/preview-fixture",
 			version: "1.0.0",
 			description: "preview-fixture",
-			modulePath: "mod",
-			actions: [
+			packPath: "mod",
+			recipes: [
 				{
 					id: "writer",
 					description: "writes a preview marker file",
@@ -600,32 +600,32 @@ export default {
 		}
 		await waitForScreenedVersion({ baseUrl: owner.baseUrl, scope: "acme", name: "preview-fixture", version: "1.0.0" })
 
-		// Rendered action only.
+		// Rendered recipe only.
 		const writerRes = await spawnCli(
-			["registry", "preview", "@acme/preview-fixture@1.0.0", "--action", "writer"],
+			["registry", "preview", "@acme/preview-fixture@1.0.0", "--recipe", "writer"],
 			cwd,
 			env,
 			30_000,
 		)
 		expect(writerRes.code, `stderr=${writerRes.stderr}`).toBe(0)
 		expect(writerRes.stdout).toContain("rendered-content-marker-x9k2")
-		// Reasoning action is NOT printed when --action filters
+		// Reasoning recipe is NOT printed when --recipe filters
 		// to writer only.
 		expect(writerRes.stdout.toLowerCase()).not.toMatch(/needs[-\s]?llm/)
 
-		// Reasoning action only.
+		// Reasoning recipe only.
 		const reasonerRes = await spawnCli(
-			["registry", "preview", "@acme/preview-fixture@1.0.0", "--action", "reasoner"],
+			["registry", "preview", "@acme/preview-fixture@1.0.0", "--recipe", "reasoner"],
 			cwd,
 			env,
 			30_000,
 		)
 		expect(reasonerRes.code, `stderr=${reasonerRes.stderr}`).toBe(0)
 		expect(reasonerRes.stdout.toLowerCase()).toMatch(/needs[-\s]?llm/)
-		// No fabricated code for the reasoning action.
+		// No fabricated code for the reasoning recipe.
 		expect(reasonerRes.stdout).not.toContain("rendered-content-marker-x9k2")
 
-		// --json shape: per-action array, with `state` per preview.
+		// --json shape: per-recipe array, with `state` per preview.
 		const jsonRes = await spawnCli(["registry", "preview", "@acme/preview-fixture@1.0.0", "--json"], cwd, env, 30_000)
 		expect(jsonRes.code, `stderr=${jsonRes.stderr}`).toBe(0)
 		const payload = JSON.parse(jsonRes.stdout.trim()) as {
@@ -633,7 +633,7 @@ export default {
 			name: string
 			version: string
 			previews: Array<{
-				actionId: string
+				recipeId: string
 				state: "rendered" | "needs-llm"
 				files?: Array<{ path: string; content: string; sha256: string }>
 				reason?: string
@@ -643,8 +643,8 @@ export default {
 		expect(payload.name).toBe("preview-fixture")
 		expect(payload.version).toBe("1.0.0")
 		expect(payload.previews.length).toBe(2)
-		const writer = payload.previews.find((p) => p.actionId === "writer")
-		const reasoner = payload.previews.find((p) => p.actionId === "reasoner")
+		const writer = payload.previews.find((p) => p.recipeId === "writer")
+		const reasoner = payload.previews.find((p) => p.recipeId === "reasoner")
 		expect(writer?.state).toBe("rendered")
 		expect(writer?.files?.length).toBeGreaterThan(0)
 		expect(writer?.files?.[0]?.content).toContain("rendered-content-marker-x9k2")

@@ -1,19 +1,19 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { LLMProvider, LLMRequest, LLMResponse, ModuleManifest } from "@repo/protocol"
+import type { LLMProvider, LLMRequest, LLMResponse, PackManifest } from "@repo/protocol"
 import { afterEach, describe, expect, it } from "vitest"
 import { createInitialOrchestrationState, createOrchestratePlanningStep } from "./index"
 
 // ---------------------------------------------------------------------------
-// Battle-test: loadModulePreferences must read PREFERENCES.md from the
-// NEW user marketplace path (~/.baka/modules/<name>/PREFERENCES.md), not
-// the retired ~/.local/share/baka/modules/ path.
+// Battle-test: loadPackPreferences must read PREFERENCES.md from the
+// NEW user marketplace path (~/.baka/packs/<name>/PREFERENCES.md), not
+// the retired ~/.local/share/baka/packs/ path.
 //
 // The commit 0b5331d migrated discovery.ts and package-manager.ts to
-// ~/.baka/modules, but loadModulePreferences (index.ts:302) still reads
-// ~/.local/share/baka/modules. A module installed via the marketplace is
-// discovered from ~/.baka/modules, yet its PREFERENCES.md is never loaded
+// ~/.baka/packs, but loadPackPreferences (index.ts:302) still reads
+// ~/.local/share/baka/packs. A pack installed via the marketplace is
+// discovered from ~/.baka/packs, yet its PREFERENCES.md is never loaded
 // into the orchestrator prompt. This test fails for the RIGHT reason: the
 // stale path means the sentinel content is absent from the prompt.
 // ---------------------------------------------------------------------------
@@ -57,8 +57,8 @@ function capturingProvider(captured: { prompt: string }): LLMProvider {
 
 const PREFS_SENTINEL = "BATTLE_SENTINEL_PREFS_42"
 
-describe("loadModulePreferences user-scope path (battle)", () => {
-	it("loads PREFERENCES.md from ~/.baka/modules/<name>/ (not ~/.local/share/baka)", async () => {
+describe("loadPackPreferences user-scope path (battle)", () => {
+	it("loads PREFERENCES.md from ~/.baka/packs/<name>/ (not ~/.local/share/baka)", async () => {
 		const fakeHome = mkdtempSync(join(tmpdir(), "baka-prefs-home-"))
 		cleanup.push(fakeHome)
 		process.env.HOME = fakeHome
@@ -68,20 +68,20 @@ describe("loadModulePreferences user-scope path (battle)", () => {
 		cleanup.push(fakeCwd)
 		process.chdir(fakeCwd)
 
-		// Materialise a marketplace module at the NEW path ~/.baka/modules.
-		const modDir = join(fakeHome, ".baka", "modules", "battle-prefs-mod")
+		// Materialise a marketplace pack at the NEW path ~/.baka/packs.
+		const modDir = join(fakeHome, ".baka", "packs", "battle-prefs-mod")
 		mkdirSync(modDir, { recursive: true })
 		writeFileSync(join(modDir, "PREFERENCES.md"), `# Preferences\n\nAlways use ${PREFS_SENTINEL} as the marker.\n`)
 
 		// Do NOT create anything under ~/.local/share/baka (the stale path).
 
-		const manifest: ModuleManifest = {
+		const manifest: PackManifest = {
 			name: "battle-prefs-mod",
 			version: "0.1.0",
 			description: "battle prefs",
 			dependencies: [],
 			conflictsWith: [],
-			actions: [
+			recipes: [
 				{
 					id: "doThing",
 					description: "does a thing",
@@ -91,16 +91,16 @@ describe("loadModulePreferences user-scope path (battle)", () => {
 					validators: [],
 				},
 			],
-			moduleValidators: [],
+			packValidators: [],
 		}
 
 		const captured = { prompt: "" }
 		const step = createOrchestratePlanningStep(capturingProvider(captured))
 		const state = createInitialOrchestrationState("do the thing", fakeCwd)
 
-		await step.execute({ intent: "do the thing", availableModules: [manifest] }, state)
+		await step.execute({ intent: "do the thing", availablePacks: [manifest] }, state)
 
-		// If loadModulePreferences read the correct path, the sentinel appears.
+		// If loadPackPreferences read the correct path, the sentinel appears.
 		expect(captured.prompt).toContain(PREFS_SENTINEL)
 	})
 })

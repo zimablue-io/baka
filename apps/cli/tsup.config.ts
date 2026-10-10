@@ -1,3 +1,4 @@
+import { cpSync } from "node:fs"
 import { defineConfig } from "tsup"
 
 // Bundle the workspace packages into the CLI. Without this, tsup leaves
@@ -29,4 +30,8 @@ export default defineConfig({
 	noExternal: [/^@repo\//, /^@baka\//, "baka-sdk"],
 	external: ["jiti"],
 	splitting: false,
+	// The starter pack ships inside the install, so the first run needs nothing but the install itself.
+	onSuccess: async () => {
+		cpSync("../../packs/starter", "dist/packs/starter", { recursive: true })
+	},
 })

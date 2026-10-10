@@ -13,7 +13,7 @@ import { ensureOrgPlanColumn } from "../src/auth/plan-limits"
 import { loadConfig } from "../src/config"
 import { applyAppMigrations } from "../src/db/migrate"
 import { buildApp } from "../src/index"
-import { applyVerifiedModules } from "../src/screening/tier-assignment"
+import { applyVerifiedPacks } from "../src/screening/tier-assignment"
 import { startServer } from "../src/server"
 import { createGitFixture, type GitFixture } from "./git-fixture"
 import { buildIngestTestStack, type IngestTestStack } from "./ingest-worker-fixture"
@@ -24,26 +24,26 @@ import { buildIngestTestStack, type IngestTestStack } from "./ingest-worker-fixt
  * 018, VAL-CROSS-012 / 013).
  *
  * Tiers are server-attached, NEVER self-declarable. The
- * `modules.tier` column carries the truth; every read surface
- * (catalog list, module detail, version detail) surfaces it
+ * `packs.tier` column carries the truth; every read surface
+ * (catalog list, pack detail, version detail) surfaces it
  * verbatim. The four documented values are:
  *
- *   - `official`             — module is published under the
+ *   - `official`             — pack is published under the
  *                              official org (decision 26). The
  *                              org's authority is the pin; no
  *                              screening parameter changes it.
- *   - `verified`             — module's `scope/name` is in the
- *                              `REGISTRY_VERIFIED_MODULES` env
+ *   - `verified`             — pack's `scope/name` is in the
+ *                              `REGISTRY_VERIFIED_PACKS` env
  *                              (decision 20). Applied at boot;
  *                              no publish parameter can produce it.
- *   - `community-screened`   — public module that PASSED all
+ *   - `community-screened`   — public pack that PASSED all
  *                              three screening layers (static
  *                              scan + sandboxed dry-run + output
  *                              validation).
- *   - `community-unverified` — public module that FAILED
+ *   - `community-unverified` — public pack that FAILED
  *                              screening or whose screening did
  *                              not run, plus every org-private
- *                              module (decision 30: private
+ *                              pack (decision 30: private
  *                              skips screening entirely).
  *                              Still listable, clearly badged.
  *
@@ -79,7 +79,7 @@ async function publishAndWaitForTerminal(
 	opts: {
 		org?: string
 		visibility?: "org" | "public"
-		modulePath?: string
+		packPath?: string
 		body?: Record<string, unknown>
 	},
 ): Promise<{ versionId: string; terminal: Awaited<ReturnType<IngestTestStack["waitForTerminal"]>> }> {
@@ -91,7 +91,7 @@ async function publishAndWaitForTerminal(
 			tag: "v1.0.0",
 			org: opts.org ?? "acme",
 			...(opts.visibility !== undefined ? { visibility: opts.visibility } : {}),
-			...(opts.modulePath !== undefined ? { modulePath: opts.modulePath } : {}),
+			...(opts.packPath !== undefined ? { packPath: opts.packPath } : {}),
 			...opts.body,
 		}),
 	})
@@ -113,30 +113,30 @@ async function fetchVersionDetail(
 	name: string
 	version: string
 	status: string
-	manifest: { name: string; actions: Array<{ id: string }> }
+	manifest: { name: string; recipes: Array<{ id: string }> }
 	screening: {
 		verdict: string
 		staticScan?: { passed?: boolean; findings?: Array<{ capability: string; file: string }> }
-		dryRun?: { policy?: string; perAction?: Array<{ actionId: string; status: string }> } | null
+		dryRun?: { policy?: string; perRecipe?: Array<{ recipeId: string; status: string }> } | null
 		outputValidation?: { ok?: boolean } | null
 		createdAt?: string
 	} | null
 }> {
-	const detail = await fx.app.request(`/v1/modules/${scope}/${name}/${version}`, {
+	const detail = await fx.app.request(`/v1/packs/${scope}/${name}/${version}`, {
 		headers: { "x-api-key": fx.keys.owner },
 	})
 	return (await detail.json()) as Awaited<ReturnType<typeof fetchVersionDetail>>
 }
 
-async function fetchModuleDetail(
+async function fetchPackDetail(
 	fx: IngestTestStack,
 	scope: string,
 	name: string,
 ): Promise<{ tier: string; visibility: string; latestVersion: string | null }> {
-	const res = await fx.app.request(`/v1/modules/${scope}/${name}`, {
+	const res = await fx.app.request(`/v1/packs/${scope}/${name}`, {
 		headers: { "x-api-key": fx.keys.owner },
 	})
-	return (await res.json()) as Awaited<ReturnType<typeof fetchModuleDetail>>
+	return (await res.json()) as Awaited<ReturnType<typeof fetchPackDetail>>
 }
 
 async function fetchCatalogEntry(
@@ -144,17 +144,17 @@ async function fetchCatalogEntry(
 	scope: string,
 	name: string,
 ): Promise<{ tier: string; scope: string; name: string } | undefined> {
-	const res = await fx.app.request(`/v1/modules?tier=`, {})
-	const all = (await res.json()) as { modules: Array<{ scope: string; name: string; tier: string }> }
+	const res = await fx.app.request(`/v1/packs?tier=`, {})
+	const all = (await res.json()) as { packs: Array<{ scope: string; name: string; tier: string }> }
 	void all // we don't filter — caller's responsibility
 	void res
-	const filtered = await fx.app.request(`/v1/modules`, {
+	const filtered = await fx.app.request(`/v1/packs`, {
 		headers: { "x-api-key": fx.keys.owner },
 	})
 	const filteredBody = (await filtered.json()) as {
-		modules: Array<{ scope: string; name: string; tier: string }>
+		packs: Array<{ scope: string; name: string; tier: string }>
 	}
-	return filteredBody.modules.find((m) => m.scope === scope && m.name === name)
+	return filteredBody.packs.find((m) => m.scope === scope && m.name === name)
 }
 
 describe("screening verdict → tier assignment (VAL-SCAN-001 / 008 / 011)", () => {
@@ -168,15 +168,15 @@ describe("screening verdict → tier assignment (VAL-SCAN-001 / 008 / 011)", () 
 		await teardownStack(stack)
 	})
 
-	it("a public community module that passes screening surfaces tier=community-screened on every read surface (VAL-SCAN-001 / 008)", async () => {
+	it("a public community pack that passes screening surfaces tier=community-screened on every read surface (VAL-SCAN-001 / 008)", async () => {
 		await stack.git.commitManifest({
 			name: "@acme/widget",
 			version: "1.0.0",
 			tag: "v1.0.0",
-			actions: [{ id: "scaffold", description: "scaffold", filePatterns: ["src/index.ts"] }],
+			recipes: [{ id: "scaffold", description: "scaffold", filePatterns: ["src/index.ts"] }],
 			extras: [
 				{
-					path: "scaffold/action.ts",
+					path: "scaffold/recipe.ts",
 					content: [
 						`import { mkdirSync, writeFileSync } from "node:fs";`,
 						`export default {`,
@@ -200,22 +200,22 @@ describe("screening verdict → tier assignment (VAL-SCAN-001 / 008 / 011)", () 
 		expect(detail.screening?.verdict).toBe("screened")
 
 		// Read surfaces all agree on tier=community-screened.
-		const moduleDetail = await fetchModuleDetail(stack.fx, "acme", "widget")
-		expect(moduleDetail.tier).toBe("community-screened")
+		const packDetail = await fetchPackDetail(stack.fx, "acme", "widget")
+		expect(packDetail.tier).toBe("community-screened")
 
 		const catalogEntry = await fetchCatalogEntry(stack.fx, "acme", "widget")
 		expect(catalogEntry?.tier).toBe("community-screened")
 	})
 
-	it("a public community module that fails static scan surfaces tier=community-unverified with the verdict text intact (VAL-SCAN-008 / 011)", async () => {
+	it("a public community pack that fails static scan surfaces tier=community-unverified with the verdict text intact (VAL-SCAN-008 / 011)", async () => {
 		await stack.git.commitManifest({
 			name: "@acme/widget",
 			version: "1.0.0",
 			tag: "v1.0.0",
-			actions: [{ id: "scaffold", description: "scaffold", filePatterns: ["src/index.ts"] }],
+			recipes: [{ id: "scaffold", description: "scaffold", filePatterns: ["src/index.ts"] }],
 			extras: [
 				{
-					path: "scaffold/action.ts",
+					path: "scaffold/recipe.ts",
 					content: [
 						`import cp from "child_process";`,
 						`import http from "http";`,
@@ -246,9 +246,9 @@ describe("screening verdict → tier assignment (VAL-SCAN-001 / 008 / 011)", () 
 
 		// Tier surfaces as community-unverified (still listable,
 		// clearly badged). The catalog MUST NOT pretend the
-		// module passed screening.
-		const moduleDetail = await fetchModuleDetail(stack.fx, "acme", "widget")
-		expect(moduleDetail.tier).toBe("community-unverified")
+		// pack passed screening.
+		const packDetail = await fetchPackDetail(stack.fx, "acme", "widget")
+		expect(packDetail.tier).toBe("community-unverified")
 
 		const catalogEntry = await fetchCatalogEntry(stack.fx, "acme", "widget")
 		expect(catalogEntry?.tier).toBe("community-unverified")
@@ -277,13 +277,13 @@ export default {
 				name: "@acme/hung",
 				version: "1.0.0",
 				tag: "v1.0.0",
-				modulePath: "hung",
-				actions: [{ id: "infinite", description: "infinite loop", filePatterns: [], body: infiniteBody }],
+				packPath: "hung",
+				recipes: [{ id: "infinite", description: "infinite loop", filePatterns: [], body: infiniteBody }],
 			})
 			const { terminal } = await publishAndWaitForTerminal(tightStack.fx, tightStack.git, {
 				org: "acme",
 				visibility: "public",
-				modulePath: "hung",
+				packPath: "hung",
 			})
 			// Timeout does NOT fail the version — it continues to
 			// `ready` with verdict `unverified`. The catalog still
@@ -293,22 +293,22 @@ export default {
 			const detail = await fetchVersionDetail(tightStack.fx, "acme", "hung", "v1.0.0")
 			expect(detail.screening?.verdict).toBe("unverified")
 
-			const moduleDetail = await fetchModuleDetail(tightStack.fx, "acme", "hung")
-			expect(moduleDetail.tier).toBe("community-unverified")
+			const packDetail = await fetchPackDetail(tightStack.fx, "acme", "hung")
+			expect(packDetail.tier).toBe("community-unverified")
 		} finally {
 			await teardownStack(tightStack)
 		}
 	})
 
-	it("an org-private module has screening=null and tier=community-unverified (VAL-SCAN-001)", async () => {
+	it("an org-private pack has screening=null and tier=community-unverified (VAL-SCAN-001)", async () => {
 		await stack.git.commitManifest({
 			name: "@acme/widget",
 			version: "1.0.0",
 			tag: "v1.0.0",
-			actions: [{ id: "scaffold", description: "scaffold", filePatterns: ["src/index.ts"] }],
+			recipes: [{ id: "scaffold", description: "scaffold", filePatterns: ["src/index.ts"] }],
 			extras: [
 				{
-					path: "scaffold/action.ts",
+					path: "scaffold/recipe.ts",
 					content: [
 						`import { writeFileSync } from "node:fs";`,
 						`export default {`,
@@ -329,9 +329,9 @@ export default {
 		const detail = await fetchVersionDetail(stack.fx, "acme", "widget", "v1.0.0")
 		expect(detail.screening).toBeNull()
 
-		const moduleDetail = await fetchModuleDetail(stack.fx, "acme", "widget")
-		expect(moduleDetail.tier).toBe("community-unverified")
-		expect(moduleDetail.visibility).toBe("org")
+		const packDetail = await fetchPackDetail(stack.fx, "acme", "widget")
+		expect(packDetail.tier).toBe("community-unverified")
+		expect(packDetail.visibility).toBe("org")
 	})
 })
 
@@ -427,7 +427,7 @@ describe("screening crash is reported honestly, never as a pass (VAL-SCAN-018)",
 		await teardownStack(stack)
 	})
 
-	it("a module containing a syntactically invalid .ts file surfaces as verdict=failed with tier=community-unverified", async () => {
+	it("a pack containing a syntactically invalid .ts file surfaces as verdict=failed with tier=community-unverified", async () => {
 		// The static-scan AST parser catches the syntax error and
 		// records it as a `parse` finding — the verdict becomes
 		// `failed` via the runScreeningFailureStep path, which
@@ -436,10 +436,10 @@ describe("screening crash is reported honestly, never as a pass (VAL-SCAN-018)",
 			name: "@acme/widget",
 			version: "1.0.0",
 			tag: "v1.0.0",
-			actions: [{ id: "scaffold", description: "scaffold", filePatterns: ["src/index.ts"] }],
+			recipes: [{ id: "scaffold", description: "scaffold", filePatterns: ["src/index.ts"] }],
 			extras: [
 				{
-					path: "scaffold/action.ts",
+					path: "scaffold/recipe.ts",
 					// Syntactically broken: unclosed string literal.
 					content: [
 						`import { writeFileSync } from "node:fs";`,
@@ -465,8 +465,8 @@ describe("screening crash is reported honestly, never as a pass (VAL-SCAN-018)",
 		const capabilities = new Set((detail.screening?.staticScan?.findings ?? []).map((f) => f.capability))
 		expect(capabilities.has("parse")).toBe(true)
 
-		const moduleDetail = await fetchModuleDetail(stack.fx, "acme", "widget")
-		expect(moduleDetail.tier).toBe("community-unverified")
+		const packDetail = await fetchPackDetail(stack.fx, "acme", "widget")
+		expect(packDetail.tier).toBe("community-unverified")
 	})
 })
 
@@ -481,7 +481,7 @@ describe("community publisher forced into scoped naming + screening (VAL-CROSS-0
 		await teardownStack(stack)
 	})
 
-	it("publishing a bare module name under a non-official org is rejected at publish time", async () => {
+	it("publishing a bare pack name under a non-official org is rejected at publish time", async () => {
 		await stack.git.commitManifest({
 			name: "widget", // bare name, no scope
 			version: "1.0.0",
@@ -504,17 +504,17 @@ describe("community publisher forced into scoped naming + screening (VAL-CROSS-0
 	})
 
 	it("a community public publish is screened; the resulting tier is community-screened or community-unverified — never official / verified (VAL-CROSS-012)", async () => {
-		// A community public module that passes screening — the
+		// A community public pack that passes screening — the
 		// resulting tier must be community-screened (server-
 		// attached), never a self-declared official / verified.
 		await stack.git.commitManifest({
 			name: "@acme/widget",
 			version: "1.0.0",
 			tag: "v1.0.0",
-			actions: [{ id: "scaffold", description: "scaffold", filePatterns: ["src/index.ts"] }],
+			recipes: [{ id: "scaffold", description: "scaffold", filePatterns: ["src/index.ts"] }],
 			extras: [
 				{
-					path: "scaffold/action.ts",
+					path: "scaffold/recipe.ts",
 					content: [
 						`import { mkdirSync, writeFileSync } from "node:fs";`,
 						`export default {`,
@@ -534,10 +534,10 @@ describe("community publisher forced into scoped naming + screening (VAL-CROSS-0
 		})
 		expect(terminal.status).toBe("ready")
 
-		const moduleDetail = await fetchModuleDetail(stack.fx, "acme", "widget")
-		expect(["community-screened", "community-unverified"]).toContain(moduleDetail.tier)
-		expect(moduleDetail.tier).not.toBe("official")
-		expect(moduleDetail.tier).not.toBe("verified")
+		const packDetail = await fetchPackDetail(stack.fx, "acme", "widget")
+		expect(["community-screened", "community-unverified"]).toContain(packDetail.tier)
+		expect(packDetail.tier).not.toBe("official")
+		expect(packDetail.tier).not.toBe("verified")
 	})
 
 	it("a community public publish whose manifest claims tier=official still lands at the community tier (server-attached, VAL-SCAN-009)", async () => {
@@ -555,10 +555,10 @@ describe("community publisher forced into scoped naming + screening (VAL-CROSS-0
 			name: "@acme/widget",
 			version: "1.0.0",
 			tag: "v1.0.0",
-			actions: [{ id: "scaffold", description: "scaffold", filePatterns: ["src/index.ts"] }],
+			recipes: [{ id: "scaffold", description: "scaffold", filePatterns: ["src/index.ts"] }],
 			extras: [
 				{
-					path: "scaffold/action.ts",
+					path: "scaffold/recipe.ts",
 					content: [
 						`import { mkdirSync, writeFileSync } from "node:fs";`,
 						`export default {`,
@@ -594,9 +594,9 @@ describe("community publisher forced into scoped naming + screening (VAL-CROSS-0
 			visibility: "public",
 		})
 		expect(terminal.status).toBe("ready")
-		const moduleDetail = await fetchModuleDetail(stack.fx, "acme", "widget")
-		expect(moduleDetail.tier).not.toBe("official")
-		expect(moduleDetail.tier).not.toBe("verified")
+		const packDetail = await fetchPackDetail(stack.fx, "acme", "widget")
+		expect(packDetail.tier).not.toBe("official")
+		expect(packDetail.tier).not.toBe("verified")
 	})
 })
 
@@ -611,15 +611,15 @@ describe("malicious community fixture is caught and badged honestly (VAL-CROSS-0
 		await teardownStack(stack)
 	})
 
-	it("a module whose action uses fetch + child_process + eval fails screening and surfaces tier=community-unverified with the verdict text intact", async () => {
+	it("a pack whose recipe uses fetch + child_process + eval fails screening and surfaces tier=community-unverified with the verdict text intact", async () => {
 		await stack.git.commitManifest({
 			name: "@acme/evil",
 			version: "1.0.0",
 			tag: "v1.0.0",
-			actions: [{ id: "scaffold", description: "scaffold", filePatterns: ["src/index.ts"] }],
+			recipes: [{ id: "scaffold", description: "scaffold", filePatterns: ["src/index.ts"] }],
 			extras: [
 				{
-					path: "scaffold/action.ts",
+					path: "scaffold/recipe.ts",
 					content: [
 						`import cp from "child_process";`,
 						`import http from "http";`,
@@ -643,28 +643,28 @@ describe("malicious community fixture is caught and badged honestly (VAL-CROSS-0
 		expect(terminal.status).toBe("failed")
 		expect(terminal.error ?? "").toMatch(/static scan|network|child_process|eval/i)
 
-		// The module is listed (still listable), but the badge
+		// The pack is listed (still listable), but the badge
 		// is honest: community-unverified with the screening
 		// verdict text on the read surface.
 		const detail = await fetchVersionDetail(stack.fx, "acme", "evil", "v1.0.0")
 		expect(detail.screening?.verdict).toBe("failed")
 
-		const moduleDetail = await fetchModuleDetail(stack.fx, "acme", "evil")
-		expect(moduleDetail.tier).toBe("community-unverified")
+		const packDetail = await fetchPackDetail(stack.fx, "acme", "evil")
+		expect(packDetail.tier).toBe("community-unverified")
 
 		const catalogEntry = await fetchCatalogEntry(stack.fx, "acme", "evil")
 		expect(catalogEntry?.tier).toBe("community-unverified")
 	})
 
-	it("a malicious module's actions never executed in the registry process — no orphan subprocesses, no side effects (VAL-CROSS-013)", async () => {
+	it("a malicious pack's recipes never executed in the registry process — no orphan subprocesses, no side effects (VAL-CROSS-013)", async () => {
 		await stack.git.commitManifest({
 			name: "@acme/evil",
 			version: "1.0.0",
 			tag: "v1.0.0",
-			actions: [{ id: "scaffold", description: "scaffold", filePatterns: ["src/index.ts"] }],
+			recipes: [{ id: "scaffold", description: "scaffold", filePatterns: ["src/index.ts"] }],
 			extras: [
 				{
-					path: "scaffold/action.ts",
+					path: "scaffold/recipe.ts",
 					content: [
 						`import cp from "child_process";`,
 						`export default {`,
@@ -695,7 +695,7 @@ describe("malicious community fixture is caught and badged honestly (VAL-CROSS-0
 // Verified tier (VAL-SCAN-010)
 // ---------------------------------------------------------------------------
 
-describe("verified tier via REGISTRY_VERIFIED_MODULES (VAL-SCAN-010)", () => {
+describe("verified tier via REGISTRY_VERIFIED_PACKS (VAL-SCAN-010)", () => {
 	interface VerifiedFixture {
 		app: Hono
 		betterAuth: BetterAuthHandle
@@ -706,7 +706,7 @@ describe("verified tier via REGISTRY_VERIFIED_MODULES (VAL-SCAN-010)", () => {
 		close: () => Promise<void>
 	}
 
-	async function buildVerifiedFixture(verifiedModules?: string): Promise<VerifiedFixture> {
+	async function buildVerifiedFixture(verifiedPacks?: string): Promise<VerifiedFixture> {
 		const dataDir = mkdtempSync(join(tmpdir(), "baka-registry-verified-"))
 		const pgliteDir = join(dataDir, "pg")
 		const socketPort = await pickEphemeralPort()
@@ -733,21 +733,21 @@ describe("verified tier via REGISTRY_VERIFIED_MODULES (VAL-SCAN-010)", () => {
 		await betterAuth.ensureTables()
 		await ensureOrgPlanColumn(pglite)
 
-		// Create the official org + an arbitrary `widget` module
+		// Create the official org + an arbitrary `widget` pack
 		// whose initial tier (community-unverified) we then want
 		// to flip via the verified seeder.
 		await ensureOfficialOrg(pglite, { officialOrg: "baka" })
 		await pglite.query(
-			`INSERT INTO modules (scope, name, visibility, tier, description)
-			 VALUES ('baka', 'widget', 'public', 'community-unverified', 'a widget module')`,
+			`INSERT INTO packs (scope, name, visibility, tier, description)
+			 VALUES ('baka', 'widget', 'public', 'community-unverified', 'a widget pack')`,
 		)
 
 		const app = buildApp({ auth: betterAuth.auth, pglite, officialOrg: "baka" })
 
-		// Now apply the verified tier AFTER the module is
+		// Now apply the verified tier AFTER the pack is
 		// inserted — the seeder is the same path
 		// `startServer` calls at boot.
-		const result = await applyVerifiedModules(pglite, verifiedModules)
+		const result = await applyVerifiedPacks(pglite, verifiedPacks)
 		expect(result.failures).toEqual([])
 
 		return {
@@ -783,10 +783,10 @@ describe("verified tier via REGISTRY_VERIFIED_MODULES (VAL-SCAN-010)", () => {
 		})
 	}
 
-	it("an entry in REGISTRY_VERIFIED_MODULES pins the matching module's tier to verified (VAL-SCAN-010)", async () => {
+	it("an entry in REGISTRY_VERIFIED_PACKS pins the matching pack's tier to verified (VAL-SCAN-010)", async () => {
 		const fx = await buildVerifiedFixture(JSON.stringify(["baka/widget"]))
 		try {
-			const detail = await fx.app.request("/v1/modules/baka/widget")
+			const detail = await fx.app.request("/v1/packs/baka/widget")
 			const body = (await detail.json()) as { tier: string }
 			expect(body.tier).toBe("verified")
 		} finally {
@@ -794,16 +794,16 @@ describe("verified tier via REGISTRY_VERIFIED_MODULES (VAL-SCAN-010)", () => {
 		}
 	})
 
-	it("a malformed REGISTRY_VERIFIED_MODULES value fails the per-entry surface honestly — no silent fall-back", async () => {
+	it("a malformed REGISTRY_VERIFIED_PACKS value fails the per-entry surface honestly — no silent fall-back", async () => {
 		// The seeder never throws — a bad env value is recorded
 		// as a `failures` entry so the operator log surfaces it
 		// without blocking the boot. Direct call: undefined
 		// env is a clean no-op (no failures, no applied).
-		const empty = await applyVerifiedModules({} as PGlite, undefined)
+		const empty = await applyVerifiedPacks({} as PGlite, undefined)
 		expect(empty.applied).toBe(0)
 		expect(empty.failures).toEqual([])
 
-		const emptyString = await applyVerifiedModules({} as PGlite, "")
+		const emptyString = await applyVerifiedPacks({} as PGlite, "")
 		expect(emptyString.applied).toBe(0)
 		expect(emptyString.failures).toEqual([])
 
@@ -850,7 +850,7 @@ describe("verified tier via REGISTRY_VERIFIED_MODULES (VAL-SCAN-010)", () => {
 			}
 		})()
 		try {
-			const result = await applyVerifiedModules(fx.pglite, "not-json")
+			const result = await applyVerifiedPacks(fx.pglite, "not-json")
 			expect(result.applied).toBe(0)
 			expect(result.failures.length).toBe(1)
 			expect(result.failures[0]?.error ?? "").toMatch(/not valid JSON/i)
@@ -859,14 +859,14 @@ describe("verified tier via REGISTRY_VERIFIED_MODULES (VAL-SCAN-010)", () => {
 		}
 	})
 
-	it("an entry whose scope/name does not match an existing module is a no-op — no error, no fake row", async () => {
+	it("an entry whose scope/name does not match an existing pack is a no-op — no error, no fake row", async () => {
 		const fx = await buildVerifiedFixture(JSON.stringify(["baka/does-not-exist", "@unknown-org/foo"]))
 		try {
-			// The unknown modules do NOT exist in the DB — the
-			// seeder is a no-op for them. The known module
+			// The unknown packs do NOT exist in the DB — the
+			// seeder is a no-op for them. The known pack
 			// (baka/widget) is not in the verified list, so its
 			// tier is left alone.
-			const detail = await fx.app.request("/v1/modules/baka/widget")
+			const detail = await fx.app.request("/v1/packs/baka/widget")
 			const body = (await detail.json()) as { tier: string }
 			expect(body.tier).toBe("community-unverified")
 		} finally {
@@ -899,10 +899,10 @@ describe("verified tier via REGISTRY_VERIFIED_MODULES (VAL-SCAN-010)", () => {
 			await betterAuth.ensureTables()
 			await ensureOrgPlanColumn(pglite)
 			await ensureOfficialOrg(pglite, { officialOrg: "baka" })
-			// Insert the module the seeder will pin to verified.
+			// Insert the pack the seeder will pin to verified.
 			await pglite.query(
-				`INSERT INTO modules (scope, name, visibility, tier, description)
-				 VALUES ('baka', 'widget', 'public', 'community-unverified', 'a widget module')`,
+				`INSERT INTO packs (scope, name, visibility, tier, description)
+				 VALUES ('baka', 'widget', 'public', 'community-unverified', 'a widget pack')`,
 			)
 			const app = buildApp({ auth: betterAuth.auth, pglite, officialOrg: "baka" })
 			return {
@@ -923,13 +923,13 @@ describe("verified tier via REGISTRY_VERIFIED_MODULES (VAL-SCAN-010)", () => {
 		try {
 			// Mix valid + invalid entries; the seeder applies the
 			// valid one and reports the invalid one.
-			const result = await applyVerifiedModules(
+			const result = await applyVerifiedPacks(
 				fx.pglite,
 				JSON.stringify(["no-slash-here", "baka/widget", "/", "scope/"]),
 			)
 			expect(result.applied).toBe(1)
 			expect(result.failures.length).toBeGreaterThanOrEqual(3)
-			const detail = await fx.app.request("/v1/modules/baka/widget")
+			const detail = await fx.app.request("/v1/packs/baka/widget")
 			const body = (await detail.json()) as { tier: string }
 			expect(body.tier).toBe("verified")
 		} finally {
@@ -966,10 +966,10 @@ describe("startServer — verified seeder is wired into the boot (VAL-SCAN-010)"
 		}
 	}
 
-	it("startServer ignores REGISTRY_VERIFIED_MODULES names that are not in the catalog", async () => {
+	it("startServer ignores REGISTRY_VERIFIED_PACKS names that are not in the catalog", async () => {
 		const config = loadConfig(
 			env({
-				REGISTRY_VERIFIED_MODULES: JSON.stringify(["baka/hello"]),
+				REGISTRY_VERIFIED_PACKS: JSON.stringify(["baka/hello"]),
 			}),
 			dataDir,
 		)
@@ -977,11 +977,11 @@ describe("startServer — verified seeder is wired into the boot (VAL-SCAN-010)"
 		try {
 			const health = await fetch(`${handle.url()}/healthz`)
 			expect(health.ok).toBe(true)
-			const list = await fetch(`${handle.url()}/v1/modules`)
+			const list = await fetch(`${handle.url()}/v1/packs`)
 			expect(list.ok).toBe(true)
-			const body = (await list.json()) as { modules?: unknown[] }
-			expect(body.modules).toEqual([])
-			const missing = await fetch(`${handle.url()}/v1/modules/baka/hello`)
+			const body = (await list.json()) as { packs?: unknown[] }
+			expect(body.packs).toEqual([])
+			const missing = await fetch(`${handle.url()}/v1/packs/baka/hello`)
 			expect(missing.status).toBe(404)
 		} finally {
 			await handle.close()

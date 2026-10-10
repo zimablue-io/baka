@@ -8,7 +8,7 @@ function makeRun(idx: number, files: string[], hashes: Record<string, string>) {
 	return {
 		runIndex: idx,
 		planSteps: 1,
-		planActions: ["honest-mod:write"],
+		planRecipes: ["honest-mod:write"],
 		planParams: { name: "demo" },
 		files,
 		fileHashes: hashes,
@@ -62,8 +62,8 @@ describe("consistency runner", () => {
 		const runs = [makeRun(0, ["/a/x.ts"], { "/a/x.ts": "aaa" }), makeRun(1, ["/a/x.ts"], { "/a/x.ts": "aaa" })]
 		const result = {
 			passed: true,
-			moduleName: "test-mod",
-			actionId: "scaffold",
+			packName: "test-mod",
+			recipeId: "scaffold",
 			intent: "make a ts project",
 			n: 2,
 			perRun: runs,

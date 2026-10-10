@@ -32,7 +32,7 @@ import { extractRegistryTarball, type ManifestJsonShape, parseSource, verifyTarb
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { __test__, runInstallCommand, runUninstallCommand } from "../src/commands/install"
 
-const { parseInstallSpec, parseRegistrationScopeName, isValidSemverTag, isValidModuleIdentifier } = __test__
+const { parseInstallSpec, parseRegistrationScopeName, isValidSemverTag, isValidPackIdentifier } = __test__
 
 const createdDirs: string[] = []
 function trackTmp(prefix: string): string {
@@ -51,7 +51,7 @@ afterEach(() => {
 // VAL-DISC-040 — parseInstallSpec rejects malformed inputs honestly
 // ---------------------------------------------------------------------------
 
-describe("VAL-DISC-040 parseInstallSpec rejects malformed module specs", () => {
+describe("VAL-DISC-040 parseInstallSpec rejects malformed pack specs", () => {
 	it("accepts well-formed scoped specs", () => {
 		expect(parseInstallSpec("@acme/widget")).toEqual({
 			kind: "registry",
@@ -93,7 +93,7 @@ describe("VAL-DISC-040 parseInstallSpec rejects malformed module specs", () => {
 		expect(parseInstallSpec("git:github.com/x/y.git").kind).toBe("source")
 		expect(parseInstallSpec("git:github.com/x/y.git@v1").kind).toBe("source")
 		expect(parseInstallSpec("https://example.com/x.tar.gz").kind).toBe("source")
-		expect(parseInstallSpec("/abs/path/to/module").kind).toBe("source")
+		expect(parseInstallSpec("/abs/path/to/pack").kind).toBe("source")
 		expect(parseInstallSpec("./rel/path").kind).toBe("source")
 	})
 
@@ -220,23 +220,23 @@ describe("extractRegistryTarball", () => {
 
 	it("extracts a tarball's regular files and writes a fresh manifest.ts", () => {
 		const tarballBytes = buildTarball([
-			{ path: "noop/action.ts", body: new Uint8Array([1, 2, 3]) },
+			{ path: "noop/recipe.ts", body: new Uint8Array([1, 2, 3]) },
 			{ path: "noop/validator.ts", body: new Uint8Array([4, 5, 6]) },
 		])
 		const manifestJson: ManifestJsonShape = {
 			name: "@acme/widget",
 			version: "1.0.0",
-			description: "an ok module",
+			description: "an ok pack",
 			dependencies: [],
 			conflictsWith: [],
-			actions: [{ id: "noop", description: "no-op", requiresReasoning: false, filePatterns: [] }],
-			moduleValidators: [],
+			recipes: [{ id: "noop", description: "no-op", requiresReasoning: false, filePatterns: [] }],
+			packValidators: [],
 		}
 		const dest = trackTmp("baka-extract-")
 		const result = extractRegistryTarball(tarballBytes, dest, manifestJson)
 		expect(result.fileCount).toBe(2)
 		expect(result.manifestWritten).toBe(join(dest, "manifest.ts"))
-		expect(existsSync(`${dest}/noop/action.ts`)).toBe(true)
+		expect(existsSync(`${dest}/noop/recipe.ts`)).toBe(true)
 		expect(existsSync(`${dest}/noop/validator.ts`)).toBe(true)
 		const manifestText = readFileSync(`${dest}/manifest.ts`, "utf-8")
 		expect(manifestText).toContain('"name": "@acme/widget"')
@@ -248,7 +248,7 @@ describe("extractRegistryTarball", () => {
 		const manifestJson: ManifestJsonShape = {
 			name: "@acme/widget",
 			version: "1.0.0",
-			actions: [],
+			recipes: [],
 		}
 		const dest = trackTmp("baka-extract-traverse-")
 		expect(() => extractRegistryTarball(tarballBytes, dest, manifestJson)).toThrow(/outside the install destination/)
@@ -264,7 +264,7 @@ describe("parseSource accepts the registry:@scope/name@version shape", () => {
 	it("returns type='registry' for a registry source string", () => {
 		const parsed = parseSource("registry:@acme/widget@1.0.0")
 		expect(parsed.type).toBe("registry")
-		expect(parsed.moduleName).toBe("acme-widget")
+		expect(parsed.packName).toBe("acme-widget")
 		expect(parsed.pinned).toBe(true)
 		expect(parsed.spec).toBe("acme/widget@1.0.0")
 	})
@@ -299,12 +299,12 @@ describe("VAL-DISC-037 detectNameCollision refuses cross-scope installs", () => 
 		const userBase = trackTmp("baka-collide-user-")
 		const projectSettings = join(projectBase, ".baka", "settings.json")
 		const userSettings = join(userBase, ".baka", "settings.json")
-		const projectModules = join(projectBase, ".baka", "modules")
-		const userModules = join(userBase, ".baka", "modules")
+		const projectPacks = join(projectBase, ".baka", "packs")
+		const userPacks = join(userBase, ".baka", "packs")
 		mkdirSync(join(projectBase, ".baka"), { recursive: true })
 		mkdirSync(join(userBase, ".baka"), { recursive: true })
 		expect(
-			__test__.detectNameCollision("acme", "widget", projectSettings, userSettings, projectModules, userModules),
+			__test__.detectNameCollision("acme", "widget", projectSettings, userSettings, projectPacks, userPacks),
 		).toBeNull()
 	})
 
@@ -313,12 +313,12 @@ describe("VAL-DISC-037 detectNameCollision refuses cross-scope installs", () => 
 		const userBase = trackTmp("baka-collide-nobundle-userset-")
 		const projectSettings = join(projectBase, ".baka", "settings.json")
 		const userSettings = join(userBase, ".baka", "settings.json")
-		const projectModules = join(projectBase, ".baka", "modules")
-		const userModules = join(userBase, ".baka", "modules")
+		const projectPacks = join(projectBase, ".baka", "packs")
+		const userPacks = join(userBase, ".baka", "packs")
 		mkdirSync(join(projectBase, ".baka"), { recursive: true })
 		mkdirSync(join(userBase, ".baka"), { recursive: true })
 		expect(
-			__test__.detectNameCollision("community", "widget", projectSettings, userSettings, projectModules, userModules),
+			__test__.detectNameCollision("community", "widget", projectSettings, userSettings, projectPacks, userPacks),
 		).toBeNull()
 	})
 })
@@ -394,8 +394,8 @@ describe("VAL-DISC-043 --user installs land in the user marketplace (BAKA_HOME)"
 							description: "test",
 							dependencies: [],
 							conflictsWith: [],
-							actions: [{ id: "noop", description: "noop", requiresReasoning: false, filePatterns: [] }],
-							moduleValidators: [],
+							recipes: [{ id: "noop", description: "noop", requiresReasoning: false, filePatterns: [] }],
+							packValidators: [],
 						},
 					}),
 					{ status: 200, headers: { "content-type": "application/json" } },
@@ -420,7 +420,7 @@ describe("VAL-DISC-043 --user installs land in the user marketplace (BAKA_HOME)"
 		const fileBody = new Uint8Array([1, 2, 3])
 		const BLOCK = 512
 		const header = Buffer.alloc(BLOCK)
-		header.write("noop/action.ts", 0, "utf8")
+		header.write("noop/recipe.ts", 0, "utf8")
 		for (let i = 14; i < 100; i++) header[i] = 0
 		header.write("0000644", 100, "ascii")
 		header.write("0000000", 108, "ascii")
@@ -442,7 +442,7 @@ describe("VAL-DISC-043 --user installs land in the user marketplace (BAKA_HOME)"
 		return { bytes: new Uint8Array(tarBytes), contentHash }
 	}
 
-	it("install --user lands the module under BAKA_HOME/modules (not project)", async () => {
+	it("install --user lands the pack under BAKA_HOME/packs (not project)", async () => {
 		const { bytes, contentHash } = fakeTarballBytes()
 		const fetchMock = fakeFetchForVersionAndTarball({
 			contentHash,
@@ -463,10 +463,10 @@ describe("VAL-DISC-043 --user installs land in the user marketplace (BAKA_HOME)"
 			credentialLookup,
 		})
 
-		const userModule = join(bakaHome, "modules", "acme-widget")
-		expect(existsSync(userModule), `expected ${userModule} to exist`).toBe(true)
-		expect(existsSync(join(userModule, "noop", "action.ts"))).toBe(true)
-		expect(existsSync(join(userModule, "manifest.ts"))).toBe(true)
+		const userPack = join(bakaHome, "packs", "acme-widget")
+		expect(existsSync(userPack), `expected ${userPack} to exist`).toBe(true)
+		expect(existsSync(join(userPack, "noop", "recipe.ts"))).toBe(true)
+		expect(existsSync(join(userPack, "manifest.ts"))).toBe(true)
 
 		const userSettings = join(bakaHome, "settings.json")
 		const settingsContent = JSON.parse(readFileSync(userSettings, "utf-8")) as { packages: string[] }
@@ -499,17 +499,17 @@ describe("VAL-DISC-043 --user installs land in the user marketplace (BAKA_HOME)"
 			credentialLookup,
 		})
 
-		const projectModule = join(projectCwd, ".baka", "modules", "acme-tool")
-		expect(existsSync(projectModule)).toBe(true)
-		const userModule = join(bakaHome, "modules", "acme-tool")
-		expect(existsSync(userModule)).toBe(false)
+		const projectPack = join(projectCwd, ".baka", "packs", "acme-tool")
+		expect(existsSync(projectPack)).toBe(true)
+		const userPack = join(bakaHome, "packs", "acme-tool")
+		expect(existsSync(userPack)).toBe(false)
 
 		const projectSettings = join(projectCwd, ".baka", "settings.json")
 		const settingsContent = JSON.parse(readFileSync(projectSettings, "utf-8")) as { packages: string[] }
 		expect(settingsContent.packages).toContain("registry:@acme/tool@1.0.0")
 	})
 
-	it("`baka uninstall` strips the registration and removes the materialized module", async () => {
+	it("`baka uninstall` strips the registration and removes the materialized pack", async () => {
 		const { bytes, contentHash } = fakeTarballBytes()
 		const fetchMock = fakeFetchForVersionAndTarball({
 			contentHash,
@@ -529,10 +529,10 @@ describe("VAL-DISC-043 --user installs land in the user marketplace (BAKA_HOME)"
 			fetch: fetchMock,
 			credentialLookup,
 		})
-		expect(existsSync(join(projectCwd, ".baka", "modules", "acme-thing"))).toBe(true)
+		expect(existsSync(join(projectCwd, ".baka", "packs", "acme-thing"))).toBe(true)
 
 		await runUninstallCommand("@acme/thing", { cwd: projectCwd, scope: "project", json: true })
-		expect(existsSync(join(projectCwd, ".baka", "modules", "acme-thing"))).toBe(false)
+		expect(existsSync(join(projectCwd, ".baka", "packs", "acme-thing"))).toBe(false)
 		const settingsContent = JSON.parse(readFileSync(join(projectCwd, ".baka", "settings.json"), "utf-8")) as {
 			packages: string[]
 		}
@@ -680,21 +680,21 @@ describe("isValidSemverTag pins the registry's accepted version format", () => {
 })
 
 // ---------------------------------------------------------------------------
-// isValidModuleIdentifier pins the scope/name character set
+// isValidPackIdentifier pins the scope/name character set
 // ---------------------------------------------------------------------------
 
-describe("isValidModuleIdentifier pins the identifier character set", () => {
+describe("isValidPackIdentifier pins the identifier character set", () => {
 	it("accepts normal identifiers", () => {
-		expect(isValidModuleIdentifier("acme")).toBe(true)
-		expect(isValidModuleIdentifier("widget")).toBe(true)
-		expect(isValidModuleIdentifier("my-pack")).toBe(true)
-		expect(isValidModuleIdentifier("a.b.c")).toBe(true)
+		expect(isValidPackIdentifier("acme")).toBe(true)
+		expect(isValidPackIdentifier("widget")).toBe(true)
+		expect(isValidPackIdentifier("my-pack")).toBe(true)
+		expect(isValidPackIdentifier("a.b.c")).toBe(true)
 	})
 	it("rejects invalid identifiers", () => {
-		expect(isValidModuleIdentifier("")).toBe(false)
-		expect(isValidModuleIdentifier("@acme")).toBe(false)
-		expect(isValidModuleIdentifier("acme/widget")).toBe(false)
-		expect(isValidModuleIdentifier("acme widget")).toBe(false)
+		expect(isValidPackIdentifier("")).toBe(false)
+		expect(isValidPackIdentifier("@acme")).toBe(false)
+		expect(isValidPackIdentifier("acme/widget")).toBe(false)
+		expect(isValidPackIdentifier("acme widget")).toBe(false)
 	})
 })
 

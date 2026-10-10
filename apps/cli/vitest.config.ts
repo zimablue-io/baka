@@ -4,7 +4,7 @@ export default defineConfig({
 	test: {
 		include: ["test/**/*.test.ts", "src/**/*.test.ts"],
 		// Run test files serially. Some smoke suites (notably
-		// `baka-module-create.test.ts`) rebuild the CLI dist in beforeAll
+		// `baka-pack-create.test.ts`) rebuild the CLI dist in beforeAll
 		// via `tsup --clean`, which briefly deletes `apps/cli/dist/index.js`.
 		// Other suites (cli-smoke, engine-smoke) spawn the dist as a
 		// subprocess during their probes. Running files in parallel

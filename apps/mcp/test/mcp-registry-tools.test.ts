@@ -251,11 +251,11 @@ describe("registry tools/list", () => {
 			}
 			const toolNames = result.tools.map((t) => t.name)
 			expect(toolNames).toContain("baka_registry_search")
-			expect(toolNames).toContain("baka_registry_get_module")
+			expect(toolNames).toContain("baka_registry_get_pack")
 			expect(toolNames).toContain("baka_registry_get_preview")
 			expect(toolNames).not.toContain("baka_install")
 
-			for (const name of ["baka_registry_search", "baka_registry_get_module", "baka_registry_get_preview"] as const) {
+			for (const name of ["baka_registry_search", "baka_registry_get_pack", "baka_registry_get_preview"] as const) {
 				const tool = result.tools.find((t) => t.name === name)
 				expect(tool, `${name} not in tools/list`).toBeDefined()
 				expect(tool?.inputSchema.type).toBe("object")
@@ -275,7 +275,7 @@ describe("registry tools/list", () => {
 })
 
 describe("baka_registry_search against the hello fixture", () => {
-	it("returns hello with official tier and a greet action on get_module", async () => {
+	it("returns hello with official tier and a greet recipe on get_pack", async () => {
 		if (!server) throw new Error("seed server not booted")
 		const cwd = makeEmptyDir("baka-mcp-rt-search-")
 		const state = spawnMcp({ cwd, env: { BAKA_REGISTRY_URL: server.baseUrl } })
@@ -304,7 +304,7 @@ describe("baka_registry_search against the hello fixture", () => {
 			expect(hello?.registry).toBe(server.baseUrl)
 
 			const getId = sendRpc(state, "tools/call", {
-				name: "baka_registry_get_module",
+				name: "baka_registry_get_pack",
 				arguments: { scope: "baka", name: "hello" },
 			})
 			const getResp = await waitForResponse(state, getId, 10_000)
@@ -312,12 +312,12 @@ describe("baka_registry_search against the hello fixture", () => {
 			expect(getResult.isError).toBeFalsy()
 			const detail = JSON.parse(getResult.content[0].text) as {
 				name: string
-				manifest: { actions: Array<{ id: string }> } | null
+				manifest: { recipes: Array<{ id: string }> } | null
 				screening: unknown
 			}
 			expect(detail.name).toBe("hello")
 			expect(detail.screening).toBeNull()
-			expect((detail.manifest?.actions ?? []).map((a) => a.id)).toEqual(["greet"])
+			expect((detail.manifest?.recipes ?? []).map((a) => a.id)).toEqual(["greet"])
 		} finally {
 			await shutdown(state)
 		}
@@ -331,7 +331,7 @@ describe("baka_registry_search against the hello fixture", () => {
 			await initialize(state)
 			const id = sendRpc(state, "tools/call", {
 				name: "baka_registry_search",
-				arguments: { query: "xxx-no-such-module-zzz" },
+				arguments: { query: "xxx-no-such-pack-zzz" },
 			})
 			const resp = await waitForResponse(state, id, 10_000)
 			const result = resp?.result as { isError?: boolean; content: Array<{ text: string }> }
@@ -345,15 +345,15 @@ describe("baka_registry_search against the hello fixture", () => {
 	})
 })
 
-describe("baka_registry_get_module / get_preview unknown names", () => {
-	it("marks unknown modules as isError with a named not-found message", async () => {
+describe("baka_registry_get_pack / get_preview unknown names", () => {
+	it("marks unknown packs as isError with a named not-found message", async () => {
 		if (!server) throw new Error("seed server not booted")
 		const cwd = makeEmptyDir("baka-mcp-rt-nf-")
 		const state = spawnMcp({ cwd, env: { BAKA_REGISTRY_URL: server.baseUrl } })
 		try {
 			await initialize(state)
 			const id = sendRpc(state, "tools/call", {
-				name: "baka_registry_get_module",
+				name: "baka_registry_get_pack",
 				arguments: { scope: "baka", name: "does-not-exist-zzz" },
 			})
 			const resp = await waitForResponse(state, id, 10_000)
@@ -461,7 +461,7 @@ describe("registry config chain (env > project settings)", () => {
 		}
 	})
 
-	it("dead registry does not stop local list-actions against a fixture project", async () => {
+	it("dead registry does not stop local list-recipes against a fixture project", async () => {
 		const deadPort = await pickBoundThenClosedPort()
 		const cwd = fixtureProject("baka-mcp-rt-local-")
 		const state = spawnMcp({ cwd, env: { BAKA_REGISTRY_URL: `http://127.0.0.1:${deadPort}` } })
@@ -476,15 +476,15 @@ describe("registry config chain (env > project settings)", () => {
 			expect(searchResult.isError).toBe(true)
 
 			const listId = sendRpc(state, "tools/call", {
-				name: "baka_list_actions",
-				arguments: { module: "honest-mod" },
+				name: "baka_list_recipes",
+				arguments: { pack: "honest-mod" },
 			})
 			const listResp = await waitForResponse(state, listId, 10_000)
 			const listResult = listResp?.result as { isError?: boolean; content: Array<{ text: string }> }
 			expect(listResult.isError).toBeFalsy()
-			const parsed = JSON.parse(listResult.content[0].text) as { module: string; actions: unknown[] }
-			expect(parsed.module).toBe("honest-mod")
-			expect(parsed.actions.length).toBeGreaterThan(0)
+			const parsed = JSON.parse(listResult.content[0].text) as { pack: string; recipes: unknown[] }
+			expect(parsed.pack).toBe("honest-mod")
+			expect(parsed.recipes.length).toBeGreaterThan(0)
 		} finally {
 			await shutdown(state)
 		}
@@ -501,7 +501,7 @@ describe("discovery is read-only", () => {
 			await initialize(state)
 			for (const call of [
 				{ name: "baka_registry_search", arguments: { query: "hello" } },
-				{ name: "baka_registry_get_module", arguments: { scope: "baka", name: "hello" } },
+				{ name: "baka_registry_get_pack", arguments: { scope: "baka", name: "hello" } },
 				{
 					name: "baka_registry_get_preview",
 					arguments: { scope: "baka", name: "hello", version: "0.1.0" },
@@ -568,13 +568,13 @@ describe("default registry when nothing is configured", () => {
 			expect(result.content[0].text).toContain("http://localhost:4300")
 
 			const listId = sendRpc(state, "tools/call", {
-				name: "baka_list_actions",
-				arguments: { module: "honest-mod" },
+				name: "baka_list_recipes",
+				arguments: { pack: "honest-mod" },
 			})
 			const listResp = await waitForResponse(state, listId, 10_000)
 			const listResult = listResp?.result as { isError?: boolean; content: Array<{ text: string }> }
 			expect(listResult.isError).toBeFalsy()
-			expect(JSON.parse(listResult.content[0].text).module).toBe("honest-mod")
+			expect(JSON.parse(listResult.content[0].text).pack).toBe("honest-mod")
 		} finally {
 			await shutdown(state)
 		}

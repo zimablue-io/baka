@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { defaultParamValues, paramsFromFields } from "./engine"
 
-describe("action form from any module schema", () => {
-	it("starts every declared param empty so switching actions cannot keep leftover JSON", () => {
+describe("recipe form from any pack schema", () => {
+	it("starts every declared param empty so switching recipes cannot keep leftover JSON", () => {
 		expect(
 			defaultParamValues([
 				{ name: "title", type: "string", required: true },

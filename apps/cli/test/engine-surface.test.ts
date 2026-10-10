@@ -1,5 +1,5 @@
-// Engine CLI surface against project-local fixture modules.
-// The production catalog is empty. Nothing here assumes a shipped module.
+// Engine CLI surface against project-local fixture packs.
+// The production catalog is empty. Nothing here assumes a shipped pack.
 
 import { type ChildProcess, spawn } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
@@ -182,16 +182,16 @@ afterAll(() => {
 	if (existsSync(EMPTY_CWD)) rmSync(EMPTY_CWD, { recursive: true, force: true })
 })
 
-describe("module create rejects a bad name without calling an LLM", () => {
-	it("exits 1 with no stack frames", async () => {
+describe("pack create rejects a bad name without calling an LLM", () => {
+	it("exits 2 with no stack frames", async () => {
 		const llm = await startFakeLLM("{}")
 		try {
 			const { code, stderr } = await spawnCli({
-				argv: ["module", "create", "../../../etc/passwd"],
+				argv: ["pack", "create", "../../../etc/passwd"],
 				bakaConfig: { worker: { baseUrl: llm.url, model: "fake-llm" } },
 			})
-			expect(code).toBe(1)
-			expect(stderr).toContain("module name must be")
+			expect(code).toBe(2)
+			expect(stderr).toContain("pack name must be")
 			expect(llm.calls).toBe(0)
 			expect(stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
 		} finally {
@@ -200,37 +200,37 @@ describe("module create rejects a bad name without calling an LLM", () => {
 	})
 })
 
-describe("module validate / list-actions / test against a fixture", () => {
+describe("pack validate / list-recipes / test against a fixture", () => {
 	it("validates honest-mod", async () => {
 		const cwd = fixtureProject("baka-mod-validate-")
 		const { code, stdout, stderr } = await spawnCli({
-			argv: ["module", "validate", "honest-mod", "--json"],
+			argv: ["pack", "validate", "honest-mod", "--json"],
 			cwd,
 		})
 		expect(code, stderr).toBe(0)
-		const parsed = JSON.parse(stdout) as { module: string; valid: boolean; errors: string[] }
-		expect(parsed.module).toBe("honest-mod")
+		const parsed = JSON.parse(stdout) as { pack: string; valid: boolean; errors: string[] }
+		expect(parsed.pack).toBe("honest-mod")
 		expect(parsed.valid).toBe(true)
 		expect(parsed.errors).toEqual([])
 	})
 
-	it("lists slot-mod actions and params from the manifest", async () => {
-		const cwd = fixtureProject("baka-mod-actions-")
+	it("lists slot-mod recipes and params from the manifest", async () => {
+		const cwd = fixtureProject("baka-mod-recipes-")
 		const { code, stdout, stderr } = await spawnCli({
-			argv: ["module", "list-actions", "slot-mod", "--json"],
+			argv: ["pack", "list-recipes", "slot-mod", "--json"],
 			cwd,
 		})
 		expect(code, stderr).toBe(0)
-		const parsed = JSON.parse(stdout) as { module: string; actions: Array<{ id: string }> }
-		expect(parsed.module).toBe("slot-mod")
-		expect(parsed.actions.map((a) => a.id)).toEqual(["write"])
+		const parsed = JSON.parse(stdout) as { pack: string; recipes: Array<{ id: string }> }
+		expect(parsed.pack).toBe("slot-mod")
+		expect(parsed.recipes.map((a) => a.id)).toEqual(["write"])
 	})
 
-	it("module test honest-mod/write materializes and does not leak temp dirs", async () => {
+	it("pack test honest-mod/write materializes and does not leak temp dirs", async () => {
 		const cwd = fixtureProject("baka-mod-test-")
 		const before = countBakaTestDirs()
 		const { code, stdout, stderr } = await spawnCli({
-			argv: ["module", "test", "honest-mod", "--action", "write", "--input", "{}"],
+			argv: ["pack", "test", "honest-mod", "--recipe", "write", "--input", "{}"],
 			cwd,
 		})
 		expect(code, stderr).toBe(0)
@@ -238,18 +238,18 @@ describe("module validate / list-actions / test against a fixture", () => {
 		expect(countBakaTestDirs()).toBe(before)
 	})
 
-	it("missing --action and unknown --action exit 1 without creating temp dirs", async () => {
+	it("missing --recipe and unknown --recipe exit 2 without creating temp dirs", async () => {
 		const cwd = fixtureProject("baka-mod-test-bad-")
 		const before = countBakaTestDirs()
-		const missing = await spawnCli({ argv: ["module", "test", "honest-mod"], cwd })
-		expect(missing.code).toBe(1)
-		expect(missing.stderr).toContain("--action")
+		const missing = await spawnCli({ argv: ["pack", "test", "honest-mod"], cwd })
+		expect(missing.code).toBe(2)
+		expect(missing.stderr).toContain("--recipe")
 		const unknown = await spawnCli({
-			argv: ["module", "test", "honest-mod", "--action", "no-such-action"],
+			argv: ["pack", "test", "honest-mod", "--recipe", "no-such-recipe"],
 			cwd,
 		})
-		expect(unknown.code).toBe(1)
-		expect(unknown.stderr).toContain("no-such-action")
+		expect(unknown.code).toBe(2)
+		expect(unknown.stderr).toContain("no-such-recipe")
 		expect(countBakaTestDirs()).toBe(before)
 	})
 })
@@ -264,24 +264,24 @@ describe("plan / apply / validate", () => {
 		expect(stdout).not.toContain("--execute")
 	})
 
-	it("plan without a worker role exits 1", async () => {
+	it("plan without a worker role exits 2", async () => {
 		const fakeHome = makeEmptyDir("baka-plan-no-role-")
 		const { code, stderr } = await spawnCli({
 			argv: ["plan", "write a marker"],
 			cwd: fixtureProject("baka-plan-no-role-proj-"),
 			env: { HOME: fakeHome, XDG_CONFIG_HOME: fakeHome, XDG_DATA_HOME: fakeHome },
 		})
-		expect(code).toBe(1)
+		expect(code).toBe(2)
 		expect(stderr).toContain("missing LLM config: worker role not configured")
 	})
 
-	it("apply of a missing plan file exits 2", async () => {
+	it("apply of a missing plan file exits 1", async () => {
 		const cwd = fixtureProject("baka-apply-missing-")
 		const { code, stderr } = await spawnCli({
 			argv: ["apply", join(cwd, "no-such.plan.json")],
 			cwd,
 		})
-		expect(code).toBe(2)
+		expect(code).toBe(1)
 		expect(stderr.length).toBeGreaterThan(0)
 	})
 
@@ -293,7 +293,7 @@ describe("plan / apply / validate", () => {
 		writeFileSync(
 			planFile,
 			JSON.stringify({
-				resolvedSteps: [{ id: "step-1", module: "honest-mod", action: "write", params: {} }],
+				resolvedSteps: [{ id: "step-1", pack: "honest-mod", recipe: "write", params: {} }],
 				meta: { intent: "write marker", savedAt: "2026-08-25T00:00:00.000Z" },
 			}),
 		)
@@ -304,13 +304,13 @@ describe("plan / apply / validate", () => {
 			env: { HOME: fakeHome, XDG_CONFIG_HOME: fakeHome, XDG_DATA_HOME: fakeHome },
 		})
 		expect(code, stderr).toBe(0)
-		const parsed = JSON.parse(stdout) as { status: string; completedSteps: Array<{ module: string; action: string }> }
+		const parsed = JSON.parse(stdout) as { status: string; completedSteps: Array<{ pack: string; recipe: string }> }
 		expect(parsed.status).toBe("SUCCESS")
-		expect(parsed.completedSteps[0]).toMatchObject({ module: "honest-mod", action: "write" })
+		expect(parsed.completedSteps[0]).toMatchObject({ pack: "honest-mod", recipe: "write" })
 		expect(readFileSync(join(cwd, "marker.txt"), "utf-8")).toBe("honest-mod was here\n")
 	})
 
-	it("validate from an empty cwd reports 0 modules", async () => {
+	it("validate from an empty cwd reports only the bundled starter pack", async () => {
 		const fakeHome = makeEmptyDir("baka-validate-empty-home-")
 		const { code, stdout, stderr } = await spawnCli({
 			argv: ["validate"],
@@ -318,10 +318,10 @@ describe("plan / apply / validate", () => {
 			env: { HOME: fakeHome, XDG_CONFIG_HOME: fakeHome, XDG_DATA_HOME: fakeHome },
 		})
 		expect(code, stderr).toBe(0)
-		expect(stdout).toMatch(/discovered 0 module\(s\)/)
+		expect(stdout).toMatch(/discovered 1 pack\(s\)/)
 	})
 
-	it("validate --json on a fixture project discovers those modules", async () => {
+	it("validate --json on a fixture project discovers those packs", async () => {
 		const cwd = fixtureProject("baka-validate-fx-")
 		const fakeHome = makeEmptyDir("baka-validate-fx-home-")
 		const { code, stdout, stderr } = await spawnCli({
@@ -329,37 +329,37 @@ describe("plan / apply / validate", () => {
 			cwd,
 			env: { HOME: fakeHome, XDG_CONFIG_HOME: fakeHome, XDG_DATA_HOME: fakeHome },
 		})
-		expect([0, 4], stderr).toContain(code)
-		const parsed = JSON.parse(stdout) as { modulesDiscovered: number; validation: { kind: string } }
-		expect(parsed.modulesDiscovered).toBe(2)
+		expect([0, 1], stderr).toContain(code)
+		const parsed = JSON.parse(stdout) as { packsDiscovered: number; validation: { kind: string } }
+		expect(parsed.packsDiscovered).toBe(3)
 		expect(["pass", "fail"]).toContain(parsed.validation.kind)
 	})
 
-	it("validate -m names an unknown module", async () => {
+	it("validate -m names an unknown pack", async () => {
 		const cwd = fixtureProject("baka-validate-unknown-")
 		const { code, stderr } = await spawnCli({
 			argv: ["validate", "-m", "nonexistent"],
 			cwd,
 		})
-		expect(code).toBe(1)
-		expect(stderr).toContain('module "nonexistent" not found')
+		expect(code).toBe(2)
+		expect(stderr).toContain('pack "nonexistent" not found')
 	})
 })
 
-describe("hyphenated action ids load", () => {
-	it("module test runs write-file on an inline fixture", async () => {
+describe("hyphenated recipe ids load", () => {
+	it("pack test runs write-file on an inline fixture", async () => {
 		const cwd = makeEmptyDir("baka-hyphen-")
-		const mod = join(cwd, "modules", "hyphen-mod")
+		const mod = join(cwd, "packs", "hyphen-mod")
 		mkdirSync(join(mod, "write-file", "templates"), { recursive: true })
 		writeFileSync(
 			join(mod, "manifest.ts"),
 			`export const Manifest = {
   name: "hyphen-mod",
   version: "0.0.0",
-  description: "hyphenated action id",
+  description: "hyphenated recipe id",
   dependencies: [],
   conflictsWith: [],
-  actions: [{
+  recipes: [{
     id: "write-file",
     description: "write a file",
     params: [],
@@ -367,13 +367,13 @@ describe("hyphenated action ids load", () => {
     filePatterns: ["out.txt"],
     validators: [],
   }],
-  moduleValidators: [],
+  packValidators: [],
 }
 `,
 		)
 		writeFileSync(join(mod, "write-file", "templates", "out.txt.hbs"), "ok\n")
 		const { code, stdout, stderr } = await spawnCli({
-			argv: ["module", "test", "hyphen-mod", "--action", "write-file", "--input", "{}"],
+			argv: ["pack", "test", "hyphen-mod", "--recipe", "write-file", "--input", "{}"],
 			cwd,
 		})
 		expect(code, stderr).toBe(0)
@@ -381,43 +381,43 @@ describe("hyphenated action ids load", () => {
 	})
 })
 
-describe("unloadable action.ts fails module validate", () => {
+describe("unloadable recipe.ts fails pack validate", () => {
 	it("reports valid: false", async () => {
 		const cwd = makeEmptyDir("baka-unloadable-")
-		const actionDir = join(cwd, "modules", "unloadable-mod", "bad-action")
-		mkdirSync(actionDir, { recursive: true })
+		const recipeDir = join(cwd, "packs", "unloadable-mod", "bad-recipe")
+		mkdirSync(recipeDir, { recursive: true })
 		writeFileSync(
-			join(cwd, "modules", "unloadable-mod", "manifest.ts"),
+			join(cwd, "packs", "unloadable-mod", "manifest.ts"),
 			`export const Manifest = {
   name: "unloadable-mod",
   version: "0.1.0",
   description: "unloadable",
   dependencies: [],
   conflictsWith: [],
-  actions: [{
-    id: "bad-action",
+  recipes: [{
+    id: "bad-recipe",
     description: "bad",
     requiresReasoning: false,
     filePatterns: [],
     validators: [],
     params: [],
   }],
-  moduleValidators: [],
+  packValidators: [],
 }
 `,
 		)
 		writeFileSync(
-			join(actionDir, "action.ts"),
+			join(recipeDir, "recipe.ts"),
 			`export const somethingElse = { execute: async () => ({ success: true }), compensate: async () => {} }
 `,
 		)
 		const { code, stdout, stderr } = await spawnCli({
-			argv: ["module", "validate", "unloadable-mod", "--json"],
+			argv: ["pack", "validate", "unloadable-mod", "--json"],
 			cwd,
 		})
-		expect(code, stderr).toBe(4)
+		expect(code, stderr).toBe(1)
 		const parsed = JSON.parse(stdout) as { valid: boolean; errors: string[] }
 		expect(parsed.valid).toBe(false)
-		expect(parsed.errors.some((e) => e.includes("bad-action") && e.includes("not loadable"))).toBe(true)
+		expect(parsed.errors.some((e) => e.includes("bad-recipe") && e.includes("not loadable"))).toBe(true)
 	})
 })

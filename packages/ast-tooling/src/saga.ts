@@ -6,27 +6,27 @@ import {
 	type StepResponse,
 	type WorkflowStep,
 } from "@repo/protocol"
-import type { RanAction } from "./validator.js"
+import type { RanRecipe } from "./validator.js"
 import type { WorkerRollbackData } from "./worker.js"
 
 export interface SagaStep<TInput = unknown, TOutput = unknown, TCompensationData = unknown> {
 	id: string
-	module: string
-	action: string
+	pack: string
+	recipe: string
 	params: TInput
 	step: WorkflowStep<TInput, TOutput, TCompensationData>
 }
 
 export interface CompletedStep {
 	id: string
-	module: string
-	action: string
+	pack: string
+	recipe: string
 	step: WorkflowStep<unknown, unknown, unknown>
 	/** Raw compensation data returned by the step. Passed back to the step's `compensate` during rollback. */
 	rollbackData: unknown
-	/** Unwrapped action compensation data exposed to post-apply validators. */
+	/** Unwrapped recipe compensation data exposed to post-apply validators. */
 	compensationData: unknown
-	/** Rich output payload returned by the step. Surfaced to the MCP per-action tool and to the SAGA/apply surfaces so callers can act on real action results (e.g. lint's LintReport) instead of a boolean flag. */
+	/** Rich output payload returned by the step. Surfaced to the MCP per-recipe tool and to the SAGA/apply surfaces so callers can act on real recipe results (e.g. lint's LintReport) instead of a boolean flag. */
 	output: unknown
 }
 
@@ -35,12 +35,12 @@ export interface CompletedStep {
  * receipt supplies the normalized params, output, compensation data, and
  * changeset; a step from any other source supplies what the saga recorded.
  */
-export function ranActions(completed: readonly CompletedStep[]): RanAction[] {
+export function ranRecipes(completed: readonly CompletedStep[]): RanRecipe[] {
 	return completed.map((c) => {
 		const receipt = (c.rollbackData as Partial<WorkerRollbackData> | null | undefined)?.receipt
 		return {
-			module: c.module,
-			action: c.action,
+			pack: c.pack,
+			recipe: c.recipe,
 			params: receipt?.params ?? {},
 			compensationData: c.compensationData,
 			output: c.output,
@@ -57,22 +57,22 @@ export interface SagaResult {
 
 /**
  * Compensation shape returned by `executeWorkerStep`. The Worker wraps the
- * action's own compensation data inside this envelope so the SAGA can roll
- * back both the action and the Worker's scratch/output directories.
+ * recipe's own compensation data inside this envelope so the SAGA can roll
+ * back both the recipe and the Worker's scratch/output directories.
  */
 interface WorkerCompensationEnvelope {
-	compensation?: { actionData?: unknown }
+	compensation?: { recipeData?: unknown }
 }
 
 /**
- * Unwrap a Worker step's compensation data to expose the inner action's
+ * Unwrap a Worker step's compensation data to expose the inner recipe's
  * compensation data. Validators read this directly (e.g. to inspect
  * `createdFiles`), so they should not have to know about the Worker's
  * envelope shape.
  */
 function unwrapWorkerCompensation(raw: unknown): unknown {
 	if (raw && typeof raw === "object" && "compensation" in raw) {
-		return (raw as WorkerCompensationEnvelope).compensation?.actionData
+		return (raw as WorkerCompensationEnvelope).compensation?.recipeData
 	}
 	return raw
 }
@@ -99,20 +99,20 @@ export async function runSaga(
 	for (let i = 0; i < plan.resolvedSteps.length; i++) {
 		const planStep = plan.resolvedSteps[i]
 		state.executionPlan.currentStepIndex = i
-		state.logs.push(`[saga] step ${i + 1}/${plan.resolvedSteps.length}: ${planStep.module}:${planStep.action}`)
+		state.logs.push(`[saga] step ${i + 1}/${plan.resolvedSteps.length}: ${planStep.pack}:${planStep.recipe}`)
 
-		// Normalize the module name by stripping the version suffix the planner
+		// Normalize the pack name by stripping the version suffix the planner
 		// emits (e.g. "widget v0.1.0" → "widget") since worker steps are keyed by name only.
-		const moduleName = planStep.module.split(" v")[0] ?? planStep.module
-		const step = stepsByKey.get(`${moduleName}:${planStep.action}`)
+		const packName = planStep.pack.split(" v")[0] ?? planStep.pack
+		const step = stepsByKey.get(`${packName}:${planStep.recipe}`)
 		if (!step) {
-			const message = `no worker step registered for ${moduleName}:${planStep.action}`
+			const message = `no worker step registered for ${packName}:${planStep.recipe}`
 			return fail(state, completed, planStep.id, message, ctx)
 		}
 
 		let result: StepResponse<unknown, unknown>
 		try {
-			result = await step.execute({ moduleName, actionName: planStep.action, parameters: planStep.params }, state, ctx)
+			result = await step.execute({ packName, recipeName: planStep.recipe, parameters: planStep.params }, state, ctx)
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
 			state.logs.push(`[saga] step ${planStep.id} threw: ${message}`)
@@ -127,8 +127,8 @@ export async function runSaga(
 
 		completed.push({
 			id: planStep.id,
-			module: moduleName,
-			action: planStep.action,
+			pack: packName,
+			recipe: planStep.recipe,
 			step,
 			rollbackData: result.compensationData,
 			compensationData: unwrapWorkerCompensation(result.compensationData),
@@ -160,12 +160,12 @@ async function rollback(completed: CompletedStep[], state: OrchestrationState, c
 	for (let i = completed.length - 1; i >= 0; i--) {
 		const c = completed[i]
 		if (!c) continue
-		state.logs.push(`[saga] compensating ${c.module}:${c.action}`)
+		state.logs.push(`[saga] compensating ${c.pack}:${c.recipe}`)
 		try {
 			await c.step.compensate(c.rollbackData, state, ctx)
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
-			state.logs.push(`[saga] compensate ${c.module}:${c.action} failed: ${message}`)
+			state.logs.push(`[saga] compensate ${c.pack}:${c.recipe} failed: ${message}`)
 			// continue; best-effort
 		}
 	}

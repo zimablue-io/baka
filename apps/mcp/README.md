@@ -5,7 +5,7 @@
 
 ### For coding agents (Claude Code, Cursor, Codex, Cline, Zed, etc.)
 
-The project ships an MCP config at `.mcp.json` that registers `baka-mcp` over stdio. MCP-aware hosts read it automatically on session start. To add or remove MCP servers for the team, edit that file and commit the change. The `baka-mcp` binary resolves its working directory from `process.cwd()` at startup, so opening a session anywhere in the repo will discover the project's modules and validators.
+The project ships an MCP config at `.mcp.json` that registers `baka-mcp` over stdio. MCP-aware hosts read it automatically on session start. To add or remove MCP servers for the team, edit that file and commit the change. The `baka-mcp` binary resolves its working directory from `process.cwd()` at startup, so opening a session anywhere in the repo will discover the project's packs and validators.
 
 For other MCP-aware hosts (Claude Code, Cursor, Codex, Zed, etc.) configure the server with:
 
@@ -13,14 +13,14 @@ For other MCP-aware hosts (Claude Code, Cursor, Codex, Zed, etc.) configure the 
 { "command": "baka-mcp" }
 ```
 
-Once connected, the agent sees `baka_run`, `baka_slots`, `baka_fill`, `baka_validate`, `baka_list_actions`, plus `baka_plan` / `baka_apply` (demoted) and the three registry-discovery tools. There are **no** per-action MCP tools. Prefer the CLI (`baka … --json`). See `SKILL.md`.
+Once connected, the agent sees `baka_run`, `baka_slots`, `baka_fill`, `baka_validate`, `baka_list_recipes`, plus `baka_plan` / `baka_apply` (demoted) and the three registry-discovery tools. There are **no** per-recipe MCP tools. Prefer the CLI (`baka … --json`). See `SKILL.md`.
 
 #### Registry discovery (READ-ONLY)
 
-The MCP registry tools are a read-only window onto a configured baka module registry. They do NOT modify the project, do NOT install anything, and do NOT mutate the user config — install is the `baka` CLI's job (architecture §8 decision 9). When an agent client decides a discovered module should be installed, the host prompts the user to run the install handoff at the terminal:
+The MCP registry tools are a read-only window onto a configured baka pack registry. They do NOT modify the project, do NOT install anything, and do NOT mutate the user config — install is the `baka` CLI's job (architecture §8 decision 9). When an agent client decides a discovered pack should be installed, the host prompts the user to run the install handoff at the terminal:
 
 ```bash
-# After baka_registry_search surfaces a module
+# After baka_registry_search surfaces a pack
 baka install @baka/hello
 
 # Or a pinned version:
@@ -33,12 +33,12 @@ The MCP tools resolve which registry to query through the same chain the CLI use
 2. `.baka/settings.json` `registries` list in the cwd
 3. `http://localhost:4300` (default — the registry dev server)
 
-When credentials are stored under `${BAKA_HOME:-$HOME/.baka}/config.json` (via `baka registry login`), the MCP tools attach the per-registry API key on every read. `public` modules are reachable without a credential; `org`-visibility modules need org membership.
+When credentials are stored under `${BAKA_HOME:-$HOME/.baka}/config.json` (via `baka registry login`), the MCP tools attach the per-registry API key on every read. `public` packs are reachable without a credential; `org`-visibility packs need org membership.
 
 The three tools surface honest failures:
 
 - A single unreachable registry becomes a per-source `warnings` entry — the search continues with the remaining sources.
-- A registry returning 404 for a missing / private / tombstoned module produces an `isError: true` result with a named "not found" message. The MCP never invents a successful response for a missing module.
+- A registry returning 404 for a missing / private / tombstoned pack produces an `isError: true` result with a named "not found" message. The MCP never invents a successful response for a missing pack.
 - Malformed arguments (missing `query`, wrong field types) produce a structured validation error on the tool result — the MCP server stays alive.
 
 ### For humans and shell scripts
@@ -52,8 +52,8 @@ pnpm baka plan "<intent>"
 # Plan with machine-readable output (for piping into jq)
 pnpm baka plan "<intent>" --json
 
-# Scaffold a new module
-pnpm baka scaffold "<module_name>"
+# Scaffold a new pack
+pnpm baka scaffold "<pack_name>"
 
 # Browse the registry (mirrors the MCP tools):
 pnpm baka search "<query>" --json
@@ -70,10 +70,10 @@ Add this to your `.bashrc` or `.zshrc` for quick access:
 alias baka='pnpm --prefix . baka --'
 ```
 
-### Creating a Test Module
-To verify the engine, create a test module:
+### Creating a Test Pack
+To verify the engine, create a test pack:
 ```bash
-baka scaffold test-module
+baka scaffold test-pack
 ```
 
 ## Technical Specifications
@@ -91,12 +91,12 @@ baka scaffold test-module
 ├── workflows/               # Engine orchestration for THIS project
 │   ├── feature-planning/
 │   │   └── plan-intent.ts
-│   └── module-management/
+│   └── pack-management/
 ├── packages/                # Engine tools
 │   ├── protocol/            # SSOT: types, schemas, LLMProvider interface
 │   ├── agent-engine/        # The ONLY package that knows what an LLMProvider is
-│   └── ast-tooling/         # File/AST operations, module registry
-├── modules/                 # User-defined patterns (action-centric layout)
+│   └── ast-tooling/         # File/AST operations, pack registry
+├── packs/                 # User-defined patterns (recipe-centric layout)
 │   └── README.md
 ├── SKILL.md                 # Declarative agent contract (Claude Code, Codex, Cursor, etc.)
 ├── docs/                    # Philosophy, agent guide, specs
@@ -106,10 +106,10 @@ baka scaffold test-module
 ```
 
 ## Multi-Agent Architecture Specification (AGENTS.md)
-This document defines the roles, bounded actions, stream constraints, and validation boundaries of the intelligent routing plane. See `docs/PHILOSOPHY.md` for the locked-in design philosophy.
+This document defines the roles, bounded recipes, stream constraints, and validation boundaries of the intelligent routing plane. See `docs/PHILOSOPHY.md` for the locked-in design philosophy.
 
 ## Agent System Overview
-The system operates on an isolated, deterministic execution loop. Agents do not write free-form code into user workspaces. Instead, they act as state-transition functions that parse user intent, match it against static structural schemas inside the modules/ folder, and return precise, validated JSON execution blocks.
+The system operates on an isolated, deterministic execution loop. Agents do not write free-form code into user workspaces. Instead, they act as state-transition functions that parse user intent, match it against static structural schemas inside the packs/ folder, and return precise, validated JSON execution blocks.
 
 ## The Agent Topology
 ```
@@ -133,9 +133,9 @@ The system operates on an isolated, deterministic execution loop. Agents do not 
 ```
 
 ## Tier Rules
-1. **Orchestrator** (LLM) — high-reasoning planning. Receives user intent + the module manifest catalog. Emits a validated sequence of `{module, action, params}` steps. Cannot invent modules or actions; the catalog is the only allowed source.
-2. **Worker** (dumb automation by default) — executes one declared action. When the action's manifest sets `requiresReasoning: true`, a small-LLM assist is invoked using the action's `templates/*.hbs` rendered with the action's params. The output of the LLM assist is the body of an explicitly-typed file or block defined by the module.
-3. **Validator** (deterministic TypeScript) — runs the module's `validators/*.ts` and `_shared/validators/*.ts` functions against the resulting file tree. No LLM is involved. Returns `Pass` or `Fail(diff[])` with structured diagnostics.
+1. **Orchestrator** (LLM) — high-reasoning planning. Receives user intent + the pack manifest catalog. Emits a validated sequence of `{pack, recipe, params}` steps. Cannot invent packs or recipes; the catalog is the only allowed source.
+2. **Worker** (dumb automation by default) — executes one declared recipe. When the recipe's manifest sets `requiresReasoning: true`, a small-LLM assist is invoked using the recipe's `templates/*.hbs` rendered with the recipe's params. The output of the LLM assist is the body of an explicitly-typed file or block defined by the pack.
+3. **Validator** (deterministic TypeScript) — runs the pack's `validators/*.ts` and `_shared/validators/*.ts` functions against the resulting file tree. No LLM is involved. Returns `Pass` or `Fail(diff[])` with structured diagnostics.
 
 ## Provider Boundary
 All provider knowledge (HTTP clients, API keys, model names) is sealed inside `packages/agent-engine/`. Workflows, the CLI, and `ast-tooling` only ever import the `LLMProvider` interface from `packages/protocol/`. The user picks the provider (llama.cpp, Ollama, vLLM, OpenAI, anything speaking the OpenAI chat-completions API) via `baka init`; the engine never dictates it.

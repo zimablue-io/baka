@@ -165,7 +165,7 @@ export async function createBetterAuth(pool: PgPool, config: BetterAuthConfig): 
 				// `/api/auth/organization/{invite-member,accept-invitation}`.
 				// Both hooks call the same `checkPlanLimit(...,
 				// "max_members")` helper the publish route uses for
-				// `max_private_modules`, and throw an APIError 403
+				// `max_private_packs`, and throw an APIError 403
 				// with the publish-route-shaped body (`{error, limit,
 				// plan, usage, limitValue}`) when usage >= limit.
 				//
@@ -316,7 +316,7 @@ function deriveSecret(baseUrl: string): string {
  * Builds the `organizationHooks` payload for the Better-Auth
  * organization plugin. The hooks enforce the `max_members` plan
  * limit at both invite-creation and accept-invitation time, mirroring
- * the publish route's `max_private_modules` gate.
+ * the publish route's `max_private_packs` gate.
  *
  * The hooks fire on every path that lands on Better-Auth's
  * `/api/auth/organization/{invite-member,accept-invitation}` routes

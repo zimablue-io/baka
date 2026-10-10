@@ -1,0 +1,39 @@
+{
+	"$id": "https://baka.dev/schemas/baka.handshake/1",
+	"title": "baka.handshake/1",
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"type": "object",
+	"properties": {
+		"schema": {
+			"type": "string",
+			"const": "baka.handshake/1"
+		},
+		"name": {
+			"type": "string",
+			"const": "baka"
+		},
+		"version": {
+			"type": "string"
+		},
+		"contract": {
+			"type": "string"
+		},
+		"capabilities": {
+			"type": "array",
+			"items": {
+				"type": "string"
+			}
+		},
+		"node": {
+			"type": "string"
+		}
+	},
+	"required": [
+		"schema",
+		"name",
+		"version",
+		"contract",
+		"capabilities",
+		"node"
+	]
+}

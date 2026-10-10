@@ -25,22 +25,22 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest"
 const BAKA_REPO = join(__dirname, "..", "..", "..")
 const DIST_INDEX = join(BAKA_REPO, "apps", "cli", "dist", "index.js")
 // An inline honest-mod fixture: a minimal manifest + a single non-reasoning
-// `write` action that drops a marker file. The manifest is built in a
+// `write` recipe that drops a marker file. The manifest is built in a
 // scratch tree (no `baka-sdk` import path required, so the fixture does not
 // depend on a node_modules symlink in the fixture dir).
 const SENTINEL = "sk-SENTINEL-DO-NOT-LEAK-12345"
 const HONEST_MOD_NAME = "honest-mod"
 const HONEST_MOD_MANIFEST = `// Inline fixture: see apps/cli/test/role-config-hygiene.test.ts
 // for why this is inlined instead of loaded from a separate fixture file.
-import type { ModuleManifest } from "baka-sdk"
+import type { PackManifest } from "baka-sdk"
 
-export const Manifest: ModuleManifest = {
+export const Manifest: PackManifest = {
 \tname: "${HONEST_MOD_NAME}",
 \tversion: "0.0.0",
 \tdescription: "Inline non-reasoning fixture used by role-config-hygiene tests.",
 \tdependencies: [],
 \tconflictsWith: [],
-\tactions: [
+\trecipes: [
 \t\t{
 \t\t\tid: "write",
 \t\t\tdescription: "Write a marker file to the project root.",
@@ -50,14 +50,14 @@ export const Manifest: ModuleManifest = {
 \t\t\tparams: [],
 \t\t},
 \t],
-\tmoduleValidators: [],
+\tpackValidators: [],
 }
 `
-const HONEST_MOD_ACTION = `import { rmSync, writeFileSync } from "node:fs"
+const HONEST_MOD_RECIPE = `import { rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { AgentRole, type StepResponse, type WorkflowStep } from "baka-sdk"
 
-export const writeAction: WorkflowStep<Record<string, never>, boolean, { targetDirectory: string }> = {
+export const writeRecipe: WorkflowStep<Record<string, never>, boolean, { targetDirectory: string }> = {
 \tname: "${HONEST_MOD_NAME}.write",
 \trole: AgentRole.WORKER,
 
@@ -189,17 +189,17 @@ function startFakeLLM(content: string): Promise<FakeLLMHandle> {
 
 function planResponse(): string {
 	return JSON.stringify({
-		resolvedSteps: [{ id: "step-1", module: "honest-mod", action: "write", params: {} }],
+		resolvedSteps: [{ id: "step-1", pack: "honest-mod", recipe: "write", params: {} }],
 	})
 }
 
 function prepareScratchWithFixture(prefix: string): string {
 	const scratch = makeEmptyDir(prefix)
-	const modDir = join(scratch, "modules", HONEST_MOD_NAME)
+	const modDir = join(scratch, "packs", HONEST_MOD_NAME)
 	mkdirSync(modDir, { recursive: true })
 	writeFileSync(join(modDir, "manifest.ts"), HONEST_MOD_MANIFEST, "utf-8")
 	mkdirSync(join(modDir, "write"), { recursive: true })
-	writeFileSync(join(modDir, "write", "action.ts"), HONEST_MOD_ACTION, "utf-8")
+	writeFileSync(join(modDir, "write", "recipe.ts"), HONEST_MOD_RECIPE, "utf-8")
 	return scratch
 }
 
@@ -263,7 +263,7 @@ describe("VAL-FOUND-045 corrupt user config fails honestly on every reading comm
 		expect(plan.stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
 
 		const role = await spawnCli(["role", "worker", "--field", "model", "--value", "x"], scratch, env)
-		expect(role.code, `role: expected exit 1; stdout=${role.stdout}`).toBe(1)
+		expect(role.code, `role: expected exit 2; stdout=${role.stdout}`).toBe(2)
 		expect(role.stderr).toContain(path)
 		expect(role.stderr).toMatch(/corrupt/)
 
@@ -295,7 +295,7 @@ describe("VAL-FOUND-047 role block missing a required field fails fast naming ro
 					scratch,
 					env,
 				)
-				expect(code, `${c.label}: expected exit 1; stdout=${stdout}; stderr=${stderr}`).toBe(1)
+				expect(code, `${c.label}: expected exit 2; stdout=${stdout}; stderr=${stderr}`).toBe(2)
 				expect(stderr, `${c.label}: error must name the role`).toContain("worker")
 				expect(stderr, `${c.label}: error must name the field`).toContain(c.field)
 				expect(stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
@@ -314,24 +314,24 @@ describe("VAL-FOUND-047 role block missing a required field fails fast naming ro
 // ---------------------------------------------------------------------------
 
 describe("VAL-FOUND-048 baka role rejects unknown roles and fields with named alternatives", () => {
-	it("unknown role, unknown field, and non-numeric value all exit 1 with named alternatives; config untouched", async () => {
+	it("unknown role, unknown field, and non-numeric value all exit 2 with named alternatives; config untouched", async () => {
 		const { bakaHome, env } = makeIsolatedHome("baka-hyg-unknown-")
 		const scratch = makeEmptyDir("baka-hyg-unknown-proj-")
 		seedConfig(bakaHome, { worker: workerBlock("http://127.0.0.1:1/v1") })
 		const beforeBytes = readFileSync(configPath(bakaHome), "utf-8")
 
 		const unknownRole = await spawnCli(["role", "plumber", "--field", "model", "--value", "x"], scratch, env)
-		expect(unknownRole.code, `unknown role: expected exit 1; stdout=${unknownRole.stdout}`).toBe(1)
+		expect(unknownRole.code, `unknown role: expected exit 2; stdout=${unknownRole.stdout}`).toBe(2)
 		expect(unknownRole.stderr).toContain("plumber")
 		expect(unknownRole.stderr).toContain("worker, validator")
 
 		const unknownField = await spawnCli(["role", "worker", "--field", "bogus", "--value", "x"], scratch, env)
-		expect(unknownField.code, `unknown field: expected exit 1; stdout=${unknownField.stdout}`).toBe(1)
+		expect(unknownField.code, `unknown field: expected exit 2; stdout=${unknownField.stdout}`).toBe(2)
 		expect(unknownField.stderr).toContain(`unknown field "bogus"`)
 		expect(unknownField.stderr).toContain("baseUrl, model, apiKey, temperature, maxTokens, timeoutMs")
 
 		const badNumber = await spawnCli(["role", "worker", "--field", "maxTokens", "--value", "abc"], scratch, env)
-		expect(badNumber.code, `bad number: expected exit 1; stdout=${badNumber.stdout}`).toBe(1)
+		expect(badNumber.code, `bad number: expected exit 2; stdout=${badNumber.stdout}`).toBe(2)
 		expect(badNumber.stderr).toMatch(/maxTokens.*must be a number/)
 
 		expect(readFileSync(configPath(bakaHome), "utf-8"), "config file mutated by rejected edits").toBe(beforeBytes)
@@ -433,23 +433,23 @@ describe("decision 33: BAKA_HOME replaces ~/.baka entirely", () => {
 		expect(existsSync(join(home, ".baka")), "$HOME/.baka was created").toBe(false)
 	})
 
-	it("baka install --user materializes under $BAKA_HOME/modules", async () => {
+	it("baka install --user materializes under $BAKA_HOME/packs", async () => {
 		const { bakaHome, home, env } = makeIsolatedHome("baka-hyg-install-")
 		const scratch = prepareScratchWithFixture("baka-hyg-install-proj-")
 
 		const { code, stdout, stderr } = await spawnCli(
-			["--cwd", scratch, "install", join(scratch, "modules", HONEST_MOD_NAME), "--user"],
+			["--cwd", scratch, "install", join(scratch, "packs", HONEST_MOD_NAME), "--user"],
 			scratch,
 			env,
 		)
 		expect(code, `install --user failed: stdout=${stdout}; stderr=${stderr}`).toBe(0)
-		expect(existsSync(join(bakaHome, "modules", "honest-mod", "manifest.ts"))).toBe(true)
+		expect(existsSync(join(bakaHome, "packs", "honest-mod", "manifest.ts"))).toBe(true)
 		expect(existsSync(join(home, ".baka")), "$HOME/.baka was created").toBe(false)
 
 		// And discovery sees the user-scope install through the same BAKA_HOME.
-		const list = await spawnCli(["--cwd", scratch, "list-modules", "--json"], scratch, env)
-		expect(list.code, `list-modules failed: ${list.stderr}`).toBe(0)
-		const parsed = JSON.parse(list.stdout) as { modules: Array<{ name: string }> }
-		expect(parsed.modules.map((m) => m.name)).toContain("honest-mod")
+		const list = await spawnCli(["--cwd", scratch, "list-packs", "--json"], scratch, env)
+		expect(list.code, `list-packs failed: ${list.stderr}`).toBe(0)
+		const parsed = JSON.parse(list.stdout) as { packs: Array<{ name: string }> }
+		expect(parsed.packs.map((m) => m.name)).toContain("honest-mod")
 	}, 120_000)
 })

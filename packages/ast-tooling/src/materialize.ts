@@ -1,25 +1,26 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { dirname, posix } from "node:path"
 import type {
-	ActionCompensation,
 	ChangesetEntry,
 	LLMProvider,
 	LLMRequest,
 	OnExisting,
+	OpenSlot,
+	RecipeCompensation,
 	SlotDecl,
 	SlotMode,
 	SlotRecord,
 } from "@repo/protocol"
 import type { z } from "zod"
 import { ensureDirectory, removeCreatedDirectories, resolveContained } from "./contain.js"
-import { ActionError } from "./errors.js"
+import { RecipeError } from "./errors.js"
 import type { SlotStore } from "./slot-cache.js"
 import {
 	canonicalJson,
 	evaluateWhen,
 	hashBytes,
 	interpolatePath,
-	parseActionTemplates,
+	parseRecipeTemplates,
 	renderTemplate,
 	SlotTemplateError,
 	slotCacheKey,
@@ -66,14 +67,14 @@ export async function fillSlot(
 	try {
 		content = (await provider.chat<{ value: unknown }>(request)).content
 	} catch (err) {
-		throw new ActionError(
+		throw new RecipeError(
 			"slot-provider-error",
 			`slot "${slot.id}": the provider failed: ${err instanceof Error ? err.message : String(err)}`,
 		)
 	}
 	const parsed = schema.safeParse(content)
 	if (!parsed.success) {
-		throw new ActionError("slot-fill-invalid", `slot "${slot.id}" fill did not match schema: ${parsed.error.message}`)
+		throw new RecipeError("slot-fill-invalid", `slot "${slot.id}" fill did not match schema: ${parsed.error.message}`)
 	}
 	return parsed.data.value
 }
@@ -92,20 +93,20 @@ function replayRecord(
 ): SlotRecord {
 	const sameId = records.filter((r) => r.id === slot.id)
 	if (sameId.length === 0) {
-		throw new ActionError("slot-record-missing", `replay: no record for slot "${slot.id}"; no model call was made`)
+		throw new RecipeError("slot-record-missing", `replay: no record for slot "${slot.id}"; no model call was made`)
 	}
 	const record =
 		sameId.find((r) => r.match !== "template" && r.key === keys.params) ??
 		sameId.find((r) => r.match === "template" && r.key === keys.template)
 	if (!record) {
-		throw new ActionError(
+		throw new RecipeError(
 			"slot-record-stale",
 			`replay: the record for slot "${slot.id}" was taken against a different template or different params (key mismatch)`,
 		)
 	}
 	const parsed = slotResponseSchema(slot).safeParse({ value: record.value })
 	if (!parsed.success) {
-		throw new ActionError(
+		throw new RecipeError(
 			"slot-fill-invalid",
 			`replay: the record for slot "${slot.id}" does not match its schema: ${parsed.error.message}`,
 		)
@@ -118,7 +119,7 @@ function outputPath(file: { rel: string }, context: Record<string, unknown>): st
 	try {
 		return interpolatePath(file.rel.replace(/\.hbs$/, ""), context)
 	} catch (err) {
-		if (err instanceof SlotTemplateError) throw new ActionError("template-invalid", err.message)
+		if (err instanceof SlotTemplateError) throw new RecipeError("template-invalid", err.message)
 		throw err
 	}
 }
@@ -128,7 +129,7 @@ export interface PlanTemplatesOptions {
 	root: string
 	templatesDir: string
 	params: Record<string, unknown>
-	/** The module's `data/*.json` files; templates read them as `data.<name>`. */
+	/** The pack's `data/*.json` files; templates read them as `data.<name>`. */
 	data: Readonly<Record<string, unknown>>
 	provider: LLMProvider | null
 	model: string
@@ -138,6 +139,8 @@ export interface PlanTemplatesOptions {
 	persist: boolean
 	/** How slot values are obtained; see SlotModeSchema. */
 	slotMode: SlotMode
+	/** Fills the caller supplies by slot id; they win over the cache and the model and are never cached. */
+	values?: Readonly<Record<string, unknown>>
 	/** The records a `replay` draws from. */
 	records: readonly SlotRecord[]
 	/** What to do with targets that already exist; see OnExistingSchema. */
@@ -164,14 +167,14 @@ export interface TemplatePlan {
  * so the same plan serves a real run and a dry run.
  */
 export async function planTemplates(opts: PlanTemplatesOptions): Promise<TemplatePlan> {
-	let parsed: ReturnType<typeof parseActionTemplates>
+	let parsed: ReturnType<typeof parseRecipeTemplates>
 	try {
-		parsed = parseActionTemplates(opts.templatesDir)
+		parsed = parseRecipeTemplates(opts.templatesDir)
 	} catch (err) {
-		if (err instanceof SlotTemplateError) throw new ActionError("template-invalid", err.message)
+		if (err instanceof SlotTemplateError) throw new RecipeError("template-invalid", err.message)
 		throw err
 	}
-	// What a template can see: the params and the module's data files.
+	// What a template can see: the params and the pack's data files.
 	const context: Record<string, unknown> = { ...opts.params, data: opts.data }
 	// A template whose `when` does not hold is not part of this run: it writes nothing and its slots are never filled.
 	const files = parsed.files.filter((f) => f.directive.when === undefined || evaluateWhen(f.directive.when, context))
@@ -183,18 +186,18 @@ export async function planTemplates(opts: PlanTemplatesOptions): Promise<Templat
 		const path = outputPath(file, context)
 		const other = targets.get(path)
 		if (other !== undefined) {
-			throw new ActionError("template-invalid", `templates ${other} and ${file.rel} render to the same path "${path}"`)
+			throw new RecipeError("template-invalid", `templates ${other} and ${file.rel} render to the same path "${path}"`)
 		}
 		targets.set(path, file.rel)
 		const abs = resolveContained(opts.root, path)
 		if (existsSync(abs) && !statSync(abs).isFile()) {
-			throw new ActionError("template-invalid", `"${path}" exists and is not a regular file`)
+			throw new RecipeError("template-invalid", `"${path}" exists and is not a regular file`)
 		}
 	}
 	if (opts.onExisting === "fail") {
 		const existing = [...targets.keys()].filter((path) => existsSync(resolveContained(opts.root, path)))
 		if (existing.length > 0) {
-			throw new ActionError(
+			throw new RecipeError(
 				"target-exists",
 				`onExisting is "fail" and these targets already exist: ${existing.join(", ")}`,
 			)
@@ -203,11 +206,21 @@ export async function planTemplates(opts: PlanTemplatesOptions): Promise<Templat
 	const paramsHash = hashBytes(canonicalJson(opts.params))
 	const fills: Record<string, unknown> = {}
 	const records: SlotRecord[] = []
+	const open: OpenSlot[] = []
+	const supplied = opts.slotMode === "replay" ? {} : (opts.values ?? {})
+	for (const id of Object.keys(supplied)) {
+		if (!parsed.slots.some((slot) => slot.id === id)) {
+			throw new RecipeError(
+				"slot-unknown",
+				`a value was supplied for slot "${id}", which this recipe does not declare (declared: ${parsed.slots.map((s) => s.id).join(", ") || "none"})`,
+			)
+		}
+	}
 
 	for (const slot of slots) {
 		const template = files.find((f) => f.rel === slot.file)
 		if (!template) {
-			throw new ActionError("template-invalid", `slot "${slot.id}" references missing template ${slot.file}`)
+			throw new RecipeError("template-invalid", `slot "${slot.id}" references missing template ${slot.file}`)
 		}
 		const templateHash = hashBytes(template.source)
 		const recordKey = slotRecordKey({ templateHash, slotId: slot.id, paramsHash })
@@ -219,6 +232,25 @@ export async function planTemplates(opts: PlanTemplatesOptions): Promise<Templat
 			const replayed = replayRecord(slot, { params: recordKey, template: templateKey }, opts.records)
 			fills[slot.id] = replayed.value
 			records.push(replayed)
+			continue
+		}
+
+		if (Object.hasOwn(supplied, slot.id)) {
+			const checked = slotResponseSchema(slot).safeParse({ value: supplied[slot.id] })
+			if (!checked.success) {
+				throw new RecipeError(
+					"slot-fill-invalid",
+					`the value supplied for slot "${slot.id}" does not match its schema: ${checked.error.message}`,
+				)
+			}
+			fills[slot.id] = checked.data.value
+			records.push({
+				id: slot.id,
+				key: recordKey,
+				model: "supplied",
+				value: checked.data.value as SlotRecord["value"],
+				source: "supplied",
+			})
 			continue
 		}
 
@@ -235,10 +267,8 @@ export async function planTemplates(opts: PlanTemplatesOptions): Promise<Templat
 			continue
 		}
 		if (!opts.provider) {
-			throw new ActionError(
-				"slot-no-provider",
-				`slot "${slot.id}" is empty and no LLMProvider was injected. Run \`baka init\` to configure the worker role.`,
-			)
+			open.push({ ...slot, templateKey })
+			continue
 		}
 		const value = await fillSlot(slot, opts.params, opts.provider, opts.model)
 		fills[slot.id] = value
@@ -255,6 +285,13 @@ export async function planTemplates(opts: PlanTemplatesOptions): Promise<Templat
 		}
 		records.push({ id: slot.id, key: recordKey, model: opts.model, value: value as SlotRecord["value"], source: "llm" })
 	}
+	if (open.length > 0) {
+		throw new RecipeError(
+			"slots-open",
+			`${open.length} slot(s) need a value and no model is configured (no LLMProvider was injected): ${open.map((s) => s.id).join(", ")}. Supply them with slots.values (baka run --slot <id>=<value>). Run \`baka init\` to configure the worker role.`,
+			open,
+		)
+	}
 
 	const planned = new Map<string, PlannedFile>()
 	for (const file of files) {
@@ -263,7 +300,7 @@ export async function planTemplates(opts: PlanTemplatesOptions): Promise<Templat
 		try {
 			content = renderTemplate(file.body, context, fills)
 		} catch (err) {
-			if (err instanceof SlotTemplateError) throw new ActionError("template-invalid", err.message)
+			if (err instanceof SlotTemplateError) throw new RecipeError("template-invalid", err.message)
 			throw err
 		}
 		const contentHash = hashBytes(content)
@@ -304,10 +341,10 @@ export function formatMode(mode: number): string {
 	return (mode & 0o777).toString(8).padStart(4, "0")
 }
 
-export type Rollback = Pick<ActionCompensation, "created" | "createdDirs" | "overwritten">
+export type Rollback = Pick<RecipeCompensation, "created" | "createdDirs" | "overwritten">
 
 /**
- * Undo what `applyPlan` did (and what a failed side-effect action left
+ * Undo what `applyPlan` did (and what a failed side-effect recipe left
  * behind): delete the files the run created, restore the files it
  * overwrote, then remove the directories it created, deepest first, once
  * they are empty.

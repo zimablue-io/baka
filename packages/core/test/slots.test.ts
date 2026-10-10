@@ -1,19 +1,19 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { createMemorySlotStore, createRegistry, runAction, type SlotRecord, type SlotStore } from "../src/index.js"
-import { cleanupTempDirs, fakeProvider, GREET_MODULE, tempDir, writeModule } from "./helpers.js"
+import { createMemorySlotStore, createRegistry, runRecipe, type SlotRecord, type SlotStore } from "../src/index.js"
+import { cleanupTempDirs, fakeProvider, GREET_PACK, tempDir, writePack } from "./helpers.js"
 
 afterEach(cleanupTempDirs)
 
 function workspace() {
 	const root = tempDir()
-	const modules = tempDir()
-	writeModule(modules, GREET_MODULE)
-	return { root, registry: createRegistry({ root, moduleDirs: [modules] }) }
+	const packs = tempDir()
+	writePack(packs, GREET_PACK)
+	return { root, registry: createRegistry({ root, packDirs: [packs] }) }
 }
 
-const RUN = { module: "hello", action: "greet", params: { name: "Ada" } }
+const RUN = { pack: "hello", recipe: "greet", params: { name: "Ada" } }
 
 /** A store that records every read and write, so a test can prove a mode never touched it. */
 function spyStore(inner: SlotStore): SlotStore & { reads: string[]; writes: string[] } {
@@ -37,7 +37,7 @@ describe("slot records: live then replay", () => {
 	it("replays a live run's records with no provider and produces the identical outputTreeHash", async () => {
 		const live = workspace()
 		const provider = fakeProvider("A model-written sentence.")
-		const liveResult = await runAction({
+		const liveResult = await runRecipe({
 			registry: live.registry,
 			...RUN,
 			provider,
@@ -50,7 +50,7 @@ describe("slot records: live then replay", () => {
 
 		// A different checkout, no provider, a cold cache: only the records.
 		const replay = workspace()
-		const replayResult = await runAction({
+		const replayResult = await runRecipe({
 			registry: replay.registry,
 			...RUN,
 			slots: { mode: "replay", records: liveResult.slots },
@@ -69,10 +69,10 @@ describe("slot records: live then replay", () => {
 
 	it("survives a JSON round trip, which is how a stored receipt comes back", async () => {
 		const live = workspace()
-		const liveResult = await runAction({ registry: live.registry, ...RUN, provider: fakeProvider("Stored.") })
+		const liveResult = await runRecipe({ registry: live.registry, ...RUN, provider: fakeProvider("Stored.") })
 		const stored = JSON.parse(JSON.stringify(liveResult)) as { slots: SlotRecord[] }
 		const replay = workspace()
-		const replayResult = await runAction({
+		const replayResult = await runRecipe({
 			registry: replay.registry,
 			...RUN,
 			slots: { mode: "replay", records: stored.slots },
@@ -85,7 +85,7 @@ describe("replay is strict", () => {
 	it("fails with slot-record-missing and makes no model call, even when a provider is supplied", async () => {
 		const { root, registry } = workspace()
 		const provider = fakeProvider("must never be asked")
-		const result = await runAction({ registry, ...RUN, provider, slots: { mode: "replay", records: [] } })
+		const result = await runRecipe({ registry, ...RUN, provider, slots: { mode: "replay", records: [] } })
 		expect(result.ok).toBe(false)
 		expect(result.diagnostics.map((d) => d.rule)).toEqual(["slot-record-missing"])
 		expect(result.diagnostics[0]?.message).toContain('"blurb"')
@@ -96,23 +96,23 @@ describe("replay is strict", () => {
 	it("treats an omitted records list as empty", async () => {
 		const { registry } = workspace()
 		const provider = fakeProvider()
-		const result = await runAction({ registry, ...RUN, provider, slots: { mode: "replay" } })
+		const result = await runRecipe({ registry, ...RUN, provider, slots: { mode: "replay" } })
 		expect(result.diagnostics.map((d) => d.rule)).toEqual(["slot-record-missing"])
 		expect(provider.calls).toHaveLength(0)
 	})
 
 	it("rejects a record taken against other params as slot-record-stale, with no model call", async () => {
 		const source = workspace()
-		const recorded = await runAction({
+		const recorded = await runRecipe({
 			registry: source.registry,
-			module: "hello",
-			action: "greet",
+			pack: "hello",
+			recipe: "greet",
 			params: { name: "Grace" },
 			provider: fakeProvider("For Grace."),
 		})
 		const { registry } = workspace()
 		const provider = fakeProvider()
-		const result = await runAction({ registry, ...RUN, provider, slots: { mode: "replay", records: recorded.slots } })
+		const result = await runRecipe({ registry, ...RUN, provider, slots: { mode: "replay", records: recorded.slots } })
 		expect(result.ok).toBe(false)
 		expect(result.diagnostics.map((d) => d.rule)).toEqual(["slot-record-stale"])
 		expect(provider.calls).toHaveLength(0)
@@ -120,23 +120,23 @@ describe("replay is strict", () => {
 
 	it("rejects a record whose value does not fit the slot schema", async () => {
 		const source = workspace()
-		const recorded = await runAction({ registry: source.registry, ...RUN, provider: fakeProvider("ok") })
+		const recorded = await runRecipe({ registry: source.registry, ...RUN, provider: fakeProvider("ok") })
 		const bad = recorded.slots.map((r) => ({ ...r, value: "x".repeat(500) })) // slot max is 80 chars
 		const { registry } = workspace()
-		const result = await runAction({ registry, ...RUN, slots: { mode: "replay", records: bad } })
+		const result = await runRecipe({ registry, ...RUN, slots: { mode: "replay", records: bad } })
 		expect(result.ok).toBe(false)
 		expect(result.diagnostics.map((d) => d.rule)).toEqual(["slot-fill-invalid"])
 	})
 
 	it("never reads or writes the slot store", async () => {
 		const { registry } = workspace()
-		const recorded = await runAction({
+		const recorded = await runRecipe({
 			registry: workspace().registry,
 			...RUN,
 			provider: fakeProvider("From records."),
 		})
 		const store = spyStore(createMemorySlotStore())
-		const result = await runAction({ registry, ...RUN, store, slots: { mode: "replay", records: recorded.slots } })
+		const result = await runRecipe({ registry, ...RUN, store, slots: { mode: "replay", records: recorded.slots } })
 		expect(result.ok).toBe(true)
 		expect(store.reads).toEqual([])
 		expect(store.writes).toEqual([])
@@ -148,9 +148,9 @@ describe("live and record modes", () => {
 		const { registry } = workspace()
 		const store = createMemorySlotStore()
 		const first = fakeProvider("Cached sentence.")
-		await runAction({ registry, ...RUN, provider: first, store })
+		await runRecipe({ registry, ...RUN, provider: first, store })
 		const second = fakeProvider("Different sentence.")
-		const result = await runAction({ registry, ...RUN, provider: second, store })
+		const result = await runRecipe({ registry, ...RUN, provider: second, store })
 		expect(second.calls).toHaveLength(0)
 		expect(result.slots[0]).toMatchObject({ source: "cache", value: "Cached sentence." })
 	})
@@ -158,22 +158,22 @@ describe("live and record modes", () => {
 	it("record always asks the model, ignores the cache, and refreshes it", async () => {
 		const { registry } = workspace()
 		const store = createMemorySlotStore()
-		await runAction({ registry, ...RUN, provider: fakeProvider("Old."), store })
+		await runRecipe({ registry, ...RUN, provider: fakeProvider("Old."), store })
 		const fresh = fakeProvider("New.")
-		const result = await runAction({ registry, ...RUN, provider: fresh, store, slots: { mode: "record" } })
+		const result = await runRecipe({ registry, ...RUN, provider: fresh, store, slots: { mode: "record" } })
 		expect(fresh.calls).toHaveLength(1)
 		expect(result.slots[0]).toMatchObject({ source: "llm", value: "New." })
 
-		const later = await runAction({ registry, ...RUN, store })
+		const later = await runRecipe({ registry, ...RUN, store })
 		expect(later.slots[0]).toMatchObject({ source: "cache", value: "New." })
 	})
 
-	it("record without a provider is slot-no-provider, not a cache hit", async () => {
+	it("record without a provider is slots-open, not a cache hit", async () => {
 		const { registry } = workspace()
 		const store = createMemorySlotStore()
-		await runAction({ registry, ...RUN, provider: fakeProvider("Warm."), store })
-		const result = await runAction({ registry, ...RUN, store, slots: { mode: "record" } })
-		expect(result.diagnostics.map((d) => d.rule)).toEqual(["slot-no-provider"])
+		await runRecipe({ registry, ...RUN, provider: fakeProvider("Warm."), store })
+		const result = await runRecipe({ registry, ...RUN, store, slots: { mode: "record" } })
+		expect(result.diagnostics.map((d) => d.rule)).toEqual(["slots-open"])
 	})
 
 	it("reports a provider failure as slot-provider-error", async () => {
@@ -182,14 +182,14 @@ describe("live and record modes", () => {
 		provider.chat = async () => {
 			throw new Error("connection refused")
 		}
-		const result = await runAction({ registry, ...RUN, provider })
+		const result = await runRecipe({ registry, ...RUN, provider })
 		expect(result.diagnostics.map((d) => d.rule)).toEqual(["slot-provider-error"])
 		expect(result.diagnostics[0]?.message).toContain("connection refused")
 	})
 
 	it("reports a model answer that breaks the slot schema as slot-fill-invalid", async () => {
 		const { registry } = workspace()
-		const result = await runAction({ registry, ...RUN, provider: fakeProvider(["not", "a", "string"]) })
+		const result = await runRecipe({ registry, ...RUN, provider: fakeProvider(["not", "a", "string"]) })
 		expect(result.diagnostics.map((d) => d.rule)).toEqual(["slot-fill-invalid"])
 	})
 })

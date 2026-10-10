@@ -12,8 +12,8 @@
  *     `^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$`
  *   - with the leading-`v` prefix: `^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-...)?(?:\+...)?$`
  *
- * The published tag becomes the version string on the module
- * (`module_versions.version`); version 1.0.0 and 1.0.0-rc.1 are
+ * The published tag becomes the version string on the pack
+ * (`pack_versions.version`); version 1.0.0 and 1.0.0-rc.1 are
  * both valid semver and both should pass.
  */
 

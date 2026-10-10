@@ -1,0 +1,254 @@
+{
+	"$id": "https://baka.dev/schemas/baka.preview/1",
+	"title": "baka.preview/1",
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"type": "object",
+	"properties": {
+		"schema": {
+			"type": "string",
+			"const": "baka.preview/1"
+		},
+		"pack": {
+			"type": "string"
+		},
+		"recipe": {
+			"type": "string"
+		},
+		"description": {
+			"type": "string"
+		},
+		"params": {
+			"type": "array",
+			"items": {
+				"$ref": "#/definitions/__schema0"
+			}
+		},
+		"requiresReasoning": {
+			"type": "boolean"
+		},
+		"filePatterns": {
+			"type": "array",
+			"items": {
+				"type": "string"
+			}
+		},
+		"files": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"rel": {
+						"type": "string"
+					},
+					"source": {
+						"type": "string"
+					},
+					"when": {
+						"type": "string"
+					},
+					"mode": {
+						"type": "string"
+					}
+				},
+				"required": [
+					"rel",
+					"source"
+				]
+			}
+		},
+		"slots": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1
+					},
+					"kind": {
+						"type": "string",
+						"enum": [
+							"prose",
+							"ident",
+							"list",
+							"json"
+						]
+					},
+					"hint": {
+						"type": "string"
+					},
+					"file": {
+						"type": "string",
+						"minLength": 1
+					},
+					"max": {
+						"type": "integer",
+						"exclusiveMinimum": 0,
+						"maximum": 9007199254740991
+					},
+					"item": {
+						"type": "string"
+					},
+					"schemaPath": {
+						"type": "string"
+					},
+					"templateKey": {
+						"type": "string"
+					}
+				},
+				"required": [
+					"id",
+					"kind",
+					"hint",
+					"file",
+					"templateKey"
+				]
+			}
+		}
+	},
+	"required": [
+		"schema",
+		"pack",
+		"recipe",
+		"description",
+		"params",
+		"requiresReasoning",
+		"filePatterns",
+		"files",
+		"slots"
+	],
+	"definitions": {
+		"__schema0": {
+			"type": "object",
+			"properties": {
+				"type": {
+					"type": "string",
+					"enum": [
+						"string",
+						"boolean",
+						"number",
+						"enum",
+						"array",
+						"object"
+					]
+				},
+				"enumValues": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				},
+				"default": {},
+				"items": {
+					"$ref": "#/definitions/__schema1"
+				},
+				"properties": {
+					"type": "array",
+					"items": {
+						"$ref": "#/definitions/__schema0"
+					}
+				},
+				"pattern": {
+					"type": "string"
+				},
+				"minLength": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 9007199254740991
+				},
+				"maxLength": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 9007199254740991
+				},
+				"format": {
+					"type": "string",
+					"enum": [
+						"slug",
+						"path-segment",
+						"relative-path",
+						"identifier",
+						"package-name"
+					]
+				},
+				"name": {
+					"type": "string",
+					"minLength": 1
+				},
+				"required": {
+					"type": "boolean"
+				},
+				"description": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"type",
+				"name",
+				"required",
+				"description"
+			]
+		},
+		"__schema1": {
+			"type": "object",
+			"properties": {
+				"type": {
+					"type": "string",
+					"enum": [
+						"string",
+						"boolean",
+						"number",
+						"enum",
+						"array",
+						"object"
+					]
+				},
+				"enumValues": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				},
+				"default": {},
+				"items": {
+					"$ref": "#/definitions/__schema1"
+				},
+				"properties": {
+					"type": "array",
+					"items": {
+						"$ref": "#/definitions/__schema0"
+					}
+				},
+				"pattern": {
+					"type": "string"
+				},
+				"minLength": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 9007199254740991
+				},
+				"maxLength": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 9007199254740991
+				},
+				"format": {
+					"type": "string",
+					"enum": [
+						"slug",
+						"path-segment",
+						"relative-path",
+						"identifier",
+						"package-name"
+					]
+				},
+				"description": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"type"
+			]
+		}
+	}
+}

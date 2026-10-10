@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
-	getActionPreview,
 	getCatalog,
-	getModuleDetail,
+	getPackDetail,
 	getPreviewList,
+	getRecipePreview,
 	getVersionDetail,
 	RegistryError,
 } from "./registry"
@@ -65,17 +65,17 @@ describe("resolveBaseUrl", () => {
 })
 
 describe("getCatalog", () => {
-	it("returns the parsed modules array from a well-formed response", async () => {
+	it("returns the parsed packs array from a well-formed response", async () => {
 		const { calls } = installFetchStub([
 			new Response(
 				JSON.stringify({
-					modules: [
+					packs: [
 						{
 							scope: "baka",
 							name: "widget",
 							tier: "official",
 							visibility: "public",
-							description: "A sample catalog module.",
+							description: "A sample catalog pack.",
 							latestVersion: "0.1.0",
 							latestStatus: "ready",
 						},
@@ -84,7 +84,7 @@ describe("getCatalog", () => {
 							name: "gadget",
 							tier: "official",
 							visibility: "public",
-							description: "Another sample catalog module.",
+							description: "Another sample catalog pack.",
 							latestVersion: "0.2.0",
 							latestStatus: "ready",
 						},
@@ -98,15 +98,15 @@ describe("getCatalog", () => {
 		expect(result[0]?.name).toBe("widget")
 		expect(result[1]?.tier).toBe("official")
 		expect(calls).toHaveLength(1)
-		expect(calls[0]?.url).toBe("http://localhost:4300/v1/modules")
+		expect(calls[0]?.url).toBe("http://localhost:4300/v1/packs")
 	})
 
 	it("requests with the explicit baseUrl override when supplied", async () => {
 		const { calls } = installFetchStub([
-			new Response(JSON.stringify({ modules: [] }), { status: 200, headers: { "content-type": "application/json" } }),
+			new Response(JSON.stringify({ packs: [] }), { status: 200, headers: { "content-type": "application/json" } }),
 		])
 		await getCatalog("http://127.0.0.1:4315")
-		expect(calls[0]?.url).toBe("http://127.0.0.1:4315/v1/modules")
+		expect(calls[0]?.url).toBe("http://127.0.0.1:4315/v1/packs")
 	})
 
 	it("raises a RegistryError with the URL when the network call fails", async () => {
@@ -114,7 +114,7 @@ describe("getCatalog", () => {
 		await expect(getCatalog("http://127.0.0.1:4300")).rejects.toMatchObject({
 			name: "RegistryError",
 			code: "network",
-			url: "http://127.0.0.1:4300/v1/modules",
+			url: "http://127.0.0.1:4300/v1/packs",
 		})
 	})
 
@@ -124,7 +124,7 @@ describe("getCatalog", () => {
 			name: "RegistryError",
 			code: "not-found",
 			status: 404,
-			url: "http://localhost:4300/v1/modules",
+			url: "http://localhost:4300/v1/packs",
 		})
 	})
 
@@ -146,7 +146,7 @@ describe("getCatalog", () => {
 	})
 
 	it("raises a parse RegistryError when the JSON body fails the schema", async () => {
-		installFetchStub([new Response(JSON.stringify({ modules: "this should be an array" }), { status: 200 })])
+		installFetchStub([new Response(JSON.stringify({ packs: "this should be an array" }), { status: 200 })])
 		await expect(getCatalog("http://localhost:4300")).rejects.toMatchObject({
 			name: "RegistryError",
 			code: "parse",
@@ -165,12 +165,12 @@ describe("getCatalog", () => {
 	})
 
 	it("returns an empty array when the catalog is genuinely empty", async () => {
-		installFetchStub([new Response(JSON.stringify({ modules: [] }), { status: 200 })])
+		installFetchStub([new Response(JSON.stringify({ packs: [] }), { status: 200 })])
 		await expect(getCatalog("http://localhost:4300")).resolves.toEqual([])
 	})
 })
 
-describe("getModuleDetail", () => {
+describe("getPackDetail", () => {
 	it("encodes the scope and name into the path", async () => {
 		const { calls } = installFetchStub([
 			new Response(
@@ -186,14 +186,14 @@ describe("getModuleDetail", () => {
 				{ status: 200, headers: { "content-type": "application/json" } },
 			),
 		])
-		const result = await getModuleDetail("acme", "weird/name with spaces", "http://localhost:4300")
+		const result = await getPackDetail("acme", "weird/name with spaces", "http://localhost:4300")
 		expect(result.scope).toBe("acme")
-		expect(calls[0]?.url).toBe("http://localhost:4300/v1/modules/acme/weird%2Fname%20with%20spaces")
+		expect(calls[0]?.url).toBe("http://localhost:4300/v1/packs/acme/weird%2Fname%20with%20spaces")
 	})
 
 	it("raises a not-found RegistryError on 404", async () => {
 		installFetchStub([new Response("{}", { status: 404 })])
-		await expect(getModuleDetail("acme", "ghost", "http://localhost:4300")).rejects.toMatchObject({
+		await expect(getPackDetail("acme", "ghost", "http://localhost:4300")).rejects.toMatchObject({
 			name: "RegistryError",
 			code: "not-found",
 			status: 404,
@@ -220,8 +220,8 @@ describe("getVersionDetail", () => {
 						description: "",
 						dependencies: [],
 						conflictsWith: [],
-						moduleValidators: [],
-						actions: [],
+						packValidators: [],
+						recipes: [],
 					},
 					screening: null,
 					artifacts: [],
@@ -232,7 +232,7 @@ describe("getVersionDetail", () => {
 		])
 		const result = await getVersionDetail("baka", "widget", "0.1.0", "http://localhost:4300")
 		expect(result.version).toBe("0.1.0")
-		expect(calls[0]?.url).toBe("http://localhost:4300/v1/modules/baka/widget/0.1.0")
+		expect(calls[0]?.url).toBe("http://localhost:4300/v1/packs/baka/widget/0.1.0")
 	})
 })
 
@@ -245,7 +245,7 @@ describe("getPreviewList", () => {
 			}),
 		])
 		await getPreviewList("baka", "widget", "0.1.0", "http://localhost:4300")
-		expect(calls[0]?.url).toBe("http://localhost:4300/v1/modules/baka/widget/0.1.0/previews")
+		expect(calls[0]?.url).toBe("http://localhost:4300/v1/packs/baka/widget/0.1.0/previews")
 	})
 
 	it("returns the parsed preview entries (rendered + needs-llm)", async () => {
@@ -254,11 +254,11 @@ describe("getPreviewList", () => {
 				JSON.stringify({
 					previews: [
 						{
-							actionId: "greet",
+							recipeId: "greet",
 							state: "rendered",
 							files: [{ path: "package.json", size: 42, sha256: "deadbeef" }],
 						},
-						{ actionId: "compose", state: "needs-llm" },
+						{ recipeId: "compose", state: "needs-llm" },
 					],
 				}),
 				{ status: 200, headers: { "content-type": "application/json" } },
@@ -281,34 +281,34 @@ describe("getPreviewList", () => {
 	})
 })
 
-describe("getActionPreview", () => {
-	it("encodes the action id into the previews/:actionId path", async () => {
+describe("getRecipePreview", () => {
+	it("encodes the recipe id into the previews/:recipeId path", async () => {
 		const { calls } = installFetchStub([
 			new Response(
 				JSON.stringify({
-					actionId: "greet",
+					recipeId: "greet",
 					state: "rendered",
 					files: [{ path: "package.json", content: "{}", size: 2, sha256: "deadbeef" }],
 				}),
 				{ status: 200, headers: { "content-type": "application/json" } },
 			),
 		])
-		await getActionPreview("baka", "widget", "0.1.0", "greet", "http://localhost:4300")
-		expect(calls[0]?.url).toBe("http://localhost:4300/v1/modules/baka/widget/0.1.0/previews/greet")
+		await getRecipePreview("baka", "widget", "0.1.0", "greet", "http://localhost:4300")
+		expect(calls[0]?.url).toBe("http://localhost:4300/v1/packs/baka/widget/0.1.0/previews/greet")
 	})
 
 	it("parses the needs-llm state with no files carrier", async () => {
 		installFetchStub([
 			new Response(
 				JSON.stringify({
-					actionId: "compose",
+					recipeId: "compose",
 					state: "needs-llm",
-					reason: "action skipped because it requires LLM reasoning",
+					reason: "recipe skipped because it requires LLM reasoning",
 				}),
 				{ status: 200, headers: { "content-type": "application/json" } },
 			),
 		])
-		const result = await getActionPreview("baka", "widget", "0.1.0", "compose", "http://localhost:4300")
+		const result = await getRecipePreview("baka", "widget", "0.1.0", "compose", "http://localhost:4300")
 		expect(result.state).toBe("needs-llm")
 		expect(result.reason).toContain("LLM reasoning")
 		expect(result.files).toBeUndefined()
@@ -318,25 +318,25 @@ describe("getActionPreview", () => {
 		installFetchStub([
 			new Response(
 				JSON.stringify({
-					actionId: "compose",
+					recipeId: "compose",
 					state: "needs-llm",
-					reason: "action skipped because it requires LLM reasoning",
+					reason: "recipe skipped because it requires LLM reasoning",
 					files: [{ path: "specs/mission.md", content: "# Mission\n", size: 11, sha256: "feedface" }],
 				}),
 				{ status: 200, headers: { "content-type": "application/json" } },
 			),
 		])
-		const result = await getActionPreview("baka", "widget", "0.1.0", "compose", "http://localhost:4300")
+		const result = await getRecipePreview("baka", "widget", "0.1.0", "compose", "http://localhost:4300")
 		expect(result.state).toBe("needs-llm")
 		expect(result.files).toHaveLength(1)
 		expect(result.files?.[0]?.path).toBe("specs/mission.md")
 	})
 
-	it("raises a not-found RegistryError when the action has no preview record", async () => {
+	it("raises a not-found RegistryError when the recipe has no preview record", async () => {
 		installFetchStub([
-			new Response(JSON.stringify({ error: "no preview record for action 'missing'" }), { status: 404 }),
+			new Response(JSON.stringify({ error: "no preview record for recipe 'missing'" }), { status: 404 }),
 		])
-		await expect(getActionPreview("baka", "widget", "0.1.0", "missing", "http://localhost:4300")).rejects.toMatchObject(
+		await expect(getRecipePreview("baka", "widget", "0.1.0", "missing", "http://localhost:4300")).rejects.toMatchObject(
 			{
 				name: "RegistryError",
 				code: "not-found",

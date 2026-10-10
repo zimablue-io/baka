@@ -1,10 +1,11 @@
 import { randomBytes } from "node:crypto"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import { BAKA_EXIT_CODE } from "@repo/protocol"
+import { die } from "../die"
 import {
-	getActionPreview,
-	getModuleDetail,
-	getModulePreviews,
+	getPackDetail,
+	getPackPreviews,
+	getRecipePreview,
 	getVersionDetail,
 	maskApiKey,
 	RegistryHttpError,
@@ -29,11 +30,6 @@ import { readRegistryCredential, readRegistryCredentials, writeRegistryCredentia
  * in `${BAKA_HOME:-$HOME/.baka}/config.json` (decision 33). Keys are
  * never echoed in any output or log (VAL-DISC-033).
  */
-
-function die(code: number, msg: string): never {
-	process.stderr.write(`baka: ${msg}\n`)
-	process.exit(code)
-}
 
 function resolveRegistryUrl(flagValue: string | undefined): string {
 	return resolveSingleRegistryUrl(flagValue)
@@ -72,18 +68,18 @@ async function loginWithToken(token: string, baseUrl: string): Promise<void> {
 	} catch (err) {
 		if (err instanceof RegistryTransportError) {
 			die(
-				BAKA_EXIT_CODE.ENGINE_ERROR,
+				BAKA_EXIT_CODE.FAILED,
 				`cannot verify key: registry unreachable at ${baseUrl} (${err.message.split(":").slice(-1)[0]?.trim() ?? "transport failure"})`,
 			)
 		}
 		if (err instanceof RegistryHttpError) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, `cannot verify key: registry returned HTTP ${err.status}`)
+			die(BAKA_EXIT_CODE.FAILED, `cannot verify key: registry returned HTTP ${err.status}`)
 		}
 		throw err
 	}
 	if (!identity) {
 		die(
-			BAKA_EXIT_CODE.USER_ERROR,
+			BAKA_EXIT_CODE.BAD_INPUT,
 			`registry at ${baseUrl} rejected the key (HTTP 401). Run \`baka registry login --token <key>\` with a valid key from \`POST /api/auth/api-key/create\`.`,
 		)
 	}
@@ -121,20 +117,20 @@ async function loginWithBrowserFlow(baseUrl: string): Promise<void> {
 	if (!received) {
 		stopCallbackServer()
 		die(
-			BAKA_EXIT_CODE.USER_ERROR,
+			BAKA_EXIT_CODE.BAD_INPUT,
 			`login not completed: timed out waiting for the registry to redirect back to ${callbackUrl}. Run \`baka registry login --token <key>\` to paste a key directly.`,
 		)
 	}
 	stopCallbackServer()
 	if (received.state !== state) {
 		die(
-			BAKA_EXIT_CODE.USER_ERROR,
+			BAKA_EXIT_CODE.BAD_INPUT,
 			`login not completed: state mismatch (expected ${state}, got ${received.state ?? "<missing>"}). Run \`baka registry login --token <key>\` to paste a key directly.`,
 		)
 	}
 	if (!received.apiKey) {
 		die(
-			BAKA_EXIT_CODE.USER_ERROR,
+			BAKA_EXIT_CODE.BAD_INPUT,
 			`login not completed: the registry's redirect did not include an API key. Run \`baka registry login --token <key>\` to paste a key directly.`,
 		)
 	}
@@ -246,7 +242,7 @@ export async function runRegistryWhoami(opts: WhoamiOptions): Promise<void> {
 	const baseUrl = resolveRegistryUrl(opts.registry)
 	const credential = readRegistryCredential(baseUrl)
 	if (!credential) {
-		die(BAKA_EXIT_CODE.USER_ERROR, `no credential stored for ${baseUrl}. Run \`baka registry login\` to authenticate.`)
+		die(BAKA_EXIT_CODE.BAD_INPUT, `no credential stored for ${baseUrl}. Run \`baka registry login\` to authenticate.`)
 	}
 	let identity: Awaited<ReturnType<typeof whoami>>
 	try {
@@ -254,18 +250,18 @@ export async function runRegistryWhoami(opts: WhoamiOptions): Promise<void> {
 	} catch (err) {
 		if (err instanceof RegistryTransportError) {
 			die(
-				BAKA_EXIT_CODE.ENGINE_ERROR,
+				BAKA_EXIT_CODE.FAILED,
 				`registry at ${baseUrl} is unreachable: ${err.message.split(":").slice(-1)[0]?.trim() ?? "transport failure"}`,
 			)
 		}
 		if (err instanceof RegistryHttpError) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, `registry at ${baseUrl} returned HTTP ${err.status}`)
+			die(BAKA_EXIT_CODE.FAILED, `registry at ${baseUrl} returned HTTP ${err.status}`)
 		}
 		throw err
 	}
 	if (!identity) {
 		die(
-			BAKA_EXIT_CODE.USER_ERROR,
+			BAKA_EXIT_CODE.BAD_INPUT,
 			`credential for ${baseUrl} was rejected by the registry (HTTP 401). Run \`baka registry login --token <key>\` to re-authenticate.`,
 		)
 	}
@@ -305,11 +301,11 @@ export function runRegistryList(): void {
 // cli-info-preview; VAL-DISC-030).
 //
 // Prints the served manifest, versions list, and screening verdict for
-// a module WITHOUT installing it. Field-for-field equal to the
+// a pack WITHOUT installing it. Field-for-field equal to the
 // registry's two endpoints:
-//   - `GET /v1/modules/<scope>/<name>` (scope, name, tier, visibility,
+//   - `GET /v1/packs/<scope>/<name>` (scope, name, tier, visibility,
 //     description, latestVersion, versions[])
-//   - `GET /v1/modules/<scope>/<name>/<latestVersion>` (manifest + screening)
+//   - `GET /v1/packs/<scope>/<name>/<latestVersion>` (manifest + screening)
 //
 // `--json` emits the combined payload as a single JSON object. The
 // payload is schema-parseable: a stable shape consumers can branch on
@@ -318,8 +314,8 @@ export function runRegistryList(): void {
 // command — see `resolveSingleRegistryUrl`).
 //
 // Auth (VAL-AUTH-003, decision 23): the CLI sends the stored
-// per-registry credential when present. Public modules are reachable
-// without a credential; org-visibility modules need membership. The
+// per-registry credential when present. Public packs are reachable
+// without a credential; org-visibility packs need membership. The
 // CLI matches the registry's uniform 404 envelope for non-members —
 // the existence-leak guard from the read surface carries through.
 // ---------------------------------------------------------------------------
@@ -337,7 +333,7 @@ export function runRegistryList(): void {
  *
  * The `info` command accepts the same shapes; the `preview` command
  * additionally requires an explicit `@<version>` (a preview is
- * per-version, so the bare-module case is rejected with a usage
+ * per-version, so the bare-pack case is rejected with a usage
  * error).
  */
 interface InfoSpec {
@@ -384,7 +380,7 @@ function parseRegistryInfoSpec(spec: string): InfoSpec {
 		const scope = inner.slice(0, slash)
 		const name = inner.slice(slash + 1)
 		if (!/^[a-z0-9][a-z0-9._-]*$/i.test(scope) || !/^[a-z0-9][a-z0-9._-]*$/i.test(name)) {
-			throw new Error(`registry spec '${trimmed}' has an invalid scope or module name`)
+			throw new Error(`registry spec '${trimmed}' has an invalid scope or pack name`)
 		}
 		return { scope, name, pinnedVersion }
 	}
@@ -393,7 +389,7 @@ function parseRegistryInfoSpec(spec: string): InfoSpec {
 		throw new Error(`registry spec '${trimmed}' is malformed; bare-name specs take no '/' (use '@<scope>/<name>')`)
 	}
 	if (!/^[a-z0-9][a-z0-9._-]*$/i.test(inner)) {
-		throw new Error(`registry spec '${trimmed}' has an invalid module name`)
+		throw new Error(`registry spec '${trimmed}' has an invalid pack name`)
 	}
 	return { scope: "baka", name: inner, pinnedVersion }
 }
@@ -417,7 +413,7 @@ interface InfoPayload {
 }
 
 /**
- * Fetches module-detail + (latest) version-detail for `info`. The
+ * Fetches pack-detail + (latest) version-detail for `info`. The
  * two endpoints are called separately so the served payload is
  * byte-equal to the registry's two responses (the contract
  * compares the CLI's `--json` payload to the curl responses
@@ -429,7 +425,7 @@ async function fetchInfoPayload(opts: {
 	apiKey?: string
 	fetchImpl?: typeof fetch
 }): Promise<{ payload: InfoPayload; resolvedVersion: string | null }> {
-	const detail = await getModuleDetail({
+	const detail = await getPackDetail({
 		baseUrl: opts.baseUrl,
 		scope: opts.spec.scope,
 		name: opts.spec.name,
@@ -437,7 +433,7 @@ async function fetchInfoPayload(opts: {
 		fetchImpl: opts.fetchImpl,
 	})
 	if (detail === null) {
-		throw new Error(`not found: module '${opts.spec.scope}/${opts.spec.name}' is not served by this registry`)
+		throw new Error(`not found: pack '${opts.spec.scope}/${opts.spec.name}' is not served by this registry`)
 	}
 	const resolvedVersion = opts.spec.pinnedVersion ?? detail.latestVersion
 	let manifest: Record<string, unknown> | null = null
@@ -475,11 +471,11 @@ async function fetchInfoPayload(opts: {
 /**
  * Renders the `info` payload as a human-readable block. Field
  * order matches the registry's two endpoints so the surface is
- * greppable; the `Actions:` block iterates the manifest's actions
+ * greppable; the `Recipes:` block iterates the manifest's recipes
  * with their params (the contract requires params + descriptions).
  */
 function printInfoHuman(payload: InfoPayload, resolvedVersion: string | null): void {
-	console.log(`module:    @${payload.scope}/${payload.name}`)
+	console.log(`pack:    @${payload.scope}/${payload.name}`)
 	console.log(`tier:      ${payload.tier}`)
 	console.log(`visibility:${payload.visibility}`)
 	console.log(`description:`)
@@ -499,18 +495,18 @@ function printInfoHuman(payload: InfoPayload, resolvedVersion: string | null): v
 		console.log(`screening verdict: (not screened)`)
 	}
 	if (payload.manifest !== null) {
-		const actions = Array.isArray(payload.manifest.actions)
-			? (payload.manifest.actions as Array<Record<string, unknown>>)
+		const recipes = Array.isArray(payload.manifest.recipes)
+			? (payload.manifest.recipes as Array<Record<string, unknown>>)
 			: []
-		console.log(`actions:`)
-		for (const action of actions) {
-			const id = typeof action.id === "string" ? action.id : "?"
-			const description = typeof action.description === "string" ? action.description : ""
-			const requiresReasoning = action.requiresReasoning === true
+		console.log(`recipes:`)
+		for (const recipe of recipes) {
+			const id = typeof recipe.id === "string" ? recipe.id : "?"
+			const description = typeof recipe.description === "string" ? recipe.description : ""
+			const requiresReasoning = recipe.requiresReasoning === true
 			console.log(`  - ${id}${requiresReasoning ? "  [requires-llm]" : ""}`)
 			console.log(`      ${description}`)
-			if (Array.isArray(action.params)) {
-				for (const param of action.params as Array<Record<string, unknown>>) {
+			if (Array.isArray(recipe.params)) {
+				for (const param of recipe.params as Array<Record<string, unknown>>) {
 					const pname = typeof param.name === "string" ? param.name : "?"
 					const ptype = typeof param.type === "string" ? param.type : "?"
 					const pdesc = typeof param.description === "string" ? param.description : ""
@@ -527,7 +523,7 @@ export async function runRegistryInfo(spec: string, opts: InfoOptions = {}): Pro
 	try {
 		parsed = parseRegistryInfoSpec(spec)
 	} catch (err) {
-		die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
+		die(BAKA_EXIT_CODE.BAD_INPUT, err instanceof Error ? err.message : String(err))
 	}
 	const baseUrl = resolveSingleRegistryUrl(opts.registry)
 	const apiKey = readRegistryCredential(baseUrl)?.apiKey
@@ -544,16 +540,16 @@ export async function runRegistryInfo(spec: string, opts: InfoOptions = {}): Pro
 		resolvedVersion = result.resolvedVersion
 	} catch (err) {
 		if (err instanceof Error && err.message.startsWith("not found:")) {
-			die(BAKA_EXIT_CODE.USER_ERROR, err.message)
+			die(BAKA_EXIT_CODE.BAD_INPUT, err.message)
 		}
 		if (err instanceof RegistryTransportError) {
 			die(
-				BAKA_EXIT_CODE.ENGINE_ERROR,
+				BAKA_EXIT_CODE.FAILED,
 				`registry at ${baseUrl} is unreachable: ${err.message.split(":").slice(-1)[0]?.trim() ?? "transport failure"}`,
 			)
 		}
 		if (err instanceof RegistryHttpError) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, `registry at ${baseUrl} returned HTTP ${err.status}`)
+			die(BAKA_EXIT_CODE.FAILED, `registry at ${baseUrl} returned HTTP ${err.status}`)
 		}
 		throw err
 	}
@@ -565,44 +561,44 @@ export async function runRegistryInfo(spec: string, opts: InfoOptions = {}): Pro
 }
 
 // ---------------------------------------------------------------------------
-// baka registry preview <spec> [--action <id>] (architecture §8 decision 24,
+// baka registry preview <spec> [--recipe <id>] (architecture §8 decision 24,
 // milestone 5 cli-info-preview; VAL-DISC-031).
 //
-// Prints the served preview content per action WITHOUT installing
-// the module. Three states surface honestly:
-//   - `rendered`   — non-reasoning action; the bytes the action wrote
+// Prints the served preview content per recipe WITHOUT installing
+// the pack. Three states surface honestly:
+//   - `rendered`   — non-reasoning recipe; the bytes the recipe wrote
 //                    during dry-run are printed byte-equal to what
-//                    `GET .../previews/<actionId>` serves
+//                    `GET .../previews/<recipeId>` serves
 //                    (VAL-CROSS-020 determinism invariant).
-//   - `needs-llm`  — `requiresReasoning: true` action; an explicit
+//   - `needs-llm`  — `requiresReasoning: true` recipe; an explicit
 //                    `needs-llm` marker is printed and NO fabricated
 //                    code is shown (the contract pins "no fabricated
-//                    code for `requiresReasoning` actions").
+//                    code for `requiresReasoning` recipes").
 //   - empty list   — no preview records on the version (built-in
-//                    modules bypass screening per decision 31; org-
-//                    visibility modules skip screening per decision
+//                    packs bypass screening per decision 31; org-
+//                    visibility packs skip screening per decision
 //                    30); an explicit `no preview available` line
 //                    is printed, not an empty screen.
 //
-// `--action <id>` filters to a single action's preview; the CLI
-// fetches the per-action detail endpoint for the full file
+// `--recipe <id>` filters to a single recipe's preview; the CLI
+// fetches the per-recipe detail endpoint for the full file
 // contents. `--registry <url>` overrides the configured registry.
 //
-// The action list is fetched from the version-detail `manifest`
-// so the user sees ALL declared actions even when no preview
+// The recipe list is fetched from the version-detail `manifest`
+// so the user sees ALL declared recipes even when no preview
 // records exist for some of them (the `no preview available`
-// line is followed by the action ids the user could install +
+// line is followed by the recipe ids the user could install +
 // see previews for).
 // ---------------------------------------------------------------------------
 
 interface PreviewOptions {
 	registry?: string
 	json?: boolean
-	action?: string
+	recipe?: string
 	fetch?: typeof fetch
 }
 
-interface ManifestAction {
+interface ManifestRecipe {
 	id: string
 	description?: string
 	requiresReasoning?: boolean
@@ -613,9 +609,9 @@ interface PreviewPayload {
 	name: string
 	version: string
 	previews: Array<
-		| { actionId: string; state: "rendered"; files: Array<{ path: string; content: string; sha256: string }> }
+		| { recipeId: string; state: "rendered"; files: Array<{ path: string; content: string; sha256: string }> }
 		| {
-				actionId: string
+				recipeId: string
 				state: "needs-llm"
 				reason: string
 				files: Array<{ path: string; content: string; sha256: string }>
@@ -623,32 +619,32 @@ interface PreviewPayload {
 	>
 }
 
-async function fetchPreviewAction(opts: {
+async function fetchPreviewRecipe(opts: {
 	baseUrl: string
 	scope: string
 	name: string
 	version: string
-	actionId: string
+	recipeId: string
 	apiKey?: string
 	fetchImpl?: typeof fetch
 }): Promise<{
-	actionId: string
+	recipeId: string
 	state: "rendered" | "needs-llm"
 	reason?: string
 	files: Array<{ path: string; content: string; sha256: string }>
 } | null> {
-	const detail = await getActionPreview({
+	const detail = await getRecipePreview({
 		baseUrl: opts.baseUrl,
 		scope: opts.scope,
 		name: opts.name,
 		version: opts.version,
-		actionId: opts.actionId,
+		recipeId: opts.recipeId,
 		apiKey: opts.apiKey,
 		fetchImpl: opts.fetchImpl,
 	})
 	if (detail === null) return null
 	return {
-		actionId: detail.actionId,
+		recipeId: detail.recipeId,
 		state: detail.state,
 		reason: detail.reason,
 		files: detail.files ?? [],
@@ -656,7 +652,7 @@ async function fetchPreviewAction(opts: {
 }
 
 function printPreviewHumanSingle(payload: PreviewPayload, entry: PreviewPayload["previews"][number]): void {
-	console.log(`@${payload.scope}/${payload.name}@${payload.version}  action: ${entry.actionId}`)
+	console.log(`@${payload.scope}/${payload.name}@${payload.version}  recipe: ${entry.recipeId}`)
 	if (entry.state === "rendered") {
 		console.log(`  state: rendered`)
 		for (const file of entry.files) {
@@ -677,35 +673,35 @@ function printPreviewHumanSingle(payload: PreviewPayload, entry: PreviewPayload[
 function printPreviewHumanAll(opts: {
 	payload: PreviewPayload
 	previews: Array<{
-		actionId: string
+		recipeId: string
 		state: "rendered" | "needs-llm"
 		files?: Array<{ path: string; size: number; sha256: string }>
 	}>
-	manifestActions: ManifestAction[]
+	manifestRecipes: ManifestRecipe[]
 }): void {
 	console.log(`@${opts.payload.scope}/${opts.payload.name}@${opts.payload.version}`)
 	if (opts.previews.length === 0) {
 		console.log(`  no preview available`)
-		if (opts.manifestActions.length > 0) {
-			console.log(`  actions declared in manifest:`)
-			for (const a of opts.manifestActions) {
+		if (opts.manifestRecipes.length > 0) {
+			console.log(`  recipes declared in manifest:`)
+			for (const a of opts.manifestRecipes) {
 				const tag = a.requiresReasoning ? "  [needs-llm]" : ""
 				console.log(`    - ${a.id}${tag}`)
 			}
 		}
 		return
 	}
-	console.log(`  ${opts.previews.length} action previews:`)
+	console.log(`  ${opts.previews.length} recipe previews:`)
 	for (const p of opts.previews) {
 		if (p.state === "rendered") {
-			console.log(`  - ${p.actionId}  state: rendered`)
+			console.log(`  - ${p.recipeId}  state: rendered`)
 			if (p.files && p.files.length > 0) {
 				for (const file of p.files) {
 					console.log(`      ${file.path}  (sha256=${file.sha256}, size=${file.size})`)
 				}
 			}
 		} else {
-			console.log(`  - ${p.actionId}  state: needs-llm`)
+			console.log(`  - ${p.recipeId}  state: needs-llm`)
 			console.log(`      (requires LLM at apply time; no rendered code is shown)`)
 		}
 	}
@@ -716,25 +712,25 @@ export async function runRegistryPreview(spec: string, opts: PreviewOptions = {}
 	try {
 		parsed = parseRegistryInfoSpec(spec)
 	} catch (err) {
-		die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
+		die(BAKA_EXIT_CODE.BAD_INPUT, err instanceof Error ? err.message : String(err))
 	}
 	const baseUrl = resolveSingleRegistryUrl(opts.registry)
 	const apiKey = readRegistryCredential(baseUrl)?.apiKey
 
 	// When no version is pinned, resolve to the latest version
-	// via the module-detail endpoint (semver max of ready
+	// via the pack-detail endpoint (semver max of ready
 	// versions per architecture §4.5 + decision 11). The
 	// `[@<version>]` shape in decision 24 is OPTIONAL.
 	let resolvedVersion = parsed.pinnedVersion
-	let manifestActions: ManifestAction[] = []
+	let manifestRecipes: ManifestRecipe[] = []
 	let previews: Array<{
-		actionId: string
+		recipeId: string
 		state: "rendered" | "needs-llm"
 		files?: Array<{ path: string; size: number; sha256: string }>
 	}> = []
 	try {
 		if (resolvedVersion === null) {
-			const detail = await getModuleDetail({
+			const detail = await getPackDetail({
 				baseUrl,
 				scope: parsed.scope,
 				name: parsed.name,
@@ -742,14 +738,11 @@ export async function runRegistryPreview(spec: string, opts: PreviewOptions = {}
 				fetchImpl: opts.fetch,
 			})
 			if (detail === null) {
-				die(
-					BAKA_EXIT_CODE.USER_ERROR,
-					`not found: module '${parsed.scope}/${parsed.name}' is not served by this registry`,
-				)
+				die(BAKA_EXIT_CODE.BAD_INPUT, `not found: pack '${parsed.scope}/${parsed.name}' is not served by this registry`)
 			}
 			if (detail.latestVersion === null) {
 				die(
-					BAKA_EXIT_CODE.USER_ERROR,
+					BAKA_EXIT_CODE.BAD_INPUT,
 					`no installable version for '${parsed.scope}/${parsed.name}' (every version is non-ready)`,
 				)
 			}
@@ -765,14 +758,14 @@ export async function runRegistryPreview(spec: string, opts: PreviewOptions = {}
 		})
 		if (versionDetail === null) {
 			die(
-				BAKA_EXIT_CODE.USER_ERROR,
+				BAKA_EXIT_CODE.BAD_INPUT,
 				`not found: version '${parsed.scope}/${parsed.name}@${resolvedVersion}' is not served by this registry`,
 			)
 		}
-		const rawActions = Array.isArray(versionDetail.manifest.actions)
-			? (versionDetail.manifest.actions as Array<Record<string, unknown>>)
+		const rawRecipes = Array.isArray(versionDetail.manifest.recipes)
+			? (versionDetail.manifest.recipes as Array<Record<string, unknown>>)
 			: []
-		manifestActions = rawActions
+		manifestRecipes = rawRecipes
 			.filter((a): a is { id: string; description?: string; requiresReasoning?: boolean } => typeof a.id === "string")
 			.map((a) => ({
 				id: a.id,
@@ -780,20 +773,20 @@ export async function runRegistryPreview(spec: string, opts: PreviewOptions = {}
 				...(a.requiresReasoning === true ? { requiresReasoning: true } : {}),
 			}))
 
-		if (opts.action !== undefined && opts.action.length > 0) {
-			const detail = await fetchPreviewAction({
+		if (opts.recipe !== undefined && opts.recipe.length > 0) {
+			const detail = await fetchPreviewRecipe({
 				baseUrl,
 				scope: parsed.scope,
 				name: parsed.name,
 				version: resolvedVersion,
-				actionId: opts.action,
+				recipeId: opts.recipe,
 				apiKey,
 				fetchImpl: opts.fetch,
 			})
 			if (detail === null) {
 				die(
-					BAKA_EXIT_CODE.USER_ERROR,
-					`no preview record for action '${opts.action}' on ${parsed.scope}/${parsed.name}@${resolvedVersion}`,
+					BAKA_EXIT_CODE.BAD_INPUT,
+					`no preview record for recipe '${opts.recipe}' on ${parsed.scope}/${parsed.name}@${resolvedVersion}`,
 				)
 			}
 			const payload: PreviewPayload = {
@@ -803,14 +796,14 @@ export async function runRegistryPreview(spec: string, opts: PreviewOptions = {}
 				previews: [
 					detail.state === "rendered"
 						? {
-								actionId: detail.actionId,
+								recipeId: detail.recipeId,
 								state: "rendered",
 								files: detail.files,
 							}
 						: {
-								actionId: detail.actionId,
+								recipeId: detail.recipeId,
 								state: "needs-llm",
-								reason: detail.reason ?? "action skipped because it requires LLM reasoning",
+								reason: detail.reason ?? "recipe skipped because it requires LLM reasoning",
 								files: detail.files,
 							},
 				],
@@ -824,7 +817,7 @@ export async function runRegistryPreview(spec: string, opts: PreviewOptions = {}
 			return
 		}
 
-		previews = await getModulePreviews({
+		previews = await getPackPreviews({
 			baseUrl,
 			scope: parsed.scope,
 			name: parsed.name,
@@ -835,12 +828,12 @@ export async function runRegistryPreview(spec: string, opts: PreviewOptions = {}
 	} catch (err) {
 		if (err instanceof RegistryTransportError) {
 			die(
-				BAKA_EXIT_CODE.ENGINE_ERROR,
+				BAKA_EXIT_CODE.FAILED,
 				`registry at ${baseUrl} is unreachable: ${err.message.split(":").slice(-1)[0]?.trim() ?? "transport failure"}`,
 			)
 		}
 		if (err instanceof RegistryHttpError) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, `registry at ${baseUrl} returned HTTP ${err.status}`)
+			die(BAKA_EXIT_CODE.FAILED, `registry at ${baseUrl} returned HTTP ${err.status}`)
 		}
 		throw err
 	}
@@ -854,27 +847,27 @@ export async function runRegistryPreview(spec: string, opts: PreviewOptions = {}
 		}
 		for (const p of previews) {
 			if (p.state === "rendered") {
-				const detail = await fetchPreviewAction({
+				const detail = await fetchPreviewRecipe({
 					baseUrl,
 					scope: parsed.scope,
 					name: parsed.name,
 					version: resolvedVersion,
-					actionId: p.actionId,
+					recipeId: p.recipeId,
 					apiKey,
 					fetchImpl: opts.fetch,
 				})
 				if (detail !== null) {
 					payload.previews.push({
-						actionId: p.actionId,
+						recipeId: p.recipeId,
 						state: "rendered",
 						files: detail.files,
 					})
 				}
 			} else {
 				payload.previews.push({
-					actionId: p.actionId,
+					recipeId: p.recipeId,
 					state: "needs-llm",
-					reason: "action skipped because it requires LLM reasoning",
+					reason: "recipe skipped because it requires LLM reasoning",
 					files: [],
 				})
 			}
@@ -889,5 +882,5 @@ export async function runRegistryPreview(spec: string, opts: PreviewOptions = {}
 		version: resolvedVersion,
 		previews: [],
 	}
-	printPreviewHumanAll({ payload, previews, manifestActions })
+	printPreviewHumanAll({ payload, previews, manifestRecipes })
 }

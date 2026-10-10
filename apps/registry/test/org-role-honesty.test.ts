@@ -19,7 +19,7 @@ import { authedFetch, buildOrgTestStack, createApiKey, type OrgTestStack, signUp
  *         is not leaked to authenticated non-members; matches the
  *         detail-endpoint convention).
  *
- *  2. Member mutations on owner-only actions (delete org, update
+ *  2. Member mutations on owner-only recipes (delete org, update
  *     member role on someone else) remain 403 — not 401 — because
  *     the caller IS authenticated and IS a member; the failure is a
  *     genuine permission decision, not an authentication gap.

@@ -11,10 +11,10 @@ import { z } from "zod"
  * override the seeded defaults via the `REGISTRY_SEED_PLANS` env var,
  * applied at boot through `applySeedPlans`.
  *
- * `checkPlanLimit` is the seam future publish / invite / private-module
+ * `checkPlanLimit` is the seam future publish / invite / private-pack
  * routes call before they commit a write. The verdict carries enough
  * information for the caller to render an honest 403 body naming the
- * limit (`max_private_modules`, `max_members`, or `max_registries`)
+ * limit (`max_private_packs`, `max_members`, or `max_registries`)
  * and the org's current plan.
  */
 
@@ -22,15 +22,15 @@ const SEED_PLANS_BOOT_ORDER_HINT = "REGISTRY_SEED_PLANS"
 
 const SeedPlanEntrySchema = z.object({
 	plan: z.string().min(1),
-	max_private_modules: z.number().int().nonnegative(),
+	max_private_packs: z.number().int().nonnegative(),
 	max_members: z.number().int().nonnegative(),
 	max_registries: z.number().int().nonnegative(),
 })
 const SeedPlanListSchema = z.array(SeedPlanEntrySchema)
 
-const KNOWN_CAPABILITIES = new Set(["max_private_modules", "max_members", "max_registries"] as const)
+const KNOWN_CAPABILITIES = new Set(["max_private_packs", "max_members", "max_registries"] as const)
 
-export type PlanCapability = "max_private_modules" | "max_members" | "max_registries"
+export type PlanCapability = "max_private_packs" | "max_members" | "max_registries"
 
 type OkVerdict = {
 	ok: true
@@ -120,13 +120,13 @@ export async function applySeedPlans(pglite: PGlite, envValue: string | undefine
 	}
 	for (const entry of result.data) {
 		await pglite.query(
-			`INSERT INTO plan_limits (plan, max_private_modules, max_members, max_registries)
+			`INSERT INTO plan_limits (plan, max_private_packs, max_members, max_registries)
 			   VALUES ($1, $2, $3, $4)
 			 ON CONFLICT (plan) DO UPDATE
-			   SET max_private_modules = EXCLUDED.max_private_modules,
+			   SET max_private_packs = EXCLUDED.max_private_packs,
 			       max_members = EXCLUDED.max_members,
 			       max_registries = EXCLUDED.max_registries`,
-			[entry.plan, entry.max_private_modules, entry.max_members, entry.max_registries],
+			[entry.plan, entry.max_private_packs, entry.max_members, entry.max_registries],
 		)
 	}
 }
@@ -138,9 +138,9 @@ export async function applySeedPlans(pglite: PGlite, envValue: string | undefine
  * body naming the limit and the plan.
  *
  * `usage` semantics:
- *   - `max_private_modules`: `SELECT COUNT(*) FROM modules
+ *   - `max_private_packs`: `SELECT COUNT(*) FROM packs
  *     WHERE scope = $slug AND visibility = 'org' AND removed_at IS NULL`.
- *     Public modules and tombstoned modules do not count.
+ *     Public packs and tombstoned packs do not count.
  *   - `max_members`: `SELECT COUNT(*) FROM member
  *     WHERE organizationId = $orgId`.
  *   - `max_registries`: reserved for the multi-registry catalog
@@ -154,7 +154,7 @@ export async function applySeedPlans(pglite: PGlite, envValue: string | undefine
 export async function checkPlanLimit(pglite: PGlite, orgId: string, capability: string): Promise<PlanLimitVerdict> {
 	if (!KNOWN_CAPABILITIES.has(capability as PlanCapability)) {
 		throw new Error(
-			`checkPlanLimit: capability '${capability}' is not a known plan_limits column (expected max_private_modules, max_members, or max_registries)`,
+			`checkPlanLimit: capability '${capability}' is not a known plan_limits column (expected max_private_packs, max_members, or max_registries)`,
 		)
 	}
 	const cap = capability as PlanCapability
@@ -169,7 +169,7 @@ export async function checkPlanLimit(pglite: PGlite, orgId: string, capability: 
 	}
 
 	const limitRow = await pglite.query<Record<string, number>>(
-		`SELECT max_private_modules, max_members, max_registries
+		`SELECT max_private_packs, max_members, max_registries
 		   FROM plan_limits
 		  WHERE plan = $1`,
 		[org.plan],
@@ -200,10 +200,10 @@ export async function checkPlanLimit(pglite: PGlite, orgId: string, capability: 
 
 async function countUsage(pglite: PGlite, capability: PlanCapability, orgId: string, slug: string): Promise<number> {
 	switch (capability) {
-		case "max_private_modules": {
+		case "max_private_packs": {
 			const row = await pglite.query<{ count: string }>(
 				`SELECT COUNT(*)::text AS count
-				   FROM modules
+				   FROM packs
 				  WHERE scope = $1
 				    AND visibility = 'org'
 				    AND removed_at IS NULL`,

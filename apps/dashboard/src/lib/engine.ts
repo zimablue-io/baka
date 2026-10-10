@@ -8,7 +8,7 @@ export interface EngineParam {
 	enumValues?: string[]
 }
 
-export interface EngineAction {
+export interface EngineRecipe {
 	id: string
 	description?: string
 	params: EngineParam[]
@@ -16,11 +16,11 @@ export interface EngineAction {
 	filePatterns?: string[]
 }
 
-export interface EngineModule {
+export interface EnginePack {
 	name: string
 	version?: string
 	description?: string
-	actions: EngineAction[]
+	recipes: EngineRecipe[]
 }
 
 export interface EngineSlot {
@@ -33,8 +33,8 @@ export interface EngineSlot {
 }
 
 export interface EnginePreview {
-	module: string
-	action: string
+	pack: string
+	recipe: string
 	description?: string
 	params: EngineParam[]
 	requiresReasoning?: boolean
@@ -98,14 +98,14 @@ async function engineJson<T>(path: string, init?: RequestInit): Promise<T> {
 	return (await res.json()) as T
 }
 
-export async function fetchModules(project: string): Promise<EngineModule[]> {
+export async function fetchPacks(project: string): Promise<EnginePack[]> {
 	const q = projectQuery(project)
-	const body = await engineJson<{ modules?: EngineModule[] }>(`/v1/modules${q ? `?${q}` : ""}`)
-	return body.modules ?? []
+	const body = await engineJson<{ packs?: EnginePack[] }>(`/v1/packs${q ? `?${q}` : ""}`)
+	return body.packs ?? []
 }
 
-export async function fetchPreview(project: string, moduleName: string, action: string): Promise<EnginePreview> {
-	const parts = [`module=${encodeURIComponent(moduleName)}`, `action=${encodeURIComponent(action)}`]
+export async function fetchPreview(project: string, packName: string, recipe: string): Promise<EnginePreview> {
+	const parts = [`pack=${encodeURIComponent(packName)}`, `recipe=${encodeURIComponent(recipe)}`]
 	const q = projectQuery(project)
 	if (q) parts.push(q)
 	return engineJson<EnginePreview>(`/v1/preview?${parts.join("&")}`)
@@ -113,8 +113,8 @@ export async function fetchPreview(project: string, moduleName: string, action: 
 
 export async function fillSlot(
 	project: string,
-	moduleName: string,
-	action: string,
+	packName: string,
+	recipe: string,
 	slot: string,
 	value: unknown,
 	params: Record<string, unknown>,
@@ -124,8 +124,8 @@ export async function fillSlot(
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({
 			project: project.trim() || undefined,
-			module: moduleName,
-			action,
+			pack: packName,
+			recipe,
 			slot,
 			value,
 			params,
@@ -135,8 +135,8 @@ export async function fillSlot(
 
 export async function runNamed(
 	project: string,
-	moduleName: string,
-	action: string,
+	packName: string,
+	recipe: string,
 	params: Record<string, unknown>,
 ): Promise<RunResult> {
 	return engineJson<RunResult>("/v1/run", {
@@ -144,8 +144,8 @@ export async function runNamed(
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({
 			project: project.trim() || undefined,
-			module: moduleName,
-			action,
+			pack: packName,
+			recipe,
 			params,
 			includeContent: true,
 		}),

@@ -34,7 +34,7 @@ In scope:
 - Code execution, path traversal, or other RCE-class issues in the `baka` CLI, the `baka-mcp` MCP server, the API, or any package in this repo
 - Credential or secret leakage in the engine's local config (`~/.baka/`)
 - Provider boundary violations: any code outside `packages/agent-engine/` that imports a provider, HTTP client, or model name
-- Unsafe handling of module manifests, action templates, or validator inputs
+- Unsafe handling of pack manifests, recipe templates, or validator inputs
 
 Out of scope:
 
@@ -43,7 +43,7 @@ Out of scope:
 
 ## Safe-harbor
 
-We will not pursue legal action against researchers who:
+We will not pursue legal recipe against researchers who:
 
 - Make a good-faith effort to avoid privacy violations, data destruction, or service disruption
 - Only interact with accounts they own or with explicit permission from the owner

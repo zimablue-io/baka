@@ -5,7 +5,7 @@ import { authedFetch, buildOrgTestStack, createApiKey, type OrgTestStack, signUp
  * max_members plan-limit enforcement on the org invite + accept flow
  * (VAL-SELF-006 step 3 — user-testing round-1 fix).
  *
- * The publish route already enforces `max_private_modules` via
+ * The publish route already enforces `max_private_packs` via
  * `checkPlanLimit()` (apps/registry/src/publish/routes.ts). The org
  * invite + accept-invitation routes did NOT — an over-limit invite
  * returned 200, the member accepted, and the org ended at 3/2 members

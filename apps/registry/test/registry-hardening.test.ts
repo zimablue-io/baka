@@ -408,7 +408,7 @@ describe("0002_app_schema survives a mid-apply crash on a fresh data dir", () =>
 				  version TEXT PRIMARY KEY,
 				  applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 				);
-				CREATE TABLE modules (
+				CREATE TABLE packs (
 				  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 				  scope VARCHAR(64) NOT NULL,
 				  name VARCHAR(64) NOT NULL,
@@ -419,15 +419,15 @@ describe("0002_app_schema survives a mid-apply crash on a fresh data dir", () =>
 				  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 				  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 				  removed_at TIMESTAMPTZ,
-				  CONSTRAINT modules_scope_name_uniq UNIQUE (scope, name),
-				  CONSTRAINT modules_visibility_check CHECK (visibility IN ('public', 'org')),
-				  CONSTRAINT modules_tier_check CHECK (
+				  CONSTRAINT packs_scope_name_uniq UNIQUE (scope, name),
+				  CONSTRAINT packs_visibility_check CHECK (visibility IN ('public', 'org')),
+				  CONSTRAINT packs_tier_check CHECK (
 				    tier IN ('official', 'verified', 'community-screened', 'community-unverified')
 				  )
 				);
-				CREATE TABLE module_versions (
+				CREATE TABLE pack_versions (
 				  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-				  module_id UUID NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
+				  pack_id UUID NOT NULL REFERENCES packs(id) ON DELETE CASCADE,
 				  version VARCHAR(64) NOT NULL,
 				  commit_sha VARCHAR(64) NOT NULL,
 				  content_hash VARCHAR(64) NOT NULL,
@@ -436,12 +436,12 @@ describe("0002_app_schema survives a mid-apply crash on a fresh data dir", () =>
 				  error TEXT,
 				  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 				  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-				  CONSTRAINT module_versions_module_id_version_uniq UNIQUE (module_id, version),
-				  CONSTRAINT module_versions_status_check CHECK (
+				  CONSTRAINT pack_versions_pack_id_version_uniq UNIQUE (pack_id, version),
+				  CONSTRAINT pack_versions_status_check CHECK (
 				    status IN ('pending', 'ingesting', 'ready', 'failed')
 				  )
 				);
-				CREATE INDEX module_versions_content_hash_idx ON module_versions (content_hash);
+				CREATE INDEX pack_versions_content_hash_idx ON pack_versions (content_hash);
 			`)
 			await pglite.close()
 			pglite = null
@@ -460,8 +460,8 @@ describe("0002_app_schema survives a mid-apply crash on a fresh data dir", () =>
 				const names = tables.rows.map((r) => r.table_name)
 				expect(names).toEqual(
 					expect.arrayContaining([
-						"modules",
-						"module_versions",
+						"packs",
+						"pack_versions",
 						"artifacts",
 						"screening_results",
 						"plan_limits",

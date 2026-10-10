@@ -2,7 +2,7 @@
 -- VAL-SCAN-006 / 007 / 017).
 --
 -- Version: 0007_output_validation
--- Purpose: record the result of running each module's own
+-- Purpose: record the result of running each pack's own
 -- validators against the dry-run output, enforcing that the
 -- actual writes are a subset of the manifest's declared
 -- filePatterns, and running the declared output toolchain
@@ -11,7 +11,7 @@
 -- Design choices:
 --   - The `output_validation` jsonb column carries a discriminated
 --     payload:
---       - `{ ok: true, validators: { moduleValidators, actionValidators },
+--       - `{ ok: true, validators: { packValidators, recipeValidators },
 --                toolchains: [...], writesSubset: true }` on pass
 --       - `{ ok: false, step: "validator"|"writes-subset"|"toolchain",
 --                failure: <diagnostics> }` on fail

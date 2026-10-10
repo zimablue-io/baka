@@ -28,7 +28,7 @@ function cli(
 	return new Promise((resolve) => {
 		const child = spawn("node", [DIST_INDEX, ...argv], {
 			cwd,
-			env: { ...process.env, HOME: home, BAKA_HOME: home, XDG_CONFIG_HOME: home, BAKA_MODULE_DIRS: "" },
+			env: { ...process.env, HOME: home, BAKA_HOME: home, XDG_CONFIG_HOME: home, BAKA_PACK_DIRS: "" },
 		})
 		let stdout = ""
 		let stderr = ""
@@ -42,19 +42,19 @@ function cli(
 	})
 }
 
-it("replays a manual fill in a run with the same typed params when the action has defaults", async () => {
+it("replays a manual fill in a run with the same typed params when the recipe has defaults", async () => {
 	const project = tmp("baka-fillrun-")
 	const home = tmp("baka-fillrun-home-")
-	const root = join(project, "modules", "note")
+	const root = join(project, "packs", "note")
 	mkdirSync(join(root, "write", "templates"), { recursive: true })
 	writeFileSync(
 		join(root, "manifest.ts"),
 		`export const Manifest = { name: "note", version: "0.0.0", description: "x", dependencies: [], conflictsWith: [],
-  actions: [{ id: "write", description: "x", requiresReasoning: true, filePatterns: [], validators: [], params: [
+  recipes: [{ id: "write", description: "x", requiresReasoning: true, filePatterns: [], validators: [], params: [
     { name: "title", type: "string", required: true, description: "t" },
     { name: "infrastructure", type: "array", required: false, description: "t", items: { type: "string" }, default: [] },
     { name: "level", type: "number", required: false, description: "t", default: 1 },
-  ] }], moduleValidators: [] }
+  ] }], packValidators: [] }
 `,
 	)
 	writeFileSync(
@@ -77,15 +77,15 @@ it("replays a manual fill in a run with the same typed params when the action ha
 it("replays a template-matched slot fixture for any params, keyed by the templateKey `baka slots` reports", async () => {
 	const project = tmp("baka-fixture-")
 	const home = tmp("baka-fixture-home-")
-	const root = join(project, "modules", "note")
+	const root = join(project, "packs", "note")
 	mkdirSync(join(root, "write", "templates"), { recursive: true })
 	mkdirSync(join(root, "fixtures"), { recursive: true })
 	writeFileSync(
 		join(root, "manifest.ts"),
 		`export const Manifest = { name: "note", version: "0.0.0", description: "x", dependencies: [], conflictsWith: [],
-  actions: [{ id: "write", description: "x", requiresReasoning: true, filePatterns: [], validators: [], params: [
+  recipes: [{ id: "write", description: "x", requiresReasoning: true, filePatterns: [], validators: [], params: [
     { name: "title", type: "string", required: true, description: "t" },
-  ] }], moduleValidators: [] }
+  ] }], packValidators: [] }
 `,
 	)
 	writeFileSync(

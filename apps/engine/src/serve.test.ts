@@ -46,15 +46,15 @@ describe("resolveServeConfig", () => {
 		})
 	})
 
-	it("takes module directories from the flags (resolved against cwd) or from BAKA_MODULE_DIRS, flags first", () => {
-		expect(resolveServeConfig({ moduleDirs: ["cat", "/abs/cat"] }, {}, "/work").moduleDirs).toEqual([
+	it("takes pack directories from the flags (resolved against cwd) or from BAKA_PACK_DIRS, flags first", () => {
+		expect(resolveServeConfig({ packDirs: ["cat", "/abs/cat"] }, {}, "/work").packDirs).toEqual([
 			"/work/cat",
 			"/abs/cat",
 		])
-		const env = { BAKA_MODULE_DIRS: ["/a", "/b"].join(delimiter) }
-		expect(resolveServeConfig({}, env, "/work").moduleDirs).toEqual(["/a", "/b"])
-		expect(resolveServeConfig({ moduleDirs: ["/flag"] }, env, "/work").moduleDirs).toEqual(["/flag"])
-		expect(resolveServeConfig({}, {}, "/work").moduleDirs).toBeUndefined()
+		const env = { BAKA_PACK_DIRS: ["/a", "/b"].join(delimiter) }
+		expect(resolveServeConfig({}, env, "/work").packDirs).toEqual(["/a", "/b"])
+		expect(resolveServeConfig({ packDirs: ["/flag"] }, env, "/work").packDirs).toEqual(["/flag"])
+		expect(resolveServeConfig({}, {}, "/work").packDirs).toBeUndefined()
 	})
 
 	it("refuses a non-loopback bind without a token, and says how to fix it", () => {
@@ -98,15 +98,15 @@ describe("serveEngine", () => {
 		running.push(server)
 		expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
 
-		const denied = await fetch(`${server.url}/v1/modules`)
+		const denied = await fetch(`${server.url}/v1/packs`)
 		expect(denied.status).toBe(401)
-		const allowed = await fetch(`${server.url}/v1/modules`, { headers: { authorization: "Bearer s3cret-token" } })
+		const allowed = await fetch(`${server.url}/v1/packs`, { headers: { authorization: "Bearer s3cret-token" } })
 		expect(allowed.status).toBe(200)
 	})
 
 	it("serves without a token on loopback", async () => {
 		const server = await serveEngine(project(), { port: 0, host: "127.0.0.1", allowedRoots: [] })
 		running.push(server)
-		expect((await fetch(`${server.url}/v1/modules`)).status).toBe(200)
+		expect((await fetch(`${server.url}/v1/packs`)).status).toBe(200)
 	})
 })

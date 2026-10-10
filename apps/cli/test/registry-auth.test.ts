@@ -14,7 +14,7 @@
 //   VAL-DISC-001  login --token <key> stores per-registry credential, masked
 //   VAL-DISC-002  invalid token fails truthfully without writing config
 //   VAL-DISC-003  whoami with stored creds prints identity + registry URL
-//   VAL-DISC-004  whoami without creds exits 1 with an honest error
+//   VAL-DISC-004  whoami without creds exits 2 with an honest error
 //   VAL-DISC-005  logout removes cred; whoami then behaves like VAL-DISC-004
 //   VAL-DISC-033  the API key never appears in any captured output / log
 //   VAL-DISC-034  revoked key produces a "rejected, re-login" message
@@ -308,7 +308,7 @@ describe("VAL-DISC-001 login with --token stores the per-registry credential and
 // ---------------------------------------------------------------------------
 
 describe("VAL-DISC-002 login with an invalid token fails truthfully and writes nothing", () => {
-	it("exits 1 with an honest error naming the rejection, and the config file is unchanged", async () => {
+	it("exits 2 with an honest error naming the rejection, and the config file is unchanged", async () => {
 		const bakaHome = makeIsolatedHome("baka-regauth-bad-")
 		const cwd = makeIsolatedHome("baka-regauth-bad-proj-")
 		const env = { BAKA_HOME: bakaHome }
@@ -363,13 +363,13 @@ describe("VAL-DISC-003 whoami with stored credentials prints the identity and re
 // ---------------------------------------------------------------------------
 
 describe("VAL-DISC-004 whoami without stored credentials fails honestly", () => {
-	it("exits 1 with a message directing the user to `baka registry login`", async () => {
+	it("exits 2 with a message directing the user to `baka registry login`", async () => {
 		const bakaHome = makeIsolatedHome("baka-regauth-empty-")
 		const cwd = makeIsolatedHome("baka-regauth-empty-proj-")
 		const env = { BAKA_HOME: bakaHome }
 
 		const res = await spawnCli(["registry", "whoami", "--registry", owner.baseUrl], cwd, env)
-		expect(res.code).toBe(1)
+		expect(res.code).toBe(2)
 		expect(res.stderr).toContain("no credential stored")
 		expect(res.stderr).toContain("baka registry login")
 		expect(res.stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
@@ -382,7 +382,7 @@ describe("VAL-DISC-004 whoami without stored credentials fails honestly", () => 
 // ---------------------------------------------------------------------------
 
 describe("VAL-DISC-005 logout removes the credential and flips whoami to the empty path", () => {
-	it("logout exits 0, removes the per-registry section, and a subsequent whoami exits 1", async () => {
+	it("logout exits 0, removes the per-registry section, and a subsequent whoami exits 2", async () => {
 		const bakaHome = makeIsolatedHome("baka-regauth-logout-")
 		const cwd = makeIsolatedHome("baka-regauth-logout-proj-")
 		const env = { BAKA_HOME: bakaHome }
@@ -399,7 +399,7 @@ describe("VAL-DISC-005 logout removes the credential and flips whoami to the emp
 		expect(parsed.registries).toBeUndefined()
 
 		const whoami = await spawnCli(["registry", "whoami", "--registry", owner.baseUrl], cwd, env)
-		expect(whoami.code).toBe(1)
+		expect(whoami.code).toBe(2)
 		expect(whoami.stderr).toContain("no credential stored")
 	})
 })
@@ -431,7 +431,7 @@ describe("VAL-DISC-033 the API key never appears in any captured output or log f
 		seedCredential(bakaHome, owner.baseUrl, fresh.key)
 		await revokeKey(fresh.keyId)
 		const badWhoami = await spawnCli(["registry", "whoami", "--registry", owner.baseUrl], cwd, env)
-		expect(badWhoami.code).toBe(1)
+		expect(badWhoami.code).toBe(2)
 		expect(badWhoami.stdout + badWhoami.stderr).not.toContain(fresh.key)
 	}, 60_000)
 })
@@ -545,7 +545,7 @@ describe("VAL-DISC-046 credentials are scoped per registry across multiple confi
 
 		// After logout, alpha whoami reports "no credential stored".
 		const alphaWhoamiAfterLogout = await spawnCli(["registry", "whoami", "--registry", alpha], cwd, env)
-		expect(alphaWhoamiAfterLogout.code).toBe(1)
+		expect(alphaWhoamiAfterLogout.code).toBe(2)
 		expect(alphaWhoamiAfterLogout.stderr).toContain("no credential stored")
 	}, 60_000)
 })

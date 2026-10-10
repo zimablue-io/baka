@@ -1,0 +1,42 @@
+{
+	"$id": "https://baka.dev/schemas/baka.health/1",
+	"title": "baka.health/1",
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"type": "object",
+	"properties": {
+		"schema": {
+			"type": "string",
+			"const": "baka.health/1"
+		},
+		"ok": {
+			"type": "boolean"
+		},
+		"checks": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"name": {
+						"type": "string"
+					},
+					"ok": {
+						"type": "boolean"
+					},
+					"detail": {
+						"type": "string"
+					}
+				},
+				"required": [
+					"name",
+					"ok",
+					"detail"
+				]
+			}
+		}
+	},
+	"required": [
+		"schema",
+		"ok",
+		"checks"
+	]
+}

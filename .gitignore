@@ -57,12 +57,12 @@ LIVE/
 *.tgz
 dist-tarballs/
 
-# Modules: per-action `out/` residue dropped by reasoning-action runs.
-# Audit-modules.md (DEAD residue): dogfood runs copy templates into
-# modules/<module>/<action>/out/. Explicit, scoped suppression — do NOT rely
+# Packs: per-recipe `out/` residue dropped by reasoning-recipe runs.
+# Audit-packs.md (DEAD residue): dogfood runs copy templates into
+# packs/<pack>/<recipe>/out/. Explicit, scoped suppression — do NOT rely
 # on the catch-all `out/` rule above (it is too broad and historically
 # incidental).
-modules/**/out/
+packs/**/out/
 
 # Releases
 **/release/

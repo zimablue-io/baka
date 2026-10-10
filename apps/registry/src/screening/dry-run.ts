@@ -5,7 +5,7 @@ import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import type { PGlite } from "@electric-sql/pglite"
-import type { ModuleManifest } from "@repo/protocol"
+import type { PackManifest } from "@repo/protocol"
 import type { StorageAdapter } from "../storage"
 import { DRY_RUN_SCRIPT } from "./dry-run-script"
 import { writePreviewRecord } from "./preview-record"
@@ -13,23 +13,23 @@ import { writePreviewRecord } from "./preview-record"
 /**
  * Sandboxed dry-run executor (architecture §4.6 layer 2).
  *
- * One subprocess per non-reasoning action. Each subprocess runs
- * `node --permission --allow-fs-read=<module>,<jiti-root>
+ * One subprocess per non-reasoning recipe. Each subprocess runs
+ * `node --permission --allow-fs-read=<pack>,<jiti-root>
  *  --allow-fs-write=<sandbox> -e DRY_RUN_SCRIPT --` with the
- * action id / module dir / sandbox dir / jiti root on argv.
+ * recipe id / pack dir / sandbox dir / jiti root on argv.
  *
- * Per-action outcomes are aggregated into a discriminated
+ * Per-recipe outcomes are aggregated into a discriminated
  * `DryRunResult`:
  *
  *   ok: true
- *     Every non-reasoning action either ran successfully
+ *     Every non-reasoning recipe either ran successfully
  *     (subprocess reported success: true and produced files)
  *     OR was requiresReasoning: true (recorded as needs-llm).
- *     Reasoning actions never fail the verdict — they get a
+ *     Reasoning recipes never fail the verdict — they get a
  *     needs-llm preview record but the run still screens.
  *
  *   ok: false, reason: 'timeout'
- *     At least one non-reasoning action exceeded the configured
+ *     At least one non-reasoning recipe exceeded the configured
  *     timeout (decision 6, default 60s). The version is marked
  *     `unverified` — the row continues to `ready` so the version
  *     stays installable, but the verdict text honestly states the
@@ -37,7 +37,7 @@ import { writePreviewRecord } from "./preview-record"
  *     ISO timestamp of the timeout.
  *
  *   ok: false, reason: 'failure'
- *     At least one non-reasoning action failed (e.g. fs-escape
+ *     At least one non-reasoning recipe failed (e.g. fs-escape
  *     ERR_ACCESS_DENIED, runtime error inside execute()). The
  *     version is marked `failed` via `IngestFailure` so the worker
  *     wrapper terminates the row.
@@ -45,18 +45,18 @@ import { writePreviewRecord } from "./preview-record"
  * `policy` is the own-tree-only statement that satisfies
  * VAL-SCAN-014. It is the same string for every outcome so the
  * read surface can render a uniform verdict footer regardless of
- * the per-action result mix.
+ * the per-recipe result mix.
  *
  * Realpath resolution (architecture §9 gotcha): macOS /tmp is a
  * symlink to /private/tmp. The Node `--permission` flag rejects
  * allow paths that resolve through a symlink it cannot follow —
  * `fs.realpathSync` is the documented workaround. We resolve the
- * module dir AND the sandbox dir before passing them to
+ * pack dir AND the sandbox dir before passing them to
  * `--allow-fs-*`.
  */
 
 const OWN_TREE_ONLY_POLICY =
-	"screening executes only the module's own tree; manifest dependencies are preserved verbatim and are NOT fetched or installed; any runtime import outside the module's own tree is reported honestly"
+	"screening executes only the pack's own tree; manifest dependencies are preserved verbatim and are NOT fetched or installed; any runtime import outside the pack's own tree is reported honestly"
 
 const DEFAULT_DRY_RUN_TIMEOUT_MS = 60_000
 
@@ -66,8 +66,8 @@ const DEFAULT_DRY_RUN_TIMEOUT_MS = 60_000
  * `.hbs` template carrying the comment anywhere in its source
  * opts out of LLM reasoning — the registry's dry-run renders it
  * with Handlebars inside the sandbox and surfaces the rendered
- * bytes as the action's preview files. The state stays
- * `needs-llm` because the action is still `requiresReasoning`;
+ * bytes as the recipe's preview files. The state stays
+ * `needs-llm` because the recipe is still `requiresReasoning`;
  * the sentinel only previews what a non-LLM render would
  * produce.
  */
@@ -95,8 +95,8 @@ const NO_LLM_SENTINEL = /\{\{!--\s*no-llm\s*--\}\}/
  * Verified empirically on this repo's Node 24.18.0:
  *   `node --permission --allow-fs-read=... -e "1+1"` boots with
  *   no env beyond the four allowlisted keys; tests below prove
- *   that an action's `process.env` does not surface a parent-only
- *   sentinel to a sandboxed module.
+ *   that a recipe's `process.env` does not surface a parent-only
+ *   sentinel to a sandboxed pack.
  */
 function scrubbedSpawnEnv(): NodeJS.ProcessEnv {
 	return {
@@ -114,21 +114,21 @@ interface PreviewFile {
 	storageKey: string
 }
 
-export interface PerActionResultScreened {
-	actionId: string
+export interface PerRecipeResultScreened {
+	recipeId: string
 	status: "screened"
 	needsLlm: false
 	previewFiles: PreviewFile[]
 }
 
-export interface PerActionResultNeedsLlm {
-	actionId: string
+export interface PerRecipeResultNeedsLlm {
+	recipeId: string
 	status: "needs-llm"
 	needsLlm: true
 	reason: string
 	/**
-	 * Rendered preview files produced when the action ships a
-	 * `{{!-- no-llm --}}` sentinel template. The action itself
+	 * Rendered preview files produced when the recipe ships a
+	 * `{{!-- no-llm --}}` sentinel template. The recipe itself
 	 * still requires LLM reasoning at apply time, so `state`
 	 * stays `needs-llm`; the rendered bytes are surfaced as a
 	 * deterministic preview so the catalog's tile-level "would
@@ -142,39 +142,39 @@ export interface PerActionResultNeedsLlm {
 	previewFiles?: PreviewFile[]
 }
 
-export interface PerActionResultFailed {
-	actionId: string
+export interface PerRecipeResultFailed {
+	recipeId: string
 	status: "failed"
 	error: string
 }
 
-export interface PerActionResultTimedOut {
-	actionId: string
+export interface PerRecipeResultTimedOut {
+	recipeId: string
 	status: "timed-out"
 	timedOutAt: string
 }
 
-export type PerActionResult =
-	| PerActionResultScreened
-	| PerActionResultNeedsLlm
-	| PerActionResultFailed
-	| PerActionResultTimedOut
+export type PerRecipeResult =
+	| PerRecipeResultScreened
+	| PerRecipeResultNeedsLlm
+	| PerRecipeResultFailed
+	| PerRecipeResultTimedOut
 
 /**
- * Per-action payload surfaced on `dry_run.perAction` (catalog
- * read surface). Mirrors `PerActionResult` minus the runtime
+ * Per-recipe payload surfaced on `dry_run.perRecipe` (catalog
+ * read surface). Mirrors `PerRecipeResult` minus the runtime
  * fields the catalog does not need.
  */
-export type PerActionState =
-	| { actionId: string; status: "screened"; needsLlm: false; previewFiles: PreviewFile[] }
-	| { actionId: string; status: "needs-llm"; needsLlm: true; reason: string; previewFiles?: PreviewFile[] }
-	| { actionId: string; status: "failed"; error: string }
-	| { actionId: string; status: "timed-out"; timedOutAt: string }
+export type PerRecipeState =
+	| { recipeId: string; status: "screened"; needsLlm: false; previewFiles: PreviewFile[] }
+	| { recipeId: string; status: "needs-llm"; needsLlm: true; reason: string; previewFiles?: PreviewFile[] }
+	| { recipeId: string; status: "failed"; error: string }
+	| { recipeId: string; status: "timed-out"; timedOutAt: string }
 
 export interface DryRunResultSuccess {
 	ok: true
 	policy: string
-	perAction: PerActionState[]
+	perRecipe: PerRecipeState[]
 	timeoutMs: number
 }
 
@@ -182,7 +182,7 @@ export interface DryRunResultFailure {
 	ok: false
 	reason: "timeout" | "failure"
 	policy: string
-	perAction: PerActionState[]
+	perRecipe: PerRecipeState[]
 	timeoutMs: number
 	timedOutAt: string
 }
@@ -190,8 +190,8 @@ export interface DryRunResultFailure {
 export type DryRunResult = DryRunResultSuccess | DryRunResultFailure
 
 interface RunDryRunOptions {
-	moduleDir: string
-	manifest: ModuleManifest
+	packDir: string
+	manifest: PackManifest
 	storage: StorageAdapter
 	versionId: string
 	pglite: PGlite
@@ -199,7 +199,7 @@ interface RunDryRunOptions {
 	/**
 	 * Directory jiti uses for resolving workspace imports
 	 * (baka-sdk, @repo/protocol, ...). Defaults to the closest
-	 * node_modules/ parent walking up from moduleDir, falling
+	 * node_modules/ parent walking up from packDir, falling
 	 * back to process.cwd().
 	 *
 	 * The directory MUST be readable by the subprocess, so it is
@@ -217,57 +217,57 @@ interface SubprocessOutcome {
 }
 
 /**
- * Runs the dry-run over every non-reasoning action. Reasoning
- * actions (`requiresReasoning: true`) are recorded as `needs-llm`
+ * Runs the dry-run over every non-reasoning recipe. Reasoning
+ * recipes (`requiresReasoning: true`) are recorded as `needs-llm`
  * but never executed. The verdict is `ok: true` when every
- * non-reasoning action succeeded; `ok: false` otherwise.
+ * non-reasoning recipe succeeded; `ok: false` otherwise.
  *
- * Spawn isolation (architecture §4.6): each action gets its own
- * subprocess AND its own sandbox dir. A failure in one action's
- * `execute()` cannot pollute another action's preview state, and
+ * Spawn isolation (architecture §4.6): each recipe gets its own
+ * subprocess AND its own sandbox dir. A failure in one recipe's
+ * `execute()` cannot pollute another recipe's preview state, and
  * a runaway subprocess is killed without affecting the other
- * actions in the run.
+ * recipes in the run.
  */
 export async function runDryRun(opts: RunDryRunOptions): Promise<DryRunResult> {
 	const policy = OWN_TREE_ONLY_POLICY
 	const timeoutMs = opts.timeoutMs ?? DEFAULT_DRY_RUN_TIMEOUT_MS
-	const moduleReal = realpathSync(opts.moduleDir)
-	const jitiRootReal = realpathSync(opts.jitiRoot ?? findJitiRoot(opts.moduleDir))
+	const packReal = realpathSync(opts.packDir)
+	const jitiRootReal = realpathSync(opts.jitiRoot ?? findJitiRoot(opts.packDir))
 
-	const perAction: PerActionState[] = []
+	const perRecipe: PerRecipeState[] = []
 	let timeoutStamp: string | undefined
 	let overallReason: "timeout" | "failure" | null = null
 
-	for (const action of opts.manifest.actions) {
-		if (action.requiresReasoning) {
+	for (const recipe of opts.manifest.recipes) {
+		if (recipe.requiresReasoning) {
 			// Sentinel preview path (architecture §4.6 layer 2 +
-			// VAL-SCAN-005 conditional clause): a reasoning action
+			// VAL-SCAN-005 conditional clause): a reasoning recipe
 			// shipping a `{{!-- no-llm --}}`-marked template gets a
 			// sandboxed Handlebars render of those templates; the
 			// rendered bytes are captured as preview files alongside
-			// the `needs-llm` state. Reasoning actions without a
+			// the `needs-llm` state. Reasoning recipes without a
 			// sentinel template keep the pre-existing behavior:
 			// `needs-llm` with no files carrier.
 			//
 			// Detection is parent-side (cheap file walk under the
-			// already-realpath-resolved module dir); rendering is
+			// already-realpath-resolved pack dir); rendering is
 			// sandbox-side so the same env scrub and `--allow-fs-*`
-			// guarantees that protect the action execute path apply
+			// guarantees that protect the recipe execute path apply
 			// to the Handlebars render too. The render context is
 			// `{}` (the same empty fixture params the non-reasoning
-			// branches call the action with), and the script falls
+			// branches call the recipe with), and the script falls
 			// back to the no-sentinel needs-llm record if the
 			// sandbox render itself fails (e.g. Handlebars compile
 			// error) — a broken template is not a screen-fail, it is
 			// "needs an LLM to fill in or template fix at apply
 			// time".
-			if (actionHasSentinelTemplates(opts.moduleDir, action.id)) {
+			if (recipeHasSentinelTemplates(opts.packDir, recipe.id)) {
 				const sandboxDir = await mkdtemp(join(tmpdir(), "baka-sentinel-"))
 				const sandboxReal = realpathSync(sandboxDir)
 				try {
-					const outcome = await runOneAction({
-						actionId: action.id,
-						moduleReal: moduleReal,
+					const outcome = await runOneRecipe({
+						recipeId: recipe.id,
+						packReal: packReal,
 						jitiRootReal: jitiRootReal,
 						sandboxReal: sandboxReal,
 						timeoutMs: timeoutMs,
@@ -292,21 +292,21 @@ export async function runDryRun(opts: RunDryRunOptions): Promise<DryRunResult> {
 								// same as the non-reasoning branch.
 							}
 						}
-						const result: PerActionResultNeedsLlm = {
-							actionId: action.id,
+						const result: PerRecipeResultNeedsLlm = {
+							recipeId: recipe.id,
 							status: "needs-llm",
 							needsLlm: true,
-							reason: "action skipped because it requires LLM reasoning",
+							reason: "recipe skipped because it requires LLM reasoning",
 							previewFiles: previewFiles.length > 0 ? previewFiles : undefined,
 						}
-						perAction.push(toState(result))
+						perRecipe.push(toState(result))
 						await writePreviewRecord(opts.pglite, result, opts.versionId)
 						continue
 					}
 					// Sentinel render produced no files (subprocess
 					// reported failure or load-error): fall through
 					// to the no-sentinel needs-llm record below. The
-					// verdict is honest (the action still requires
+					// verdict is honest (the recipe still requires
 					// an LLM at apply time), and the row remains a
 					// candidate for the spec's `community-screened`
 					// tier once layer 3 runs.
@@ -324,20 +324,20 @@ export async function runDryRun(opts: RunDryRunOptions): Promise<DryRunResult> {
 			// `state: "needs-llm"` row carries the skip reason
 			// and no files carrier; the read surface (preview list
 			// + detail endpoint) surfaces that shape unchanged.
-			const result: PerActionResultNeedsLlm = {
-				actionId: action.id,
+			const result: PerRecipeResultNeedsLlm = {
+				recipeId: recipe.id,
 				status: "needs-llm",
 				needsLlm: true,
-				reason: "action skipped because it requires LLM reasoning",
+				reason: "recipe skipped because it requires LLM reasoning",
 			}
-			perAction.push(toState(result))
+			perRecipe.push(toState(result))
 			await writePreviewRecord(opts.pglite, result, opts.versionId)
 			continue
 		}
 
 		const sandboxDir = await mkdtemp(join(tmpdir(), "baka-dryrun-"))
 		const sandboxReal = realpathSync(sandboxDir)
-		for (const pattern of action.filePatterns ?? []) {
+		for (const pattern of recipe.filePatterns ?? []) {
 			const normalized = pattern.replaceAll("\\", "/").replace(/^\.\//, "")
 			const lastSlash = normalized.lastIndexOf("/")
 			const looksLikeDirectory = normalized.endsWith("/") || !normalized.split("/").at(-1)?.includes(".")
@@ -345,9 +345,9 @@ export async function runDryRun(opts: RunDryRunOptions): Promise<DryRunResult> {
 			if (directory.length > 0) mkdirSync(join(sandboxReal, directory), { recursive: true })
 		}
 		try {
-			const outcome = await runOneAction({
-				actionId: action.id,
-				moduleReal,
+			const outcome = await runOneRecipe({
+				recipeId: recipe.id,
+				packReal,
 				jitiRootReal,
 				sandboxReal,
 				timeoutMs,
@@ -370,42 +370,42 @@ export async function runDryRun(opts: RunDryRunOptions): Promise<DryRunResult> {
 						// Per-file read failure: skip silently. The
 						// parent does not need every byte; it only
 						// needs the surfaced preview list to match
-						// what the action successfully wrote.
+						// what the recipe successfully wrote.
 					}
 				}
-				const result: PerActionResultScreened = {
-					actionId: action.id,
+				const result: PerRecipeResultScreened = {
+					recipeId: recipe.id,
 					status: "screened",
 					needsLlm: false,
 					previewFiles,
 				}
-				perAction.push(toState(result))
+				perRecipe.push(toState(result))
 				await writePreviewRecord(opts.pglite, result, opts.versionId)
 			} else if (outcome.kind === "timed-out") {
 				const stamp = new Date().toISOString()
 				timeoutStamp = stamp
-				const result: PerActionResultTimedOut = {
-					actionId: action.id,
+				const result: PerRecipeResultTimedOut = {
+					recipeId: recipe.id,
 					status: "timed-out",
 					timedOutAt: stamp,
 				}
-				perAction.push(toState(result))
+				perRecipe.push(toState(result))
 				await writePreviewRecord(opts.pglite, result, opts.versionId)
 				if (overallReason === null) overallReason = "timeout"
 			} else {
 				// 'failed' or 'load-error' — both surface as
-				// per-action `failed` so the verdict becomes
+				// per-recipe `failed` so the verdict becomes
 				// `failed`. Load errors (jiti throw, missing
-				// action.ts, unresolved export) are the registry's
-				// view of the action, not the action's own fault,
+				// recipe.ts, unresolved export) are the registry's
+				// view of the recipe, not the recipe's own fault,
 				// but the verdict is still `failed` because the
-				// action did not produce a usable preview.
-				const result: PerActionResultFailed = {
-					actionId: action.id,
+				// recipe did not produce a usable preview.
+				const result: PerRecipeResultFailed = {
+					recipeId: recipe.id,
 					status: "failed",
 					error: outcome.error ?? "dry-run subprocess failed",
 				}
-				perAction.push(toState(result))
+				perRecipe.push(toState(result))
 				await writePreviewRecord(opts.pglite, result, opts.versionId)
 				if (overallReason === null) overallReason = "failure"
 			}
@@ -428,7 +428,7 @@ export async function runDryRun(opts: RunDryRunOptions): Promise<DryRunResult> {
 			ok: false,
 			reason: "failure",
 			policy,
-			perAction,
+			perRecipe,
 			timeoutMs,
 			timedOutAt: timeoutStamp ?? new Date().toISOString(),
 		}
@@ -438,16 +438,16 @@ export async function runDryRun(opts: RunDryRunOptions): Promise<DryRunResult> {
 			ok: false,
 			reason: "timeout",
 			policy,
-			perAction,
+			perRecipe,
 			timeoutMs,
 			timedOutAt: timeoutStamp ?? new Date().toISOString(),
 		}
 	}
-	return { ok: true, policy, perAction, timeoutMs }
+	return { ok: true, policy, perRecipe, timeoutMs }
 }
 
 /**
- * Spawns the dry-run subprocess for a single action and waits for
+ * Spawns the dry-run subprocess for a single recipe and waits for
  * its JSON envelope on stdout. The subprocess is SIGKILL'd on
  * timeout; the parent waits for the `close` event before returning
  * so no orphan `node --permission` child survives.
@@ -462,22 +462,22 @@ export async function runDryRun(opts: RunDryRunOptions): Promise<DryRunResult> {
  * reason about.
  *
  * `mode` selects the subprocess's behavior:
- *   - `execute` (default) — load the action via jiti and call
+ *   - `execute` (default) — load the recipe via jiti and call
  *     its `execute()` against the sandbox. Used by every
- *     non-reasoning action.
- *   - `render-sentinel` — skip the action body entirely;
- *     walk `<moduleDir>/<actionId>/templates/` for
+ *     non-reasoning recipe.
+ *   - `render-sentinel` — skip the recipe body entirely;
+ *     walk `<packDir>/<recipeId>/templates/` for
  *     `{{!-- no-llm --}}`-marked `.hbs` files, render each
  *     with Handlebars (empty fixture params context), and
  *     write the rendered bytes to the sandbox. Used by the
  *     reasoning branch's sentinel path. The script keeps
  *     invoking the env scrub / sandbox allow lists so the
  *     Handlebars render inherits the same guarantees as the
- *     action execute path.
+ *     recipe execute path.
  */
-function runOneAction(opts: {
-	actionId: string
-	moduleReal: string
+function runOneRecipe(opts: {
+	recipeId: string
+	packReal: string
 	jitiRootReal: string
 	sandboxReal: string
 	timeoutMs: number
@@ -493,7 +493,7 @@ function runOneAction(opts: {
 		// `--allow-fs-write` alone is not enough: Node 24 also
 		// gates `process.chdir()` and `fs.readdirSync()` under
 		// the read scope, so the script can only chdir / walk the
-		// sandbox if it can read it too. The action's fs-escape
+		// sandbox if it can read it too. The recipe's fs-escape
 		// attempts are still blocked because paths outside the
 		// allow list are denied.
 		//
@@ -505,7 +505,7 @@ function runOneAction(opts: {
 		// existsSync checks succeed on them. See `jitiReadPaths`
 		// for the symlink-fallthrough rationale.
 		const extraReadPaths = jitiReadPaths()
-		const readPaths = [opts.moduleReal, opts.sandboxReal, opts.jitiRootReal, `${opts.jitiRootReal}*`]
+		const readPaths = [opts.packReal, opts.sandboxReal, opts.jitiRootReal, `${opts.jitiRootReal}*`]
 		for (const p of extraReadPaths) readPaths.push(p)
 		const args: string[] = ["--permission"]
 		for (const p of readPaths) {
@@ -516,10 +516,10 @@ function runOneAction(opts: {
 			"-e",
 			DRY_RUN_SCRIPT,
 			"--",
-			"--action-id",
-			opts.actionId,
-			"--module-dir",
-			opts.moduleReal,
+			"--recipe-id",
+			opts.recipeId,
+			"--pack-dir",
+			opts.packReal,
 			"--sandbox-dir",
 			opts.sandboxReal,
 			"--jiti-root",
@@ -533,14 +533,14 @@ function runOneAction(opts: {
 		//
 		// `node --permission` does NOT gate `process.env`, so the
 		// sandbox must receive a SCRUBBED spawn env (see below).
-		// Tests that need to thread a sandbox-action-visible value
+		// Tests that need to thread a sandbox-recipe-visible value
 		// (canary file path, etc.) into the subprocess set
 		// `BAKA_DRYRUN_TEST_CANARY_CONFIG` in the PARENT process.
 		// The parent (this file, running inside the registry
 		// process for in-process tests) reads it and forwards it
 		// to the subprocess as a `--canary-config <json>` argv.
 		// The subprocess writes the JSON to
-		// `<sandbox>/_canary.json`; the action body reads it via
+		// `<sandbox>/_canary.json`; the recipe body reads it via
 		// `readFileSync` instead of `process.env`. Production
 		// deployments never set this env var, so production
 		// spawns grow by one trivially-empty argv.
@@ -568,7 +568,7 @@ function runOneAction(opts: {
 				// REGISTRY_OFFICIAL_PUBLISHERS API keys —
 				// and write the bytes into the sandbox, where
 				// they become preview artifacts served
-				// unauthenticated for public modules (decision
+				// unauthenticated for public packs (decision
 				// 23, VAL-SCAN-019). The scrub below is the
 				// minimal allowlist documented in
 				// `library/sandboxed-dry-run.md`: PATH (so
@@ -580,7 +580,7 @@ function runOneAction(opts: {
 				// NODE_OPTIONS forced to '' (the parent may
 				// have set it for `--inspect` or `--require`;
 				// the sandbox would otherwise forward that
-				// into every screened action). Verified
+				// into every screened recipe). Verified
 				// empirically: `node --permission -e ...`
 				// boots with no env beyond those four.
 				env: scrubbedSpawnEnv(),
@@ -748,13 +748,13 @@ function findJitiRoot(start: string): string {
  *
  * The simplest correct strategy is to allow the entire
  * `node_modules/` parent on both sides of the symlink. We
- * resolve `jiti` from THIS module's context (which uses the
+ * resolve `jiti` from THIS pack's context (which uses the
  * registry's install path, the same resolution the subprocess
  * will inherit) and walk up the realpath chain to the topmost
  * `node_modules/` ancestor — that is `…/.pnpm/<pkg>@<ver>/`,
  * whose parent is the pnpm virtual store root.
  *
- * We then also resolve the same module without realpath so we
+ * We then also resolve the same pack without realpath so we
  * can locate the matching un-resolved `node_modules/` (e.g.
  * `/baka/node_modules`) and grant it too. We return two paths
  * per root:
@@ -811,13 +811,13 @@ function basename(p: string): string {
 }
 
 /**
- * Returns true iff `<moduleDir>/<actionId>/templates/` contains
+ * Returns true iff `<packDir>/<recipeId>/templates/` contains
  * at least one `.hbs` or `.handlebars` file carrying the
  * `{{!-- no-llm --}}` sentinel comment. Parent-side detection
- * only — no module code is invoked. The actual render runs in
+ * only — no pack code is invoked. The actual render runs in
  * the subprocess (sandboxed, decision 39); this helper exists
  * so the parent can decide whether to spawn a render-sentinel
- * subprocess at all (a no-sentinel reasoning action keeps the
+ * subprocess at all (a no-sentinel reasoning recipe keeps the
  * pre-existing `needs-llm`-without-files behavior, no spawn
  * needed).
  *
@@ -828,8 +828,8 @@ function basename(p: string): string {
  * here" — the subprocess carries the real compile error if
  * the file turns out to be malformed when rendered.
  */
-function actionHasSentinelTemplates(moduleDir: string, actionId: string): boolean {
-	const templatesDir = join(moduleDir, actionId, "templates")
+function recipeHasSentinelTemplates(packDir: string, recipeId: string): boolean {
+	const templatesDir = join(packDir, recipeId, "templates")
 	if (!existsSync(templatesDir)) return false
 	return walkForSentinel(templatesDir)
 }
@@ -861,23 +861,23 @@ function walkForSentinel(cur: string): boolean {
 	return false
 }
 
-function toState(result: PerActionResult): PerActionState {
+function toState(result: PerRecipeResult): PerRecipeState {
 	switch (result.status) {
 		case "screened":
-			return { actionId: result.actionId, status: "screened", needsLlm: false, previewFiles: result.previewFiles }
+			return { recipeId: result.recipeId, status: "screened", needsLlm: false, previewFiles: result.previewFiles }
 		case "needs-llm":
 			return result.previewFiles !== undefined
 				? {
-						actionId: result.actionId,
+						recipeId: result.recipeId,
 						status: "needs-llm",
 						needsLlm: true,
 						reason: result.reason,
 						previewFiles: result.previewFiles,
 					}
-				: { actionId: result.actionId, status: "needs-llm", needsLlm: true, reason: result.reason }
+				: { recipeId: result.recipeId, status: "needs-llm", needsLlm: true, reason: result.reason }
 		case "failed":
-			return { actionId: result.actionId, status: "failed", error: result.error }
+			return { recipeId: result.recipeId, status: "failed", error: result.error }
 		case "timed-out":
-			return { actionId: result.actionId, status: "timed-out", timedOutAt: result.timedOutAt }
+			return { recipeId: result.recipeId, status: "timed-out", timedOutAt: result.timedOutAt }
 	}
 }

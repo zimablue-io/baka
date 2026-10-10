@@ -1,5 +1,5 @@
 import type { PGlite } from "@electric-sql/pglite"
-import type { PerActionState } from "./dry-run"
+import type { PerRecipeState } from "./dry-run"
 import type { OutputValidationPayload } from "./output-validation"
 import type { StaticScanResult } from "./static-scan"
 
@@ -9,9 +9,9 @@ import type { StaticScanResult } from "./static-scan"
  *   - `verdict` is one of the CHECK-constrained values:
  *     `screened` / `unverified` / `failed`. The dry-run layer
  *     transitions `unverified` (post-static-scan) to `screened`
- *     (all non-reasoning actions passed), keeps it `unverified`
- *     (at least one action timed out — the row continues to
- *     `ready`), or sets `failed` (at least one action failed).
+ *     (all non-reasoning recipes passed), keeps it `unverified`
+ *     (at least one recipe timed out — the row continues to
+ *     `ready`), or sets `failed` (at least one recipe failed).
  *
  *   - `static_scan` carries the named findings from the static
  *     capability scan. The catalog surfaces this verbatim on
@@ -22,11 +22,11 @@ import type { StaticScanResult } from "./static-scan"
  *     the static-scan-failed skip marker when the static scan
  *     failed (so the catalog surfaces an explicit "dry-run
  *     skipped" marker instead of pretending the layer never ran),
- *     or the discriminated per-action payload after the dry-run
+ *     or the discriminated per-recipe payload after the dry-run
  *     completes (pass / unverified / failed).
  *
  *   - `output_validation` is the discriminated layer-3 payload
- *     (module's own validators + writes-subset-filePatterns
+ *     (pack's own validators + writes-subset-filePatterns
  *     check + declared output toolchain). NULL when the static
  *     scan or dry-run failed (the layer never ran); populated
  *     with the discriminated payload after layer 3 completes.
@@ -49,7 +49,7 @@ interface DryRunSkipped {
 
 interface DryRunCompleted {
 	policy: string
-	perAction: PerActionState[]
+	perRecipe: PerRecipeState[]
 	timedOutAt?: string
 	timeoutMs?: number
 }

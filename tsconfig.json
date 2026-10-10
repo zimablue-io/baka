@@ -5,7 +5,7 @@
 		{ "path": "packages/agent-engine" },
 		{ "path": "packages/ast-tooling" },
 		{ "path": "workflows/feature-planning" },
-		{ "path": "workflows/module-management" },
+		{ "path": "workflows/pack-management" },
 		{ "path": "apps/cli" }
 	]
 }
