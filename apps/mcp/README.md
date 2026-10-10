@@ -78,7 +78,7 @@ baka scaffold test-pack
 
 ## Technical Specifications
 - Monorepo Engine: Turborepo managed with strict pnpm workspaces.
-- Runtime Dependency: Node.js (v20+) or Bun running entirely via native local script invocation.
+- Runtime Dependency: Node.js (v24+) or Bun running entirely via native local script invocation.
 - Target Core Stack: TypeScript, Next.js v16, Turborepo, Shadcn UI + Radix Base UI, Tailwind CSS.
 - Target Domain Additions: Better-Auth, Neon DB, Supabase Storage, Sanity CMS.
 

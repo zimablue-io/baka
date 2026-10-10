@@ -8,6 +8,9 @@ export const ENGINE_TOKEN_ENV = "BAKA_ENGINE_TOKEN"
 /** Env var carrying allowed project roots, separated like PATH (`:` or `;`). Flags add to it. */
 export const ENGINE_ALLOWED_ROOTS_ENV = "BAKA_ENGINE_ALLOWED_ROOTS"
 
+/** Env var carrying allowed browser origins, separated by commas or spaces. Flags add to it. */
+const ENGINE_ALLOWED_ORIGINS_ENV = "BAKA_ENGINE_ALLOWED_ORIGINS"
+
 const DEFAULT_ENGINE_PORT = 4311
 const DEFAULT_ENGINE_HOST = "127.0.0.1"
 
@@ -25,6 +28,8 @@ export interface ServeFlags {
 	host?: string
 	token?: string
 	allowRoots?: readonly string[]
+	/** Origins of web pages that may call the engine from a browser (`--allow-origin`). */
+	allowOrigins?: readonly string[]
 	/** Pack directories (see `EngineAppOptions.packDirs`); they beat `BAKA_PACK_DIRS`. */
 	packDirs?: readonly string[]
 }
@@ -34,7 +39,24 @@ export interface ServeConfig {
 	host: string
 	token?: string
 	allowedRoots: string[]
+	allowedOrigins: string[]
 	packDirs?: string[]
+}
+
+/** `https://host[:port]` exactly: no path, no wildcard. Throws otherwise. */
+function normalizeOrigin(raw: string): string {
+	let url: URL
+	try {
+		url = new URL(raw)
+	} catch {
+		throw new Error(`"${raw}" is not an origin: write it as https://host or http://host:port`)
+	}
+	const plain =
+		(url.protocol === "https:" || url.protocol === "http:") && url.pathname === "/" && !url.search && !url.hash
+	if (!plain || url.username || url.password) {
+		throw new Error(`"${raw}" is not an origin: write it as https://host or http://host:port, with no path`)
+	}
+	return url.origin
 }
 
 /**
@@ -60,8 +82,17 @@ export function resolveServeConfig(flags: ServeFlags, env: NodeJS.ProcessEnv, cw
 				`Set ${ENGINE_TOKEN_ENV} or pass --token, or bind to 127.0.0.1.`,
 		)
 	}
+	const envOrigins = (env[ENGINE_ALLOWED_ORIGINS_ENV] ?? "").split(/[\s,]+/).filter((o) => o !== "")
+	const allowedOrigins = [...new Set([...envOrigins, ...(flags.allowOrigins ?? [])].map(normalizeOrigin))]
+	const remote = allowedOrigins.filter((origin) => !isLoopbackHost(new URL(origin).hostname))
+	if (remote.length > 0 && !token) {
+		throw new Error(
+			`refusing to let ${remote.join(", ")} call this engine without a bearer token: a web page could write files into your projects. ` +
+				`Set ${ENGINE_TOKEN_ENV} or pass --token.`,
+		)
+	}
 	const packDirs = flags.packDirs?.length ? flags.packDirs.map((dir) => resolve(cwd, dir)) : packDirsFromEnv(env)
-	return { port: flags.port ?? DEFAULT_ENGINE_PORT, host, token, allowedRoots, packDirs }
+	return { port: flags.port ?? DEFAULT_ENGINE_PORT, host, token, allowedRoots, allowedOrigins, packDirs }
 }
 
 export interface RunningEngine {
@@ -76,6 +107,7 @@ export function serveEngine(cwd: string, config: ServeConfig): Promise<RunningEn
 		cwd,
 		token: config.token,
 		allowedRoots: config.allowedRoots,
+		allowedOrigins: config.allowedOrigins,
 		packDirs: config.packDirs,
 	})
 	return new Promise((resolveStart, reject) => {

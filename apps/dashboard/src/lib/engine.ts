@@ -1,4 +1,36 @@
-export const ENGINE_URL = "http://127.0.0.1:4311"
+export const DEFAULT_ENGINE_URL = "http://127.0.0.1:4311"
+
+/** Where the engine is. Build-time default is the non-secret `VITE_ENGINE_URL`; the page can override it at run time. */
+export function normalizeEngineUrl(raw: string | undefined | null): string {
+	const trimmed = (raw ?? "").trim()
+	if (!trimmed) return DEFAULT_ENGINE_URL
+	try {
+		const url = new URL(trimmed)
+		if (url.protocol !== "http:" && url.protocol !== "https:") return DEFAULT_ENGINE_URL
+		return url.origin + (url.pathname === "/" ? "" : url.pathname.replace(/\/$/, ""))
+	} catch {
+		return DEFAULT_ENGINE_URL
+	}
+}
+
+const connection = {
+	url: normalizeEngineUrl(import.meta.env?.VITE_ENGINE_URL as string | undefined),
+	token: "",
+}
+
+/** The bearer token is a secret: it lives only in this module's memory (and the page's session), never in a `VITE_` variable or the bundle. */
+export function setEngineConnection(next: { url?: string; token?: string }): void {
+	if (next.url !== undefined) connection.url = normalizeEngineUrl(next.url)
+	if (next.token !== undefined) connection.token = next.token.trim()
+}
+
+export function engineUrl(): string {
+	return connection.url
+}
+
+export function engineAuthHeaders(token: string): Record<string, string> {
+	return token ? { authorization: `Bearer ${token}` } : {}
+}
 
 export interface EngineParam {
 	name: string
@@ -45,7 +77,6 @@ export interface EnginePreview {
 
 interface RunResult {
 	ok?: boolean
-	error?: string
 	diagnostics?: Array<{ severity: string; rule: string; message: string }>
 	changeset?: Array<{ path: string; op: string; contentHash: string | null; reason?: string; content?: string }>
 	outputTreeHash?: string
@@ -83,17 +114,32 @@ export function paramsFromFields(fields: Record<string, string>, schema: EngineP
 	return out
 }
 
+/** The message to show for a failed call: the error document's, else a failed receipt's first error, else `fallback`. */
+export function errorDetail(body: unknown, fallback: string): string {
+	if (typeof body !== "object" || body === null) return fallback
+	const { error, diagnostics } = body as {
+		error?: { message?: unknown }
+		diagnostics?: Array<{ severity?: unknown; message?: unknown }>
+	}
+	if (typeof error?.message === "string") return error.message
+	const first = diagnostics?.find((d) => d.severity === "error")
+	return typeof first?.message === "string" ? first.message : fallback
+}
+
 async function engineJson<T>(path: string, init?: RequestInit): Promise<T> {
-	const res = await fetch(`${ENGINE_URL}${path}`, init)
+	const res = await fetch(`${connection.url}${path}`, {
+		...init,
+		headers: { ...engineAuthHeaders(connection.token), ...(init?.headers as Record<string, string> | undefined) },
+	})
 	if (!res.ok) {
-		let detail = `${init?.method ?? "GET"} ${path} ${res.status}`
+		const status = `${init?.method ?? "GET"} ${path} ${res.status}`
+		let body: unknown = null
 		try {
-			const body = (await res.json()) as { error?: string }
-			if (body.error) detail = body.error
+			body = await res.json()
 		} catch {
-			/* use status */
+			/* not JSON: the status line says what happened */
 		}
-		throw new Error(detail)
+		throw new Error(errorDetail(body, status))
 	}
 	return (await res.json()) as T
 }

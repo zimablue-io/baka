@@ -37,14 +37,13 @@ import { type Context, Hono } from "hono"
 import { cors } from "hono/cors"
 import { z } from "zod"
 
-function localBrowserOrigin(origin: string): string | undefined {
+function isLocalBrowserOrigin(origin: string): boolean {
 	try {
 		const host = new URL(origin).hostname
-		if (host === "localhost" || host === "127.0.0.1") return origin
+		return host === "localhost" || host === "127.0.0.1"
 	} catch {
-		return undefined
+		return false
 	}
-	return undefined
 }
 
 export interface EngineAppOptions {
@@ -77,6 +76,12 @@ export interface EngineAppOptions {
 	isolated?: boolean
 	/** The model used when a request names none and (unless isolated) the user's config has none. */
 	llm?: LlmCall
+	/**
+	 * Origins of web pages, besides this machine's own, that may call the engine from a browser
+	 * (exact matches such as `https://baka.dashboard.zimablue.io`). `serveEngine` only accepts
+	 * them together with a bearer token.
+	 */
+	allowedOrigins?: readonly string[]
 	/** Packs that ship with the installed tool; searched after every other default scope. */
 	bundledPacksDir?: string
 	/** Add-ons attached to every run this engine serves (see `BakaAddon`). */
@@ -202,6 +207,7 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 	const app = new Hono()
 	const cwd = opts.cwd
 	const isolated = opts.isolated === true
+	const allowedOrigins = new Set(opts.allowedOrigins ?? [])
 	// Resolved once so a symlinked root cannot be swapped for another target later.
 	const allowedRoots = (opts.allowedRoots ?? []).map((root) => realpathSync(root))
 	const projectOf = (raw: string | undefined): string => resolveProject(cwd, raw, allowedRoots)
@@ -233,12 +239,17 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 		return apiError(c, 500, "internal", "Internal Server Error")
 	})
 
-	app.use(
-		"*",
-		cors({
-			origin: localBrowserOrigin,
-		}),
-	)
+	const originAllowed = (origin: string): boolean => isLocalBrowserOrigin(origin) || allowedOrigins.has(origin)
+	// A public page may call a loopback engine only if the browser's Private Network Access preflight
+	// is answered; it is, and only for an origin that is allowed.
+	app.use("*", async (c, next) => {
+		await next()
+		const origin = c.req.header("origin")
+		if (origin && c.req.header("access-control-request-private-network") === "true" && originAllowed(origin)) {
+			c.res.headers.set("Access-Control-Allow-Private-Network", "true")
+		}
+	})
+	app.use("*", cors({ origin: (origin) => (originAllowed(origin) ? origin : undefined) }))
 
 	if (opts.token) {
 		const expected = createHash("sha256").update(opts.token).digest()

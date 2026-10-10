@@ -1,7 +1,7 @@
 "use client"
 
 import { FolderIcon, Loader2Icon, PlayIcon } from "lucide-react"
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -14,15 +14,19 @@ import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/toast"
 import {
 	defaultParamValues,
-	ENGINE_URL,
 	type EnginePack,
 	type EnginePreview,
+	engineUrl,
 	fetchPacks,
 	fetchPreview,
 	fillSlot,
 	paramsFromFields,
 	runNamed,
+	setEngineConnection,
 } from "@/lib/engine"
+
+const ENGINE_URL_KEY = "baka.engineUrl"
+const ENGINE_TOKEN_KEY = "baka.engineToken"
 
 type BodyTab = "write" | "templates" | "result"
 
@@ -32,6 +36,8 @@ function isBodyTab(value: unknown): value is BodyTab {
 
 export function LabApp() {
 	const [project, setProject] = useState("")
+	const [url, setUrl] = useState(engineUrl())
+	const [token, setToken] = useState("")
 	const [packs, setPacks] = useState<EnginePack[]>([])
 	const [engineError, setEngineError] = useState<string | null>(null)
 	const [selected, setSelected] = useState<{ pack: string; recipe: string } | null>(null)
@@ -41,6 +47,28 @@ export function LabApp() {
 	const [result, setResult] = useState<string>("")
 	const [bodyTab, setBodyTab] = useState<BodyTab>("write")
 	const [busy, setBusy] = useState<"packs" | "preview" | "run" | null>(null)
+
+	useEffect(() => {
+		try {
+			const savedUrl = window.localStorage.getItem(ENGINE_URL_KEY)
+			if (savedUrl) setUrl(savedUrl)
+			const savedToken = window.sessionStorage.getItem(ENGINE_TOKEN_KEY)
+			if (savedToken) setToken(savedToken)
+		} catch {
+			/* storage blocked: the fields still work for this page load */
+		}
+	}, [])
+
+	useEffect(() => {
+		setEngineConnection({ url, token })
+		try {
+			window.localStorage.setItem(ENGINE_URL_KEY, url)
+			if (token) window.sessionStorage.setItem(ENGINE_TOKEN_KEY, token)
+			else window.sessionStorage.removeItem(ENGINE_TOKEN_KEY)
+		} catch {
+			/* storage blocked */
+		}
+	}, [url, token])
 
 	const selectedPack = useMemo(() => packs.find((m) => m.name === selected?.pack) ?? null, [packs, selected])
 
@@ -107,7 +135,7 @@ export function LabApp() {
 			}
 			const body = await runNamed(project, selected.pack, selected.recipe, params)
 			if (!body.ok) {
-				throw new Error(body.error ?? body.diagnostics?.[0]?.message ?? "run failed")
+				throw new Error(body.diagnostics?.[0]?.message ?? "run failed")
 			}
 			const changes = body.changeset ?? []
 			const summary = changes.length ? changes.map((e) => `${e.op}\t${e.path}`).join("\n") : "(no files)"
@@ -147,8 +175,32 @@ export function LabApp() {
 							placeholder="/absolute/path/to/baka/demo"
 						/>
 					</Field>
+					<Field>
+						<FieldLabel htmlFor="engine-url">Engine URL</FieldLabel>
+						<Input
+							id="engine-url"
+							value={url}
+							onChange={(e) => setUrl(e.target.value)}
+							placeholder="http://127.0.0.1:4311"
+						/>
+					</Field>
+					<Field>
+						<FieldLabel htmlFor="engine-token">Engine token</FieldLabel>
+						<Input
+							id="engine-token"
+							type="password"
+							autoComplete="off"
+							value={token}
+							onChange={(e) => setToken(e.target.value)}
+							placeholder="Only for an engine that needs one (kept for this tab only)"
+						/>
+						<FieldDescription>
+							From <code>baka serve --token</code>. The hosted page can reach an engine on your machine only if it was
+							started with <code>--allow-origin</code> for this page.
+						</FieldDescription>
+					</Field>
 					<div className="flex items-center gap-2">
-						<Badge variant={engineError ? "destructive" : "secondary"}>{ENGINE_URL}</Badge>
+						<Badge variant={engineError ? "destructive" : "secondary"}>{engineUrl()}</Badge>
 						<Button onClick={() => void loadPacks()} disabled={busy !== null}>
 							{busy === "packs" ? (
 								<Loader2Icon data-icon="inline-start" className="animate-spin" />

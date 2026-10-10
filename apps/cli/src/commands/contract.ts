@@ -4,6 +4,7 @@ import {
 	BAKA_CAPABILITIES,
 	BAKA_CONTRACT_VERSION,
 	BAKA_EXIT_CODE,
+	BAKA_NODE_MAJOR,
 	CONTRACT_DOCUMENT_IDS,
 	contractJsonSchema,
 	type Handshake,
@@ -56,9 +57,11 @@ export function runHealthCommand(opts: { cwd: string; json?: boolean; bundledPac
 	const nodeMajor = Number(process.versions.node.split(".")[0])
 	checks.push({
 		name: "node",
-		ok: nodeMajor >= 20,
+		ok: nodeMajor >= BAKA_NODE_MAJOR,
 		detail:
-			nodeMajor >= 20 ? `Node.js ${process.versions.node}` : `Node.js ${process.versions.node}; baka needs 20 or later`,
+			nodeMajor >= BAKA_NODE_MAJOR
+				? `Node.js ${process.versions.node}`
+				: `Node.js ${process.versions.node}; baka needs ${BAKA_NODE_MAJOR} or later`,
 	})
 	const bundled = opts.bundledPacksDir ?? findBundledPacks(import.meta.url)
 	if (!bundled) {

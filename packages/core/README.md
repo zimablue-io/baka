@@ -100,7 +100,7 @@ Each receipt's `pins` is `[{ id, version, contentHash }]` for the pack the run u
 
 ## Install
 
-`@baka/core` is not on a registry yet. Build a tarball and install it into any project (ESM only, Node 20 or newer):
+`@baka/core` is not on a registry yet. Build a tarball and install it into any project (ESM only, Node 24 or newer):
 
 ```bash
 # in the Baka repo

@@ -1,10 +1,10 @@
 name: CI
 
 # Pinned versions:
-#   pnpm 9  matches the workspace's `packageManager` field (pnpm@9.0.0).
-#   Node 22 matches the engine floor (`>=20.0.0`) with the closest LTS.
-# Both are kept in sync with the workspace declarations; bump them
-# together with root `package.json`.
+#   pnpm is the workspace's `packageManager` field (pnpm@9.0.0); the action reads it, so it is set in one place.
+#   The Node version is `.nvmrc`: CI, releases, Vercel and the engine floor all follow it.
+# Neither is repeated here; bump them
+# in root `package.json` and `.nvmrc`.
 
 on:
   push:
@@ -26,12 +26,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: pnpm
 
       - name: Install
@@ -47,14 +45,15 @@ jobs:
       - name: Type-check
         run: pnpm -r check-types
 
-      - name: Test
-        run: pnpm -r test
-
+      # The MCP and CLI tests drive the built binaries, so the build comes first.
       - name: Build
         run: pnpm build
 
+      - name: Test
+        run: pnpm -r test
+
       - name: Pack (baka + @baka/mcp-server + @baka/core)
-        run: pnpm pack
+        run: pnpm run pack
 
       # Strict unused file, export, dependency, and unresolved-import gate.
       # Configuration hints are fatal through the root `pnpm knip` script.
@@ -73,13 +72,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          # The packed tarballs contain a `dist/index.js` that is the
-          # same artifact produced by `pnpm build` and then linked
-          # into `node_modules/.bin/` by `pnpm link --global`. Verifying
-          # the linked binaries therefore probes the SAME code path
-          # the tarballs ship; this is the documented install method
-          # for end users, and it is hermetic (no separate registry
-          # resolution needed for workspace packages).
+          # Install both tarballs into a scratch prefix, as an end user
+          # would, and probe the binaries that install puts on the path.
           #
           # The pack step above also produced real tarballs in
           # `dist-tarballs/`; we verify those structurally (right name,
@@ -89,17 +83,22 @@ jobs:
           test -f dist-tarballs/baka-0.1.0.tgz
           test -f dist-tarballs/baka-mcp-server-0.1.0.tgz
           test -f dist-tarballs/baka-core-0.1.0.tgz
-          tar -tzf dist-tarballs/baka-0.1.0.tgz | grep -q '^package/dist/index.js$'
-          tar -tzf dist-tarballs/baka-mcp-server-0.1.0.tgz | grep -q '^package/dist/index.js$'
-          tar -tzf dist-tarballs/baka-core-0.1.0.tgz | grep -q '^package/dist/index.js$'
-          tar -tzf dist-tarballs/baka-core-0.1.0.tgz | grep -q '^package/dist/index.d.ts$'
+          # List first, grep after: `grep -q` quits at the first match, and under
+          # `pipefail` the SIGPIPE it sends `tar` fails the pipeline.
+          for t in baka-0.1.0 baka-mcp-server-0.1.0 baka-core-0.1.0; do
+            tar -tzf "dist-tarballs/${t}.tgz" > "${RUNNER_TEMP}/${t}.list"
+            grep -qx 'package/dist/index.js' "${RUNNER_TEMP}/${t}.list"
+          done
+          grep -qx 'package/dist/index.d.ts' "${RUNNER_TEMP}/baka-core-0.1.0.list"
 
-          echo "=== probe the binaries (link --global) ==="
-          pnpm link --global >/dev/null
-          trap 'pnpm unlink --global baka @baka/mcp-server >/dev/null 2>&1 || true' EXIT
+          echo "=== probe the binaries installed from the tarballs ==="
+          prefix="${RUNNER_TEMP}/smoke-prefix"
+          rm -rf "$prefix"
+          npm install --prefix "$prefix" --no-audit --no-fund --loglevel=error \
+            "$PWD/dist-tarballs/baka-0.1.0.tgz" "$PWD/dist-tarballs/baka-mcp-server-0.1.0.tgz"
 
-          CLI_BIN="$(pnpm root -g)/../baka"
-          MCP_BIN="$(pnpm root -g)/../baka-mcp"
+          CLI_BIN="$prefix/node_modules/.bin/baka"
+          MCP_BIN="$prefix/node_modules/.bin/baka-mcp"
           test -x "$CLI_BIN"
           test -x "$MCP_BIN"
 

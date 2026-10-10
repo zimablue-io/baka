@@ -519,6 +519,12 @@ program
 		(dir: string, prior: string[]) => [...prior, dir],
 		[] as string[],
 	)
+	.option(
+		"--allow-origin <origin>",
+		"let the web page at this origin (https://host[:port]) call the engine from a browser (repeatable; also BAKA_ENGINE_ALLOWED_ORIGINS). Needs a bearer token",
+		(origin: string, prior: string[]) => [...prior, origin],
+		[] as string[],
+	)
 	.action(async (opts) => {
 		// The server answers for several projects, so each one's own settings decide when nothing was named.
 		await runServeCommand({
@@ -528,6 +534,7 @@ program
 			host: opts.host,
 			token: opts.token,
 			allowRoots: opts.allowRoot,
+			allowOrigins: opts.allowOrigin,
 		})
 	})
 

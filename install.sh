@@ -39,10 +39,10 @@ while [ $# -gt 0 ]; do
 	esac
 done
 
-command -v node >/dev/null 2>&1 || die "Node.js 20 or later is required, and node is not on the PATH"
+command -v node >/dev/null 2>&1 || die "Node.js 24 or later is required, and node is not on the PATH"
 command -v npm >/dev/null 2>&1 || die "npm is required, and npm is not on the PATH"
 node_major=$(node -p 'process.versions.node.split(".")[0]')
-[ "$node_major" -ge 20 ] || die "Node.js 20 or later is required; this is $(node --version)"
+[ "$node_major" -ge 24 ] || die "Node.js 24 or later is required; this is $(node --version)"
 
 if [ -z "$tarball" ]; then
 	if [ -n "$version" ]; then

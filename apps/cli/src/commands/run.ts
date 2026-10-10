@@ -384,12 +384,20 @@ export async function runServeCommand(opts: {
 	host?: string
 	token?: string
 	allowRoots?: string[]
+	allowOrigins?: string[]
 }): Promise<void> {
 	const { resolveServeConfig, serveEngine } = await import("@baka/engine")
 	let config: ReturnType<typeof resolveServeConfig>
 	try {
 		config = resolveServeConfig(
-			{ port: opts.port, host: opts.host, token: opts.token, allowRoots: opts.allowRoots, packDirs: opts.packDirs },
+			{
+				port: opts.port,
+				host: opts.host,
+				token: opts.token,
+				allowRoots: opts.allowRoots,
+				allowOrigins: opts.allowOrigins,
+				packDirs: opts.packDirs,
+			},
 			process.env,
 			opts.cwd,
 		)
