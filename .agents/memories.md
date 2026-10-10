@@ -12,6 +12,16 @@ file and is injected automatically on session start.
 See `.agents/rules/` for the canonical rules. This file only adds
 project-specific constraints that don't yet deserve a full rule file.
 
+- **2026-10-10: Commit messages carry NO agent co-author trailer.**
+  The global hook `/Users/lefamoffat/.config/git/hooks/commit-msg-policy`
+  rejects any message naming an agent (claude, anthropic.com, cursor,
+  copilot, chatgpt, gemini, factory-droid, `[bot]`, and more). It fires on
+  both the `Co-Authored-By:` trailer and "Generated with ..." signature
+  lines. This overrides the usual `Co-authored-by: factory-droid[bot]`
+  convention. History still shows `Claude Sonnet 5.5` trailers on older
+  commits, so the policy is newer than them. Keep the subject imperative
+  and the body to one short paragraph.
+
 - **2026-08-26: The usable project is `demo/`.** Packs live in
   the consumer tree (`demo/packs/`): `vite-app`, `vite-theme`,
   `vite-page`. They write a Vite + TypeScript app. Dashboard
