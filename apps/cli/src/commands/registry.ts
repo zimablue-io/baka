@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import { BAKA_EXIT_CODE } from "@repo/protocol"
+import { die } from "../die"
 import {
 	getPackDetail,
 	getPackPreviews,
@@ -29,11 +30,6 @@ import { readRegistryCredential, readRegistryCredentials, writeRegistryCredentia
  * in `${BAKA_HOME:-$HOME/.baka}/config.json` (decision 33). Keys are
  * never echoed in any output or log (VAL-DISC-033).
  */
-
-function die(code: number, msg: string): never {
-	process.stderr.write(`baka: ${msg}\n`)
-	process.exit(code)
-}
 
 function resolveRegistryUrl(flagValue: string | undefined): string {
 	return resolveSingleRegistryUrl(flagValue)
@@ -72,18 +68,18 @@ async function loginWithToken(token: string, baseUrl: string): Promise<void> {
 	} catch (err) {
 		if (err instanceof RegistryTransportError) {
 			die(
-				BAKA_EXIT_CODE.ENGINE_ERROR,
+				BAKA_EXIT_CODE.FAILED,
 				`cannot verify key: registry unreachable at ${baseUrl} (${err.message.split(":").slice(-1)[0]?.trim() ?? "transport failure"})`,
 			)
 		}
 		if (err instanceof RegistryHttpError) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, `cannot verify key: registry returned HTTP ${err.status}`)
+			die(BAKA_EXIT_CODE.FAILED, `cannot verify key: registry returned HTTP ${err.status}`)
 		}
 		throw err
 	}
 	if (!identity) {
 		die(
-			BAKA_EXIT_CODE.USER_ERROR,
+			BAKA_EXIT_CODE.BAD_INPUT,
 			`registry at ${baseUrl} rejected the key (HTTP 401). Run \`baka registry login --token <key>\` with a valid key from \`POST /api/auth/api-key/create\`.`,
 		)
 	}
@@ -121,20 +117,20 @@ async function loginWithBrowserFlow(baseUrl: string): Promise<void> {
 	if (!received) {
 		stopCallbackServer()
 		die(
-			BAKA_EXIT_CODE.USER_ERROR,
+			BAKA_EXIT_CODE.BAD_INPUT,
 			`login not completed: timed out waiting for the registry to redirect back to ${callbackUrl}. Run \`baka registry login --token <key>\` to paste a key directly.`,
 		)
 	}
 	stopCallbackServer()
 	if (received.state !== state) {
 		die(
-			BAKA_EXIT_CODE.USER_ERROR,
+			BAKA_EXIT_CODE.BAD_INPUT,
 			`login not completed: state mismatch (expected ${state}, got ${received.state ?? "<missing>"}). Run \`baka registry login --token <key>\` to paste a key directly.`,
 		)
 	}
 	if (!received.apiKey) {
 		die(
-			BAKA_EXIT_CODE.USER_ERROR,
+			BAKA_EXIT_CODE.BAD_INPUT,
 			`login not completed: the registry's redirect did not include an API key. Run \`baka registry login --token <key>\` to paste a key directly.`,
 		)
 	}
@@ -246,7 +242,7 @@ export async function runRegistryWhoami(opts: WhoamiOptions): Promise<void> {
 	const baseUrl = resolveRegistryUrl(opts.registry)
 	const credential = readRegistryCredential(baseUrl)
 	if (!credential) {
-		die(BAKA_EXIT_CODE.USER_ERROR, `no credential stored for ${baseUrl}. Run \`baka registry login\` to authenticate.`)
+		die(BAKA_EXIT_CODE.BAD_INPUT, `no credential stored for ${baseUrl}. Run \`baka registry login\` to authenticate.`)
 	}
 	let identity: Awaited<ReturnType<typeof whoami>>
 	try {
@@ -254,18 +250,18 @@ export async function runRegistryWhoami(opts: WhoamiOptions): Promise<void> {
 	} catch (err) {
 		if (err instanceof RegistryTransportError) {
 			die(
-				BAKA_EXIT_CODE.ENGINE_ERROR,
+				BAKA_EXIT_CODE.FAILED,
 				`registry at ${baseUrl} is unreachable: ${err.message.split(":").slice(-1)[0]?.trim() ?? "transport failure"}`,
 			)
 		}
 		if (err instanceof RegistryHttpError) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, `registry at ${baseUrl} returned HTTP ${err.status}`)
+			die(BAKA_EXIT_CODE.FAILED, `registry at ${baseUrl} returned HTTP ${err.status}`)
 		}
 		throw err
 	}
 	if (!identity) {
 		die(
-			BAKA_EXIT_CODE.USER_ERROR,
+			BAKA_EXIT_CODE.BAD_INPUT,
 			`credential for ${baseUrl} was rejected by the registry (HTTP 401). Run \`baka registry login --token <key>\` to re-authenticate.`,
 		)
 	}
@@ -527,7 +523,7 @@ export async function runRegistryInfo(spec: string, opts: InfoOptions = {}): Pro
 	try {
 		parsed = parseRegistryInfoSpec(spec)
 	} catch (err) {
-		die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
+		die(BAKA_EXIT_CODE.BAD_INPUT, err instanceof Error ? err.message : String(err))
 	}
 	const baseUrl = resolveSingleRegistryUrl(opts.registry)
 	const apiKey = readRegistryCredential(baseUrl)?.apiKey
@@ -544,16 +540,16 @@ export async function runRegistryInfo(spec: string, opts: InfoOptions = {}): Pro
 		resolvedVersion = result.resolvedVersion
 	} catch (err) {
 		if (err instanceof Error && err.message.startsWith("not found:")) {
-			die(BAKA_EXIT_CODE.USER_ERROR, err.message)
+			die(BAKA_EXIT_CODE.BAD_INPUT, err.message)
 		}
 		if (err instanceof RegistryTransportError) {
 			die(
-				BAKA_EXIT_CODE.ENGINE_ERROR,
+				BAKA_EXIT_CODE.FAILED,
 				`registry at ${baseUrl} is unreachable: ${err.message.split(":").slice(-1)[0]?.trim() ?? "transport failure"}`,
 			)
 		}
 		if (err instanceof RegistryHttpError) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, `registry at ${baseUrl} returned HTTP ${err.status}`)
+			die(BAKA_EXIT_CODE.FAILED, `registry at ${baseUrl} returned HTTP ${err.status}`)
 		}
 		throw err
 	}
@@ -716,7 +712,7 @@ export async function runRegistryPreview(spec: string, opts: PreviewOptions = {}
 	try {
 		parsed = parseRegistryInfoSpec(spec)
 	} catch (err) {
-		die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
+		die(BAKA_EXIT_CODE.BAD_INPUT, err instanceof Error ? err.message : String(err))
 	}
 	const baseUrl = resolveSingleRegistryUrl(opts.registry)
 	const apiKey = readRegistryCredential(baseUrl)?.apiKey
@@ -742,14 +738,11 @@ export async function runRegistryPreview(spec: string, opts: PreviewOptions = {}
 				fetchImpl: opts.fetch,
 			})
 			if (detail === null) {
-				die(
-					BAKA_EXIT_CODE.USER_ERROR,
-					`not found: pack '${parsed.scope}/${parsed.name}' is not served by this registry`,
-				)
+				die(BAKA_EXIT_CODE.BAD_INPUT, `not found: pack '${parsed.scope}/${parsed.name}' is not served by this registry`)
 			}
 			if (detail.latestVersion === null) {
 				die(
-					BAKA_EXIT_CODE.USER_ERROR,
+					BAKA_EXIT_CODE.BAD_INPUT,
 					`no installable version for '${parsed.scope}/${parsed.name}' (every version is non-ready)`,
 				)
 			}
@@ -765,7 +758,7 @@ export async function runRegistryPreview(spec: string, opts: PreviewOptions = {}
 		})
 		if (versionDetail === null) {
 			die(
-				BAKA_EXIT_CODE.USER_ERROR,
+				BAKA_EXIT_CODE.BAD_INPUT,
 				`not found: version '${parsed.scope}/${parsed.name}@${resolvedVersion}' is not served by this registry`,
 			)
 		}
@@ -792,7 +785,7 @@ export async function runRegistryPreview(spec: string, opts: PreviewOptions = {}
 			})
 			if (detail === null) {
 				die(
-					BAKA_EXIT_CODE.USER_ERROR,
+					BAKA_EXIT_CODE.BAD_INPUT,
 					`no preview record for recipe '${opts.recipe}' on ${parsed.scope}/${parsed.name}@${resolvedVersion}`,
 				)
 			}
@@ -835,12 +828,12 @@ export async function runRegistryPreview(spec: string, opts: PreviewOptions = {}
 	} catch (err) {
 		if (err instanceof RegistryTransportError) {
 			die(
-				BAKA_EXIT_CODE.ENGINE_ERROR,
+				BAKA_EXIT_CODE.FAILED,
 				`registry at ${baseUrl} is unreachable: ${err.message.split(":").slice(-1)[0]?.trim() ?? "transport failure"}`,
 			)
 		}
 		if (err instanceof RegistryHttpError) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, `registry at ${baseUrl} returned HTTP ${err.status}`)
+			die(BAKA_EXIT_CODE.FAILED, `registry at ${baseUrl} returned HTTP ${err.status}`)
 		}
 		throw err
 	}

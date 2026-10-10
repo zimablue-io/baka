@@ -9,13 +9,15 @@ export const ENGINE_STATUS = {
 	FAILED: "FAILED",
 } as const
 
-// Structured exit codes for the CLI. Picked up by the baka binary and forwarded to process.exit.
+// Exit codes of the baka CLI, the same four the Moralo module manifest (v0) names. 0 means success,
+// 1 means the command ran and the work failed (a validator, a conflict, an engine error), 2 means the
+// caller's input was bad (a flag, a path, a recipe that does not exist), 3 means Baka or something it
+// needs is not available (no reachable model, an incompatible host). Nothing else is ever returned.
 export const BAKA_EXIT_CODE = {
 	SUCCESS: 0,
-	USER_ERROR: 1,
-	ENGINE_ERROR: 2,
-	PROVIDER_ERROR: 3,
-	VALIDATION_ERROR: 4,
+	FAILED: 1,
+	BAD_INPUT: 2,
+	UNAVAILABLE: 3,
 } as const
 
 // Reserved pack categories used in docs and error messages. The set of installed
@@ -57,11 +59,13 @@ export const RECIPE_ERROR_CODES = [
 	"pack-not-found",
 	"pack-invalid",
 	"recipe-not-found",
+	"recipe-ambiguous",
 	"recipe-empty",
 	"invalid-params",
 	"lock-mismatch",
 	"lock-unlisted",
-	"slot-no-provider",
+	"slots-open",
+	"slot-unknown",
 	"slot-provider-error",
 	"slot-record-missing",
 	"slot-record-stale",
@@ -75,6 +79,26 @@ export const RECIPE_ERROR_CODES = [
 	"recipe-failed",
 	"unexpected",
 ] as const
+
+const BAD_INPUT_RULES: ReadonlySet<string> = new Set([
+	"pack-not-found",
+	"recipe-not-found",
+	"recipe-ambiguous",
+	"invalid-params",
+	"slot-unknown",
+])
+
+/**
+ * The exit code a failed run maps to, from the rule of its first error diagnostic: a pack, a recipe,
+ * a parameter or a slot the caller named wrongly is bad input (2); a model that could not be reached
+ * means the thing the run needs is not available (3); every other failure is a run that ran and
+ * failed (1), including slots that are still open.
+ */
+export function exitCodeForRule(rule: string | undefined): number {
+	if (rule !== undefined && BAD_INPUT_RULES.has(rule)) return BAKA_EXIT_CODE.BAD_INPUT
+	if (rule === "slot-provider-error") return BAKA_EXIT_CODE.UNAVAILABLE
+	return BAKA_EXIT_CODE.FAILED
+}
 
 // Where a project records the pack versions it is pinned to; see docs/PACKS.md.
 export const BAKA_LOCKFILE_NAME = "baka.lock.json"

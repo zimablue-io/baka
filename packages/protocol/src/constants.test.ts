@@ -11,21 +11,39 @@ import {
 	BAKA_PROJECT_PATHS,
 	BAKA_USER_DIR,
 	ENGINE_STATUS,
+	exitCodeForRule,
 	PACK_CATEGORY,
 } from "./constants"
 
 describe("BAKA_EXIT_CODE", () => {
 	it("carries the documented exit codes the CLI contract promises", () => {
 		expect(BAKA_EXIT_CODE.SUCCESS).toBe(0)
-		expect(BAKA_EXIT_CODE.USER_ERROR).toBe(1)
-		expect(BAKA_EXIT_CODE.ENGINE_ERROR).toBe(2)
-		expect(BAKA_EXIT_CODE.PROVIDER_ERROR).toBe(3)
-		expect(BAKA_EXIT_CODE.VALIDATION_ERROR).toBe(4)
+		expect(BAKA_EXIT_CODE.FAILED).toBe(1)
+		expect(BAKA_EXIT_CODE.BAD_INPUT).toBe(2)
+		expect(BAKA_EXIT_CODE.UNAVAILABLE).toBe(3)
 	})
 
 	it("assigns each outcome a distinct code (no aliasing between failure modes)", () => {
 		const codes = Object.values(BAKA_EXIT_CODE)
 		expect(new Set(codes).size).toBe(codes.length)
+	})
+})
+
+describe("exitCodeForRule", () => {
+	it("maps a wrongly named pack, recipe, parameter or slot to bad input", () => {
+		for (const rule of ["pack-not-found", "recipe-not-found", "recipe-ambiguous", "invalid-params", "slot-unknown"]) {
+			expect(exitCodeForRule(rule), rule).toBe(BAKA_EXIT_CODE.BAD_INPUT)
+		}
+	})
+
+	it("maps an unreachable model to unavailable", () => {
+		expect(exitCodeForRule("slot-provider-error")).toBe(BAKA_EXIT_CODE.UNAVAILABLE)
+	})
+
+	it("maps open slots and every other failure to failed", () => {
+		for (const rule of ["slots-open", "lock-mismatch", "target-exists", "recipe-failed", undefined]) {
+			expect(exitCodeForRule(rule), String(rule)).toBe(BAKA_EXIT_CODE.FAILED)
+		}
 	})
 })
 

@@ -7,13 +7,13 @@
 //
 // Coverage map (per `validation-contract.md`, VAL-ROLE-*):
 //
-//   VAL-ROLE-001 baka roles (no config) — exits 1 with
+//   VAL-ROLE-001 baka roles (no config) — exits 2 with
 //              `missing LLM config: worker role not configured` on stderr.
 //   VAL-ROLE-002 baka roles (full config) — exits 0, prints `worker` and
 //              `validator` lines, masks the apiKey value.
 //   VAL-ROLE-003 baka role worker --field model --value foo — mutates
 //              the worker block's `model` field; leaves other fields untouched.
-//   VAL-ROLE-004 baka role nonexistent — exits 1 with a clear error and
+//   VAL-ROLE-004 baka role nonexistent — exits 2 with a clear error and
 //              no Node stack frames.
 //   VAL-ROLE-005 baka --help does not mention `providers` or `config`
 //              as legacy subcommands.
@@ -160,7 +160,7 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("VAL-ROLE-001 baka roles (no config)", () => {
-	it("exits 1 with a `missing LLM config` diagnostic pointing at `baka init`", async () => {
+	it("exits 2 with a `missing LLM config` diagnostic pointing at `baka init`", async () => {
 		const fakeHome = trackDir(makeEmptyDir("baka-role-smoke-empty-"))
 
 		const { code, stdout, stderr } = await spawnCliWithFakeHome({
@@ -168,7 +168,7 @@ describe("VAL-ROLE-001 baka roles (no config)", () => {
 			fakeHome,
 		})
 
-		expect(code, `expected exit 1, got ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(1)
+		expect(code, `expected exit 2, got ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(2)
 		expect(stderr).toMatch(/missing LLM config/)
 		expect(stderr).toContain("baka init")
 		expect(stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
@@ -285,7 +285,7 @@ describe("baka role worker --field seed --value 42", () => {
 // ---------------------------------------------------------------------------
 
 describe("VAL-ROLE-004 baka role nonexistent", () => {
-	it("exits 1 with `unknown role` (or similar) on stderr, no stack frames", async () => {
+	it("exits 2 with `unknown role` (or similar) on stderr, no stack frames", async () => {
 		const fakeHome = trackDir(makeEmptyDir("baka-role-smoke-bad-role-"))
 		seedRoleConfig(fakeHome, {
 			worker: { baseUrl: "http://x", model: "m" },
@@ -297,7 +297,7 @@ describe("VAL-ROLE-004 baka role nonexistent", () => {
 			fakeHome,
 		})
 
-		expect(code, `expected exit 1, got ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(1)
+		expect(code, `expected exit 2, got ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(2)
 		expect(stderr.toLowerCase()).toMatch(/unknown role|invalid role|role "nonexistent"/)
 		expect(stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
 	})

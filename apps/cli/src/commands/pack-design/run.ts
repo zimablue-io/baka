@@ -20,6 +20,7 @@ import {
 	saveSession,
 } from "@repo/pack-management-workflow"
 import { BAKA_EXIT_CODE, type LLMProvider } from "@repo/protocol"
+import { die } from "../../die"
 import { createPackSandbox, runConsistencyInSandbox } from "./consistency"
 import { isE2EMode } from "./e2e-input"
 import { promptDefineApproval, promptDeliverApproval, promptDevelopApproval, promptUser } from "./prompts"
@@ -47,10 +48,10 @@ export async function runPackDesign(
 	deps: RunPackDesignDeps = defaultDeps,
 ): Promise<void> {
 	if (!name) {
-		die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka pack create <name>")
+		die(BAKA_EXIT_CODE.BAD_INPUT, "usage: baka pack create <name>")
 	}
 	if (!isValidPackName(name)) {
-		die(BAKA_EXIT_CODE.USER_ERROR, invalidPackNameMessage())
+		die(BAKA_EXIT_CODE.BAD_INPUT, invalidPackNameMessage())
 	}
 
 	const packDir = join(opts.cwd, "packs", name)
@@ -76,7 +77,7 @@ export async function runPackDesign(
 	try {
 		validateLLMConfig(config)
 	} catch (err) {
-		die(BAKA_EXIT_CODE.ENGINE_ERROR, `LLM config: ${err instanceof Error ? err.message : String(err)}`)
+		die(BAKA_EXIT_CODE.FAILED, `LLM config: ${err instanceof Error ? err.message : String(err)}`)
 	}
 	const provider = deps.getProvider ? await deps.getProvider(opts.cwd) : deps.createLLMProvider(config)
 
@@ -107,7 +108,7 @@ export async function runPackDesign(
 		console.log(`\n[pack ${name} delivered; CONSISTENCY.md has the trace]\n`)
 	} else if (result.exited === "consistency-failure") {
 		console.log(`\n[consistency failed; pack ${name} left in DEVELOP for refinement]\n`)
-		process.exit(BAKA_EXIT_CODE.VALIDATION_ERROR)
+		process.exit(BAKA_EXIT_CODE.FAILED)
 	} else if (result.exited === "rejected") {
 		console.log(`\n[deliver cancelled by user; pack ${name} rolled back to DEVELOP]\n`)
 	} else if (result.exited === "user-exit") {
@@ -123,7 +124,7 @@ export async function runPackConsistency(
 	const state = loadSession(packDir)
 	const recipeId = opts.recipeId ?? state?.designedRecipes?.[0]?.id
 	if (!recipeId) {
-		die(BAKA_EXIT_CODE.USER_ERROR, `could not determine recipe id; pass --recipe=<id>`)
+		die(BAKA_EXIT_CODE.BAD_INPUT, `could not determine recipe id; pass --recipe=<id>`)
 	}
 	const intent =
 		opts.intent ?? state?.designedRecipes?.find((a) => a.id === recipeId)?.testIntent ?? `use ${name}:${recipeId}`
@@ -134,13 +135,8 @@ export async function runPackConsistency(
 		const { runConsistencyTest } = await import("@repo/ast-tooling")
 		const result = await runConsistencyTest({ cwd: sandbox.tempDir, packName: name, recipeId, intent, n })
 		console.log(renderConsistencyResult(result))
-		if (!result.passed) process.exit(BAKA_EXIT_CODE.VALIDATION_ERROR)
+		if (!result.passed) process.exit(BAKA_EXIT_CODE.FAILED)
 	} finally {
 		sandbox.cleanup()
 	}
-}
-
-function die(code: number, msg: string): never {
-	process.stderr.write(`baka: ${msg}\n`)
-	process.exit(code)
 }

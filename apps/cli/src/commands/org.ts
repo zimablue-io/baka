@@ -1,4 +1,5 @@
 import { BAKA_EXIT_CODE } from "@repo/protocol"
+import { die } from "../die"
 import {
 	createOrg,
 	inviteToOrg,
@@ -28,17 +29,12 @@ import { readRegistryCredential } from "../lib/registry-credentials"
  * CLI matches that contract by refusing pre-network, per VAL-DISC-007).
  */
 
-function die(code: number, msg: string): never {
-	process.stderr.write(`baka: ${msg}\n`)
-	process.exit(code)
-}
-
 function resolveBaseUrl(flagValue: string | undefined): string {
 	return resolveSingleRegistryUrl(flagValue)
 }
 
 /**
- * Returns the resolved base URL and the stored API key. Exits USER_ERROR
+ * Returns the resolved base URL and the stored API key. Exits BAD_INPUT
  * when no credential is stored for the URL — every subcommand below
  * requires an authenticated session.
  */
@@ -47,7 +43,7 @@ function requireCredential(registryFlag: string | undefined): { baseUrl: string;
 	const credential = readRegistryCredential(baseUrl)
 	if (!credential) {
 		die(
-			BAKA_EXIT_CODE.USER_ERROR,
+			BAKA_EXIT_CODE.BAD_INPUT,
 			`no credential stored for ${baseUrl}. Run \`baka registry login --token <key>\` to authenticate, then retry.`,
 		)
 	}
@@ -65,7 +61,7 @@ interface OrgCreateOptions {
 }
 
 export async function runOrgCreateCommand(slug: string, opts: OrgCreateOptions): Promise<void> {
-	if (!slug) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka org create <slug> [--name <name>]")
+	if (!slug) die(BAKA_EXIT_CODE.BAD_INPUT, "usage: baka org create <slug> [--name <name>]")
 	const name = opts.name && opts.name.length > 0 ? opts.name : slug
 	const { baseUrl, apiKey } = requireCredential(opts.registry)
 
@@ -129,11 +125,11 @@ interface OrgInviteOptions {
 }
 
 export async function runOrgInviteCommand(slug: string, email: string, opts: OrgInviteOptions): Promise<void> {
-	if (!slug) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka org invite <slug> <email> [--role owner|admin|member]")
-	if (!email) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka org invite <slug> <email> [--role owner|admin|member]")
+	if (!slug) die(BAKA_EXIT_CODE.BAD_INPUT, "usage: baka org invite <slug> <email> [--role owner|admin|member]")
+	if (!email) die(BAKA_EXIT_CODE.BAD_INPUT, "usage: baka org invite <slug> <email> [--role owner|admin|member]")
 	const role = opts.role ?? "member"
 	if (role !== "owner" && role !== "admin" && role !== "member") {
-		die(BAKA_EXIT_CODE.USER_ERROR, `invalid role '${role}'; expected one of: owner, admin, member`)
+		die(BAKA_EXIT_CODE.BAD_INPUT, `invalid role '${role}'; expected one of: owner, admin, member`)
 	}
 	const { baseUrl, apiKey } = requireCredential(opts.registry)
 
@@ -153,16 +149,16 @@ export async function runOrgInviteCommand(slug: string, email: string, opts: Org
 }
 
 /**
- * Surfaces a registry error verbatim. 4xx → USER_ERROR (the user
+ * Surfaces a registry error verbatim. 4xx → BAD_INPUT (the user
  * supplied a bad slug, an unknown invitee, etc.); 5xx + transport →
- * ENGINE_ERROR. The masked key prefix is appended so a 401/403
+ * FAILED. The masked key prefix is appended so a 401/403
  * carries the same "rejected by the registry" framing the other
  * CLI commands use, never the raw key.
  */
 function dieOnRegistryError(err: unknown, baseUrl: string, apiKey: string, path: string): never {
 	if (err instanceof RegistryTransportError) {
 		die(
-			BAKA_EXIT_CODE.ENGINE_ERROR,
+			BAKA_EXIT_CODE.FAILED,
 			`cannot reach registry at ${baseUrl} (${path}): ${err.message.split(":").slice(-1)[0]?.trim() ?? "transport failure"}`,
 		)
 	}
@@ -171,7 +167,7 @@ function dieOnRegistryError(err: unknown, baseUrl: string, apiKey: string, path:
 		die(httpStatusToExitCode(err.status), `${message} (key ${maskApiKey(apiKey)})`)
 	}
 	const message = err instanceof Error ? err.message : String(err)
-	die(BAKA_EXIT_CODE.ENGINE_ERROR, `unexpected registry error (${path}): ${message}`)
+	die(BAKA_EXIT_CODE.FAILED, `unexpected registry error (${path}): ${message}`)
 }
 
 function stripRegistryErrorPrefix(raw: string): string {
@@ -182,7 +178,7 @@ function stripRegistryErrorPrefix(raw: string): string {
 
 function httpStatusToExitCode(status: number): number {
 	if (status === 401 || status === 403 || status === 404 || status === 409 || status === 422) {
-		return BAKA_EXIT_CODE.USER_ERROR
+		return BAKA_EXIT_CODE.BAD_INPUT
 	}
-	return BAKA_EXIT_CODE.ENGINE_ERROR
+	return BAKA_EXIT_CODE.FAILED
 }

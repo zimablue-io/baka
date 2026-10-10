@@ -641,13 +641,13 @@ function parseRegistrationScopeName(raw: string): { scope: string; name: string 
  *     names the registry's recorded error (VAL-PUB-018)
  */
 export async function runInstallCommand(spec: string, opts: InstallOptions): Promise<void> {
-	if (!spec) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka install <spec>")
+	if (!spec) die(BAKA_EXIT_CODE.BAD_INPUT, "usage: baka install <spec>")
 
 	let parsedSpec: ParsedInstallSpec
 	try {
 		parsedSpec = parseInstallSpec(spec)
 	} catch (err) {
-		die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
+		die(BAKA_EXIT_CODE.BAD_INPUT, err instanceof Error ? err.message : String(err))
 	}
 
 	if (parsedSpec.kind === "source") {
@@ -660,7 +660,7 @@ export async function runInstallCommand(spec: string, opts: InstallOptions): Pro
 
 	const registries = opts.registries ?? resolveRegistriesForInstall(opts)
 	if (registries.length === 0) {
-		die(BAKA_EXIT_CODE.USER_ERROR, "no registries configured; add one with --registry <url> or BAKA_REGISTRY_URL")
+		die(BAKA_EXIT_CODE.BAD_INPUT, "no registries configured; add one with --registry <url> or BAKA_REGISTRY_URL")
 	}
 
 	const credentialLookup =
@@ -678,9 +678,9 @@ export async function runInstallCommand(spec: string, opts: InstallOptions): Pro
 	})
 	if ("error" in resolution) {
 		if (resolution.transport) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, `cannot reach registry: ${resolution.error}`)
+			die(BAKA_EXIT_CODE.FAILED, `cannot reach registry: ${resolution.error}`)
 		}
-		die(BAKA_EXIT_CODE.USER_ERROR, resolution.error)
+		die(BAKA_EXIT_CODE.BAD_INPUT, resolution.error)
 	}
 
 	// Conflict check BEFORE any download. Same scope+name is the
@@ -701,7 +701,7 @@ export async function runInstallCommand(spec: string, opts: InstallOptions): Pro
 	)
 	if (collision !== null) {
 		die(
-			BAKA_EXIT_CODE.USER_ERROR,
+			BAKA_EXIT_CODE.BAD_INPUT,
 			`install conflict: '${resolution.scope}/${resolution.name}' collides with an existing ` +
 				`install of '${collision.existingScope}/${collision.existingName}' (registration: ${collision.registration}); ` +
 				`remove the existing install with \`baka uninstall ${collision.existingScope}/${collision.existingName}\` before installing a different scope under the same name`,
@@ -733,30 +733,30 @@ export async function runInstallCommand(spec: string, opts: InstallOptions): Pro
 	} catch (err) {
 		if (err instanceof RegistryDownloadNotFound) {
 			die(
-				BAKA_EXIT_CODE.USER_ERROR,
+				BAKA_EXIT_CODE.BAD_INPUT,
 				`pack not found or private: '${resolution.scope}/${resolution.name}@${resolution.version}' ` +
 					`(the registry returned a uniform not-found response; org-visibility packs are inaccessible to non-members per VAL-DISC-019)`,
 			)
 		}
 		if (err instanceof RegistryDownloadGone) {
 			die(
-				BAKA_EXIT_CODE.USER_ERROR,
+				BAKA_EXIT_CODE.BAD_INPUT,
 				`pack was removed: '${resolution.scope}/${resolution.name}@${resolution.version}' ` +
 					`is no longer served by the registry (tombstoned at ${resolution.registryBaseUrl}); existing local installs are unaffected`,
 			)
 		}
 		if (err instanceof RegistryTransportError) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, `cannot reach registry: ${err.message}`)
+			die(BAKA_EXIT_CODE.FAILED, `cannot reach registry: ${err.message}`)
 		}
 		if (err instanceof RegistryHttpError) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, `registry download failed: ${err.message}`)
+			die(BAKA_EXIT_CODE.FAILED, `registry download failed: ${err.message}`)
 		}
 		throw err
 	}
 
 	if (download.expectedSha256 === null) {
 		die(
-			BAKA_EXIT_CODE.ENGINE_ERROR,
+			BAKA_EXIT_CODE.FAILED,
 			`registry ${resolution.registryBaseUrl} did not include an x-content-sha256 header on the tarball response; cannot verify integrity (VAL-DISC-041)`,
 		)
 	}
@@ -767,7 +767,7 @@ export async function runInstallCommand(spec: string, opts: InstallOptions): Pro
 		// install — we don't touch it on upgrade either, until
 		// integrity passes).
 		die(
-			BAKA_EXIT_CODE.ENGINE_ERROR,
+			BAKA_EXIT_CODE.FAILED,
 			`tarball integrity mismatch for ${resolution.scope}/${resolution.name}@${resolution.version}: ` +
 				`expected sha256=${download.expectedSha256}, got sha256=${actualSha256}; refusing to install`,
 		)
@@ -820,7 +820,7 @@ export async function runInstallCommand(spec: string, opts: InstallOptions): Pro
 		// Materialization failed AFTER the pack dir was cleaned
 		// (or never existed). We never wrote a registration, so
 		// there is nothing to roll back. Surface the failure.
-		die(BAKA_EXIT_CODE.ENGINE_ERROR, `install failed: ${err instanceof Error ? err.message : String(err)}`)
+		die(BAKA_EXIT_CODE.FAILED, `install failed: ${err instanceof Error ? err.message : String(err)}`)
 	}
 
 	// Honor VAL-DISC-033: the apiKey never appears in any output.
@@ -885,7 +885,7 @@ async function runSourceInstall(spec: string, opts: InstallOptions): Promise<voi
 	try {
 		parsed = parseSource(spec)
 	} catch (err) {
-		die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
+		die(BAKA_EXIT_CODE.BAD_INPUT, err instanceof Error ? err.message : String(err))
 	}
 	const settingsPath = opts.scope === "project" ? projectSettingsPath(opts.cwd) : userSettingsPath()
 	const packsDir = opts.scope === "project" ? projectPacksDir(opts.cwd) : userPacksDir()
@@ -924,7 +924,7 @@ async function runSourceInstall(spec: string, opts: InstallOptions): Promise<voi
 		} catch {
 			/* best effort */
 		}
-		die(BAKA_EXIT_CODE.ENGINE_ERROR, `install failed: ${err instanceof Error ? err.message : String(err)}`)
+		die(BAKA_EXIT_CODE.FAILED, `install failed: ${err instanceof Error ? err.message : String(err)}`)
 	}
 }
 
@@ -977,17 +977,17 @@ interface UninstallOptions {
 }
 
 export async function runUninstallCommand(spec: string, opts: UninstallOptions): Promise<void> {
-	if (!spec) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka uninstall <spec>")
+	if (!spec) die(BAKA_EXIT_CODE.BAD_INPUT, "usage: baka uninstall <spec>")
 
 	let parsedSpec: ParsedInstallSpec
 	try {
 		parsedSpec = parseInstallSpec(spec)
 	} catch (err) {
-		die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
+		die(BAKA_EXIT_CODE.BAD_INPUT, err instanceof Error ? err.message : String(err))
 	}
 	if (parsedSpec.kind !== "registry") {
 		die(
-			BAKA_EXIT_CODE.USER_ERROR,
+			BAKA_EXIT_CODE.BAD_INPUT,
 			`uninstall spec '${spec}' must be a registry spec (@<scope>/<name> or <name>); ` +
 				`non-registry sources use \`baka remove\``,
 		)
@@ -1005,7 +1005,7 @@ export async function runUninstallCommand(spec: string, opts: UninstallOptions):
 		return reg !== null && reg.scope === scope && reg.name === name
 	})
 	if (sourceStrings.length === 0) {
-		die(BAKA_EXIT_CODE.USER_ERROR, `no install of '${scope}/${name}' found in ${opts.scope} settings (${settingsPath})`)
+		die(BAKA_EXIT_CODE.BAD_INPUT, `no install of '${scope}/${name}' found in ${opts.scope} settings (${settingsPath})`)
 	}
 
 	// Strip every matching registration (a multi-version install

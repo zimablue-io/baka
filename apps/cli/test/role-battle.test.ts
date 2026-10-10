@@ -169,7 +169,7 @@ afterEach(() => {
 // ===========================================================================
 
 describe("VAL-ROLE-020 corrupt ~/.baka/config.json", () => {
-	it("`baka roles` exits 1 with a single clean stderr line (no `baka: baka:` double prefix)", async () => {
+	it("`baka roles` exits 2 with a single clean stderr line (no `baka: baka:` double prefix)", async () => {
 		const fakeHome = trackDir(makeEmptyDir("baka-corrupt-roles-"))
 		const { code, stderr } = await spawnCliWithFakeHome({
 			argv: ["roles"],
@@ -177,7 +177,7 @@ describe("VAL-ROLE-020 corrupt ~/.baka/config.json", () => {
 			bakaConfig: { corrupt: '{ "worker": ' }, // truncated, unparseable JSON
 		})
 
-		expect(code, `expected exit 1; stderr=${stderr}`).toBe(1)
+		expect(code, `expected exit 2; stderr=${stderr}`).toBe(2)
 		// No double `baka:` prefix. The store layer writes "baka:" and the
 		// CLI's `die()` ALSO writes "baka:"; the user should see only one.
 		expect(stderr, "stderr contains duplicated `baka: baka:` prefix").not.toMatch(/baka:\s*baka:/)
@@ -186,7 +186,7 @@ describe("VAL-ROLE-020 corrupt ~/.baka/config.json", () => {
 		expect(stderr).toContain("config.json")
 	})
 
-	it("`baka plan <intent>` exits 1 with a single clean stderr line (no `baka: baka:` double prefix)", async () => {
+	it("`baka plan <intent>` exits 2 with a single clean stderr line (no `baka: baka:` double prefix)", async () => {
 		const fakeHome = trackDir(makeEmptyDir("baka-corrupt-plan-"))
 		const { code, stderr } = await spawnCliWithFakeHome({
 			argv: ["plan", "scaffold x"],
@@ -194,11 +194,11 @@ describe("VAL-ROLE-020 corrupt ~/.baka/config.json", () => {
 			bakaConfig: { corrupt: "{ broken" },
 		})
 
-		expect(code, `expected exit 1; stderr=${stderr}`).toBe(1)
+		expect(code, `expected exit 2; stderr=${stderr}`).toBe(2)
 		expect(stderr, "stderr contains duplicated `baka: baka:` prefix").not.toMatch(/baka:\s*baka:/)
 	})
 
-	it("`baka role worker --field model --value x` exits 1 with a single clean stderr line (no `baka: baka:` double prefix)", async () => {
+	it("`baka role worker --field model --value x` exits 2 with a single clean stderr line (no `baka: baka:` double prefix)", async () => {
 		const fakeHome = trackDir(makeEmptyDir("baka-corrupt-role-"))
 		const { code, stderr } = await spawnCliWithFakeHome({
 			argv: ["role", "worker", "--field", "model", "--value", "x"],
@@ -206,7 +206,7 @@ describe("VAL-ROLE-020 corrupt ~/.baka/config.json", () => {
 			bakaConfig: { corrupt: "<<<not-json>>>" },
 		})
 
-		expect(code, `expected exit 1; stderr=${stderr}`).toBe(1)
+		expect(code, `expected exit 2; stderr=${stderr}`).toBe(2)
 		expect(stderr, "stderr contains duplicated `baka: baka:` prefix").not.toMatch(/baka:\s*baka:/)
 	})
 })
@@ -216,7 +216,7 @@ describe("VAL-ROLE-020 corrupt ~/.baka/config.json", () => {
 // ===========================================================================
 
 describe("VAL-ROLE-021 baka role <name> --field <unknown-field>", () => {
-	it("exits 1 with the unknown-field error (no Node stack frames)", async () => {
+	it("exits 2 with the unknown-field error (no Node stack frames)", async () => {
 		const fakeHome = trackDir(makeEmptyDir("baka-role-bogus-"))
 		const { code, stdout, stderr } = await spawnCliWithFakeHome({
 			argv: ["role", "worker", "--field", "bogus", "--value", "x"],
@@ -224,7 +224,7 @@ describe("VAL-ROLE-021 baka role <name> --field <unknown-field>", () => {
 			bakaConfig: { worker: { baseUrl: "http://x", model: "m" } },
 		})
 
-		expect(code, `expected exit 1, got ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(1)
+		expect(code, `expected exit 2, got ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(2)
 		expect(stderr).toContain(`unknown field "bogus"`)
 		expect(stderr).toContain("Editable:")
 		expect(stderr, "stderr contains Node stack frames").not.toMatch(/\bat .+\.js:\d+:\d+/)
@@ -237,7 +237,7 @@ describe("VAL-ROLE-021 baka role <name> --field <unknown-field>", () => {
 // ===========================================================================
 
 describe("VAL-ROLE-022 baka role <name> --field temperature --value abc", () => {
-	it("exits 1 with a `must be a number` error (no Node stack frames)", async () => {
+	it("exits 2 with a `must be a number` error (no Node stack frames)", async () => {
 		const fakeHome = trackDir(makeEmptyDir("baka-role-badnum-"))
 		const { code, stdout, stderr } = await spawnCliWithFakeHome({
 			argv: ["role", "worker", "--field", "temperature", "--value", "abc"],
@@ -245,7 +245,7 @@ describe("VAL-ROLE-022 baka role <name> --field temperature --value abc", () => 
 			bakaConfig: { worker: { baseUrl: "http://x", model: "m" } },
 		})
 
-		expect(code, `expected exit 1, got ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(1)
+		expect(code, `expected exit 2, got ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(2)
 		expect(stderr).toMatch(/temperature.*must be a number/)
 		expect(stderr, "stderr mentions the bad value verbatim").toContain("'abc'")
 		expect(stderr, "stderr contains Node stack frames").not.toMatch(/\bat .+\.js:\d+:\d+/)

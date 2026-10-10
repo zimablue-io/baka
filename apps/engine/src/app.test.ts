@@ -5,6 +5,8 @@ import { createLock, PackRegistry, writeLockfile } from "@repo/ast-tooling"
 import { afterEach, describe, expect, it } from "vitest"
 import { createEngineApp } from "./app.js"
 
+type ApiErrorBody = { code: string; message: string; hint?: string }
+
 const cleanup: string[] = []
 afterEach(() => {
 	for (const d of cleanup.splice(0)) {
@@ -390,7 +392,7 @@ describe("engine project allow-list", () => {
 		const app = createEngineApp({ cwd: bindDir() })
 		const res = await app.request(packsUrl(other))
 		expect(res.status).toBe(403)
-		expect(((await res.json()) as { error: string }).error).toContain("--allow-root")
+		expect(((await res.json()) as { error: ApiErrorBody }).error.message).toContain("--allow-root")
 	})
 
 	it("refuses on every route that takes a project, and never writes there", async () => {
@@ -464,7 +466,7 @@ describe("engine project allow-list", () => {
 			body: "{nope",
 		})
 		expect(res.status).toBe(400)
-		expect(((await res.json()) as { error: string }).error).toContain("JSON")
+		expect(((await res.json()) as { error: ApiErrorBody }).error.message).toContain("JSON")
 	})
 })
 
@@ -616,8 +618,8 @@ describe("engine fill: params are normalised the way a run normalises them", () 
 			params: { count: "many" },
 		})
 		expect(fill.status).toBe(400)
-		const body = (await fill.json()) as { error: string }
-		expect(body.error).toMatch(/params for note\/write/)
+		const body = (await fill.json()) as { error: ApiErrorBody }
+		expect(body.error.message).toMatch(/params for note\/write/)
 	})
 })
 
@@ -683,9 +685,9 @@ describe("engine packDirs from the project's .baka/settings.json", () => {
 		for (const path of ["/v1/packs", "/v1/slots?pack=hello&recipe=greet", "/v1/preview?pack=hello&recipe=greet"]) {
 			const res = await app.request(path)
 			expect(res.status, path).toBe(400)
-			const body = (await res.json()) as { error: string }
-			expect(body.error).toContain(join(project, ".baka", "settings.json"))
-			expect(body.error).toContain("packDirs[0]")
+			const body = (await res.json()) as { error: ApiErrorBody }
+			expect(body.error.message).toContain(join(project, ".baka", "settings.json"))
+			expect(body.error.message).toContain("packDirs[0]")
 		}
 		const run = await app.request("/v1/run", {
 			method: "POST",

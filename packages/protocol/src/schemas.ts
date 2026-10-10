@@ -392,15 +392,15 @@ export const SlotRecordSchema = z.object({
 	 * replay has both for a slot, the record taken against exactly these params wins.
 	 */
 	match: z.enum(["params", "template"]).optional(),
-	/** The model that produced the value (`manual` for a pinned fill). */
+	/** The model that produced the value (`manual` for a pinned fill, `supplied` for a value the caller passed in). */
 	model: z.string(),
 	value: SlotFillSchema.shape.value,
-	source: z.enum(["llm", "cache", "replay"]),
+	source: z.enum(["llm", "cache", "replay", "supplied"]),
 })
 
 /**
  * How slot values are obtained.
- * - `live` (default): the slot cache first, then the model; fresh fills are cached.
+ * - `live` (default): values the caller supplies, then the slot cache, then the model; fresh model fills are cached.
  * - `record`: always ask the model (the cache is not read) and cache the fills.
  * - `replay`: use only the supplied records. A slot without a matching record is a
  *   hard error and no model call is ever made.
@@ -419,6 +419,18 @@ export const SlotsInputSchema = z.object({
 	mode: SlotModeSchema,
 	/** The records `replay` draws from; ignored by the other modes. */
 	records: z.array(SlotRecordSchema).optional(),
+	/**
+	 * Fills the caller supplies for this call, by slot id. They win over the cache and the
+	 * model, are never cached, and need no model at all; an id the recipe does not declare
+	 * fails the run with `slot-unknown`. Ignored by `replay`.
+	 */
+	values: z.record(z.unknown()).optional(),
+})
+
+/** A slot a run could not fill because no value, cached fill or model was available: what a caller must supply. */
+export const OpenSlotSchema = SlotDeclSchema.extend({
+	/** The `key` a `match: "template"` slot record for this slot must carry. */
+	templateKey: z.string(),
 })
 
 export const RecipeCompensationSchema = z.object({
@@ -467,8 +479,35 @@ export const RecipeResultSchema = z.object({
 	/** The pack this run used, as resolved. Empty when the pack could not be resolved. */
 	pins: z.array(PackPinSchema),
 	slots: z.array(SlotRecordSchema),
+	/** Present only when the run failed with `slots-open`: every slot that still needs a value. Pass them back as `slots.values`. */
+	openSlots: z.array(OpenSlotSchema).optional(),
 	compensation: RecipeCompensationSchema,
 	/** What the recipe's `execute` returned (side-effect recipes); null for template-only recipes. */
 	output: z.unknown(),
 	dryRun: z.boolean(),
+})
+
+/**
+ * A model chosen for one call, instead of the user's stored config. Nothing here is remembered.
+ * The key is never on a command line: name the environment variable that holds it (`apiKeyEnv`),
+ * or pass `apiKey` over a channel you trust (a process environment, a bearer-authenticated request).
+ */
+export const LlmCallSchema = z.object({
+	baseUrl: z.string().min(1).optional(),
+	model: z.string().min(1).optional(),
+	apiKey: z.string().min(1).optional(),
+	apiKeyEnv: z.string().min(1).optional(),
+	temperature: z.number().optional(),
+	maxTokens: z.number().int().positive().optional(),
+	timeoutMs: z.number().int().positive().optional(),
+	seed: z.number().int().optional(),
+})
+
+/** What every failure that is not a run receipt looks like, over HTTP and from `--json` commands. */
+export const ApiErrorSchema = z.object({
+	error: z.object({
+		code: z.string().min(1),
+		message: z.string(),
+		hint: z.string().optional(),
+	}),
 })

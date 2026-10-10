@@ -639,7 +639,7 @@ describe("VAL-FOUND-009 empty-catalog plan fails honestly", () => {
 // ---------------------------------------------------------------------------
 
 describe("VAL-FOUND-046 baka plan with no roles configured", () => {
-	it("exits 1 with a missing-config message and writes nothing", async () => {
+	it("exits 2 with a missing-config message and writes nothing", async () => {
 		const scratch = prepareScratchWithFixture("baka-plan-no-roles-")
 		const home = trackDir(makeEmptyDir("baka-plan-no-roles-home-"))
 
@@ -651,7 +651,7 @@ describe("VAL-FOUND-046 baka plan with no roles configured", () => {
 			60_000,
 		)
 
-		expect(code, `expected exit 1, got ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(1)
+		expect(code, `expected exit 2, got ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(2)
 		expect(stderr).toMatch(/missing LLM config/i)
 		expect(stderr).toMatch(/baka init/i)
 		expect(stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)

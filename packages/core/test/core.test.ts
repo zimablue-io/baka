@@ -68,7 +68,7 @@ describe("embedding surface", () => {
 		const result = await runRecipe({ registry, pack: "hello", recipe: "greet", params: { name: "Ada" } })
 		expect(result.ok).toBe(false)
 		expect(result.diagnostics).toHaveLength(1)
-		expect(result.diagnostics[0]?.rule).toBe("slot-no-provider")
+		expect(result.diagnostics[0]?.rule).toBe("slots-open")
 		expect(result.diagnostics[0]?.message).toContain("no LLMProvider")
 		expect(readdirSync(root)).toEqual([])
 	})

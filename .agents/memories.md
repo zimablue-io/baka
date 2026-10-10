@@ -17,6 +17,13 @@ project-specific constraints that don't yet deserve a full rule file.
   `vite-page`. They write a Vite + TypeScript app. Dashboard
   project folder = absolute path to `demo/`. Do not restore
   deleted first-party catalog packs.
+  **2026-10-10 exception, deliberate:** `packs/starter/` is the one
+  pack that ships inside the install (CLI and MCP `dist/packs/`). It is a
+  small, model-free set of everyday recipes (`add-readme`, `add-gitignore`,
+  ...) so the first run works with no setup. It is searched after every
+  other scope, so a project or user pack of the same name replaces it, and
+  it is absent when `--packs-dir` / `BAKA_PACK_DIRS` is given. Anything
+  larger belongs on the hub, not here.
 
 - **2026-08-25: Do not nibble-rename catalog tests.** If a suite
   still encodes a deleted catalog pack (`scaffold`, bundled

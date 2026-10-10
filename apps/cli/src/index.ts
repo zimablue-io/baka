@@ -2,9 +2,12 @@
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { findBundledPacks } from "@baka/engine"
+import { isolatedFromEnv, llmCallFromEnv } from "@repo/agent-engine"
 import { PackDirsError, packDirsFromEnv, resolvePackDirs } from "@repo/ast-tooling"
-import { BAKA_EXIT_CODE } from "@repo/protocol"
+import { BAKA_EXIT_CODE, type LlmCall } from "@repo/protocol"
 import { Command } from "commander"
+import type { CallOptions } from "./call"
 import { runInit } from "./commands/init"
 import { InstallCommandError, runInstallCommand, runUninstallCommand } from "./commands/install"
 import { runListPackagesCommand, runRemoveCommand } from "./commands/marketplace"
@@ -32,11 +35,7 @@ import {
 	runSlotsCommand,
 } from "./commands/run"
 import { runSearchCommand } from "./commands/search"
-
-function die(code: number, msg: string): never {
-	process.stderr.write(`baka: ${msg}\n`)
-	process.exit(code)
-}
+import { die } from "./die"
 
 // Read the CLI's version from its own package.json. Per architecture
 // invariant 7, the root package.json is the version of record and
@@ -70,6 +69,26 @@ program.option(
 	[] as string[],
 )
 
+// Per-call configuration: a host passes everything a call needs on the call itself, so nothing depends on
+// what happens to be in the user's home directory.
+program.option(
+	"--isolated",
+	"read nothing from the user directory (~/.baka): no user packs, no stored model, no user slot cache. The call is decided by its flags, environment and project (env: BAKA_ISOLATED=1)",
+)
+program.option(
+	"--llm-base-url <url>",
+	"OpenAI-compatible endpoint for slots the call must fill (env: BAKA_LLM_BASE_URL)",
+)
+program.option("--llm-model <name>", "model name for the endpoint (env: BAKA_LLM_MODEL)")
+program.option(
+	"--llm-api-key-env <name>",
+	"name of the environment variable that holds the API key; the key itself never appears in argv",
+)
+program.option(
+	"--llm-api-key <key>",
+	"the API key (env: BAKA_LLM_API_KEY; prefer --llm-api-key-env, flags show up in ps)",
+)
+
 /** The project root, for commands that never read packs (and so never fail on a pack-directory setting). */
 function projectCwd(): string {
 	return program.opts<{ cwd?: string }>().cwd ?? process.cwd()
@@ -81,25 +100,43 @@ function explicitPackDirs(): string[] | undefined {
 	return flag?.length ? flag : packDirsFromEnv(process.env)
 }
 
+/** The model this call names: `BAKA_LLM_*` first, each `--llm-*` flag over it. Undefined when it names none. */
+function callLlm(): LlmCall | undefined {
+	const flags = program.opts<{ llmBaseUrl?: string; llmModel?: string; llmApiKey?: string; llmApiKeyEnv?: string }>()
+	const call: LlmCall = {
+		...llmCallFromEnv(process.env),
+		...(flags.llmBaseUrl ? { baseUrl: flags.llmBaseUrl } : {}),
+		...(flags.llmModel ? { model: flags.llmModel } : {}),
+		...(flags.llmApiKey ? { apiKey: flags.llmApiKey } : {}),
+		...(flags.llmApiKeyEnv ? { apiKeyEnv: flags.llmApiKeyEnv } : {}),
+	}
+	return Object.keys(call).length > 0 ? call : undefined
+}
+
 /**
- * The project root and pack directories every pack-reading command works with: the flag, then
- * BAKA_PACK_DIRS, then `packDirs` of `<cwd>/.baka/settings.json`, else undefined (default discovery).
- * A setting that cannot be honoured ends the command as a usage error naming the file and the entry.
+ * What every pack-reading command works with: the project root, the pack directories (the flag, then
+ * BAKA_PACK_DIRS, then `packDirs` of `<cwd>/.baka/settings.json`, else undefined for default
+ * discovery), whether the user directory may be read, the model the call names, and the packs that
+ * ship with this install. A setting that cannot be honoured ends the command as bad input naming
+ * the file and the entry.
  */
-function globals(): { cwd: string; packDirs?: string[] } {
+function globals(): CallOptions {
 	const cwd = projectCwd()
 	try {
 		return {
 			cwd,
 			packDirs: resolvePackDirs({ root: cwd, flag: program.opts<{ packsDir?: string[] }>().packsDir }),
+			isolated: program.opts<{ isolated?: boolean }>().isolated === true || isolatedFromEnv(process.env),
+			llm: callLlm(),
+			bundledPacksDir: findBundledPacks(import.meta.url),
 		}
 	} catch (err) {
-		if (err instanceof PackDirsError) die(BAKA_EXIT_CODE.USER_ERROR, err.message)
+		if (err instanceof PackDirsError) die(BAKA_EXIT_CODE.BAD_INPUT, err.message)
 		throw err
 	}
 }
 
-// Validate --cwd up front: a non-existent path is a USER_ERROR (the user
+// Validate --cwd up front: a non-existent path is a BAD_INPUT (the user
 // gave us a bad path), not a silent no-op that returns zero results.
 // `preAction` fires before every subcommand recipe handler; --help /
 // --version don't fire recipes so they remain unaffected.
@@ -107,7 +144,7 @@ program.hook("preAction", () => {
 	const opts = program.opts<{ cwd?: string }>()
 	const cwd = opts.cwd ?? process.cwd()
 	if (!existsSync(cwd)) {
-		die(BAKA_EXIT_CODE.USER_ERROR, `cwd does not exist: ${cwd}`)
+		die(BAKA_EXIT_CODE.BAD_INPUT, `cwd does not exist: ${cwd}`)
 	}
 })
 
@@ -122,7 +159,7 @@ program
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
 			if (message.includes("User force closed")) return
-			die(BAKA_EXIT_CODE.USER_ERROR, message)
+			die(BAKA_EXIT_CODE.BAD_INPUT, message)
 		}
 	})
 
@@ -153,7 +190,7 @@ roleCmd
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
 			if (message.includes("User force closed")) return
-			die(BAKA_EXIT_CODE.USER_ERROR, message)
+			die(BAKA_EXIT_CODE.BAD_INPUT, message)
 		}
 	})
 
@@ -167,7 +204,7 @@ program
 			runRoles()
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
-			die(BAKA_EXIT_CODE.USER_ERROR, message)
+			die(BAKA_EXIT_CODE.BAD_INPUT, message)
 		}
 	})
 
@@ -189,7 +226,7 @@ packCmd
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
 			if (message.includes("User force closed")) return
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, message)
+			die(BAKA_EXIT_CODE.FAILED, message)
 		}
 	})
 
@@ -212,7 +249,7 @@ packCmd
 			})
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, message)
+			die(BAKA_EXIT_CODE.FAILED, message)
 		}
 	})
 
@@ -237,7 +274,7 @@ packCmd
 	.option("-a, --recipe <id>", "the recipe id to run (required)")
 	.option("-i, --input <json>", "JSON input for the recipe", "{}")
 	.action(async (name, opts) => {
-		if (!opts.recipe) die(BAKA_EXIT_CODE.USER_ERROR, "--recipe <id> is required")
+		if (!opts.recipe) die(BAKA_EXIT_CODE.BAD_INPUT, "--recipe <id> is required")
 		await runPackTest(name, opts.recipe, opts.input ?? "{}", globals())
 	})
 
@@ -250,7 +287,7 @@ packCmd
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
 			if (message.includes("User force closed")) return
-			die(BAKA_EXIT_CODE.USER_ERROR, message)
+			die(BAKA_EXIT_CODE.BAD_INPUT, message)
 		}
 	})
 
@@ -264,7 +301,7 @@ program
 		try {
 			await runListPacksCommand({ ...globals(), json: opts.json })
 		} catch (err) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 
@@ -272,8 +309,8 @@ program
 
 program
 	.command("run")
-	.description("Materialize a named pack/recipe (templates + named slots). Product path; prefer this over plan.")
-	.argument("<target>", "pack/recipe (e.g. hello/greet)")
+	.description("Run a recipe: write its files from templates, filling named slots from values you pass or a model")
+	.argument("<recipe>", "a recipe name (add-readme), or pack/recipe when two packs declare the same name")
 	.option("--params <json>", "JSON object of recipe params")
 	.option("--dry-run", "compute the changeset and output tree hash without writing anything")
 	.option(
@@ -281,6 +318,13 @@ program
 		"live (cache, then model; default), record (always ask the model), replay (records only)",
 	)
 	.option("--slot-records <file>", "JSON array of slot records, or a receipt whose slots to replay (implies replay)")
+	.option(
+		"--slot <id=value>",
+		"fill a slot yourself (repeatable); needs no model and is not cached",
+		(assignment: string, prior: string[]) => [...prior, assignment],
+		[] as string[],
+	)
+	.option("--slots-file <file>", "JSON object of slot id to value; --slot wins over it")
 	.option(
 		"--on-existing <policy>",
 		"what to do with a template target that already exists: skip (default), overwrite, or fail",
@@ -299,6 +343,8 @@ program
 				dryRun: opts.dryRun,
 				slotMode: opts.slotMode,
 				slotRecords: opts.slotRecords,
+				slot: opts.slot,
+				slotsFile: opts.slotsFile,
 				onExisting: opts.onExisting,
 				includeContent: opts.includeContent,
 				validate: opts.validate,
@@ -307,7 +353,7 @@ program
 				extra: process.argv,
 			})
 		} catch (err) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 
@@ -322,27 +368,27 @@ program
 		try {
 			runLockCommand({ ...globals(), json: opts.json, packs })
 		} catch (err) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 
 program
 	.command("slots")
-	.description("List named slots for a pack/recipe")
-	.argument("<target>", "pack/recipe")
+	.description("List the named slots of a recipe")
+	.argument("<recipe>", "a recipe name, or pack/recipe")
 	.option("--json", "emit machine-readable JSON to stdout")
 	.action(async (target, opts) => {
 		try {
 			await runSlotsCommand(target, { ...globals(), json: opts.json })
 		} catch (err) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 
 program
 	.command("fill")
 	.description("Pin a slot fill (writes the project slot cache; model=manual)")
-	.argument("<target>", "pack/recipe")
+	.argument("<recipe>", "a recipe name, or pack/recipe")
 	.option("--slot <id>", "slot id")
 	.option("--value <text>", "fill value (string)")
 	.option("--file <path>", "read the fill from a file")
@@ -362,20 +408,20 @@ program
 				extra: process.argv,
 			})
 		} catch (err) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 
 program
 	.command("inspect")
-	.description("Show params, named slots, and template source for a pack/recipe")
-	.argument("<target>", "pack/recipe")
+	.description("Show params, named slots, and template source for a recipe")
+	.argument("<recipe>", "a recipe name, or pack/recipe")
 	.option("--json", "emit machine-readable JSON to stdout")
 	.action(async (target, opts) => {
 		try {
 			await runInspectCommand(target, { ...globals(), json: opts.json })
 		} catch (err) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 
@@ -426,7 +472,7 @@ program
 				json: opts.json,
 			})
 		} catch (err) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 
@@ -450,7 +496,7 @@ program
 		try {
 			await runApplyCommand(planFile, globals(), { json: opts.json })
 		} catch (err) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 
@@ -462,13 +508,13 @@ program
 	.option("--json", "emit machine-readable JSON to stdout (same shape as the baka-mcp `baka_validate` tool)")
 	.option(
 		"-m, --pack <name>",
-		"run validators for a single pack only; exits BAKA_EXIT_CODE.USER_ERROR (1) if the pack is not found",
+		"run validators for a single pack only; exits BAKA_EXIT_CODE.BAD_INPUT (1) if the pack is not found",
 	)
 	.action(async (opts) => {
 		try {
 			await runValidateCommand(globals(), { json: opts.json, pack: opts.pack })
 		} catch (err) {
-			die(BAKA_EXIT_CODE.VALIDATION_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 
@@ -513,7 +559,7 @@ program
 			if (err instanceof InstallCommandError) {
 				process.exit(err.code)
 			}
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 
@@ -533,7 +579,7 @@ program
 			if (err instanceof InstallCommandError) {
 				process.exit(err.code)
 			}
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 
@@ -556,7 +602,7 @@ program
 		try {
 			runRemoveCommand(source, { cwd, scope })
 		} catch (err) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 
@@ -591,7 +637,7 @@ program
 				cwd,
 			})
 		} catch (err) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 
@@ -612,7 +658,7 @@ registryCmd
 		try {
 			await runRegistryLogin({ token: opts.token, registry: opts.registry })
 		} catch (err) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 
@@ -624,7 +670,7 @@ registryCmd
 		try {
 			runRegistryLogout({ registry: opts.registry })
 		} catch (err) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 
@@ -636,7 +682,7 @@ registryCmd
 		try {
 			await runRegistryWhoami({ registry: opts.registry })
 		} catch (err) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 
@@ -647,7 +693,7 @@ registryCmd
 		try {
 			runRegistryList()
 		} catch (err) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 
@@ -665,7 +711,7 @@ registryCmd
 		try {
 			await runRegistryInfo(spec, { registry: opts.registry, json: opts.json })
 		} catch (err) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 
@@ -688,7 +734,7 @@ registryCmd
 				json: opts.json,
 			})
 		} catch (err) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 
@@ -721,7 +767,7 @@ program
 				json: opts.json,
 			})
 		} catch (err) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 
@@ -749,7 +795,7 @@ orgCmd
 				json: opts.json,
 			})
 		} catch (err) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 
@@ -762,7 +808,7 @@ orgCmd
 		try {
 			await runOrgListCommand({ registry: opts.registry, json: opts.json })
 		} catch (err) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 
@@ -780,7 +826,7 @@ orgCmd
 				json: opts.json,
 			})
 		} catch (err) {
-			die(BAKA_EXIT_CODE.ENGINE_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.FAILED, err instanceof Error ? err.message : String(err))
 		}
 	})
 

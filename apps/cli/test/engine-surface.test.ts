@@ -183,14 +183,14 @@ afterAll(() => {
 })
 
 describe("pack create rejects a bad name without calling an LLM", () => {
-	it("exits 1 with no stack frames", async () => {
+	it("exits 2 with no stack frames", async () => {
 		const llm = await startFakeLLM("{}")
 		try {
 			const { code, stderr } = await spawnCli({
 				argv: ["pack", "create", "../../../etc/passwd"],
 				bakaConfig: { worker: { baseUrl: llm.url, model: "fake-llm" } },
 			})
-			expect(code).toBe(1)
+			expect(code).toBe(2)
 			expect(stderr).toContain("pack name must be")
 			expect(llm.calls).toBe(0)
 			expect(stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
@@ -238,17 +238,17 @@ describe("pack validate / list-recipes / test against a fixture", () => {
 		expect(countBakaTestDirs()).toBe(before)
 	})
 
-	it("missing --recipe and unknown --recipe exit 1 without creating temp dirs", async () => {
+	it("missing --recipe and unknown --recipe exit 2 without creating temp dirs", async () => {
 		const cwd = fixtureProject("baka-mod-test-bad-")
 		const before = countBakaTestDirs()
 		const missing = await spawnCli({ argv: ["pack", "test", "honest-mod"], cwd })
-		expect(missing.code).toBe(1)
+		expect(missing.code).toBe(2)
 		expect(missing.stderr).toContain("--recipe")
 		const unknown = await spawnCli({
 			argv: ["pack", "test", "honest-mod", "--recipe", "no-such-recipe"],
 			cwd,
 		})
-		expect(unknown.code).toBe(1)
+		expect(unknown.code).toBe(2)
 		expect(unknown.stderr).toContain("no-such-recipe")
 		expect(countBakaTestDirs()).toBe(before)
 	})
@@ -264,24 +264,24 @@ describe("plan / apply / validate", () => {
 		expect(stdout).not.toContain("--execute")
 	})
 
-	it("plan without a worker role exits 1", async () => {
+	it("plan without a worker role exits 2", async () => {
 		const fakeHome = makeEmptyDir("baka-plan-no-role-")
 		const { code, stderr } = await spawnCli({
 			argv: ["plan", "write a marker"],
 			cwd: fixtureProject("baka-plan-no-role-proj-"),
 			env: { HOME: fakeHome, XDG_CONFIG_HOME: fakeHome, XDG_DATA_HOME: fakeHome },
 		})
-		expect(code).toBe(1)
+		expect(code).toBe(2)
 		expect(stderr).toContain("missing LLM config: worker role not configured")
 	})
 
-	it("apply of a missing plan file exits 2", async () => {
+	it("apply of a missing plan file exits 1", async () => {
 		const cwd = fixtureProject("baka-apply-missing-")
 		const { code, stderr } = await spawnCli({
 			argv: ["apply", join(cwd, "no-such.plan.json")],
 			cwd,
 		})
-		expect(code).toBe(2)
+		expect(code).toBe(1)
 		expect(stderr.length).toBeGreaterThan(0)
 	})
 
@@ -310,7 +310,7 @@ describe("plan / apply / validate", () => {
 		expect(readFileSync(join(cwd, "marker.txt"), "utf-8")).toBe("honest-mod was here\n")
 	})
 
-	it("validate from an empty cwd reports 0 packs", async () => {
+	it("validate from an empty cwd reports only the bundled starter pack", async () => {
 		const fakeHome = makeEmptyDir("baka-validate-empty-home-")
 		const { code, stdout, stderr } = await spawnCli({
 			argv: ["validate"],
@@ -318,7 +318,7 @@ describe("plan / apply / validate", () => {
 			env: { HOME: fakeHome, XDG_CONFIG_HOME: fakeHome, XDG_DATA_HOME: fakeHome },
 		})
 		expect(code, stderr).toBe(0)
-		expect(stdout).toMatch(/discovered 0 pack\(s\)/)
+		expect(stdout).toMatch(/discovered 1 pack\(s\)/)
 	})
 
 	it("validate --json on a fixture project discovers those packs", async () => {
@@ -329,9 +329,9 @@ describe("plan / apply / validate", () => {
 			cwd,
 			env: { HOME: fakeHome, XDG_CONFIG_HOME: fakeHome, XDG_DATA_HOME: fakeHome },
 		})
-		expect([0, 4], stderr).toContain(code)
+		expect([0, 1], stderr).toContain(code)
 		const parsed = JSON.parse(stdout) as { packsDiscovered: number; validation: { kind: string } }
-		expect(parsed.packsDiscovered).toBe(2)
+		expect(parsed.packsDiscovered).toBe(3)
 		expect(["pass", "fail"]).toContain(parsed.validation.kind)
 	})
 
@@ -341,7 +341,7 @@ describe("plan / apply / validate", () => {
 			argv: ["validate", "-m", "nonexistent"],
 			cwd,
 		})
-		expect(code).toBe(1)
+		expect(code).toBe(2)
 		expect(stderr).toContain('pack "nonexistent" not found')
 	})
 })
@@ -415,7 +415,7 @@ describe("unloadable recipe.ts fails pack validate", () => {
 			argv: ["pack", "validate", "unloadable-mod", "--json"],
 			cwd,
 		})
-		expect(code, stderr).toBe(4)
+		expect(code, stderr).toBe(1)
 		const parsed = JSON.parse(stdout) as { valid: boolean; errors: string[] }
 		expect(parsed.valid).toBe(false)
 		expect(parsed.errors.some((e) => e.includes("bad-recipe") && e.includes("not loadable"))).toBe(true)

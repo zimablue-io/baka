@@ -53,7 +53,14 @@ export { loadPackValidator, loadRecipe, loadRecipeValidator } from "./recipe-loa
 export type { PackRegistryOptions } from "./registry.js"
 export { PackRegistry, validatorFilename } from "./registry.js"
 export type { CompensateRecipeInput, RunRecipeInput } from "./run-recipe.js"
-export { compensateRecipe, listRecipeSlots, previewRecipe, resolveRecipe, runRecipe } from "./run-recipe.js"
+export {
+	compensateRecipe,
+	findRecipePack,
+	listRecipeSlots,
+	previewRecipe,
+	resolveRecipe,
+	runRecipe,
+} from "./run-recipe.js"
 export type { CompletedStep, SagaResult, SagaStep } from "./saga.js"
 export { ranRecipes, runSaga } from "./saga.js"
 export type { SdkImportFinding } from "./sdk-imports.js"

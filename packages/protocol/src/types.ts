@@ -1,10 +1,13 @@
 import type { z } from "zod"
 import type { RECIPE_ERROR_CODES } from "./constants"
 import type {
+	ApiErrorSchema,
 	BakaLockSchema,
 	ChangeOpSchema,
 	ChangesetEntrySchema,
+	LlmCallSchema,
 	OnExistingSchema,
+	OpenSlotSchema,
 	OrchestrationStateSchema,
 	PackManifestSchema,
 	PackPinSchema,
@@ -31,6 +34,7 @@ export type PackManifest = z.infer<typeof PackManifestSchema>
 export type OrchestrationState = z.infer<typeof OrchestrationStateSchema>
 export type ResolvedPlan = z.infer<typeof ResolvedPlanSchema>
 export type SlotDecl = z.infer<typeof SlotDeclSchema>
+export type OpenSlot = z.infer<typeof OpenSlotSchema>
 export type { PackRecipeParam, ParamFormat, ParamTypeNode }
 export type RecipeErrorCode = (typeof RECIPE_ERROR_CODES)[number]
 export type ChangeOp = z.infer<typeof ChangeOpSchema>
@@ -265,3 +269,6 @@ export type ValidationDiagnostic = {
 
 /** `kind` is `fail` when any diagnostic is an error. Warnings are reported whichever it is. */
 export type ValidationResult = { kind: "pass" | "fail"; diagnostics: ValidationDiagnostic[] }
+
+export type LlmCall = z.infer<typeof LlmCallSchema>
+export type ApiError = z.infer<typeof ApiErrorSchema>

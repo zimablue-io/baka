@@ -16,15 +16,15 @@
 //   VAL-CLI-015  list-packs (no flag) prints the human listing
 //   VAL-CLI-016  list-packs --json emits the documented shape (3 packs)
 //   VAL-CLI-017  list-packs --json is cwd-scoped (3 packs in BAKA_REPO)
-//   VAL-CLI-018  --cwd <nonexistent> exits 1 with a clear message
-//   VAL-CLI-031  install <bad-source> with unreachable registry exits 2 naming the registry
+//   VAL-CLI-018  --cwd <nonexistent> exits 2 with a clear message
+//   VAL-CLI-031  install <bad-source> with unreachable registry exits 1 naming the registry
 //   VAL-CLI-034  list-packages empty case prints the user hint, exits 0
 //   VAL-CLI-035  update is a no-op on empty packages, exits 0
 //   VAL-CLI-040  exit code categories map to BAKA_EXIT_CODE values
 //   VAL-ROLE-001 baka roles (no config) — missing LLM config error
 //   VAL-ROLE-002 baka roles (full config) — prints both roles, masks apiKey
 //   VAL-ROLE-003 baka role worker --field model --value foo — mutates the field
-//   VAL-ROLE-004 baka role nonexistent — exits 1
+//   VAL-ROLE-004 baka role nonexistent — exits 2
 //   VAL-ROLE-005 baka --help does not mention providers/config subcommands
 //
 // Where the current implementation does NOT yet match the contract, the
@@ -305,7 +305,8 @@ describe("list-packs against a project with fixture packs", () => {
 			env: isolatedEnv(home),
 		})
 		expect(code, stderr).toBe(0)
-		expect(stdout).toMatch(/Found 2 pack\(s\):/)
+		expect(stdout).toMatch(/Found 3 pack\(s\):/)
+		expect(stdout).toContain("starter")
 		expect(stdout).toContain("honest-mod")
 		expect(stdout).toContain("slot-mod")
 	})
@@ -330,9 +331,9 @@ describe("list-packs against a project with fixture packs", () => {
 			resultSchema: { properties: Record<string, unknown> }
 			diagnostics: unknown[]
 		}
-		expect(parsed.packs).toHaveLength(2)
+		expect(parsed.packs.map((m) => m.name).sort()).toEqual(["honest-mod", "slot-mod", "starter"])
 		expect(parsed.diagnostics).toEqual([])
-		for (const m of parsed.packs) {
+		for (const m of parsed.packs.filter((p) => p.name !== "starter")) {
 			expect(m.recipes).toHaveLength(1)
 			// Every recipe carries its params as a JSON Schema generated from the manifest.
 			expect(m.recipes[0]?.paramsSchema).toMatchObject({ type: "object", additionalProperties: false })
@@ -340,17 +341,17 @@ describe("list-packs against a project with fixture packs", () => {
 		expect(parsed.resultSchema.properties).toHaveProperty("outputTreeHash")
 	})
 
-	it("is cwd-scoped: repo checkout is empty, fixture project is not, empty dir is not", async () => {
+	it("is cwd-scoped: the checkout lists only the starter pack, a fixture project adds its own, an empty dir adds none", async () => {
 		const home = trackDir(makeEmptyDir("baka-cli017-home-"))
 		const env = isolatedEnv(home)
 		const repoProbe = await spawnCli({ argv: ["list-packs", "--json"], env })
 		expect(repoProbe.code, repoProbe.stderr).toBe(0)
-		expect(JSON.parse(repoProbe.stdout).packs).toEqual([])
+		expect(JSON.parse(repoProbe.stdout).packs.map((m: { name: string }) => m.name)).toEqual(["starter"])
 
 		const project = trackDir(makeEmptyDir("baka-cli017-proj-"))
 		copyPlatformFixtures(project)
 		const fxProbe = await spawnCli({ argv: ["list-packs", "--json"], cwd: project, env })
-		expect(JSON.parse(fxProbe.stdout).packs).toHaveLength(2)
+		expect(JSON.parse(fxProbe.stdout).packs).toHaveLength(3)
 
 		const emptyProbe = await spawnCli({ argv: ["list-packs", "--json"], cwd: EMPTY_CWD, env })
 		expect(emptyProbe.code, emptyProbe.stderr).toBe(0)
@@ -358,25 +359,25 @@ describe("list-packs against a project with fixture packs", () => {
 			packs: unknown[]
 			diagnostics: Array<{ rule: string }>
 		}
-		expect(emptyParsed.packs).toEqual([])
-		expect(emptyParsed.diagnostics[0]?.rule).toBe("no-packs")
+		expect(emptyParsed.packs.map((m) => (m as { name: string }).name)).toEqual(["starter"])
+		expect(emptyParsed.diagnostics).toEqual([])
 
 		const cwdFlagProbe = await spawnCli({ argv: ["--cwd", EMPTY_CWD, "list-packs", "--json"], env })
-		expect(JSON.parse(cwdFlagProbe.stdout).packs).toEqual([])
+		expect(JSON.parse(cwdFlagProbe.stdout).packs.map((m: { name: string }) => m.name)).toEqual(["starter"])
 	})
 })
 
 // ---------------------------------------------------------------------------
-// VAL-CLI-018  --cwd <nonexistent> exits 1 with a clear message
+// VAL-CLI-018  --cwd <nonexistent> exits 2 with a clear message
 // ---------------------------------------------------------------------------
 
 describe("VAL-CLI-018 baka --cwd <nonexistent>", () => {
-	it("exits 1 and names the missing path on stderr (no Node stack frames)", async () => {
+	it("exits 2 and names the missing path on stderr (no Node stack frames)", async () => {
 		const missingPath = "/no/such/path/for/baka/cli/smoke"
 		const { code, stdout, stderr } = await spawnCli({
 			argv: ["--cwd", missingPath, "list-packs"],
 		})
-		expect(code, `unexpected code; stderr=${stderr}`).toBe(1)
+		expect(code, `unexpected code; stderr=${stderr}`).toBe(2)
 		expect(stderr).toContain("cwd does not exist")
 		expect(stderr).toContain(missingPath)
 		// Stdout must not leak a successful no-op result.
@@ -408,7 +409,7 @@ describe("VAL-CLI-031 baka install <bad-source>", () => {
 				BAKA_REGISTRY_URL: `http://127.0.0.1:${deadPort}`,
 			},
 		})
-		expect(code, `unexpected code; stderr=${stderr}`).toBe(2)
+		expect(code, `unexpected code; stderr=${stderr}`).toBe(1)
 		expect(stderr).toContain(`http://127.0.0.1:${deadPort}`)
 		expect(stderr.toLowerCase()).not.toContain("unrecognized source")
 		// No Node stack frames on stderr.
@@ -448,7 +449,7 @@ describe("VAL-CLI-040 exit code categories", () => {
 		expect(code).toBe(0)
 	})
 
-	it("user error -> 1 (baka role nonexistent — missing role)", async () => {
+	it("bad input -> 2 (baka role nonexistent — missing role)", async () => {
 		const fakeHome = trackDir(makeEmptyDir("baka-exit-user-"))
 		// Seed the role-keyed config so the role-keyed loadLLMConfig does
 		// not short-circuit with a missing-LLM error first.
@@ -460,18 +461,18 @@ describe("VAL-CLI-040 exit code categories", () => {
 			argv: ["role", "nonexistent"],
 			fakeHome,
 		})
-		expect(code, `expected exit 1, got ${code}; stderr=${stderr}`).toBe(1)
+		expect(code, `expected exit 2, got ${code}; stderr=${stderr}`).toBe(2)
 	})
 
-	it("engine error -> 2 (baka apply <missing>)", async () => {
+	it("failed -> 1 (baka apply <missing>)", async () => {
 		const { code, stderr } = await spawnCli({
 			argv: ["apply", "/no/such/plan.plan.json"],
 		})
-		expect(code, `unexpected code; stderr=${stderr}`).toBe(2)
+		expect(code, `unexpected code; stderr=${stderr}`).toBe(1)
 	})
 
-	it("validation error -> 4 (baka pack validate reports structural defects)", async () => {
-		// The `baka pack validate <name>` structural check fails (exits 4)
+	it("validation failure -> 1 (baka pack validate reports structural defects)", async () => {
+		// The `baka pack validate <name>` structural check fails (exits 1)
 		// when a pack declares a recipe without a `recipe.ts` file.
 		// Build a scratch pack with a missing recipe.ts and validate it.
 		const scratch = trackDir(makeEmptyDir("baka-cli-smoke-validation-"))
@@ -505,7 +506,7 @@ describe("VAL-CLI-040 exit code categories", () => {
 			argv: ["pack", "validate", "broken-mod"],
 			cwd: scratch,
 		})
-		expect(code, `unexpected code; stdout=${stdout}; stderr=${stderr}`).toBe(4)
+		expect(code, `unexpected code; stdout=${stdout}; stderr=${stderr}`).toBe(1)
 		// The validation output should mention the missing recipe.
 		expect(stdout).toContain("missing-recipe")
 	})
@@ -516,7 +517,7 @@ describe("VAL-CLI-040 exit code categories", () => {
 // ---------------------------------------------------------------------------
 
 describe("VAL-ROLE-001 baka roles (no config)", () => {
-	it("exits 1 with a `missing LLM config` diagnostic pointing at `baka init`", async () => {
+	it("exits 2 with a `missing LLM config` diagnostic pointing at `baka init`", async () => {
 		const fakeHome = trackDir(makeEmptyDir("baka-roles-empty-"))
 
 		const { code, stdout, stderr } = await spawnCliWithFakeHome({
@@ -524,7 +525,7 @@ describe("VAL-ROLE-001 baka roles (no config)", () => {
 			fakeHome,
 		})
 
-		expect(code, `expected exit 1, got ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(1)
+		expect(code, `expected exit 2, got ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(2)
 		expect(stderr).toMatch(/missing LLM config/)
 		expect(stderr).toContain("baka init")
 		// No Node stack frames.
@@ -598,11 +599,11 @@ describe("VAL-ROLE-003 baka role worker --field model --value foo", () => {
 })
 
 // ---------------------------------------------------------------------------
-// VAL-ROLE-004  baka role nonexistent — exits 1 with `unknown role` or similar
+// VAL-ROLE-004  baka role nonexistent — exits 2 with `unknown role` or similar
 // ---------------------------------------------------------------------------
 
 describe("VAL-ROLE-004 baka role nonexistent", () => {
-	it("exits 1 with an `unknown role` (or similar) stderr message and no stack frames", async () => {
+	it("exits 2 with an `unknown role` (or similar) stderr message and no stack frames", async () => {
 		const fakeHome = trackDir(makeEmptyDir("baka-role-unknown-"))
 		seedRoleConfig(fakeHome, {
 			worker: { baseUrl: "http://x", model: "m" },
@@ -614,7 +615,7 @@ describe("VAL-ROLE-004 baka role nonexistent", () => {
 			fakeHome,
 		})
 
-		expect(code, `expected exit 1, got ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(1)
+		expect(code, `expected exit 2, got ${code}; stdout=${stdout}; stderr=${stderr}`).toBe(2)
 		expect(stderr.toLowerCase()).toMatch(/unknown role|invalid role|role "nonexistent"/)
 		expect(stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
 	})

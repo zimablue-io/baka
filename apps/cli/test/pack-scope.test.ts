@@ -102,7 +102,7 @@ describe("a relative --cwd", () => {
 		expect(JSON.parse(validate.stdout)).toMatchObject({ pack: "hello", valid: true })
 
 		const list = await cli(["--cwd", ".", "list-packs", "--json"], project)
-		expect(JSON.parse(list.stdout).packs.map((m: { name: string }) => m.name)).toEqual(["hello"])
+		expect(JSON.parse(list.stdout).packs.map((m: { name: string }) => m.name)).toEqual(["hello", "starter"])
 
 		const ran = await cli(["--cwd", ".", "run", "hello/greet", "--name", "ada", "--json"], project)
 		expect(ran.code, ran.stderr).toBe(0)
@@ -114,7 +114,7 @@ describe("a relative --cwd", () => {
 		const project = join(parent, "project")
 		writePack(join(project, "packs"), "hello")
 		const result = await cli(["--cwd", "project", "list-packs", "--json"], parent)
-		expect(JSON.parse(result.stdout).packs.map((m: { name: string }) => m.name)).toEqual(["hello"])
+		expect(JSON.parse(result.stdout).packs.map((m: { name: string }) => m.name)).toEqual(["hello", "starter"])
 	})
 })
 
@@ -151,7 +151,7 @@ describe("--packs-dir and BAKA_PACK_DIRS", () => {
 		const withDirs = await cli(["--cwd", project, "--packs-dir", catalog, "list-packs", "--json"], project)
 		expect(JSON.parse(withDirs.stdout).packs.map((m: { name: string }) => m.name)).toEqual(["hello", "other"])
 		const without = await cli(["--cwd", project, "list-packs", "--json"], project)
-		expect(JSON.parse(without.stdout).packs.map((m: { name: string }) => m.name)).toEqual(["local-only"])
+		expect(JSON.parse(without.stdout).packs.map((m: { name: string }) => m.name)).toEqual(["local-only", "starter"])
 	})
 
 	it("is repeatable, highest precedence first, and a relative path resolves against the process directory", async () => {
@@ -259,7 +259,7 @@ describe("pack validate enforces the types-only baka-sdk rule", () => {
 	it("rejects a runtime import with the file, the line and the fix", async () => {
 		const catalog = withRecipe(`import { AgentRole } from "baka-sdk"\n${STEP}`)
 		const result = await cli(["--packs-dir", catalog, "pack", "validate", "hello", "--json"], catalog)
-		expect(result.code).toBe(4)
+		expect(result.code).toBe(1)
 		const errors = JSON.parse(result.stdout).errors as string[]
 		expect(
 			errors.some((e) => e.startsWith('side/recipe.ts:1: runtime import of "baka-sdk"') && e.includes("import type")),

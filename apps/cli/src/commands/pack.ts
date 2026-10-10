@@ -14,6 +14,7 @@ import {
 } from "@repo/ast-tooling"
 import { BAKA_DEFAULT_WORKER_MODEL, BAKA_EXIT_CODE, type PackManifest, PackManifestSchema } from "@repo/protocol"
 import { createJiti } from "jiti"
+import { type CallOptions, registryOptions } from "../call"
 
 function die(code: number, msg: string): never {
 	process.stderr.write(`baka: ${msg}\n`)
@@ -36,21 +37,24 @@ function declaresSdkDependency(packRoot: string): boolean {
 	}
 }
 
-export function runPackValidate(name: string, opts: { cwd?: string; packDirs?: string[]; json?: boolean } = {}): void {
-	if (!name) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka pack validate <name>")
+/** Where a pack command looks: the same scopes `baka run` sees. The project root defaults to the current directory. */
+type PackCallOptions = Partial<Pick<CallOptions, "cwd" | "packDirs" | "isolated" | "bundledPacksDir">>
+
+export function runPackValidate(name: string, opts: PackCallOptions & { json?: boolean } = {}): void {
+	if (!name) die(BAKA_EXIT_CODE.BAD_INPUT, "usage: baka pack validate <name>")
 
 	const cwd = opts.cwd ?? process.cwd()
 	// Resolve through the same registry the engine uses so validate sees the
 	// same packs plan/apply see (tree, project marketplace, user
 	// marketplace, bundled), not just the in-tree packs/ dir.
-	const root = new PackRegistry(cwd, { packDirs: opts.packDirs }).resolvePackRoot(name)
+	const root = new PackRegistry(cwd, registryOptions(opts)).resolvePackRoot(name)
 	if (!root) {
 		const msg = `pack not found: ${name} (searched tree, project marketplace, user marketplace, and bundled scopes)`
 		if (opts.json) {
 			console.log(JSON.stringify({ pack: name, valid: false, errors: [msg], warnings: [] }, null, 2))
-			process.exit(BAKA_EXIT_CODE.USER_ERROR)
+			process.exit(BAKA_EXIT_CODE.BAD_INPUT)
 		}
-		die(BAKA_EXIT_CODE.USER_ERROR, msg)
+		die(BAKA_EXIT_CODE.BAD_INPUT, msg)
 	}
 
 	const errors: string[] = []
@@ -163,7 +167,7 @@ export function runPackValidate(name: string, opts: { cwd?: string; packDirs?: s
 	if (opts.json) {
 		console.log(JSON.stringify({ pack: name, valid: errors.length === 0, errors, warnings }, null, 2))
 		if (errors.length > 0) {
-			process.exit(BAKA_EXIT_CODE.VALIDATION_ERROR)
+			process.exit(BAKA_EXIT_CODE.FAILED)
 		}
 		return
 	}
@@ -171,7 +175,7 @@ export function runPackValidate(name: string, opts: { cwd?: string; packDirs?: s
 	if (errors.length > 0) {
 		console.log(`pack "${name}": INVALID`)
 		for (const e of errors) console.log(`  - ${e}`)
-		process.exit(BAKA_EXIT_CODE.VALIDATION_ERROR)
+		process.exit(BAKA_EXIT_CODE.FAILED)
 	}
 	console.log(`pack "${name}": valid`)
 	for (const w of warnings) console.log(`  warning: ${w}`)
@@ -181,23 +185,20 @@ export function runPackValidate(name: string, opts: { cwd?: string; packDirs?: s
 // `baka pack list-recipes <name>`
 // ---------------------------------------------------------------------------
 
-export function runPackListRecipes(
-	name: string,
-	opts: { cwd?: string; packDirs?: string[]; json?: boolean } = {},
-): void {
-	if (!name) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka pack list-recipes <name>")
+export function runPackListRecipes(name: string, opts: PackCallOptions & { json?: boolean } = {}): void {
+	if (!name) die(BAKA_EXIT_CODE.BAD_INPUT, "usage: baka pack list-recipes <name>")
 	const cwd = opts.cwd ?? process.cwd()
 	// Resolve through the same registry the engine uses so list-recipes sees
 	// the same packs plan/apply/validate see (tree, project marketplace,
 	// user marketplace, bundled), not just the in-tree packs/ dir.
-	const root = new PackRegistry(cwd, { packDirs: opts.packDirs }).resolvePackRoot(name)
+	const root = new PackRegistry(cwd, registryOptions(opts)).resolvePackRoot(name)
 	if (!root) {
 		const msg = `pack not found: ${name} (searched tree, project marketplace, user marketplace, and bundled scopes)`
 		if (opts.json) {
 			console.log(JSON.stringify({ pack: name, error: msg }, null, 2))
-			process.exit(BAKA_EXIT_CODE.USER_ERROR)
+			process.exit(BAKA_EXIT_CODE.BAD_INPUT)
 		}
-		die(BAKA_EXIT_CODE.USER_ERROR, msg)
+		die(BAKA_EXIT_CODE.BAD_INPUT, msg)
 	}
 	const manifestPath = join(root, "manifest.ts")
 
@@ -206,9 +207,9 @@ export function runPackListRecipes(
 		const jiti = createJiti(root)
 		mod = jiti(manifestPath) as { Manifest?: PackManifest }
 	} catch (err) {
-		die(BAKA_EXIT_CODE.ENGINE_ERROR, `failed to load manifest: ${err instanceof Error ? err.message : String(err)}`)
+		die(BAKA_EXIT_CODE.FAILED, `failed to load manifest: ${err instanceof Error ? err.message : String(err)}`)
 	}
-	if (!mod.Manifest) die(BAKA_EXIT_CODE.ENGINE_ERROR, "manifest.ts did not export a Manifest")
+	if (!mod.Manifest) die(BAKA_EXIT_CODE.FAILED, "manifest.ts did not export a Manifest")
 	const m = mod.Manifest
 	if (opts.json) {
 		// Same shape as the MCP `baka_list_recipes` tool output.
@@ -257,16 +258,16 @@ export function runPackListRecipes(
 // `baka pack edit <name>`
 // ---------------------------------------------------------------------------
 
-export async function runPackEdit(name: string, opts: { cwd?: string; packDirs?: string[] } = {}): Promise<void> {
-	if (!name) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka pack edit <name>")
+export async function runPackEdit(name: string, opts: PackCallOptions = {}): Promise<void> {
+	if (!name) die(BAKA_EXIT_CODE.BAD_INPUT, "usage: baka pack edit <name>")
 	const editorCmd = process.env.EDITOR
-	if (!editorCmd) die(BAKA_EXIT_CODE.USER_ERROR, "no $EDITOR set")
+	if (!editorCmd) die(BAKA_EXIT_CODE.BAD_INPUT, "no $EDITOR set")
 	const cwd = opts.cwd ?? process.cwd()
 	// Resolve through the same registry the engine uses so edit opens the
 	// pack plan/apply/validate see (tree, project marketplace, user
 	// marketplace, bundled), not just the in-tree packs/ dir.
-	const root = new PackRegistry(cwd, { packDirs: opts.packDirs }).resolvePackRoot(name)
-	if (!root) die(BAKA_EXIT_CODE.USER_ERROR, `pack not found: ${name}`)
+	const root = new PackRegistry(cwd, registryOptions(opts)).resolvePackRoot(name)
+	if (!root) die(BAKA_EXIT_CODE.BAD_INPUT, `pack not found: ${name}`)
 	const manifestPath = join(root, "manifest.ts")
 
 	const child = spawn(editorCmd, [manifestPath], { stdio: "inherit" })
@@ -275,7 +276,7 @@ export async function runPackEdit(name: string, opts: { cwd?: string; packDirs?:
 	})
 
 	// Re-validate after edit
-	runPackValidate(name, { cwd, packDirs: opts.packDirs })
+	runPackValidate(name, { ...opts, cwd })
 }
 
 // ---------------------------------------------------------------------------
@@ -288,17 +289,17 @@ export async function runPackTest(
 	name: string,
 	recipeId: string,
 	inputJson: string,
-	opts: { cwd?: string; packDirs?: string[] } = {},
+	opts: PackCallOptions = {},
 ): Promise<void> {
-	if (!name) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka pack test <name> --recipe=<id> [--input=<json>]")
-	if (!recipeId) die(BAKA_EXIT_CODE.USER_ERROR, "--recipe=<id> is required")
+	if (!name) die(BAKA_EXIT_CODE.BAD_INPUT, "usage: baka pack test <name> --recipe=<id> [--input=<json>]")
+	if (!recipeId) die(BAKA_EXIT_CODE.BAD_INPUT, "--recipe=<id> is required")
 
 	const cwd = opts.cwd ?? process.cwd()
 	// Resolve through the same registry the engine uses so `pack test`
 	// sees the same packs plan/apply see (tree, project marketplace, user
 	// marketplace, bundled), not just the in-tree packs/ dir.
-	const resolved = new PackRegistry(cwd, { packDirs: opts.packDirs }).resolvePackRoot(name)
-	if (!resolved) die(BAKA_EXIT_CODE.USER_ERROR, `pack not found: ${name}`)
+	const resolved = new PackRegistry(cwd, registryOptions(opts)).resolvePackRoot(name)
+	if (!resolved) die(BAKA_EXIT_CODE.BAD_INPUT, `pack not found: ${name}`)
 	// Marketplace installs are symlinks; copy the real directory so the
 	// recipe's writes land in the temp copy, never in the installed source.
 	const root = realpathSync(resolved)
@@ -307,7 +308,7 @@ export async function runPackTest(
 	const hasTemplates = existsSync(join(root, recipeId, "templates"))
 	if (!hasRecipe && !hasTemplates) {
 		die(
-			BAKA_EXIT_CODE.USER_ERROR,
+			BAKA_EXIT_CODE.BAD_INPUT,
 			`recipe "${recipeId}" not found (no ${recipeId}/recipe.ts or ${recipeId}/templates/ in pack ${name})`,
 		)
 	}
@@ -317,7 +318,7 @@ export async function runPackTest(
 		try {
 			parsedInput = JSON.parse(inputJson)
 		} catch (err) {
-			die(BAKA_EXIT_CODE.USER_ERROR, `--input must be valid JSON: ${err instanceof Error ? err.message : String(err)}`)
+			die(BAKA_EXIT_CODE.BAD_INPUT, `--input must be valid JSON: ${err instanceof Error ? err.message : String(err)}`)
 		}
 	}
 
@@ -345,11 +346,11 @@ export async function runPackTest(
 		console.log("RESULT:", JSON.stringify(result, null, 2))
 		if (!result.ok) {
 			console.error("FAILED:", result.diagnostics.find((d) => d.severity === "error")?.message ?? "(no error message)")
-			exitCode = BAKA_EXIT_CODE.ENGINE_ERROR
+			exitCode = BAKA_EXIT_CODE.FAILED
 		}
 	} catch (err) {
 		console.error("ERROR:", err instanceof Error ? err.message : String(err))
-		exitCode = BAKA_EXIT_CODE.ENGINE_ERROR
+		exitCode = BAKA_EXIT_CODE.FAILED
 	}
 
 	// Cleanup

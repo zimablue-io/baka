@@ -1,4 +1,5 @@
 import { BAKA_EXIT_CODE } from "@repo/protocol"
+import { die } from "../die"
 import {
 	maskApiKey,
 	type PublishBody,
@@ -46,11 +47,6 @@ import { readRegistryCredential } from "../lib/registry-credentials"
  * publishing is a registry-side operation; the engine's plan/apply
  * surface is the only place that touches local files.
  */
-
-function die(code: number, msg: string): never {
-	process.stderr.write(`baka: ${msg}\n`)
-	process.exit(code)
-}
 
 interface PublishOptions {
 	org?: string
@@ -126,7 +122,7 @@ function parseRepoAtTagSpec(spec: string): { repo: string; tag: string } {
 export async function runPublishCommand(spec: string, opts: PublishOptions): Promise<void> {
 	if (!spec)
 		die(
-			BAKA_EXIT_CODE.USER_ERROR,
+			BAKA_EXIT_CODE.BAD_INPUT,
 			"usage: baka publish <repo>@<tag> [--org <slug>] [--path <dir>] [--visibility org|public]",
 		)
 
@@ -134,20 +130,20 @@ export async function runPublishCommand(spec: string, opts: PublishOptions): Pro
 	try {
 		parsed = parseRepoAtTagSpec(spec)
 	} catch (err) {
-		die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
+		die(BAKA_EXIT_CODE.BAD_INPUT, err instanceof Error ? err.message : String(err))
 	}
 
 	const baseUrl = resolveBaseUrl(opts.registry)
 	const credential = readRegistryCredential(baseUrl)
 	if (!credential) {
 		die(
-			BAKA_EXIT_CODE.USER_ERROR,
+			BAKA_EXIT_CODE.BAD_INPUT,
 			`no credential stored for ${baseUrl}. Run \`baka registry login --token <key>\` to authenticate, then retry.`,
 		)
 	}
 
 	if (!opts.org || opts.org.length === 0) {
-		die(BAKA_EXIT_CODE.USER_ERROR, "publish requires --org <slug> (the registry namespace to publish into)")
+		die(BAKA_EXIT_CODE.BAD_INPUT, "publish requires --org <slug> (the registry namespace to publish into)")
 	}
 
 	const body: PublishBody = {
@@ -164,7 +160,7 @@ export async function runPublishCommand(spec: string, opts: PublishOptions): Pro
 	} catch (err) {
 		if (err instanceof RegistryTransportError) {
 			die(
-				BAKA_EXIT_CODE.ENGINE_ERROR,
+				BAKA_EXIT_CODE.FAILED,
 				`cannot reach registry at ${baseUrl}: ${err.message.split(":").slice(-1)[0]?.trim() ?? "transport failure"}`,
 			)
 		}
@@ -203,7 +199,7 @@ export async function runPublishCommand(spec: string, opts: PublishOptions): Pro
 	if (opts.json) {
 		process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`)
 		if (terminal.status === "failed") {
-			process.exit(BAKA_EXIT_CODE.ENGINE_ERROR)
+			process.exit(BAKA_EXIT_CODE.FAILED)
 		}
 		return
 	}
@@ -224,7 +220,7 @@ export async function runPublishCommand(spec: string, opts: PublishOptions): Pro
 		if (terminal.error) {
 			process.stderr.write(`  error: ${terminal.error}\n`)
 		}
-		process.exit(BAKA_EXIT_CODE.ENGINE_ERROR)
+		process.exit(BAKA_EXIT_CODE.FAILED)
 		return
 	}
 
@@ -233,7 +229,7 @@ export async function runPublishCommand(spec: string, opts: PublishOptions): Pro
 	process.stderr.write(
 		`publish timed out waiting for terminal status: ${accepted.scope}/${accepted.name}@${terminal.version} is ${terminal.status}\n`,
 	)
-	process.exit(BAKA_EXIT_CODE.ENGINE_ERROR)
+	process.exit(BAKA_EXIT_CODE.FAILED)
 }
 
 /**
@@ -249,15 +245,15 @@ function extractErrorMessage(raw: string): string {
 
 /**
  * Maps HTTP status from the registry's publish endpoint to a CLI exit
- * code. 4xx → USER_ERROR (the user provided bad input or lacks
- * permission); 5xx and transport → ENGINE_ERROR. A 401 / 403 from the
+ * code. 4xx → BAD_INPUT (the user provided bad input or lacks
+ * permission); 5xx and transport → FAILED. A 401 / 403 from the
  * publish endpoint is a credential or role failure, both USER_ERRORs
  * the user can act on by re-running `baka registry login` or asking
  * the org owner for promotion.
  */
 function httpStatusToExitCode(status: number): number {
 	if (status === 401 || status === 403 || status === 404 || status === 422) {
-		return BAKA_EXIT_CODE.USER_ERROR
+		return BAKA_EXIT_CODE.BAD_INPUT
 	}
-	return BAKA_EXIT_CODE.ENGINE_ERROR
+	return BAKA_EXIT_CODE.FAILED
 }

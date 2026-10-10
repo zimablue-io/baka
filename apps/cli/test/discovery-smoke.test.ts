@@ -210,10 +210,16 @@ function parseJson(stdout: string): Record<string, unknown> {
 	}
 }
 
-function packNames(listPacksStdout: string): string[] {
+/** Every pack list-packs reports, bundled starter pack included. */
+function allPackNames(listPacksStdout: string): string[] {
 	const json = parseJson(listPacksStdout)
 	const packs = json.packs as Array<{ name: string }>
 	return packs.map((m) => m.name)
+}
+
+/** The packs a test put there: the starter pack that ships with every install is not one of them. */
+function packNames(listPacksStdout: string): string[] {
+	return allPackNames(listPacksStdout).filter((name) => name !== "starter")
 }
 
 // ===========================================================================
@@ -252,17 +258,18 @@ describe("discovery has no leaked repo catalog", () => {
 		const { code, stdout, stderr } = await spawnCli({ argv: ["list-packs", "--json"], cwd: BAKA_REPO, fakeHome })
 		expect(code, stderr).toBe(0)
 		expect(packNames(stdout)).toEqual([])
+		expect(allPackNames(stdout)).toEqual(["starter"])
 	})
 
-	it("exits 0 with a no-packs diagnostic from an empty temp dir", async () => {
+	it("lists only the bundled starter pack from an empty temp dir, with no diagnostics", async () => {
 		const fakeHome = makeEmptyDir("baka-cross001-home-")
 		const emptyCwd = makeEmptyDir("baka-cross001-cwd-")
 		const { code, stdout, stderr } = await spawnCli({ argv: ["list-packs", "--json"], cwd: emptyCwd, fakeHome })
 		expect(code, stderr).toBe(0)
-		expect(packNames(stdout)).toEqual([])
+		expect(allPackNames(stdout)).toEqual(["starter"])
 		const json = parseJson(stdout)
 		const diagnostics = json.diagnostics as Array<{ rule: string; message: string }>
-		expect(diagnostics.some((d) => d.rule === "no-packs")).toBe(true)
+		expect(diagnostics).toEqual([])
 		expect(stderr).not.toMatch(/at .*\.ts:\d+|\bError\b/)
 	})
 })
@@ -292,7 +299,7 @@ describe("VAL-FOUND-025 project-marketplace scope visibility", () => {
 		const validate = await spawnCli({ argv: ["validate", "--json"], cwd: project, fakeHome })
 		expect(validate.code, validate.stderr).toBe(0)
 		const validateJson = parseJson(validate.stdout)
-		expect(validateJson.packsDiscovered).toBe(1)
+		expect(validateJson.packsDiscovered).toBe(2)
 
 		// (c) plan resolves the fixture's recipe via a fake LLM.
 		const llm = await startFakeLLM(planReferencing("fx-mod", "fx-act"))
@@ -342,12 +349,12 @@ describe("VAL-FOUND-054 malformed entries tolerated", () => {
 		}
 
 		const validate = await spawnCli({ argv: ["validate", "--json"], cwd: project, fakeHome })
-		// An unloadable entry is an honest validation failure (exit 4), not a
+		// An unloadable entry is an honest validation failure (exit 1), not a
 		// crash: the run must still count the valid fixture and print JSON.
-		expect(validate.code === 0 || validate.code === 4, validate.stderr).toBe(true)
+		expect(validate.code === 0 || validate.code === 1, validate.stderr).toBe(true)
 		expect(validate.stderr).not.toMatch(/at .*\.ts:\d+/)
 		const validateJson = parseJson(validate.stdout)
-		expect(validateJson.packsDiscovered).toBe(1)
+		expect(validateJson.packsDiscovered).toBe(2)
 		const validation = validateJson.validation as { diagnostics: Array<{ message: string }> }
 		expect(validation.diagnostics.some((d) => d.message.includes("broken-syntax"))).toBe(true)
 
@@ -392,7 +399,7 @@ describe("VAL-FOUND-055 project-over-user dedup", () => {
 
 		const validate = await spawnCli({ argv: ["validate", "--json"], cwd: project, fakeHome })
 		expect(validate.code, validate.stderr).toBe(0)
-		expect(parseJson(validate.stdout).packsDiscovered).toBe(1)
+		expect(parseJson(validate.stdout).packsDiscovered).toBe(2)
 
 		const listRecipes = await spawnCli({
 			argv: ["pack", "list-recipes", "dup-mod", "--json"],

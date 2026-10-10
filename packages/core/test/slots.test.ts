@@ -168,12 +168,12 @@ describe("live and record modes", () => {
 		expect(later.slots[0]).toMatchObject({ source: "cache", value: "New." })
 	})
 
-	it("record without a provider is slot-no-provider, not a cache hit", async () => {
+	it("record without a provider is slots-open, not a cache hit", async () => {
 		const { registry } = workspace()
 		const store = createMemorySlotStore()
 		await runRecipe({ registry, ...RUN, provider: fakeProvider("Warm."), store })
 		const result = await runRecipe({ registry, ...RUN, store, slots: { mode: "record" } })
-		expect(result.diagnostics.map((d) => d.rule)).toEqual(["slot-no-provider"])
+		expect(result.diagnostics.map((d) => d.rule)).toEqual(["slots-open"])
 	})
 
 	it("reports a provider failure as slot-provider-error", async () => {

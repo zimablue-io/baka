@@ -14,7 +14,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js"
 import { OnExistingSchema, SlotsInputSchema as RunSlotsInputSchema } from "@repo/protocol"
 import { z } from "zod"
-import { createContext, type ServerContext } from "./context.js"
+import { createContext, engineOptions, type ServerContext } from "./context.js"
 import { DESIGN_PACK_DESCRIPTION, DESIGN_PACK_PROMPT_NAME, designPackMessages } from "./prompts/design-pack.js"
 import {
 	listPacksResource,
@@ -251,11 +251,11 @@ function registerWorkflowTools(server: McpServer, ctx: ServerContext): void {
 			const { status, json } = await engineRequest(ctx.cwd, "/v1/validate", {
 				method: "POST",
 				body: {},
-				packDirs: ctx.packDirs,
+				...engineOptions(ctx),
 			})
-			const result = json as { valid?: boolean; error?: string }
+			const result = json as { valid?: boolean }
 			if (status >= 400) {
-				return { ...jsonResult({ valid: false, error: result.error ?? "validate failed" }), isError: true }
+				return { ...jsonResult({ valid: false, ...(json as object) }), isError: true }
 			}
 			return { ...jsonResult(json), ...(result.valid ? {} : { isError: true }) }
 		},
@@ -270,7 +270,7 @@ function registerWorkflowTools(server: McpServer, ctx: ServerContext): void {
 		},
 		async (raw) => {
 			const input = ListRecipesInputSchema.parse(raw)
-			const { status, json } = await engineRequest(ctx.cwd, "/v1/packs", { packDirs: ctx.packDirs })
+			const { status, json } = await engineRequest(ctx.cwd, "/v1/packs", engineOptions(ctx))
 			const body = json as {
 				packs?: Array<{
 					name: string
@@ -314,7 +314,7 @@ function registerWorkflowTools(server: McpServer, ctx: ServerContext): void {
 // ---------------------------------------------------------------------------
 
 const RunInputSchema = z.object({
-	pack: z.string().min(1).describe("Pack name"),
+	pack: z.string().min(1).optional().describe("Pack name; omit it when only one pack declares the recipe"),
 	recipe: z.string().min(1).describe("Recipe id"),
 	params: z.record(z.unknown()).optional().describe("Recipe params"),
 	slots: RunSlotsInputSchema.optional().describe(
@@ -329,12 +329,12 @@ const RunInputSchema = z.object({
 })
 
 const SlotsInputSchema = z.object({
-	pack: z.string().min(1).describe("Pack name"),
+	pack: z.string().min(1).optional().describe("Pack name; omit it when only one pack declares the recipe"),
 	recipe: z.string().min(1).describe("Recipe id"),
 })
 
 const FillInputSchema = z.object({
-	pack: z.string().min(1).describe("Pack name"),
+	pack: z.string().min(1).optional().describe("Pack name; omit it when only one pack declares the recipe"),
 	recipe: z.string().min(1).describe("Recipe id"),
 	slot: z.string().min(1).describe("Slot id"),
 	value: z.unknown().describe("Fill value"),
@@ -346,13 +346,13 @@ function registerEngineTools(server: McpServer, ctx: ServerContext): void {
 		"baka_run",
 		{
 			description:
-				"Materialize a named pack/recipe. Templates are the output tree; the LLM fills named slots only. Returns the receipt: ok, diagnostics, changeset (path, op, contentHash), outputTreeHash, slots, compensation. Prefer `baka run <pack>/<recipe> --json` in a shell. Same JSON as the CLI.",
+				"Run a recipe. Templates are the output tree; named slots are filled from slots.values (you supply them, no model needed), the cache, or a model if the host configured one. Slots that are still open come back in the receipt as openSlots. Returns the receipt: ok, diagnostics, changeset (path, op, contentHash), outputTreeHash, slots, compensation. Same JSON as `baka run <recipe> --json`.",
 			inputSchema: RunInputSchema.shape,
 		},
 		async (raw) => {
 			const input = RunInputSchema.parse(raw)
 			const { status, json } = await engineRequest(ctx.cwd, "/v1/run", {
-				packDirs: ctx.packDirs,
+				...engineOptions(ctx),
 				method: "POST",
 				body: {
 					pack: input.pack,
@@ -380,8 +380,8 @@ function registerEngineTools(server: McpServer, ctx: ServerContext): void {
 			const input = SlotsInputSchema.parse(raw)
 			const { status, json } = await engineRequest(
 				ctx.cwd,
-				`/v1/slots?pack=${encodeURIComponent(input.pack)}&recipe=${encodeURIComponent(input.recipe)}`,
-				{ packDirs: ctx.packDirs },
+				`/v1/slots?${input.pack ? `pack=${encodeURIComponent(input.pack)}&` : ""}recipe=${encodeURIComponent(input.recipe)}`,
+				engineOptions(ctx),
 			)
 			return { ...jsonResult(json), ...(status >= 400 ? { isError: true } : {}) }
 		},
@@ -396,7 +396,7 @@ function registerEngineTools(server: McpServer, ctx: ServerContext): void {
 		async (raw) => {
 			const input = FillInputSchema.parse(raw)
 			const { status, json } = await engineRequest(ctx.cwd, "/v1/fill", {
-				packDirs: ctx.packDirs,
+				...engineOptions(ctx),
 				method: "POST",
 				body: {
 					pack: input.pack,

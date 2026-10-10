@@ -272,7 +272,7 @@ async function fixtureUnloadableRepo(): Promise<GitFixture> {
 // ---------------------------------------------------------------------------
 
 describe("VAL-DISC-007 publish without credentials refuses before any network mutation", () => {
-	it("exits 1 with an honest re-login message; no pack_versions row appears", async () => {
+	it("exits 2 with an honest re-login message; no pack_versions row appears", async () => {
 		const bakaHome = makeIsolatedHome("baka-puborg-nocred-")
 		const cwd = makeIsolatedHome("baka-puborg-nocred-proj-")
 		const env = { BAKA_HOME: bakaHome }
@@ -283,7 +283,7 @@ describe("VAL-DISC-007 publish without credentials refuses before any network mu
 			cwd,
 			env,
 		)
-		expect(res.code, `publish without creds: stdout=${res.stdout}; stderr=${res.stderr}`).toBe(1)
+		expect(res.code, `publish without creds: stdout=${res.stdout}; stderr=${res.stderr}`).toBe(2)
 		expect(res.stderr).toMatch(/credential|login/i)
 		expect(res.stderr).toContain("baka registry login")
 		expect(res.stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
@@ -555,7 +555,7 @@ describe("CLI surfaces advertise publish + org and reject malformed input honest
 		const cwd = makeIsolatedHome("baka-puborg-bad-spec-proj-")
 		const env = { BAKA_HOME: bakaHome }
 		const res = await spawnCli(["publish", "no-tag-separator", "--registry", creds.baseUrl, "--org", "acme"], cwd, env)
-		expect(res.code).toBe(1)
+		expect(res.code).toBe(2)
 		expect(res.stderr).toMatch(/@|tag|form/i)
 		expect(res.stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
 	})
@@ -566,7 +566,7 @@ describe("CLI surfaces advertise publish + org and reject malformed input honest
 		const env = { BAKA_HOME: bakaHome }
 		seedCredential(bakaHome, creds.baseUrl, creds.ownerKey)
 		const res = await spawnCli(["publish", "file:///tmp/anything@v1.0.0", "--registry", creds.baseUrl], cwd, env)
-		expect(res.code).toBe(1)
+		expect(res.code).toBe(2)
 		expect(res.stderr).toMatch(/--org/)
 		expect(res.stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
 	})

@@ -3,8 +3,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
-	parsePackRecipe,
 	parseParamFlags,
+	parseSlotValues,
+	parseTarget,
 	runFillCommand,
 	runInspectCommand,
 	runListPacksCommand,
@@ -13,12 +14,31 @@ import {
 	runSlotsCommand,
 } from "./run.js"
 
-describe("parsePackRecipe", () => {
+describe("parseTarget", () => {
 	it("splits pack/recipe", () => {
-		expect(parsePackRecipe("hello/greet")).toEqual({
-			pack: "hello",
-			recipe: "greet",
-		})
+		expect(parseTarget("hello/greet")).toEqual({ pack: "hello", recipe: "greet" })
+	})
+
+	it("takes a bare recipe name with no pack", () => {
+		expect(parseTarget("add-readme")).toEqual({ recipe: "add-readme" })
+	})
+})
+
+describe("parseSlotValues", () => {
+	it("reads id=value, keeping any further = in the value", () => {
+		expect(parseSlotValues(["intro=Hello", "eq=a=b"], undefined)).toEqual({ intro: "Hello", eq: "a=b" })
+	})
+
+	it("lets --slot win over --slots-file", () => {
+		const dir = mkdtempSync(join(tmpdir(), "baka-slotvals-"))
+		cleanup.push(dir)
+		const file = join(dir, "slots.json")
+		writeFileSync(file, JSON.stringify({ intro: "from file", other: "kept" }))
+		expect(parseSlotValues(["intro=from flag"], file)).toEqual({ intro: "from flag", other: "kept" })
+	})
+
+	it("returns undefined when nothing was supplied", () => {
+		expect(parseSlotValues(undefined, undefined)).toBeUndefined()
 	})
 })
 
@@ -44,6 +64,26 @@ describe("parseParamFlags", () => {
 		expect(parseParamFlags(["--name", "x", "--no-validate", "--include-content", "--on-existing", "fail"])).toEqual({
 			name: "x",
 		})
+	})
+
+	it("does not take the per-call flags as params", () => {
+		expect(
+			parseParamFlags([
+				"--name",
+				"x",
+				"--isolated",
+				"--llm-base-url",
+				"http://h/v1",
+				"--llm-model",
+				"m",
+				"--llm-api-key-env",
+				"K",
+				"--slot",
+				"a=b",
+				"--slots-file",
+				"f.json",
+			]),
+		).toEqual({ name: "x" })
 	})
 
 	it("merges --params JSON with extra flags", () => {

@@ -89,7 +89,7 @@ describe("demo Vite packs write a real app", () => {
 		const listed = await spawnCli(["list-packs", "--json"], project, env)
 		expect(listed.code, listed.stderr).toBe(0)
 		const listPayload = JSON.parse(listed.stdout) as { packs: Array<{ name: string }> }
-		expect(listPayload.packs.map((m) => m.name).sort()).toEqual(["vite-app", "vite-page", "vite-theme"])
+		expect(listPayload.packs.map((m) => m.name).sort()).toEqual(["starter", "vite-app", "vite-page", "vite-theme"])
 
 		const inspected = await spawnCli(["inspect", "vite-app/write", "--json"], project, env)
 		expect(inspected.code, inspected.stderr).toBe(0)

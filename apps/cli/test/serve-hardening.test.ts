@@ -71,7 +71,7 @@ const port = () => String(20000 + Math.floor(Math.random() * 20000))
 describe("baka serve hardening", () => {
 	it("refuses to bind a non-loopback address without a token", async () => {
 		const { code, stderr } = await runServe(["--host", "0.0.0.0", "--port", port()], projectDir(), env())
-		expect(code).toBe(1)
+		expect(code).toBe(2)
 		expect(stderr).toContain("not a loopback address")
 		expect(stderr).toContain("BAKA_ENGINE_TOKEN")
 	})

@@ -1,19 +1,28 @@
 import { readFileSync } from "node:fs"
 import { engineRequest } from "@baka/engine"
 import { createLock, PackRegistry, writeLockfile } from "@repo/ast-tooling"
-import { BAKA_EXIT_CODE, BAKA_LOCKFILE_NAME } from "@repo/protocol"
+import { BAKA_EXIT_CODE, BAKA_LOCKFILE_NAME, exitCodeForRule, type OpenSlot } from "@repo/protocol"
+import { type CallOptions, dieOnApiError, engineInit, registryOptions } from "../call"
+import { die } from "../die"
 
-function die(code: number, msg: string): never {
-	process.stderr.write(`baka: ${msg}\n`)
-	process.exit(code)
-}
-
-export function parsePackRecipe(target: string): { pack: string; recipe: string } {
+/** `<recipe>` or `<pack>/<recipe>`. A bare recipe name is resolved by the engine, which refuses an ambiguous one. */
+export function parseTarget(target: string): { pack?: string; recipe: string } {
 	const idx = target.indexOf("/")
-	if (idx <= 0 || idx === target.length - 1) {
-		die(BAKA_EXIT_CODE.USER_ERROR, `expected <pack>/<recipe>, got "${target}"`)
+	if (idx === -1) return { recipe: target }
+	if (idx === 0 || idx === target.length - 1) {
+		die(BAKA_EXIT_CODE.BAD_INPUT, `expected <recipe> or <pack>/<recipe>, got "${target}"`)
 	}
 	return { pack: target.slice(0, idx), recipe: target.slice(idx + 1) }
+}
+
+function targetLabel(target: { pack?: string; recipe: string }): string {
+	return target.pack ? `${target.pack}/${target.recipe}` : target.recipe
+}
+
+/** The query string that names a recipe to the engine's GET routes. */
+function targetQuery(target: { pack?: string; recipe: string }): string {
+	const pack = target.pack ? `pack=${encodeURIComponent(target.pack)}&` : ""
+	return `${pack}recipe=${encodeURIComponent(target.recipe)}`
 }
 
 export function parseParamFlags(raw: string[] | undefined, paramsJson?: string): Record<string, unknown> {
@@ -24,10 +33,10 @@ export function parseParamFlags(raw: string[] | undefined, paramsJson?: string):
 			if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
 				params = parsed as Record<string, unknown>
 			} else {
-				die(BAKA_EXIT_CODE.USER_ERROR, "--params must be a JSON object")
+				die(BAKA_EXIT_CODE.BAD_INPUT, "--params must be a JSON object")
 			}
 		} catch (err) {
-			die(BAKA_EXIT_CODE.USER_ERROR, `--params is not JSON: ${err instanceof Error ? err.message : String(err)}`)
+			die(BAKA_EXIT_CODE.BAD_INPUT, `--params is not JSON: ${err instanceof Error ? err.message : String(err)}`)
 		}
 	}
 	if (!raw) return params
@@ -46,6 +55,12 @@ export function parseParamFlags(raw: string[] | undefined, paramsJson?: string):
 			key === "format" ||
 			key === "params" ||
 			key === "slot" ||
+			key === "slots-file" ||
+			key === "isolated" ||
+			key === "llm-base-url" ||
+			key === "llm-model" ||
+			key === "llm-api-key" ||
+			key === "llm-api-key-env" ||
 			key === "file" ||
 			key === "value" ||
 			key === "cwd" ||
@@ -59,6 +74,11 @@ export function parseParamFlags(raw: string[] | undefined, paramsJson?: string):
 				key === "packs-dir" ||
 				key === "params" ||
 				key === "slot" ||
+				key === "slots-file" ||
+				key === "llm-base-url" ||
+				key === "llm-model" ||
+				key === "llm-api-key" ||
+				key === "llm-api-key-env" ||
 				key === "file" ||
 				key === "value" ||
 				key === "port" ||
@@ -87,9 +107,7 @@ function printJson(value: unknown): void {
 
 export async function runRunCommand(
 	target: string,
-	opts: {
-		cwd: string
-		packDirs?: string[]
+	opts: CallOptions & {
 		json?: boolean
 		dryRun?: boolean
 		includeContent?: boolean
@@ -99,23 +117,26 @@ export async function runRunCommand(
 		format?: boolean
 		slotMode?: string
 		slotRecords?: string
+		/** `--slot id=value`, repeatable. */
+		slot?: string[]
+		/** `--slots-file`: a JSON object of slot id to value. */
+		slotsFile?: string
 		onExisting?: string
 		params?: string
 		extra?: string[]
 	},
 ): Promise<void> {
-	const { pack, recipe } = parsePackRecipe(target)
+	const named = parseTarget(target)
 	const params = parseParamFlags(opts.extra, opts.params)
-	const slots = parseSlotsFlags(opts.slotMode, opts.slotRecords)
+	const slots = parseSlotsFlags(opts.slotMode, opts.slotRecords, parseSlotValues(opts.slot, opts.slotsFile))
 	if (opts.onExisting !== undefined && !["skip", "overwrite", "fail"].includes(opts.onExisting)) {
-		die(BAKA_EXIT_CODE.USER_ERROR, `--on-existing must be skip, overwrite, or fail; got "${opts.onExisting}"`)
+		die(BAKA_EXIT_CODE.BAD_INPUT, `--on-existing must be skip, overwrite, or fail; got "${opts.onExisting}"`)
 	}
 	const { status, json } = await engineRequest(opts.cwd, "/v1/run", {
-		packDirs: opts.packDirs,
+		...engineInit(opts),
 		method: "POST",
 		body: {
-			pack,
-			recipe,
+			...named,
 			params,
 			slots,
 			onExisting: opts.onExisting,
@@ -125,62 +146,94 @@ export async function runRunCommand(
 			format: opts.format ? true : undefined,
 		},
 	})
+	dieOnApiError(status, json)
 	const body = json as RunBody
 	if (opts.json) {
 		printJson(json)
 	} else {
-		printRunSummary(`${pack}/${recipe}`, body)
+		printRunSummary(targetLabel(named), body)
 	}
+	reportOpenSlots(body.openSlots)
 	if (status >= 400 || body.ok === false) {
-		process.exit(BAKA_EXIT_CODE.ENGINE_ERROR)
+		const firstError = body.diagnostics?.find((d) => d.severity === "error")
+		process.exit(exitCodeForRule(firstError?.rule))
 	}
 }
 
 /**
- * `--slot-mode live|record|replay` and `--slot-records <file>`. The file holds a
- * JSON array of slot records, or a receipt (`baka run --json` output) whose
- * `slots` are used, so a recorded run can be replayed by passing its output back.
+ * `--slot id=value` (repeatable) and `--slots-file <file>` (a JSON object of id to value). The
+ * flags win over the file. These are the fills a caller supplies for this one call: they need no
+ * model, and are never written to the slot cache.
+ */
+export function parseSlotValues(
+	assignments: string[] | undefined,
+	file: string | undefined,
+): Record<string, unknown> | undefined {
+	if (!assignments?.length && file === undefined) return undefined
+	const values: Record<string, unknown> = {}
+	if (file !== undefined) {
+		let parsed: unknown
+		try {
+			parsed = JSON.parse(readFileSync(file, "utf-8"))
+		} catch (err) {
+			die(BAKA_EXIT_CODE.BAD_INPUT, `--slots-file ${file}: ${err instanceof Error ? err.message : String(err)}`)
+		}
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+			die(BAKA_EXIT_CODE.BAD_INPUT, `--slots-file ${file} must be a JSON object of slot id to value`)
+		}
+		Object.assign(values, parsed)
+	}
+	for (const assignment of assignments ?? []) {
+		const eq = assignment.indexOf("=")
+		if (eq <= 0) die(BAKA_EXIT_CODE.BAD_INPUT, `--slot expects <id>=<value>, got "${assignment}"`)
+		values[assignment.slice(0, eq)] = assignment.slice(eq + 1)
+	}
+	return values
+}
+
+/**
+ * `--slot-mode live|record|replay`, `--slot-records <file>` and the values a caller supplies. The
+ * file holds a JSON array of slot records, or a receipt (`baka run --json` output) whose `slots`
+ * are used, so a recorded run can be replayed by passing its output back.
  */
 function parseSlotsFlags(
 	mode: string | undefined,
 	recordsFile: string | undefined,
-): { mode: string; records?: unknown[] } | undefined {
-	if (mode === undefined && recordsFile === undefined) return undefined
+	values: Record<string, unknown> | undefined,
+): { mode: string; records?: unknown[]; values?: Record<string, unknown> } | undefined {
+	if (mode === undefined && recordsFile === undefined && values === undefined) return undefined
 	const resolved = mode ?? (recordsFile ? "replay" : "live")
 	if (!["live", "record", "replay"].includes(resolved)) {
-		die(BAKA_EXIT_CODE.USER_ERROR, `--slot-mode must be live, record, or replay; got "${resolved}"`)
+		die(BAKA_EXIT_CODE.BAD_INPUT, `--slot-mode must be live, record, or replay; got "${resolved}"`)
 	}
-	if (!recordsFile) return { mode: resolved }
+	const supplied = values ? { values } : {}
+	if (!recordsFile) return { mode: resolved, ...supplied }
 	let parsed: unknown
 	try {
 		parsed = JSON.parse(readFileSync(recordsFile, "utf-8"))
 	} catch (err) {
-		die(BAKA_EXIT_CODE.USER_ERROR, `--slot-records ${recordsFile}: ${err instanceof Error ? err.message : String(err)}`)
+		die(BAKA_EXIT_CODE.BAD_INPUT, `--slot-records ${recordsFile}: ${err instanceof Error ? err.message : String(err)}`)
 	}
 	const records = Array.isArray(parsed) ? parsed : (parsed as { slots?: unknown } | null)?.slots
 	if (!Array.isArray(records)) {
 		die(
-			BAKA_EXIT_CODE.USER_ERROR,
+			BAKA_EXIT_CODE.BAD_INPUT,
 			`--slot-records ${recordsFile} must be a JSON array of slot records or a receipt with "slots"`,
 		)
 	}
-	return { mode: resolved, records }
+	return { mode: resolved, records, ...supplied }
 }
 
 interface RunBody {
 	ok?: boolean
-	error?: string
 	dryRun?: boolean
 	outputTreeHash?: string
 	changeset?: Array<{ path: string; op: string; reason?: string }>
 	diagnostics?: Array<{ severity: string; rule: string; message: string; validator?: string }>
+	openSlots?: OpenSlot[]
 }
 
 function printRunSummary(target: string, body: RunBody): void {
-	if (body.error) {
-		process.stderr.write(`baka: ${body.error}\n`)
-		return
-	}
 	for (const d of body.diagnostics ?? []) {
 		process.stderr.write(`baka: ${d.severity} [${d.rule}] ${d.message}${d.validator ? ` (${d.validator})` : ""}\n`)
 	}
@@ -191,68 +244,63 @@ function printRunSummary(target: string, body: RunBody): void {
 	console.log(`  tree      ${body.outputTreeHash}`)
 }
 
-export async function runSlotsCommand(
-	target: string,
-	opts: { cwd: string; packDirs?: string[]; json?: boolean },
-): Promise<void> {
-	const { pack, recipe } = parsePackRecipe(target)
-	const { status, json } = await engineRequest(
-		opts.cwd,
-		`/v1/slots?pack=${encodeURIComponent(pack)}&recipe=${encodeURIComponent(recipe)}`,
-		{ packDirs: opts.packDirs },
-	)
+/** What a caller must supply when a run stopped on slots that have no value and no model: the flag, per slot. */
+function reportOpenSlots(openSlots: OpenSlot[] | undefined): void {
+	if (!openSlots?.length) return
+	process.stderr.write("baka: these slots need a value; pass each one and run again:\n")
+	for (const slot of openSlots) {
+		process.stderr.write(
+			`  --slot ${slot.id}=<value>   (${slot.kind}) ${slot.hint.replace(/\s+/g, " ").slice(0, 80)}\n`,
+		)
+	}
+	process.stderr.write("  or give a model: --llm-base-url <url> --llm-model <name> [--llm-api-key-env <VAR>]\n")
+}
+
+export async function runSlotsCommand(target: string, opts: CallOptions & { json?: boolean }): Promise<void> {
+	const named = parseTarget(target)
+	const { status, json } = await engineRequest(opts.cwd, `/v1/slots?${targetQuery(named)}`, engineInit(opts))
+	dieOnApiError(status, json)
 	if (opts.json) printJson(json)
 	else {
-		const body = json as { slots?: Array<{ id: string; kind: string; hint: string }>; error?: string }
-		if (body.error) die(BAKA_EXIT_CODE.USER_ERROR, body.error)
+		const body = json as { slots?: Array<{ id: string; kind: string; hint: string }> }
 		for (const slot of body.slots ?? []) {
 			console.log(`${slot.id}\t${slot.kind}\t${slot.hint.replace(/\s+/g, " ").slice(0, 80)}`)
 		}
 	}
-	if (status >= 400) process.exit(BAKA_EXIT_CODE.USER_ERROR)
 }
 
-export async function runInspectCommand(
-	target: string,
-	opts: { cwd: string; packDirs?: string[]; json?: boolean },
-): Promise<void> {
-	const { pack, recipe } = parsePackRecipe(target)
-	const { status, json } = await engineRequest(
-		opts.cwd,
-		`/v1/preview?pack=${encodeURIComponent(pack)}&recipe=${encodeURIComponent(recipe)}`,
-		{ packDirs: opts.packDirs },
-	)
+export async function runInspectCommand(target: string, opts: CallOptions & { json?: boolean }): Promise<void> {
+	const named = parseTarget(target)
+	const { status, json } = await engineRequest(opts.cwd, `/v1/preview?${targetQuery(named)}`, engineInit(opts))
+	dieOnApiError(status, json)
 	const body = json as {
-		error?: string
+		pack?: string
 		description?: string
 		params?: Array<{ name: string; type: string; required: boolean; description: string }>
 		files?: Array<{ rel: string; source: string }>
 		slots?: Array<{ id: string; kind: string; hint: string }>
 	}
-	if (opts.json) printJson(json)
-	else if (body.error) die(BAKA_EXIT_CODE.USER_ERROR, body.error)
-	else {
-		console.log(`${pack}/${recipe}`)
-		if (body.description) console.log(body.description)
-		for (const p of body.params ?? []) {
-			console.log(`  param ${p.name}${p.required ? "" : "?"} (${p.type}): ${p.description}`)
-		}
-		for (const slot of body.slots ?? []) {
-			console.log(`  slot ${slot.id} (${slot.kind}): ${slot.hint.replace(/\s+/g, " ").slice(0, 80)}`)
-		}
-		for (const file of body.files ?? []) {
-			console.log(`--- ${file.rel}`)
-			console.log(file.source)
-		}
+	if (opts.json) {
+		printJson(json)
+		return
 	}
-	if (status >= 400) process.exit(BAKA_EXIT_CODE.USER_ERROR)
+	console.log(`${body.pack ?? named.pack}/${named.recipe}`)
+	if (body.description) console.log(body.description)
+	for (const p of body.params ?? []) {
+		console.log(`  param ${p.name}${p.required ? "" : "?"} (${p.type}): ${p.description}`)
+	}
+	for (const slot of body.slots ?? []) {
+		console.log(`  slot ${slot.id} (${slot.kind}): ${slot.hint.replace(/\s+/g, " ").slice(0, 80)}`)
+	}
+	for (const file of body.files ?? []) {
+		console.log(`--- ${file.rel}`)
+		console.log(file.source)
+	}
 }
 
 export async function runFillCommand(
 	target: string,
-	opts: {
-		cwd: string
-		packDirs?: string[]
+	opts: CallOptions & {
 		json?: boolean
 		slot?: string
 		file?: string
@@ -261,37 +309,30 @@ export async function runFillCommand(
 		extra?: string[]
 	},
 ): Promise<void> {
-	const { pack, recipe } = parsePackRecipe(target)
-	if (!opts.slot) die(BAKA_EXIT_CODE.USER_ERROR, "--slot <id> is required")
+	const named = parseTarget(target)
+	if (!opts.slot) die(BAKA_EXIT_CODE.BAD_INPUT, "--slot <id> is required")
 	let value: unknown = opts.value
 	if (opts.file) {
 		value = readFileSync(opts.file, "utf-8")
 	}
-	if (value === undefined) die(BAKA_EXIT_CODE.USER_ERROR, "--value or --file is required")
+	if (value === undefined) die(BAKA_EXIT_CODE.BAD_INPUT, "--value or --file is required")
 	const params = parseParamFlags(opts.extra, opts.params)
 	const { status, json } = await engineRequest(opts.cwd, "/v1/fill", {
-		packDirs: opts.packDirs,
+		...engineInit(opts),
 		method: "POST",
-		body: { pack, recipe, slot: opts.slot, value, params },
+		body: { ...named, slot: opts.slot, value, params },
 	})
+	dieOnApiError(status, json)
 	if (opts.json) printJson(json)
-	else {
-		const body = json as { ok?: boolean; error?: string; cachePath?: string }
-		if (body.ok) console.log(`filled ${opts.slot} → ${body.cachePath}`)
-		else process.stderr.write(`baka: ${body.error ?? "fill failed"}\n`)
-	}
-	if (status >= 400) process.exit(BAKA_EXIT_CODE.ENGINE_ERROR)
+	else console.log(`filled ${opts.slot} → ${(json as { cachePath?: string }).cachePath}`)
 }
 
-export async function runListPacksCommand(opts: { cwd: string; packDirs?: string[]; json?: boolean }): Promise<void> {
-	const { status, json } = await engineRequest(opts.cwd, "/v1/packs", { packDirs: opts.packDirs })
+export async function runListPacksCommand(opts: CallOptions & { json?: boolean }): Promise<void> {
+	const { status, json } = await engineRequest(opts.cwd, "/v1/packs", engineInit(opts))
+	dieOnApiError(status, json)
 	const body = json as {
 		packs?: Array<{ name: string; version: string; description: string; recipes: unknown[] }>
 		diagnostics?: Array<{ severity: string; message: string }>
-		error?: string
-	}
-	if (status >= 400) {
-		die(BAKA_EXIT_CODE.ENGINE_ERROR, body.error ?? "list-packs failed")
 	}
 	if (opts.json) {
 		// The catalog verbatim: the same document as GET /v1/packs, the baka://packs
@@ -317,11 +358,11 @@ export async function runListPacksCommand(opts: { cwd: string; packDirs?: string
  * ones) to its current version and content hash in `<cwd>/baka.lock.json`.
  * From then on `baka run` refuses a pack that no longer matches.
  */
-export function runLockCommand(opts: { cwd: string; packDirs?: string[]; json?: boolean; packs?: string[] }): void {
-	const registry = new PackRegistry(opts.cwd, { packDirs: opts.packDirs })
+export function runLockCommand(opts: CallOptions & { json?: boolean; packs?: string[] }): void {
+	const registry = new PackRegistry(opts.cwd, registryOptions(opts))
 	const { packs } = registry.discover(false)
 	for (const name of opts.packs ?? []) {
-		if (!packs.some((m) => m.name === name)) die(BAKA_EXIT_CODE.USER_ERROR, `pack "${name}" not found`)
+		if (!packs.some((m) => m.name === name)) die(BAKA_EXIT_CODE.BAD_INPUT, `pack "${name}" not found`)
 	}
 	const lock = createLock(registry, opts.packs?.length ? opts.packs : undefined)
 	const path = writeLockfile(opts.cwd, lock)
@@ -351,7 +392,7 @@ export async function runServeCommand(opts: {
 			opts.cwd,
 		)
 	} catch (err) {
-		die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
+		die(BAKA_EXIT_CODE.BAD_INPUT, err instanceof Error ? err.message : String(err))
 	}
 	const running = await serveEngine(opts.cwd, config)
 	process.stderr.write(`baka serve: ${running.url}${config.token ? " (bearer token required)" : ""}\n`)

@@ -13,6 +13,7 @@ import { featurePlanningWorkflow } from "@repo/feature-planning-workflow"
 import type { LLMProvider, OrchestrationState, PackManifest, ResolvedLLMConfig, WorkflowStep } from "@repo/protocol"
 import { BAKA_EXIT_CODE } from "@repo/protocol"
 import { createJiti } from "jiti"
+import { type CallOptions, dieOnApiError, engineInit } from "../call"
 
 function die(code: number, msg: string): never {
 	process.stderr.write(`baka: ${msg}\n`)
@@ -41,24 +42,24 @@ export async function runPlanCommand(intent: string, opts: PlanOpts): Promise<vo
 		} else {
 			console.log(`baka: ${diagnostic}`)
 		}
-		process.exit(BAKA_EXIT_CODE.ENGINE_ERROR)
+		process.exit(BAKA_EXIT_CODE.FAILED)
 	}
 	let config: ResolvedLLMConfig
 	try {
 		config = await loadLLMConfig({ role: "worker", cwd })
 	} catch (err) {
-		die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
+		die(BAKA_EXIT_CODE.BAD_INPUT, err instanceof Error ? err.message : String(err))
 	}
 	try {
 		validateLLMConfig(config)
 	} catch (err) {
-		die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
+		die(BAKA_EXIT_CODE.BAD_INPUT, err instanceof Error ? err.message : String(err))
 	}
 	let provider: LLMProvider
 	try {
 		provider = createLLMProvider(config)
 	} catch (err) {
-		die(BAKA_EXIT_CODE.PROVIDER_ERROR, err instanceof Error ? err.message : String(err))
+		die(BAKA_EXIT_CODE.UNAVAILABLE, err instanceof Error ? err.message : String(err))
 	}
 
 	const runId = `plan-${Date.now()}`
@@ -90,7 +91,7 @@ export async function runPlanCommand(intent: string, opts: PlanOpts): Promise<vo
 		}
 		console.log(JSON.stringify(result, null, 2))
 		if (state.status === "FAILED") {
-			process.exit(BAKA_EXIT_CODE.ENGINE_ERROR)
+			process.exit(BAKA_EXIT_CODE.FAILED)
 		}
 		return
 	}
@@ -107,7 +108,7 @@ export async function runPlanCommand(intent: string, opts: PlanOpts): Promise<vo
 		for (const line of state.logs.filter((l) => l.startsWith("[plan]"))) {
 			console.error(`baka: ${line}`)
 		}
-		die(BAKA_EXIT_CODE.ENGINE_ERROR, "planning failed; see logs for details")
+		die(BAKA_EXIT_CODE.FAILED, "planning failed; see logs for details")
 	}
 
 	if (savedPlanFile) {
@@ -201,7 +202,7 @@ export async function runApplyCommand(
 		try {
 			config = await loadLLMConfig({ role: "worker", cwd })
 		} catch (err) {
-			die(BAKA_EXIT_CODE.USER_ERROR, err instanceof Error ? err.message : String(err))
+			die(BAKA_EXIT_CODE.BAD_INPUT, err instanceof Error ? err.message : String(err))
 		}
 		provider = createLLMProvider(config)
 	}
@@ -236,23 +237,23 @@ export async function runApplyCommand(
 		const result = { status, completedSteps, failed: saga.failed, validation, logs: saga.state.logs }
 		console.log(JSON.stringify(result, null, 2))
 		if (saga.failed) {
-			process.exit(BAKA_EXIT_CODE.ENGINE_ERROR)
+			process.exit(BAKA_EXIT_CODE.FAILED)
 		}
 		if (validation.kind === "fail") {
-			process.exit(BAKA_EXIT_CODE.VALIDATION_ERROR)
+			process.exit(BAKA_EXIT_CODE.FAILED)
 		}
 		return
 	}
 
 	if (saga.failed) {
-		die(BAKA_EXIT_CODE.ENGINE_ERROR, `apply failed: ${saga.failed.error}`)
+		die(BAKA_EXIT_CODE.FAILED, `apply failed: ${saga.failed.error}`)
 	}
 	if (validation.kind === "fail") {
 		console.log("\napply: VALIDATION FAILED")
 		for (const d of validation.diagnostics) {
 			console.log(`  - [${d.severity}] ${d.rule}: ${d.message}${d.validator ? ` (${d.validator})` : ""}`)
 		}
-		process.exit(BAKA_EXIT_CODE.VALIDATION_ERROR)
+		process.exit(BAKA_EXIT_CODE.FAILED)
 	}
 	console.log("\napply: success (validators passed)")
 	for (const d of validation.diagnostics) {
@@ -277,16 +278,16 @@ function loadPackManifest(packRoot: string, _packName: string): PackManifest | n
 }
 
 export async function runValidateCommand(
-	scope: { cwd: string; packDirs?: string[] },
+	scope: CallOptions,
 	opts: { json?: boolean; pack?: string } = {},
 ): Promise<void> {
 	const { status, json } = await engineRequest(scope.cwd, "/v1/validate", {
-		packDirs: scope.packDirs,
+		...engineInit(scope),
 		method: "POST",
 		body: opts.pack ? { pack: opts.pack } : {},
 	})
+	dieOnApiError(status, json)
 	const body = json as {
-		error?: string
 		valid?: boolean
 		packsDiscovered?: number
 		packName?: string
@@ -295,9 +296,6 @@ export async function runValidateCommand(
 			diagnostics?: Array<{ severity: string; rule: string; message: string; validator?: string }>
 		}
 	}
-	if (status >= 400) {
-		die(BAKA_EXIT_CODE.USER_ERROR, body.error ?? "validate failed")
-	}
 	const result = body.validation ?? { kind: body.valid === false ? "fail" : "pass", diagnostics: [] }
 
 	if (result.kind === "fail") {
@@ -305,7 +303,7 @@ export async function runValidateCommand(
 			(d) => d.severity === "error" && /missing LLM config/.test(d.message),
 		)
 		if (missingConfig) {
-			die(BAKA_EXIT_CODE.USER_ERROR, missingConfig.message)
+			die(BAKA_EXIT_CODE.BAD_INPUT, missingConfig.message)
 		}
 	}
 
@@ -318,7 +316,7 @@ export async function runValidateCommand(
 		if (opts.pack) payload.packName = opts.pack
 		console.log(JSON.stringify(payload, null, 2))
 		if (result.kind === "fail") {
-			process.exit(BAKA_EXIT_CODE.VALIDATION_ERROR)
+			process.exit(BAKA_EXIT_CODE.FAILED)
 		}
 		return
 	}
@@ -329,5 +327,5 @@ export async function runValidateCommand(
 	for (const d of result.diagnostics ?? []) {
 		console.log(`  - [${d.severity}] ${d.rule}: ${d.message}${d.validator ? ` (${d.validator})` : ""}`)
 	}
-	if (result.kind === "fail") process.exit(BAKA_EXIT_CODE.VALIDATION_ERROR)
+	if (result.kind === "fail") process.exit(BAKA_EXIT_CODE.FAILED)
 }

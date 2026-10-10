@@ -35,6 +35,17 @@ export interface PackRegistryOptions {
 	 * state. Relative paths resolve against `root`.
 	 */
 	packDirs?: readonly string[]
+	/**
+	 * Read the user marketplace (`${BAKA_HOME:-$HOME/.baka}/packs`) as part of the default
+	 * discovery. Default true; a host that must not depend on the machine's user directory
+	 * passes false. Ignored when `packDirs` is given (those are then the whole scope).
+	 */
+	userScope?: boolean
+	/**
+	 * A directory of packs that ships with the installed tool, searched after every other
+	 * default scope (a pack of the same name anywhere else wins). Ignored when `packDirs` is given.
+	 */
+	bundledDir?: string
 }
 
 type ScopeName = "tree" | "project" | "user" | "bundled" | "explicit"
@@ -50,25 +61,20 @@ export class PackRegistry {
 	/** The project root: where recipes write, and where `packs/` and `.baka/` are looked up. */
 	readonly root: string
 	private readonly packDirs: readonly string[] | undefined
+	private readonly userScope: boolean
+	private readonly bundledDir: string | undefined
 
 	constructor(root: string, options: PackRegistryOptions = {}) {
 		this.root = resolve(root)
 		this.packDirs = options.packDirs?.map((dir) => resolve(this.root, dir))
-	}
-
-	/**
-	 * Bundled packs ship next to an installed CLI, not by walking the
-	 * git checkout. Walking up from this file used to inject the repo's
-	 * example packs into every project that had a package.json.
-	 */
-	private static findBundledPacksDir(): string | null {
-		return null
+		this.userScope = options.userScope ?? true
+		this.bundledDir = options.bundledDir ? resolve(options.bundledDir) : undefined
 	}
 
 	/**
 	 * The pack search scopes in precedence order (highest first): the
 	 * project marketplace, in-tree packs, the user marketplace, then the
-	 * bundled scope (the baka repo's own packs/, when reachable). The
+	 * bundled scope (the packs that ship with the installed tool). The
 	 * first scope that provides a pack name owns it; lower-precedence
 	 * copies are skipped. With explicit `packDirs` the list is exactly
 	 * those directories, in the order given.
@@ -80,15 +86,9 @@ export class PackRegistry {
 		const scopes: SearchScope[] = [
 			{ dir: join(this.root, BAKA_PROJECT_PATHS.ROOT, "packs"), scope: "project", jitiRoot: this.root },
 			{ dir: join(this.root, "packs"), scope: "tree", jitiRoot: this.root },
-			{ dir: join(bakaHomeDir(), "packs"), scope: "user", jitiRoot: this.root },
 		]
-		const bundledDir = PackRegistry.findBundledPacksDir()
-		if (bundledDir) {
-			// jiti needs to resolve `baka-sdk` from the bundled pack's
-			// own `node_modules/` symlink; the baka repo root is the
-			// natural lookup root for that.
-			scopes.push({ dir: bundledDir, scope: "bundled", jitiRoot: dirname(bundledDir) })
-		}
+		if (this.userScope) scopes.push({ dir: join(bakaHomeDir(), "packs"), scope: "user", jitiRoot: this.root })
+		if (this.bundledDir) scopes.push({ dir: this.bundledDir, scope: "bundled", jitiRoot: dirname(this.bundledDir) })
 		return scopes
 	}
 
@@ -125,17 +125,12 @@ export class PackRegistry {
 		// Walk the scopes in precedence order (project marketplace, tree,
 		// user marketplace, bundled); the first scope to provide a pack
 		// name owns it, so the project marketplace deterministically wins
-		// on dedup. The bundled scope (the baka repo's in-tree packs) is
-		// listed only when the baka repo is reachable AND the cwd looks
-		// like a real project (has a package.json). The package.json gate
-		// keeps the bundled scope silent in truly empty directories; without
-		// it, `baka list-packs` from `/tmp` would silently return the
-		// bundled packs, breaking the cwd-scoped discovery invariant.
-		const bundledEnabled = existsSync(join(this.root, "package.json"))
+		// on dedup. The bundled scope is the starter pack that ships with the
+		// tool; it comes last, so anything the project or the user installs
+		// under the same name replaces it.
 
 		let anyFound = false
 		for (const scope of this.searchScopes()) {
-			if (scope.scope === "bundled" && !bundledEnabled) continue
 			const { dir, jitiRoot } = scope
 			if (!existsSync(dir)) continue
 			anyFound = true

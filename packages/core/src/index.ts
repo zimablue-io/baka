@@ -22,6 +22,7 @@ export {
 	createLock,
 	createMemorySlotStore,
 	describePacks,
+	findRecipePack,
 	PACK_DIRS_ENV,
 	PACK_DIRS_SETTING,
 	PackDirsError,

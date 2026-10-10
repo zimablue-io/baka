@@ -263,7 +263,7 @@ describe("VAL-FOUND-045 corrupt user config fails honestly on every reading comm
 		expect(plan.stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
 
 		const role = await spawnCli(["role", "worker", "--field", "model", "--value", "x"], scratch, env)
-		expect(role.code, `role: expected exit 1; stdout=${role.stdout}`).toBe(1)
+		expect(role.code, `role: expected exit 2; stdout=${role.stdout}`).toBe(2)
 		expect(role.stderr).toContain(path)
 		expect(role.stderr).toMatch(/corrupt/)
 
@@ -295,7 +295,7 @@ describe("VAL-FOUND-047 role block missing a required field fails fast naming ro
 					scratch,
 					env,
 				)
-				expect(code, `${c.label}: expected exit 1; stdout=${stdout}; stderr=${stderr}`).toBe(1)
+				expect(code, `${c.label}: expected exit 2; stdout=${stdout}; stderr=${stderr}`).toBe(2)
 				expect(stderr, `${c.label}: error must name the role`).toContain("worker")
 				expect(stderr, `${c.label}: error must name the field`).toContain(c.field)
 				expect(stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)
@@ -314,24 +314,24 @@ describe("VAL-FOUND-047 role block missing a required field fails fast naming ro
 // ---------------------------------------------------------------------------
 
 describe("VAL-FOUND-048 baka role rejects unknown roles and fields with named alternatives", () => {
-	it("unknown role, unknown field, and non-numeric value all exit 1 with named alternatives; config untouched", async () => {
+	it("unknown role, unknown field, and non-numeric value all exit 2 with named alternatives; config untouched", async () => {
 		const { bakaHome, env } = makeIsolatedHome("baka-hyg-unknown-")
 		const scratch = makeEmptyDir("baka-hyg-unknown-proj-")
 		seedConfig(bakaHome, { worker: workerBlock("http://127.0.0.1:1/v1") })
 		const beforeBytes = readFileSync(configPath(bakaHome), "utf-8")
 
 		const unknownRole = await spawnCli(["role", "plumber", "--field", "model", "--value", "x"], scratch, env)
-		expect(unknownRole.code, `unknown role: expected exit 1; stdout=${unknownRole.stdout}`).toBe(1)
+		expect(unknownRole.code, `unknown role: expected exit 2; stdout=${unknownRole.stdout}`).toBe(2)
 		expect(unknownRole.stderr).toContain("plumber")
 		expect(unknownRole.stderr).toContain("worker, validator")
 
 		const unknownField = await spawnCli(["role", "worker", "--field", "bogus", "--value", "x"], scratch, env)
-		expect(unknownField.code, `unknown field: expected exit 1; stdout=${unknownField.stdout}`).toBe(1)
+		expect(unknownField.code, `unknown field: expected exit 2; stdout=${unknownField.stdout}`).toBe(2)
 		expect(unknownField.stderr).toContain(`unknown field "bogus"`)
 		expect(unknownField.stderr).toContain("baseUrl, model, apiKey, temperature, maxTokens, timeoutMs")
 
 		const badNumber = await spawnCli(["role", "worker", "--field", "maxTokens", "--value", "abc"], scratch, env)
-		expect(badNumber.code, `bad number: expected exit 1; stdout=${badNumber.stdout}`).toBe(1)
+		expect(badNumber.code, `bad number: expected exit 2; stdout=${badNumber.stdout}`).toBe(2)
 		expect(badNumber.stderr).toMatch(/maxTokens.*must be a number/)
 
 		expect(readFileSync(configPath(bakaHome), "utf-8"), "config file mutated by rejected edits").toBe(beforeBytes)

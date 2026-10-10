@@ -175,9 +175,9 @@ describe("runSearchCommand multi-registry", () => {
 	})
 
 	// VAL-DISC-013 — when EVERY registry is unreachable, the command
-	// exits with ENGINE_ERROR (2), naming the URLs and the transport
+	// exits with FAILED (1), naming the URLs and the transport
 	// failure verbatim.
-	it("fails honestly with exit 2 when every configured registry is unreachable", async () => {
+	it("fails honestly with exit 1 when every configured registry is unreachable", async () => {
 		const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
 			throw new Error("process.exit called")
 		}) as never)
@@ -192,7 +192,7 @@ describe("runSearchCommand multi-registry", () => {
 				cwd: REPO_ROOT_CWD,
 			}),
 		).rejects.toThrow(/process.exit/)
-		expect(exitSpy).toHaveBeenCalledWith(2)
+		expect(exitSpy).toHaveBeenCalledWith(1)
 		const err = stderr.mock.calls.map((c) => String(c[0])).join("")
 		expect(err).toContain("http://dead-a:4300")
 		expect(err).toContain("http://dead-b:4310")

@@ -116,7 +116,7 @@ describe(".baka/settings.json packDirs", () => {
 	it("is what the control case lacks: without packDirs the stray pack is discovered", async () => {
 		const { project, bakaHome } = world({ packages: [] })
 		const listed = await cli(["list-packs", "--json"], project, bakaHome)
-		expect(names(listed.stdout)).toEqual(["acme-gadget", "acme-widget"])
+		expect(names(listed.stdout)).toEqual(["acme-gadget", "acme-widget", "starter"])
 	})
 
 	it("resolves relative entries against --cwd, not the process directory", async () => {
@@ -201,7 +201,7 @@ describe(".baka/settings.json packDirs", () => {
 			["plan", "--dry-run", "anything"],
 		]) {
 			const result = await cli(argv, project, bakaHome)
-			expect(result.code, argv.join(" ")).toBe(1)
+			expect(result.code, argv.join(" ")).toBe(2)
 			expect(result.stderr, argv.join(" ")).toContain(file)
 			expect(result.stderr).toContain("packDirs[0]")
 			expect(result.stderr).toContain("../no-such-catalog")

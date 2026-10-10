@@ -41,6 +41,7 @@ export {
 	BAKA_PROJECT_PATHS,
 	BAKA_USER_DIR,
 	ENGINE_STATUS,
+	exitCodeForRule,
 	PACK_CATEGORY,
 	RECIPE_ERROR_CODES,
 } from "./constants"
@@ -88,11 +89,14 @@ export {
 } from "./registry-config"
 
 export {
+	ApiErrorSchema,
 	BakaLockSchema,
 	ChangeOpSchema,
 	ChangeReasonSchema,
 	ChangesetEntrySchema,
+	LlmCallSchema,
 	OnExistingSchema,
+	OpenSlotSchema,
 	OrchestrationStateSchema,
 	PARAM_FORMATS,
 	PARAM_TYPES,
@@ -117,6 +121,7 @@ export {
 	ValidatorRunSchema,
 } from "./schemas"
 export type {
+	ApiError,
 	BakaLock,
 	ChangeOp,
 	ChangesetEntry,
@@ -126,7 +131,9 @@ export type {
 	LLMRequest,
 	LLMResponse,
 	LLMUsage,
+	LlmCall,
 	OnExisting,
+	OpenSlot,
 	OrchestrationState,
 	PackManifest,
 	PackPin,

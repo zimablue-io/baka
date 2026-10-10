@@ -3,11 +3,7 @@
 
 import { listRoles, readRoleConfig, SUPPORTED_ROLES, userConfigPath } from "@repo/agent-engine"
 import { BAKA_EXIT_CODE } from "@repo/protocol"
-
-function die(code: number, msg: string): never {
-	process.stderr.write(`baka: ${msg}\n`)
-	process.exit(code)
-}
+import { die } from "../die"
 
 export function runRoles(): void {
 	// Hard-fail if neither role is configured. The "missing LLM config"
@@ -15,7 +11,7 @@ export function runRoles(): void {
 	// but the diagnostic for "no roles configured at all" is best surfaced
 	// here so the user sees a clear path to `baka init`.
 	if (!readRoleConfig("worker") && !readRoleConfig("validator")) {
-		die(BAKA_EXIT_CODE.USER_ERROR, "missing LLM config: no roles configured. Run `baka init` to configure.")
+		die(BAKA_EXIT_CODE.BAD_INPUT, "missing LLM config: no roles configured. Run `baka init` to configure.")
 	}
 
 	const configured = listRoles()

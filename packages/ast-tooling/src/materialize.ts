@@ -5,6 +5,7 @@ import type {
 	LLMProvider,
 	LLMRequest,
 	OnExisting,
+	OpenSlot,
 	RecipeCompensation,
 	SlotDecl,
 	SlotMode,
@@ -138,6 +139,8 @@ export interface PlanTemplatesOptions {
 	persist: boolean
 	/** How slot values are obtained; see SlotModeSchema. */
 	slotMode: SlotMode
+	/** Fills the caller supplies by slot id; they win over the cache and the model and are never cached. */
+	values?: Readonly<Record<string, unknown>>
 	/** The records a `replay` draws from. */
 	records: readonly SlotRecord[]
 	/** What to do with targets that already exist; see OnExistingSchema. */
@@ -203,6 +206,16 @@ export async function planTemplates(opts: PlanTemplatesOptions): Promise<Templat
 	const paramsHash = hashBytes(canonicalJson(opts.params))
 	const fills: Record<string, unknown> = {}
 	const records: SlotRecord[] = []
+	const open: OpenSlot[] = []
+	const supplied = opts.slotMode === "replay" ? {} : (opts.values ?? {})
+	for (const id of Object.keys(supplied)) {
+		if (!parsed.slots.some((slot) => slot.id === id)) {
+			throw new RecipeError(
+				"slot-unknown",
+				`a value was supplied for slot "${id}", which this recipe does not declare (declared: ${parsed.slots.map((s) => s.id).join(", ") || "none"})`,
+			)
+		}
+	}
 
 	for (const slot of slots) {
 		const template = files.find((f) => f.rel === slot.file)
@@ -222,6 +235,25 @@ export async function planTemplates(opts: PlanTemplatesOptions): Promise<Templat
 			continue
 		}
 
+		if (Object.hasOwn(supplied, slot.id)) {
+			const checked = slotResponseSchema(slot).safeParse({ value: supplied[slot.id] })
+			if (!checked.success) {
+				throw new RecipeError(
+					"slot-fill-invalid",
+					`the value supplied for slot "${slot.id}" does not match its schema: ${checked.error.message}`,
+				)
+			}
+			fills[slot.id] = checked.data.value
+			records.push({
+				id: slot.id,
+				key: recordKey,
+				model: "supplied",
+				value: checked.data.value as SlotRecord["value"],
+				source: "supplied",
+			})
+			continue
+		}
+
 		const hit = opts.slotMode === "live" ? (opts.store.read(key) ?? opts.store.read(manualKey)) : null
 		if (hit) {
 			fills[slot.id] = hit.value
@@ -235,10 +267,8 @@ export async function planTemplates(opts: PlanTemplatesOptions): Promise<Templat
 			continue
 		}
 		if (!opts.provider) {
-			throw new RecipeError(
-				"slot-no-provider",
-				`slot "${slot.id}" is empty and no LLMProvider was injected. Run \`baka init\` to configure the worker role.`,
-			)
+			open.push({ ...slot, templateKey })
+			continue
 		}
 		const value = await fillSlot(slot, opts.params, opts.provider, opts.model)
 		fills[slot.id] = value
@@ -254,6 +284,13 @@ export async function planTemplates(opts: PlanTemplatesOptions): Promise<Templat
 			})
 		}
 		records.push({ id: slot.id, key: recordKey, model: opts.model, value: value as SlotRecord["value"], source: "llm" })
+	}
+	if (open.length > 0) {
+		throw new RecipeError(
+			"slots-open",
+			`${open.length} slot(s) need a value and no model is configured (no LLMProvider was injected): ${open.map((s) => s.id).join(", ")}. Supply them with slots.values (baka run --slot <id>=<value>). Run \`baka init\` to configure the worker role.`,
+			open,
+		)
 	}
 
 	const planned = new Map<string, PlannedFile>()

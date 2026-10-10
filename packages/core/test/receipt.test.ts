@@ -100,7 +100,7 @@ describe("dryRun", () => {
 		await runRecipe({ registry, ...RUN, provider: fakeProvider("Hi."), dryRun: true })
 		const real = await runRecipe({ registry, ...RUN })
 		expect(real.ok).toBe(false)
-		expect(real.diagnostics[0]?.rule).toBe("slot-no-provider")
+		expect(real.diagnostics[0]?.rule).toBe("slots-open")
 	})
 
 	it("refuses a recipe with side-effect code instead of pretending", async () => {

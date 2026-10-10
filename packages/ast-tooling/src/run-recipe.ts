@@ -8,6 +8,7 @@ import {
 	type LLMProvider,
 	normalizeParams,
 	type OnExisting,
+	type OpenSlot,
 	type OrchestrationState,
 	type PackManifest,
 	PackManifestSchema,
@@ -76,6 +77,31 @@ export function resolveRecipe(
 		throw new RecipeError("recipe-not-found", `recipe "${recipeId}" is not declared on pack "${packName}"`)
 	}
 	return { packRoot, manifest, recipe }
+}
+
+/**
+ * The pack that declares `recipeId`, so a recipe can be run by its own name.
+ * Fails with `recipe-not-found` when no installed pack declares it and with
+ * `recipe-ambiguous` when several do; both messages list the `pack/recipe` names to choose from.
+ */
+export function findRecipePack(registry: PackRegistry, recipeId: string): string {
+	const { packs } = registry.discover(false)
+	const owners = packs.filter((pack) => pack.recipes.some((recipe) => recipe.id === recipeId)).map((pack) => pack.name)
+	if (owners.length === 1 && owners[0] !== undefined) return owners[0]
+	if (owners.length > 1) {
+		throw new RecipeError(
+			"recipe-ambiguous",
+			`recipe "${recipeId}" is declared by several packs; name one of: ${owners
+				.sort()
+				.map((pack) => `${pack}/${recipeId}`)
+				.join(", ")}`,
+		)
+	}
+	const known = packs.flatMap((pack) => pack.recipes.map((recipe) => `${pack.name}/${recipe.id}`)).sort()
+	throw new RecipeError(
+		"recipe-not-found",
+		`no installed pack declares a recipe "${recipeId}"${known.length > 0 ? `; installed: ${known.join(", ")}` : "; no packs are installed"}`,
+	)
 }
 
 /**
@@ -217,6 +243,7 @@ export async function runRecipe(input: RunRecipeInput): Promise<RecipeResult> {
 	let pins: PackPin[] = []
 	// True once files were written and until the recipe (if any) succeeded.
 	let uncommitted = false
+	let openSlots: OpenSlot[] | undefined
 	const diagnostics: ValidationDiagnostic[] = []
 
 	const receipt = (ok: boolean): RecipeResult => ({
@@ -229,6 +256,7 @@ export async function runRecipe(input: RunRecipeInput): Promise<RecipeResult> {
 		outputTreeHash: outputTreeHash(changeset),
 		pins,
 		slots: plan.slots,
+		...(openSlots ? { openSlots } : {}),
 		compensation,
 		output,
 		dryRun,
@@ -277,6 +305,7 @@ export async function runRecipe(input: RunRecipeInput): Promise<RecipeResult> {
 				persist: !dryRun,
 				slotMode: input.slots?.mode ?? "live",
 				records: input.slots?.records ?? [],
+				values: input.slots?.values,
 				onExisting: input.onExisting ?? "skip",
 			})
 		}
@@ -409,6 +438,7 @@ export async function runRecipe(input: RunRecipeInput): Promise<RecipeResult> {
 		const failure =
 			err instanceof RecipeError ? err : new RecipeError("unexpected", err instanceof Error ? err.message : String(err))
 		diagnostics.push({ severity: "error", rule: failure.code, message: failure.message })
+		if (failure.openSlots) openSlots = [...failure.openSlots]
 		if (uncommitted) {
 			try {
 				revertFiles(root, compensation)

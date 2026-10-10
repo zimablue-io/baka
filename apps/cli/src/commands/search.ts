@@ -1,4 +1,5 @@
 import { BAKA_EXIT_CODE } from "@repo/protocol"
+import { die } from "../die"
 import {
 	getCatalog,
 	type RegistryCatalogEntry,
@@ -33,11 +34,6 @@ import { resolveRegistryList } from "../lib/registry-config"
  * separate hit fields so a consumer can filter the JSON without
  * parsing text.
  */
-
-function die(code: number, msg: string): never {
-	process.stderr.write(`baka: ${msg}\n`)
-	process.exit(code)
-}
 
 interface SearchHit {
 	scope: string
@@ -187,7 +183,7 @@ function printJson(hits: SearchHit[], warnings: SourceWarning[], query: string):
 }
 
 export async function runSearchCommand(query: string, opts: SearchOptions = {}): Promise<void> {
-	if (!query) die(BAKA_EXIT_CODE.USER_ERROR, "usage: baka search <query> [--registry <url>] [--json]")
+	if (!query) die(BAKA_EXIT_CODE.BAD_INPUT, "usage: baka search <query> [--registry <url>] [--json]")
 
 	const registries = opts.registries ?? resolveRegistryList(opts.registry, { cwd: opts.cwd, env: opts.env })
 	const { results, warnings } = await fetchAllSources(registries, opts.fetch)
@@ -195,14 +191,14 @@ export async function runSearchCommand(query: string, opts: SearchOptions = {}):
 	const hits = buildHits(results, query)
 
 	// VAL-DISC-013: when EVERY configured source failed to even
-	// respond, the search dies with ENGINE_ERROR (2) and an honest
+	// respond, the search dies with FAILED (2) and an honest
 	// error naming each URL + transport cause. We distinguish
 	// transport truth ("registry unreachable") from a clean empty
 	// result set ("no packs matched"); users must be able to
 	// branch without parsing prose.
 	if (hits.length === 0 && results.length === 0 && warnings.length > 0) {
 		const lines = warnings.map((w) => `  - ${w.source}: ${w.error}`).join("\n")
-		die(BAKA_EXIT_CODE.ENGINE_ERROR, `baka search failed: every configured registry is unreachable\n${lines}`)
+		die(BAKA_EXIT_CODE.FAILED, `baka search failed: every configured registry is unreachable\n${lines}`)
 	}
 
 	if (opts.json) {

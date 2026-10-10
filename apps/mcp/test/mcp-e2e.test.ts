@@ -453,7 +453,7 @@ describe("VAL-MCP-003..006 tools/list", () => {
 		}
 	})
 
-	it("VAL-MCP-005 baka_run required fields are pack and recipe", async () => {
+	it("VAL-MCP-005 baka_run requires only the recipe; the pack is optional", async () => {
 		const state = spawnMcp({})
 		try {
 			await initialize(state)
@@ -461,7 +461,7 @@ describe("VAL-MCP-003..006 tools/list", () => {
 			const resp = await waitForResponse(state, id, 5_000)
 			const result = resp?.result as { tools: Array<{ name: string; inputSchema: { required?: string[] } }> }
 			const run = result.tools.find((t) => t.name === "baka_run")
-			expect(run?.inputSchema.required).toEqual(["pack", "recipe"])
+			expect(run?.inputSchema.required).toEqual(["recipe"])
 		} finally {
 			await shutdown(state)
 		}
@@ -535,6 +535,27 @@ describe("baka_run executes a fixture recipe", () => {
 			const parsed = JSON.parse(result.content[0].text) as { ok: boolean }
 			expect(parsed.ok).toBe(true)
 			expect(readFileSync(join(scratch, "marker.txt"), "utf-8")).toBe("honest-mod was here\n")
+		} finally {
+			await shutdown(state)
+		}
+	})
+})
+
+describe("baka_run on a fresh install", () => {
+	it("runs a bundled recipe by its bare name with no packs, no model and no config", async () => {
+		const scratch = trackDir(makeEmptyDir("baka-mcp-first-"))
+		writeFileSync(join(scratch, "package.json"), JSON.stringify({ name: "first", private: true }))
+		const state = spawnMcp({ cwd: scratch })
+		try {
+			await initialize(state)
+			const id = sendRpc(state, "tools/call", {
+				name: "baka_run",
+				arguments: { recipe: "add-readme", params: { name: "from-mcp" } },
+			})
+			const resp = await waitForResponse(state, id, 5_000)
+			const result = resp?.result as { isError?: boolean; content: Array<{ type: string; text: string }> }
+			expect(result.isError).toBeFalsy()
+			expect(readFileSync(join(scratch, "README.md"), "utf-8")).toContain("# from-mcp")
 		} finally {
 			await shutdown(state)
 		}

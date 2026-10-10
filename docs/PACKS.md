@@ -7,9 +7,11 @@ A **pack** is a self-contained directory that exposes typed, validated recipes t
 | **project marketplace** | `<project>/.baka/packs/<name>/` | 1 (highest; wins) |
 | **in-tree** | `<project>/packs/<name>/` | 2 |
 | **user marketplace** | `${BAKA_HOME:-$HOME/.baka}/packs/<name>/` | 3 |
-| **bundled** | packs shipped with a baka install, if any | 4 (lowest) |
+| **bundled** | the `starter` pack, which ships inside every install (`dist/packs/`) | 4 (lowest) |
 
-Discovery walks every scope on every run; there is no registration step, and both real directories and symlinks are accepted. When two scopes provide the same pack name, the first scope in precedence order owns it and the lower-precedence copies are skipped. The bundled scope is listed only when the current working directory looks like a project (has a `package.json`), so `baka list-packs` from an unrelated directory does not echo the bundled catalog.
+Discovery walks every scope on every run; there is no registration step, and both real directories and symlinks are accepted. When two scopes provide the same pack name, the first scope in precedence order owns it and the lower-precedence copies are skipped, so a project or user pack named `starter` replaces the bundled one. The bundled scope is always last and always listed: a fresh install in an empty directory has the `starter` pack and nothing else, and `baka run add-readme --name my-app` works with no model and no setup. `--isolated` (or `BAKA_ISOLATED=1`) drops the user marketplace from the search, along with every other read of the user directory (the stored model and the user slot cache); it leaves the project's scopes and the bundled pack in place.
+
+The `starter` pack is the one pack Baka ships: small recipes for everyday files (`add-readme`, `add-gitignore`, `add-mit-license`, `add-editorconfig`, `add-contributing`, `add-security-policy`, `add-node-ci`) and a TypeScript library skeleton (`ts-lib`). Every file is a plain template, so none of them needs a model. Anything larger is a pack you install or write.
 
 ### Using a catalog from another directory
 
@@ -18,9 +20,9 @@ The project root (`--cwd`, default the current directory; a relative path resolv
 1. `--packs-dir <path>` (repeatable, highest precedence first); relative paths resolve against the current directory.
 2. The environment variable `BAKA_PACK_DIRS` (paths separated like `PATH`, `:` or `;`); relative paths resolve against the current directory.
 3. `packDirs` in the project's `.baka/settings.json`, an array of directories; relative paths resolve against the project root (`--cwd`), absolute paths are used as they are, and the first entry wins a pack name.
-4. Nothing given: the default discovery described above (the project's `packs/` and `.baka/packs`, then the user marketplace).
+4. Nothing given: the default discovery described above (the project's `.baka/packs` and `packs/`, then the user marketplace, then the bundled `starter` pack).
 
-When any of the first three decides, **only** its directories are searched (not the project's `packs/`, `.baka/packs`, or the user marketplace), and the lower ones are not read. A project that keeps its catalog in `.baka/settings.json` therefore gets the same packs from a bare `baka validate` on every machine, whatever sits in `~/.baka`:
+When any of the first three decides, **only** its directories are searched (not the project's `packs/`, `.baka/packs`, the user marketplace, or the bundled `starter` pack), and the lower ones are not read. A project that keeps its catalog in `.baka/settings.json` therefore gets the same packs from a bare `baka validate` on every machine, whatever sits in `~/.baka`:
 
 ```json
 {
@@ -28,7 +30,7 @@ When any of the first three decides, **only** its directories are searched (not 
 }
 ```
 
-The setting is checked when a command starts. A listed directory that does not exist (or is a file) ends the command with exit code 1 and a message naming the file, the entry, where it resolved, and the fix (create the directory, correct the entry, or remove it); a settings file that is not valid JSON, or a `packDirs` that is not an array of non-empty strings, is refused the same way. It is never a silent empty catalog. An empty list means the setting is absent. Other keys of the file (`packages`, `registries`) are kept when `baka install` and `baka uninstall` rewrite it.
+The setting is checked when a command starts. A listed directory that does not exist (or is a file) ends the command with exit code 2 (bad input) and a message naming the file, the entry, where it resolved, and the fix (create the directory, correct the entry, or remove it); a settings file that is not valid JSON, or a `packDirs` that is not an array of non-empty strings, is refused the same way. It is never a silent empty catalog. An empty list means the setting is absent. Other keys of the file (`packages`, `registries`) are kept when `baka install` and `baka uninstall` rewrite it.
 
 A catalog repo can therefore serve any project with no symlinks and is never written to:
 
@@ -408,7 +410,7 @@ The arxiv literature on LLM agent reproducibility (Measuring Determinism in LLM 
 }
 ```
 
-`ok` is false when any diagnostic has `severity: "error"`. A run that fails while executing (a template error, a missing slot, a `recipe.ts` that reports failure) leaves nothing behind: files it created are removed, files it overwrote are restored, directories it created are removed, the changeset is empty, and the one error diagnostic carries a stable code in `rule` (`pack-not-found`, `recipe-not-found`, `recipe-empty`, `invalid-params`, `slot-no-provider`, `slot-provider-error`, `slot-record-missing`, `slot-record-stale`, `slot-fill-invalid`, `template-invalid`, `path-escape`, `dry-run-unsupported`, `recipe-failed`, `unexpected`). A run whose validators fail is different: the files stay, `ok` is false, and `compensation` still describes everything written so the caller can undo it with `compensateRecipe`.
+`ok` is false when any diagnostic has `severity: "error"`. A run that fails while executing (a template error, a missing slot, a `recipe.ts` that reports failure) leaves nothing behind: files it created are removed, files it overwrote are restored, directories it created are removed, the changeset is empty, and the one error diagnostic carries a stable code in `rule` (`pack-not-found`, `recipe-not-found`, `recipe-empty`, `invalid-params`, `slots-open`, `slot-provider-error`, `slot-record-missing`, `slot-record-stale`, `slot-fill-invalid`, `template-invalid`, `path-escape`, `dry-run-unsupported`, `recipe-failed`, `unexpected`). A run whose validators fail is different: the files stay, `ok` is false, and `compensation` still describes everything written so the caller can undo it with `compensateRecipe`.
 
 ### Changeset
 

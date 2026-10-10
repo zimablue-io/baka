@@ -17,7 +17,7 @@
 // Coverage map (per validation-contract.md):
 //   VAL-DISC-030  info shows the served manifest, versions, and verdict
 //                 before install; --json is schema-parseable; an unknown
-//                 pack exits 1 with a "not found" message.
+//                 pack exits 2 with a "not found" message.
 //   VAL-DISC-031  preview prints real generated code per recipe and an
 //                 explicit needs-llm marker for reasoning recipes; a
 //                 pack without previews prints a "no preview available"
@@ -346,13 +346,13 @@ describe("VAL-DISC-030 baka registry info <spec> shows the served manifest and v
 		expect(payload.manifest).toEqual(versionDetail.manifest)
 	}, 30_000)
 
-	it("an unknown pack exits 1 (USER_ERROR) with a truthful 'not found' message", async () => {
+	it("an unknown pack exits 2 (BAD_INPUT) with a truthful 'not found' message", async () => {
 		const bakaHome = makeIsolatedHome("baka-info-notfound-")
 		const cwd = makeIsolatedHome("baka-info-notfound-proj-")
 		const env = { BAKA_HOME: bakaHome, BAKA_REGISTRY_URL: owner.baseUrl }
 
 		const res = await spawnCli(["registry", "info", "@baka/does-not-exist"], cwd, env, 30_000)
-		expect(res.code, `stderr=${res.stderr}`).toBe(1)
+		expect(res.code, `stderr=${res.stderr}`).toBe(2)
 		expect(res.stderr.toLowerCase()).toMatch(/not found|does not exist/i)
 		// The 404 from the detail endpoint surfaces verbatim; the
 		// CLI does not invent "pack exists" prose.
@@ -361,14 +361,14 @@ describe("VAL-DISC-030 baka registry info <spec> shows the served manifest and v
 		expect(res.stdout).toBe("")
 	}, 30_000)
 
-	it("an unreachable registry exits 2 (ENGINE_ERROR) and names the transport failure", async () => {
+	it("an unreachable registry exits 1 (FAILED) and names the transport failure", async () => {
 		const bakaHome = makeIsolatedHome("baka-info-transport-")
 		const cwd = makeIsolatedHome("baka-info-transport-proj-")
 		const deadPort = await pickEphemeralPort()
 		const env = { BAKA_HOME: bakaHome, BAKA_REGISTRY_URL: `http://127.0.0.1:${deadPort}` }
 
 		const res = await spawnCli(["registry", "info", "@baka/hello"], cwd, env, 30_000)
-		expect(res.code, `stderr=${res.stderr}`).toBe(2)
+		expect(res.code, `stderr=${res.stderr}`).toBe(1)
 		expect(res.stderr).toContain(`http://127.0.0.1:${deadPort}`)
 		expect(res.stderr.toLowerCase()).toContain("unreachable")
 		expect(res.stderr).not.toMatch(/\bat .+\.js:\d+:\d+/)

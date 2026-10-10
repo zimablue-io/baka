@@ -8,6 +8,7 @@ import {
 	type LLMMessage,
 	type LLMProvider,
 	type LLMRequest,
+	type LlmCall,
 	type OrchestrationState,
 	type PackManifest,
 	type ResolvedLLMConfig,
@@ -118,6 +119,98 @@ export async function loadLLMConfig(opts: LoadConfigOptions): Promise<ResolvedLL
 		timeoutMs,
 		...(seed !== undefined ? { seed } : {}),
 		providerOptions: { role: opts.role },
+	}
+}
+
+/** The variables a host sets to choose a model for the processes it spawns, with no config file. */
+export const LLM_ENV = {
+	BASE_URL: "BAKA_LLM_BASE_URL",
+	MODEL: "BAKA_LLM_MODEL",
+	API_KEY: "BAKA_LLM_API_KEY",
+} as const
+
+/** The model named by `BAKA_LLM_*` in `env`, if any of them is set. */
+export function llmCallFromEnv(env: NodeJS.ProcessEnv): LlmCall | undefined {
+	const call: LlmCall = {
+		...(env[LLM_ENV.BASE_URL] ? { baseUrl: env[LLM_ENV.BASE_URL] } : {}),
+		...(env[LLM_ENV.MODEL] ? { model: env[LLM_ENV.MODEL] } : {}),
+		...(env[LLM_ENV.API_KEY] ? { apiKey: env[LLM_ENV.API_KEY] } : {}),
+	}
+	return Object.keys(call).length > 0 ? call : undefined
+}
+
+/** `BAKA_ISOLATED=1` (or `true`): the host asks for a call that reads nothing from the user directory. */
+export function isolatedFromEnv(env: NodeJS.ProcessEnv): boolean {
+	return env.BAKA_ISOLATED === "1" || env.BAKA_ISOLATED === "true"
+}
+
+/** A per-call model that cannot be used as asked (an `apiKeyEnv` that names nothing, a half-specified model). */
+export class LlmCallError extends Error {
+	constructor(message: string) {
+		super(message)
+		this.name = "LlmCallError"
+	}
+}
+
+/**
+ * The worker model for one call, or null when there is none.
+ *
+ * The call's own `llm` wins field by field. A call that names a base URL and a
+ * model is complete on its own (the key may be absent: local servers need none).
+ * Otherwise, unless `isolated`, the missing fields come from the user's stored
+ * worker role; when that is absent too there is no model (null), which is not
+ * an error: a run then reports its open slots. `isolated` never reads the user
+ * directory, so a host controls everything a call does by what it passes.
+ */
+export async function resolveCallLLM(opts: {
+	call?: LlmCall
+	cwd: string
+	isolated?: boolean
+	env?: NodeJS.ProcessEnv
+}): Promise<ResolvedLLMConfig | null> {
+	const call = opts.call ?? {}
+	let apiKey = call.apiKey
+	if (call.apiKeyEnv !== undefined) {
+		const fromEnv = (opts.env ?? process.env)[call.apiKeyEnv]
+		if (!fromEnv) throw new LlmCallError(`llm.apiKeyEnv names ${call.apiKeyEnv}, which is not set in the environment`)
+		apiKey = fromEnv
+	}
+	const overrides: RoleConfigOverrides = {
+		...(call.baseUrl ? { baseUrl: call.baseUrl } : {}),
+		...(call.model ? { model: call.model } : {}),
+		...(apiKey ? { apiKey } : {}),
+		...(call.temperature !== undefined ? { temperature: call.temperature } : {}),
+		...(call.maxTokens !== undefined ? { maxTokens: call.maxTokens } : {}),
+		...(call.timeoutMs !== undefined ? { timeoutMs: call.timeoutMs } : {}),
+		...(call.seed !== undefined ? { seed: call.seed } : {}),
+	}
+	if (overrides.baseUrl && overrides.model) {
+		return {
+			baseUrl: overrides.baseUrl,
+			model: overrides.model,
+			apiKey: overrides.apiKey ?? "none",
+			temperature: overrides.temperature ?? 0,
+			maxTokens: overrides.maxTokens ?? 8192,
+			timeoutMs: overrides.timeoutMs ?? 120_000,
+			...(overrides.seed !== undefined ? { seed: overrides.seed } : {}),
+			providerOptions: { role: "worker" },
+		}
+	}
+	if (opts.isolated) {
+		if (overrides.baseUrl || overrides.model) {
+			throw new LlmCallError(
+				"llm needs both baseUrl and model when isolated: there is no stored config to fill the rest",
+			)
+		}
+		return null
+	}
+	try {
+		const config = await loadLLMConfig({ role: "worker", cwd: opts.cwd, overrides })
+		validateLLMConfig(config)
+		return config
+	} catch (err) {
+		if ((err as Error & { code?: string }).code === "BAKA_CONFIG_MISSING") return null
+		throw err
 	}
 }
 
