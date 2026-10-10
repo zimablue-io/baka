@@ -1,0 +1,235 @@
+{
+	"$id": "https://baka.dev/schemas/baka.catalog/1",
+	"title": "baka.catalog/1",
+	"type": "object",
+	"properties": {
+		"schema": {
+			"type": "string",
+			"const": "baka.catalog/1"
+		},
+		"packs": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"name": {
+						"type": "string"
+					},
+					"version": {
+						"type": "string"
+					},
+					"contentHash": {
+						"type": "string"
+					},
+					"description": {
+						"type": "string"
+					},
+					"recipes": {
+						"type": "array",
+						"items": {
+							"type": "object",
+							"properties": {
+								"id": {
+									"type": "string"
+								},
+								"description": {
+									"type": "string"
+								},
+								"params": {
+									"type": "array",
+									"items": {
+										"type": "object",
+										"properties": {
+											"type": {
+												"type": "string",
+												"enum": [
+													"string",
+													"boolean",
+													"number",
+													"enum",
+													"array",
+													"object"
+												]
+											},
+											"enumValues": {
+												"type": "array",
+												"items": {
+													"type": "string"
+												}
+											},
+											"default": {},
+											"items": {
+												"type": "object",
+												"properties": {
+													"type": {
+														"$ref": "#/properties/packs/items/properties/recipes/items/properties/params/items/properties/type"
+													},
+													"enumValues": {
+														"$ref": "#/properties/packs/items/properties/recipes/items/properties/params/items/properties/enumValues"
+													},
+													"default": {
+														"$ref": "#/properties/packs/items/properties/recipes/items/properties/params/items/properties/default"
+													},
+													"items": {
+														"$ref": "#/properties/packs/items/properties/recipes/items/properties/params/items/properties/items"
+													},
+													"properties": {
+														"type": "array",
+														"items": {
+															"$ref": "#/properties/packs/items/properties/recipes/items/properties/params/items"
+														}
+													},
+													"pattern": {
+														"type": "string"
+													},
+													"minLength": {
+														"type": "integer",
+														"minimum": 0
+													},
+													"maxLength": {
+														"type": "integer",
+														"minimum": 0
+													},
+													"format": {
+														"type": "string",
+														"enum": [
+															"slug",
+															"path-segment",
+															"relative-path",
+															"identifier",
+															"package-name"
+														]
+													},
+													"description": {
+														"type": "string"
+													}
+												},
+												"required": ["type"],
+												"additionalProperties": false
+											},
+											"properties": {
+												"$ref": "#/properties/packs/items/properties/recipes/items/properties/params/items/properties/items/properties/properties"
+											},
+											"pattern": {
+												"$ref": "#/properties/packs/items/properties/recipes/items/properties/params/items/properties/items/properties/pattern"
+											},
+											"minLength": {
+												"$ref": "#/properties/packs/items/properties/recipes/items/properties/params/items/properties/items/properties/minLength"
+											},
+											"maxLength": {
+												"$ref": "#/properties/packs/items/properties/recipes/items/properties/params/items/properties/items/properties/maxLength"
+											},
+											"format": {
+												"$ref": "#/properties/packs/items/properties/recipes/items/properties/params/items/properties/items/properties/format"
+											},
+											"name": {
+												"type": "string",
+												"minLength": 1
+											},
+											"required": {
+												"type": "boolean"
+											},
+											"description": {
+												"type": "string"
+											}
+										},
+										"required": ["type", "name", "required", "description"],
+										"additionalProperties": false
+									}
+								},
+								"paramsSchema": {
+									"type": "object",
+									"additionalProperties": {}
+								},
+								"requiresReasoning": {
+									"type": "boolean"
+								},
+								"filePatterns": {
+									"type": "array",
+									"items": {
+										"type": "string"
+									}
+								},
+								"compensatesWith": {
+									"type": "string"
+								},
+								"format": {
+									"type": "object",
+									"properties": {
+										"command": {
+											"type": "string"
+										},
+										"args": {
+											"type": "array",
+											"items": {
+												"type": "string"
+											}
+										}
+									},
+									"required": ["command", "args"],
+									"additionalProperties": false
+								}
+							},
+							"required": [
+								"id",
+								"description",
+								"params",
+								"paramsSchema",
+								"requiresReasoning",
+								"filePatterns"
+							],
+							"additionalProperties": false
+						}
+					}
+				},
+				"required": [
+					"name",
+					"version",
+					"contentHash",
+					"description",
+					"recipes"
+				],
+				"additionalProperties": false
+			}
+		},
+		"resultSchema": {
+			"type": "object",
+			"additionalProperties": {}
+		},
+		"diagnostics": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"severity": {
+						"type": "string",
+						"enum": ["error", "warning"]
+					},
+					"rule": {
+						"type": "string"
+					},
+					"message": {
+						"type": "string"
+					},
+					"file": {
+						"type": "string"
+					},
+					"hint": {
+						"type": "string"
+					},
+					"validator": {
+						"type": "string"
+					},
+					"pack": {
+						"type": "string"
+					}
+				},
+				"required": ["severity", "rule", "message"],
+				"additionalProperties": false
+			}
+		}
+	},
+	"required": ["schema", "packs", "resultSchema", "diagnostics"],
+	"additionalProperties": false,
+	"$schema": "http://json-schema.org/draft-07/schema#"
+}

@@ -45,6 +45,23 @@ export {
 	PACK_CATEGORY,
 	RECIPE_ERROR_CODES,
 } from "./constants"
+export type { BakaCapability, CompatibilityRequest, ContractDocumentId, Handshake, Health } from "./contract"
+export {
+	BAKA_CAPABILITIES,
+	BAKA_CONTRACT_MAJOR,
+	BAKA_CONTRACT_VERSION,
+	CatalogDocumentSchema,
+	CONTRACT_DOCUMENT_IDS,
+	CONTRACT_DOCUMENTS,
+	contractJsonSchema,
+	FillSchema,
+	HandshakeSchema,
+	HealthSchema,
+	incompatibility,
+	isContractDocumentId,
+	PreviewSchema,
+	SlotListSchema,
+} from "./contract"
 export type { JsonSchema } from "./json-schema"
 export { paramsJsonSchema, recipeResultJsonSchema } from "./json-schema"
 export type { NormalizedParams } from "./params"

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import { RecipeResultSchema } from "@repo/protocol"
 import { afterEach, describe, expect, it } from "vitest"
 import { compensateRecipe, createRegistry, runRecipe } from "../src/index.js"
 import { cleanupTempDirs, fakeProvider, GREET_PACK, tempDir, writePack } from "./helpers.js"
@@ -36,6 +37,16 @@ describe("receipt: changeset and outputTreeHash", () => {
 			overwritten: [],
 			recipeData: { written: ["hello.md"] },
 		})
+	})
+
+	it("is the published document baka.receipt/1, for a run that succeeded and one that did not", async () => {
+		const { registry } = greetRegistry()
+		const ok = await runRecipe({ registry, ...RUN, provider: fakeProvider("Hi.") })
+		expect(ok.schema).toBe("baka.receipt/1")
+		expect(RecipeResultSchema.strict().safeParse(ok).success).toBe(true)
+		const failed = await runRecipe({ registry, ...RUN, recipe: "missing", provider: fakeProvider("Hi.") })
+		expect(failed.ok).toBe(false)
+		expect(RecipeResultSchema.strict().safeParse(failed).success).toBe(true)
 	})
 
 	it("returns the slot fills as data", async () => {

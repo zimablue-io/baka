@@ -36,6 +36,7 @@ export interface CatalogPack {
 }
 
 export interface Catalog {
+	schema: "baka.catalog/1"
 	packs: CatalogPack[]
 	/** JSON Schema (draft-07) of the receipt `runRecipe` returns. */
 	resultSchema: JsonSchema
@@ -49,6 +50,7 @@ export interface Catalog {
 export function describePacks(registry: PackRegistry): Catalog {
 	const { packs, diagnostics } = registry.discover(false)
 	return {
+		schema: "baka.catalog/1",
 		packs: packs.map((m) => describePack(m, registry.packRootFor(m.name))),
 		resultSchema: recipeResultJsonSchema(),
 		diagnostics,

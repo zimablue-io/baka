@@ -1,15 +1,56 @@
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-
 # baka
 
-Baka is a deterministic orchestration engine for LLM-assisted development. The LLM cannot invent code, files, or structure — it picks from a finite, declared set of recipes (the pack catalog). The same intent + the same packs always produce the same plan.
+Baka writes files from templates. A **recipe** is a named thing you run again and again (`baka run add-readme`): its files come from templates, so the same call writes the same bytes every time. Where a template leaves a gap, a **slot**, you fill it yourself or a model does. Nothing else is left to chance.
 
 ## Install
 
-Baka ships as two binaries: the `baka` CLI and the `baka-mcp` MCP server. They are independent (you can use either or both), share the same engine, and are installed together.
+```bash
+curl -fsSL https://github.com/zimablue-io/baka/releases/latest/download/install.sh | sh
+```
 
-### Prerequisites
+That needs Node.js 20 or later and nothing else: no clone, no build, no link. It ends by asking the new install for its version, so you know it answers. To install a build you made yourself, `sh install.sh --tarball ./dist-tarballs/baka-0.1.0.tgz`; add `--prefix DIR` to keep it out of your global npm directory. The same tarball installs with `npm install --global <tarball>`.
+
+## First run
+
+No model, no account and no setup are needed:
+
+```bash
+mkdir my-app && cd my-app
+baka run add-readme --name my-app      # writes README.md
+baka list-packs                        # the recipes you can run
+baka inspect add-readme                # its params, its slots and its templates
+```
+
+`add-readme` is a recipe of the `starter` pack, the one pack that ships inside every install: a README, a `.gitignore`, a license, an editorconfig, CI, a TypeScript library skeleton. Packs you install or write take over when they share a name, and `baka run <pack>/<recipe>` names one exactly. Everything is in [docs/PACKS.md](./docs/PACKS.md).
+
+### Slots: you or a model
+
+A recipe whose templates have slots stops and tells you what is open, and writes nothing:
+
+```bash
+$ baka run write --title Probe
+baka: these slots need a value; pass each one and run again:
+  --slot line=<value>   (prose) one sentence about the topic
+  or give a model: --llm-base-url <url> --llm-model <name> [--llm-api-key-env <VAR>]
+```
+
+Fill them yourself, from a file, or hand the call a model; none of it is remembered between calls:
+
+```bash
+baka run write --title Probe --slot "line=A short note."
+baka run write --title Probe --slots-file slots.json
+baka run write --title Probe --llm-base-url http://localhost:11434/v1 --llm-model qwen3
+```
+
+`baka init` stores a model for everyday use. It is optional.
+
+### From a script, an agent or another product
+
+Every command takes `--json` and prints a versioned document; errors are `{ "error": { "code", "message", "hint" } }`; exit codes mean the same thing everywhere (`0` done, `1` ran and failed, `2` bad input, `3` not available or incompatible). `--isolated` (or `BAKA_ISOLATED=1`) makes a call depend only on its flags, its environment and its project, never on what is in `~/.baka`. `baka version --json` is the handshake a host runs first. All of it is written down, with the schemas, in [docs/CONTRACT.md](./docs/CONTRACT.md).
+
+## Install from a clone (contributors)
+
+Prerequisites:
 
 - **Node.js 20 or later** (the engine floor). `node --version` should print `v20.x` or higher.
 - **pnpm 8 or later** (the workspace manager). The repo pins `pnpm@9.0.0` via `packageManager`.
@@ -21,7 +62,7 @@ node --version   # v20.x or higher
 pnpm --version   # 8.x or higher (9.x recommended)
 ```
 
-### One-command install
+**Link the checkout:**
 
 From a fresh clone of this repository:
 
@@ -48,7 +89,7 @@ baka --version   # prints 0.1.0
 
 The link is idempotent: re-running `pnpm link:global` is a no-op. `pnpm install` is also idempotent (the repo's `postinstall` hook rebuilds the CLI on every install, so the symlink target always exists).
 
-### Installing from a tarball
+**Install from tarballs you built:**
 
 If you have a built tarball (e.g. from `dist-tarballs/baka-0.1.0.tgz` and `dist-tarballs/@baka-mcp-server-0.1.0.tgz`) and you do not want to clone the repo:
 
@@ -60,7 +101,7 @@ which baka-mcp
 
 Tarballs are produced by `scripts/release.sh` (see [Publishing](./docs/PUBLISHING.md) for the canonical release flow).
 
-### After install
+## Add the MCP server to a coding agent
 
 Add the baka MCP server to your user-level MCP config so it attaches in every session. If you already have entries under `mcpServers` (supabase, sanity, context7, etc.), merge this `baka` entry into your existing `mcpServers` block. Do NOT replace the whole file; your other servers must be preserved verbatim.
 
@@ -98,21 +139,15 @@ That single `baka` entry is enough to make `baka_plan`, `baka_apply`, `baka_vali
 
 ## Quickstart
 
-After install, the canonical first-run sequence is:
+The everyday commands, after the install above:
 
 ```bash
-# 1. Configure an LLM provider (interactive; runs once per machine).
-baka init
+baka list-packs --json                       # what can be run here
+baka run <recipe> --json                     # run it (pack/recipe when two packs share a name)
+baka slots <recipe> --json                   # the slots it leaves open
+baka fill  <recipe> --slot <id> --value "..." --json   # pin one fill in the project's slot cache
 
-# 2. Discover what is installed in the current project (empty until you add a pack).
-baka list-packs --json
-
-# 3. Run a named recipe from an installed pack. Files are templates; gemma4:e4b fills named slots only.
-baka run <pack>/<recipe> --json
-baka slots <pack>/<recipe> --json
-baka fill  <pack>/<recipe> --slot <id> --value "..." --json
-
-# Fuzzy catalog picker (demoted; not the product path):
+# Fuzzy catalog picker (demoted; not the product path; needs a stored model):
 baka plan "scaffold a TypeScript project with biome + vitest"
 ```
 

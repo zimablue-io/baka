@@ -1,0 +1,197 @@
+{
+	"$id": "https://baka.dev/schemas/baka.preview/1",
+	"title": "baka.preview/1",
+	"type": "object",
+	"properties": {
+		"schema": {
+			"type": "string",
+			"const": "baka.preview/1"
+		},
+		"pack": {
+			"type": "string"
+		},
+		"recipe": {
+			"type": "string"
+		},
+		"description": {
+			"type": "string"
+		},
+		"params": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"type": {
+						"type": "string",
+						"enum": ["string", "boolean", "number", "enum", "array", "object"]
+					},
+					"enumValues": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						}
+					},
+					"default": {},
+					"items": {
+						"type": "object",
+						"properties": {
+							"type": {
+								"$ref": "#/properties/params/items/properties/type"
+							},
+							"enumValues": {
+								"$ref": "#/properties/params/items/properties/enumValues"
+							},
+							"default": {
+								"$ref": "#/properties/params/items/properties/default"
+							},
+							"items": {
+								"$ref": "#/properties/params/items/properties/items"
+							},
+							"properties": {
+								"type": "array",
+								"items": {
+									"$ref": "#/properties/params/items"
+								}
+							},
+							"pattern": {
+								"type": "string"
+							},
+							"minLength": {
+								"type": "integer",
+								"minimum": 0
+							},
+							"maxLength": {
+								"type": "integer",
+								"minimum": 0
+							},
+							"format": {
+								"type": "string",
+								"enum": [
+									"slug",
+									"path-segment",
+									"relative-path",
+									"identifier",
+									"package-name"
+								]
+							},
+							"description": {
+								"type": "string"
+							}
+						},
+						"required": ["type"],
+						"additionalProperties": false
+					},
+					"properties": {
+						"$ref": "#/properties/params/items/properties/items/properties/properties"
+					},
+					"pattern": {
+						"$ref": "#/properties/params/items/properties/items/properties/pattern"
+					},
+					"minLength": {
+						"$ref": "#/properties/params/items/properties/items/properties/minLength"
+					},
+					"maxLength": {
+						"$ref": "#/properties/params/items/properties/items/properties/maxLength"
+					},
+					"format": {
+						"$ref": "#/properties/params/items/properties/items/properties/format"
+					},
+					"name": {
+						"type": "string",
+						"minLength": 1
+					},
+					"required": {
+						"type": "boolean"
+					},
+					"description": {
+						"type": "string"
+					}
+				},
+				"required": ["type", "name", "required", "description"],
+				"additionalProperties": false
+			}
+		},
+		"requiresReasoning": {
+			"type": "boolean"
+		},
+		"filePatterns": {
+			"type": "array",
+			"items": {
+				"type": "string"
+			}
+		},
+		"files": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"rel": {
+						"type": "string"
+					},
+					"source": {
+						"type": "string"
+					},
+					"when": {
+						"type": "string"
+					},
+					"mode": {
+						"type": "string"
+					}
+				},
+				"required": ["rel", "source"],
+				"additionalProperties": false
+			}
+		},
+		"slots": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1
+					},
+					"kind": {
+						"type": "string",
+						"enum": ["prose", "ident", "list", "json"]
+					},
+					"hint": {
+						"type": "string"
+					},
+					"file": {
+						"type": "string",
+						"minLength": 1
+					},
+					"max": {
+						"type": "integer",
+						"exclusiveMinimum": 0
+					},
+					"item": {
+						"type": "string"
+					},
+					"schemaPath": {
+						"type": "string"
+					},
+					"templateKey": {
+						"type": "string"
+					}
+				},
+				"required": ["id", "kind", "hint", "file", "templateKey"],
+				"additionalProperties": false
+			}
+		}
+	},
+	"required": [
+		"schema",
+		"pack",
+		"recipe",
+		"description",
+		"params",
+		"requiresReasoning",
+		"filePatterns",
+		"files",
+		"slots"
+	],
+	"additionalProperties": false,
+	"$schema": "http://json-schema.org/draft-07/schema#"
+}

@@ -466,6 +466,8 @@ export const BakaLockSchema = z.object({
 })
 
 export const RecipeResultSchema = z.object({
+	/** The id of this document in the published contract (docs/CONTRACT.md). */
+	schema: z.literal("baka.receipt/1"),
 	ok: z.boolean(),
 	pack: z.string(),
 	recipe: z.string(),

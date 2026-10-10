@@ -1,0 +1,27 @@
+{
+	"$id": "https://baka.dev/schemas/baka.fill/1",
+	"title": "baka.fill/1",
+	"type": "object",
+	"properties": {
+		"schema": {
+			"type": "string",
+			"const": "baka.fill/1"
+		},
+		"ok": {
+			"type": "boolean",
+			"const": true
+		},
+		"slot": {
+			"type": "string"
+		},
+		"cachePath": {
+			"type": "string"
+		},
+		"key": {
+			"type": "string"
+		}
+	},
+	"required": ["schema", "ok", "slot", "cachePath", "key"],
+	"additionalProperties": false,
+	"$schema": "http://json-schema.org/draft-07/schema#"
+}

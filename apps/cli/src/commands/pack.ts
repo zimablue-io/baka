@@ -15,11 +15,7 @@ import {
 import { BAKA_DEFAULT_WORKER_MODEL, BAKA_EXIT_CODE, type PackManifest, PackManifestSchema } from "@repo/protocol"
 import { createJiti } from "jiti"
 import { type CallOptions, registryOptions } from "../call"
-
-function die(code: number, msg: string): never {
-	process.stderr.write(`baka: ${msg}\n`)
-	process.exit(code)
-}
+import { die } from "../die"
 
 // ---------------------------------------------------------------------------
 // `baka pack validate <name>`

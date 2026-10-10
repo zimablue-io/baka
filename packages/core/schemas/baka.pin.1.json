@@ -1,0 +1,19 @@
+{
+	"$id": "https://baka.dev/schemas/baka.pin/1",
+	"title": "baka.pin/1",
+	"type": "object",
+	"properties": {
+		"id": {
+			"type": "string"
+		},
+		"version": {
+			"type": "string"
+		},
+		"contentHash": {
+			"type": "string"
+		}
+	},
+	"required": ["id", "version", "contentHash"],
+	"additionalProperties": false,
+	"$schema": "http://json-schema.org/draft-07/schema#"
+}

@@ -1,0 +1,58 @@
+{
+	"$id": "https://baka.dev/schemas/baka.slot-list/1",
+	"title": "baka.slot-list/1",
+	"type": "object",
+	"properties": {
+		"schema": {
+			"type": "string",
+			"const": "baka.slot-list/1"
+		},
+		"pack": {
+			"type": "string"
+		},
+		"recipe": {
+			"type": "string"
+		},
+		"slots": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1
+					},
+					"kind": {
+						"type": "string",
+						"enum": ["prose", "ident", "list", "json"]
+					},
+					"hint": {
+						"type": "string"
+					},
+					"file": {
+						"type": "string",
+						"minLength": 1
+					},
+					"max": {
+						"type": "integer",
+						"exclusiveMinimum": 0
+					},
+					"item": {
+						"type": "string"
+					},
+					"schemaPath": {
+						"type": "string"
+					},
+					"templateKey": {
+						"type": "string"
+					}
+				},
+				"required": ["id", "kind", "hint", "file", "templateKey"],
+				"additionalProperties": false
+			}
+		}
+	},
+	"required": ["schema", "pack", "recipe", "slots"],
+	"additionalProperties": false,
+	"$schema": "http://json-schema.org/draft-07/schema#"
+}

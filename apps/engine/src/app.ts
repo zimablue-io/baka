@@ -394,7 +394,7 @@ export function createEngineApp(opts: EngineAppOptions): Hono {
 				templateHash: hashBytes(template.source),
 				paramsHash,
 			})
-			return c.json({ ok: true, slot: slot.id, cachePath: path, key })
+			return c.json({ schema: "baka.fill/1", ok: true, slot: slot.id, cachePath: path, key })
 		} catch (err) {
 			return failure(c, err, 400)
 		}

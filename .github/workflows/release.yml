@@ -1,0 +1,65 @@
+name: Release
+
+# Pushing a tag `vX.Y.Z` builds the three tarballs from that commit, proves the CLI works from its
+# tarball alone, and attaches them to a GitHub release. `install.sh` and the README read them from there.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# Publishing to npm is a separate step that needs the owner's scope (docs/PUBLISHING.md).
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build, verify and attach the tarballs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: The tag is the version
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          tag="v${version}"
+          if [ "${tag}" != "${GITHUB_REF_NAME}" ]; then echo "tag ${GITHUB_REF_NAME} does not match package.json version ${version}"; exit 1; fi
+
+      - name: Build and pack
+        run: |
+          pnpm build
+          pnpm pack
+
+      - name: The tarball runs on its own
+        run: |
+          node scripts/verify-core-pack.mjs
+          node scripts/verify-cli-pack.mjs
+
+      - name: Attach the tarballs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          # An unversioned name, so `releases/latest/download/baka.tgz` always means the newest release.
+          cp "dist-tarballs/baka-${version}.tgz" dist-tarballs/baka.tgz
+          gh release create "${GITHUB_REF_NAME}" --title "baka ${version}" --generate-notes \
+            "dist-tarballs/baka-${version}.tgz" \
+            dist-tarballs/baka.tgz \
+            "dist-tarballs/baka-mcp-server-${version}.tgz" \
+            "dist-tarballs/baka-core-${version}.tgz" \
+            install.sh \
+            moralo.module.json

@@ -118,8 +118,14 @@ function declaredSlots(parsed: ReturnType<typeof parseRecipeTemplates>) {
 export function listRecipeSlots(registry: PackRegistry, packName: string, recipeId: string) {
 	const { packRoot, recipe } = resolveRecipe(registry, packName, recipeId)
 	const templatesDir = join(packRoot, recipe.id, "templates")
-	if (!existsSync(templatesDir)) return { pack: packName, recipe: recipeId, slots: [] }
-	return { pack: packName, recipe: recipeId, slots: declaredSlots(parseRecipeTemplates(templatesDir)) }
+	if (!existsSync(templatesDir))
+		return { schema: "baka.slot-list/1" as const, pack: packName, recipe: recipeId, slots: [] }
+	return {
+		schema: "baka.slot-list/1" as const,
+		pack: packName,
+		recipe: recipeId,
+		slots: declaredSlots(parseRecipeTemplates(templatesDir)),
+	}
 }
 
 export function previewRecipe(registry: PackRegistry, packName: string, recipeId: string) {
@@ -127,6 +133,7 @@ export function previewRecipe(registry: PackRegistry, packName: string, recipeId
 	const templatesDir = join(packRoot, recipe.id, "templates")
 	const parsed = existsSync(templatesDir) ? parseRecipeTemplates(templatesDir) : { files: [], slots: [] }
 	return {
+		schema: "baka.preview/1" as const,
 		pack: packName,
 		recipe: recipeId,
 		description: recipe.description,
@@ -247,6 +254,7 @@ export async function runRecipe(input: RunRecipeInput): Promise<RecipeResult> {
 	const diagnostics: ValidationDiagnostic[] = []
 
 	const receipt = (ok: boolean): RecipeResult => ({
+		schema: "baka.receipt/1",
 		ok,
 		pack: packName,
 		recipe: recipeId,

@@ -1,6 +1,16 @@
-# Publishing baka to npm
+# Publishing baka
 
-This document is the runbook for the npm switch. It is intentionally NOT automated — `scripts/release.sh` builds tarballs but never pushes them. Publishing is a manual follow-up the maintainer does once per release, after the tarball review and the version sanity checks.
+## GitHub release (the install people use today)
+
+Pushing a tag `v<version>` runs `.github/workflows/release.yml`: it checks the tag equals the version in `package.json`, builds, packs, runs `verify:core` and `verify:cli`, and creates a GitHub release with `baka-<version>.tgz`, `baka.tgz` (always the latest), the MCP and core tarballs, `install.sh` and `moralo.module.json`. `curl -fsSL https://github.com/zimablue-io/baka/releases/latest/download/install.sh | sh` installs from it, with no clone and no build, and ends on the handshake. It needs the repository and its release assets to be reachable by whoever installs.
+
+The release workflow has not run on GitHub yet; the first tag is its first test. If the version in `docs/CONTRACT.md` (the contract version) changes, bump it in `packages/protocol/src/contract.ts` and add a changelog entry there in the same commit.
+
+## npm
+
+The npm name `baka` is taken by another project, so publishing to npm needs a scope the owner chooses (for example `@zimablue/baka`); until then the tarballs above are the install. The rest of this page is the runbook for that switch.
+
+This part is the runbook for the npm switch. It is intentionally NOT automated — `scripts/release.sh` builds tarballs but never pushes them. Publishing is a manual follow-up the maintainer does once per release, after the tarball review and the version sanity checks.
 
 The contract:
 

@@ -8,11 +8,13 @@ import { PackDirsError, packDirsFromEnv, resolvePackDirs } from "@repo/ast-tooli
 import { BAKA_EXIT_CODE, type LlmCall } from "@repo/protocol"
 import { Command } from "commander"
 import type { CallOptions } from "./call"
+import { runHealthCommand, runSchemaCommand, runVersionCommand } from "./commands/contract"
 import { runInit } from "./commands/init"
 import { InstallCommandError, runInstallCommand, runUninstallCommand } from "./commands/install"
 import { runListPackagesCommand, runRemoveCommand } from "./commands/marketplace"
 import { runOrgCreateCommand, runOrgInviteCommand, runOrgListCommand } from "./commands/org"
 import { runPackEdit, runPackListRecipes, runPackTest, runPackValidate } from "./commands/pack"
+import { runPackManifest } from "./commands/pack-manifest"
 import { runApplyCommand, runListPlans, runPlanCommand, runValidateCommand } from "./commands/plan"
 import { runPublishCommand } from "./commands/publish"
 import {
@@ -148,6 +150,46 @@ program.hook("preAction", () => {
 	}
 })
 
+// `baka version | health | schema` (what a host checks before it uses this install) ----
+
+program
+	.command("version")
+	.description("Print the handshake: name, version, the contract it speaks and what it can do")
+	.option("--json", "emit the handshake document (baka.handshake/1) to stdout")
+	.option("--require-contract <major>", "exit 3 unless this install speaks that contract major")
+	.option(
+		"--require <capability>",
+		"exit 3 unless this install has the capability (repeatable)",
+		(name: string, prior: string[]) => [...prior, name],
+		[] as string[],
+	)
+	.action((opts) => {
+		runVersionCommand({
+			version: cliPkg.version,
+			json: opts.json,
+			requireContract: opts.requireContract,
+			require: opts.require,
+		})
+	})
+
+program
+	.command("health")
+	.description("Check that this install can do its job; exit 3 when it cannot")
+	.option("--json", "emit the health document (baka.health/1) to stdout")
+	.action((opts) => {
+		const { cwd, bundledPacksDir } = globals()
+		runHealthCommand({ cwd, bundledPacksDir, json: opts.json })
+	})
+
+program
+	.command("schema")
+	.description("List the ids of the documents Baka publishes, or print the JSON Schema of one")
+	.argument("[id]", "a document id such as baka.receipt/1")
+	.option("--json", "with no id, list the ids as JSON")
+	.action((id, opts) => {
+		runSchemaCommand(id, { json: opts.json })
+	})
+
 // `baka init` -----------------------------------------------------------------
 
 program
@@ -251,6 +293,18 @@ packCmd
 			const message = err instanceof Error ? err.message : String(err)
 			die(BAKA_EXIT_CODE.FAILED, message)
 		}
+	})
+
+packCmd
+	.command("manifest")
+	.description("Print, write or check the moralo.module.json of a repository of packs, so it can be shared")
+	.argument("[dir]", "the pack, or the repository whose subdirectories are packs (default: the current directory)")
+	.option("--id <owner/name>", "the module id; by default package.json or the git remote says")
+	.option("--write", "write moralo.module.json next to the packs")
+	.option("--check", "exit 1 unless the file on disk matches the packs (for CI)")
+	.option("--json", "emit the result as JSON")
+	.action((dir, opts) => {
+		runPackManifest(dir, { cwd: projectCwd(), id: opts.id, write: opts.write, check: opts.check, json: opts.json })
 	})
 
 packCmd

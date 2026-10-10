@@ -37,9 +37,13 @@ export {
 	writeLockfile,
 } from "@repo/ast-tooling"
 export type {
+	BakaCapability,
 	BakaLock,
 	ChangeOp,
 	ChangesetEntry,
+	ContractDocumentId,
+	Handshake,
+	Health,
 	LLMMessage,
 	LLMProvider,
 	LLMRequest,
@@ -63,6 +67,15 @@ export type {
 	ValidationResult,
 	ValidatorRun,
 } from "@repo/protocol"
-export { BAKA_LOCKFILE_NAME, PARAM_FORMATS, RECIPE_ERROR_CODES } from "@repo/protocol"
+export {
+	BAKA_CAPABILITIES,
+	BAKA_CONTRACT_MAJOR,
+	BAKA_CONTRACT_VERSION,
+	BAKA_LOCKFILE_NAME,
+	CONTRACT_DOCUMENT_IDS,
+	contractJsonSchema,
+	PARAM_FORMATS,
+	RECIPE_ERROR_CODES,
+} from "@repo/protocol"
 export type { CreateRegistryOptions } from "./registry.js"
 export { createRegistry } from "./registry.js"
