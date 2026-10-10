@@ -8,7 +8,7 @@ Baka writes files from templates. A **recipe** is a named thing you run again an
 curl -fsSL https://github.com/zimablue-io/baka/releases/latest/download/install.sh | sh
 ```
 
-That needs Node.js 20 or later and nothing else: no clone, no build, no link. It ends by asking the new install for its version, so you know it answers. To install a build you made yourself, `sh install.sh --tarball ./dist-tarballs/baka-0.1.0.tgz`; add `--prefix DIR` to keep it out of your global npm directory. The same tarball installs with `npm install --global <tarball>`.
+That needs Node.js 24 or later and nothing else: no clone, no build, no link. It ends by asking the new install for its version, so you know it answers. To install a build you made yourself, `sh install.sh --tarball ./dist-tarballs/baka-0.1.0.tgz`; add `--prefix DIR` to keep it out of your global npm directory. The same tarball installs with `npm install --global <tarball>`.
 
 ## First run
 
@@ -52,13 +52,13 @@ Every command takes `--json` and prints a versioned document; errors are `{ "err
 
 Prerequisites:
 
-- **Node.js 20 or later** (the engine floor). `node --version` should print `v20.x` or higher.
+- **Node.js 24 or later** (the engine floor; `.nvmrc` names it, and CI, releases and the Vercel deployment use it too). `node --version` should print `v24.x` or higher.
 - **pnpm 8 or later** (the workspace manager). The repo pins `pnpm@9.0.0` via `packageManager`.
 
 Verify both are present before installing:
 
 ```bash
-node --version   # v20.x or higher
+node --version   # v24.x or higher
 pnpm --version   # 8.x or higher (9.x recommended)
 ```
 
@@ -164,6 +164,7 @@ BAKA_ENGINE_TOKEN=$(openssl rand -hex 24) baka serve --host 0.0.0.0   # reachabl
 
 - **Bearer token.** With `BAKA_ENGINE_TOKEN` (or `--token`, which shows up in `ps`; the env var is preferred) set, every request needs `Authorization: Bearer <token>` and gets `401` otherwise. The token must not contain whitespace. `baka serve` refuses to start on any bind address that is not loopback (`127.0.0.0/8`, `::1`, `localhost`) unless a token is set.
 - **Project paths.** A request may name a `project` (query string or body field) only when it is the directory the server was started in, or when the server was started with allowed roots: `--allow-root <dir>` (repeatable) or `BAKA_ENGINE_ALLOWED_ROOTS` (separated like `PATH`). A `project` must be an absolute path to an existing directory; symlinks are resolved before the check, so a link inside a root cannot lead out of it. Anything else is `403`, and nothing is read or written there.
+- **Browser origins.** Browsers may call the engine from a page on `localhost` or `127.0.0.1` with no setup. A page on any other origin (for example the hosted dashboard) is refused unless you name it exactly: `--allow-origin <origin>` (repeatable) or `BAKA_ENGINE_ALLOWED_ORIGINS` (separated by commas or spaces), for example `baka serve --allow-origin https://baka.dashboard.zimablue.io`. Only the origin you list is answered (no wildcard), Private Network Access preflights are answered for it, and a non-loopback origin needs a bearer token or `baka serve` refuses to start. The token is typed into the dashboard and kept for that tab only.
 - The run, fill, and validate routes return the same JSON as `baka run|fill|validate --json` and the `baka_*` MCP tools; `/v1/run` takes `dryRun`, `slots`, `onExisting`, `includeContent`, and `validate` alongside `pack`, `recipe`, and `params`.
 
 ### Verifying determinism
@@ -291,7 +292,7 @@ baka pack create test-pack
 
 ## Technical Specifications
 - Monorepo Engine: Turborepo managed with strict pnpm workspaces.
-- Runtime Dependency: Node.js (v20+) or Bun running entirely via native local script invocation.
+- Runtime Dependency: Node.js (v24+) or Bun running entirely via native local script invocation.
 - Target Core Stack: TypeScript, Next.js v16, Turborepo, Shadcn UI + Radix Base UI, Tailwind CSS.
 - Target Domain Additions: Better-Auth, Neon DB, Supabase Storage, Sanity CMS.
 

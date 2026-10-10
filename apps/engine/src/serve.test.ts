@@ -36,6 +36,35 @@ describe("isLoopbackHost", () => {
 	})
 })
 
+describe("allowed origins", () => {
+	const DASHBOARD = "https://baka.dashboard.zimablue.io"
+
+	it("come from --allow-origin and the environment, normalised, and need a token", () => {
+		const config = resolveServeConfig(
+			{ token: "t", allowOrigins: [`${DASHBOARD}/`] },
+			{ BAKA_ENGINE_ALLOWED_ORIGINS: "https://a.example, https://b.example" },
+			"/work",
+		)
+		expect(config.allowedOrigins).toEqual(["https://a.example", "https://b.example", DASHBOARD])
+	})
+
+	it("refuse a page that could drive the engine without a bearer token", () => {
+		expect(() => resolveServeConfig({ allowOrigins: [DASHBOARD] }, {}, "/work")).toThrow(/bearer token/)
+		expect(resolveServeConfig({ allowOrigins: ["http://localhost:1420"] }, {}, "/work").allowedOrigins).toEqual([
+			"http://localhost:1420",
+		])
+	})
+
+	it.each([
+		"*",
+		"baka.dashboard.zimablue.io",
+		"https://x.example/path",
+		"ftp://x.example",
+	])("reject %j: an origin is a scheme, a host and maybe a port", (origin) => {
+		expect(() => resolveServeConfig({ token: "t", allowOrigins: [origin] }, {}, "/work")).toThrow(/origin/)
+	})
+})
+
 describe("resolveServeConfig", () => {
 	it("defaults to 127.0.0.1:4311 with no token and no extra roots", () => {
 		expect(resolveServeConfig({}, {}, "/work")).toEqual({
@@ -43,6 +72,7 @@ describe("resolveServeConfig", () => {
 			host: "127.0.0.1",
 			token: undefined,
 			allowedRoots: [],
+			allowedOrigins: [],
 		})
 	})
 
@@ -94,7 +124,13 @@ describe("resolveServeConfig", () => {
 describe("serveEngine", () => {
 	it("serves over real HTTP, enforcing the token", async () => {
 		const cwd = project()
-		const server = await serveEngine(cwd, { port: 0, host: "127.0.0.1", token: "s3cret-token", allowedRoots: [] })
+		const server = await serveEngine(cwd, {
+			port: 0,
+			host: "127.0.0.1",
+			token: "s3cret-token",
+			allowedRoots: [],
+			allowedOrigins: [],
+		})
 		running.push(server)
 		expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
 
@@ -105,7 +141,7 @@ describe("serveEngine", () => {
 	})
 
 	it("serves without a token on loopback", async () => {
-		const server = await serveEngine(project(), { port: 0, host: "127.0.0.1", allowedRoots: [] })
+		const server = await serveEngine(project(), { port: 0, host: "127.0.0.1", allowedRoots: [], allowedOrigins: [] })
 		running.push(server)
 		expect((await fetch(`${server.url}/v1/packs`)).status).toBe(200)
 	})

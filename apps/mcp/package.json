@@ -13,6 +13,9 @@
 		"LICENSE",
 		"NOTICE"
 	],
+	"engines": {
+		"node": ">=24.0.0"
+	},
 	"scripts": {
 		"build": "tsup",
 		"check-types": "tsc --noEmit",
@@ -32,7 +35,7 @@
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "workspace:*",
-		"@types/node": "^22.19.15",
+		"@types/node": "^24.0.0",
 		"tsup": "^8.3.5",
 		"tsx": "^4.19.2",
 		"typescript": "^5.9.2",

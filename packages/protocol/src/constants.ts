@@ -13,6 +13,9 @@ export const ENGINE_STATUS = {
 // 1 means the command ran and the work failed (a validator, a conflict, an engine error), 2 means the
 // caller's input was bad (a flag, a path, a recipe that does not exist), 3 means Baka or something it
 // needs is not available (no reachable model, an incompatible host). Nothing else is ever returned.
+/** The Node.js major Baka is built, tested, deployed and promised on (`.nvmrc`, the engine floor, the installer). */
+export const BAKA_NODE_MAJOR = 24
+
 export const BAKA_EXIT_CODE = {
 	SUCCESS: 0,
 	FAILED: 1,

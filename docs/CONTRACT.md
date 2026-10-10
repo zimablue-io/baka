@@ -18,7 +18,7 @@ curl -fsSL https://github.com/zimablue-io/baka/releases/latest/download/install.
 baka run add-readme --name my-app        # in an empty directory: writes README.md; no model, no account
 ```
 
-`install.sh` needs Node.js 20 or later and nothing else, asks nothing, and ends on the handshake (exit `3` when the install does not answer). `--version X.Y.Z` picks a release, `--tarball` installs a build you made, `--prefix DIR` keeps it out of the global npm directory. The release assets are `baka-<version>.tgz` (and `baka.tgz`, always the latest), `baka-mcp-server-<version>.tgz`, `baka-core-<version>.tgz`, `install.sh` and `moralo.module.json`. The npm name `baka` is taken, so publishing to npm needs a scope the owner chooses (see `docs/PUBLISHING.md`); until then the tarballs are the install.
+`install.sh` needs Node.js 24 or later and nothing else, asks nothing, and ends on the handshake (exit `3` when the install does not answer). `--version X.Y.Z` picks a release, `--tarball` installs a build you made, `--prefix DIR` keeps it out of the global npm directory. The release assets are `baka-<version>.tgz` (and `baka.tgz`, always the latest), `baka-mcp-server-<version>.tgz`, `baka-core-<version>.tgz`, `install.sh` and `moralo.module.json`. The npm name `baka` is taken, so publishing to npm needs a scope the owner chooses (see `docs/PUBLISHING.md`); until then the tarballs are the install.
 
 A fresh install has exactly one pack, `starter`, bundled inside it (see "Packs and where they come from").
 
@@ -35,7 +35,7 @@ baka version --json
   "version": "0.1.0",
   "contract": "1.0.0",
   "capabilities": ["errors.json", "health", "isolated", "..."],
-  "node": "v22.5.0"
+  "node": "v24.0.0"
 }
 ```
 
@@ -65,7 +65,7 @@ It prints the handshake and exits `0` when the contract major matches and every 
 | `schemas` | `baka schema` prints the JSON Schema of every document. |
 | `errors.json` | Failures are `baka.error/1` on stdout under `--json`. |
 | `health` | `baka health` says whether the install can do its job. |
-| `serve` | `baka serve` exposes the same documents over HTTP. |
+| `serve` | `baka serve` exposes the same documents over HTTP (browser pages on other origins only when named with `--allow-origin` / `BAKA_ENGINE_ALLOWED_ORIGINS`, and then with a bearer token). |
 | `addons` | A call can name add-ons (`--addon`, `BAKA_ADDONS`, `addons`): see "Add-ons". |
 
 `baka health --json` prints `baka.health/1` (`ok` and the `checks` behind it) and exits `3` when `ok` is false. The exit code is part of the answer.

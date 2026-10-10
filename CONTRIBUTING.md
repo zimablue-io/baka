@@ -36,7 +36,7 @@ Please do not open public issues for security vulnerabilities. Follow the [Secur
 
 **Requirements**
 
-- Node.js v20 or later
+- Node.js v24 or later
 - pnpm v9 or later (the repo pins `pnpm@9.0.0` via `packageManager`)
 
 **Clone and install**

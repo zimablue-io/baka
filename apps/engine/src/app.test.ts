@@ -62,6 +62,37 @@ describe("engine Hono SSOT", () => {
 		expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:1420")
 	})
 
+	it("answers a page at an origin the operator allowed, and no other remote page", async () => {
+		const app = createEngineApp({ cwd: fixtureProject(), allowedOrigins: ["https://baka.dashboard.zimablue.io"] })
+		const allowed = await app.request("/v1/packs", { headers: { Origin: "https://baka.dashboard.zimablue.io" } })
+		expect(allowed.headers.get("access-control-allow-origin")).toBe("https://baka.dashboard.zimablue.io")
+		const other = await app.request("/v1/packs", { headers: { Origin: "https://evil.example" } })
+		expect(other.headers.get("access-control-allow-origin")).toBeNull()
+		const lookalike = await app.request("/v1/packs", {
+			headers: { Origin: "https://baka.dashboard.zimablue.io.evil.example" },
+		})
+		expect(lookalike.headers.get("access-control-allow-origin")).toBeNull()
+	})
+
+	it("lets an allowed public page reach the loopback engine (Private Network Access preflight)", async () => {
+		const app = createEngineApp({ cwd: fixtureProject(), allowedOrigins: ["https://baka.dashboard.zimablue.io"] })
+		const preflight = (origin: string) =>
+			app.request("/v1/run", {
+				method: "OPTIONS",
+				headers: {
+					Origin: origin,
+					"Access-Control-Request-Method": "POST",
+					"Access-Control-Request-Headers": "authorization,content-type",
+					"Access-Control-Request-Private-Network": "true",
+				},
+			})
+		const allowed = await preflight("https://baka.dashboard.zimablue.io")
+		expect(allowed.headers.get("access-control-allow-private-network")).toBe("true")
+		expect(allowed.headers.get("access-control-allow-headers")?.toLowerCase()).toContain("authorization")
+		const other = await preflight("https://evil.example")
+		expect(other.headers.get("access-control-allow-private-network")).toBeNull()
+	})
+
 	it("lists packs over GET /v1/packs", async () => {
 		const cwd = fixtureProject()
 		const app = createEngineApp({ cwd })

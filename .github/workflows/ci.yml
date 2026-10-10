@@ -2,7 +2,7 @@ name: CI
 
 # Pinned versions:
 #   pnpm 9  matches the workspace's `packageManager` field (pnpm@9.0.0).
-#   Node 22 matches the engine floor (`>=20.0.0`) with the closest LTS.
+#   The Node version is `.nvmrc`: CI, releases, Vercel and the engine floor all follow it.
 # Both are kept in sync with the workspace declarations; bump them
 # together with root `package.json`.
 
@@ -31,7 +31,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: pnpm
 
       - name: Install
