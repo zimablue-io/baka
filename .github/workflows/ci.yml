@@ -45,11 +45,12 @@ jobs:
       - name: Type-check
         run: pnpm -r check-types
 
-      - name: Test
-        run: pnpm -r test
-
+      # The MCP and CLI tests drive the built binaries, so the build comes first.
       - name: Build
         run: pnpm build
+
+      - name: Test
+        run: pnpm -r test
 
       - name: Pack (baka + @baka/mcp-server + @baka/core)
         run: pnpm pack
