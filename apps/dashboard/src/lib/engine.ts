@@ -45,7 +45,6 @@ export interface EnginePreview {
 
 interface RunResult {
 	ok?: boolean
-	error?: string
 	diagnostics?: Array<{ severity: string; rule: string; message: string }>
 	changeset?: Array<{ path: string; op: string; contentHash: string | null; reason?: string; content?: string }>
 	outputTreeHash?: string
@@ -83,17 +82,29 @@ export function paramsFromFields(fields: Record<string, string>, schema: EngineP
 	return out
 }
 
+/** The message to show for a failed call: the error document's, else a failed receipt's first error, else `fallback`. */
+export function errorDetail(body: unknown, fallback: string): string {
+	if (typeof body !== "object" || body === null) return fallback
+	const { error, diagnostics } = body as {
+		error?: { message?: unknown }
+		diagnostics?: Array<{ severity?: unknown; message?: unknown }>
+	}
+	if (typeof error?.message === "string") return error.message
+	const first = diagnostics?.find((d) => d.severity === "error")
+	return typeof first?.message === "string" ? first.message : fallback
+}
+
 async function engineJson<T>(path: string, init?: RequestInit): Promise<T> {
 	const res = await fetch(`${ENGINE_URL}${path}`, init)
 	if (!res.ok) {
-		let detail = `${init?.method ?? "GET"} ${path} ${res.status}`
+		const status = `${init?.method ?? "GET"} ${path} ${res.status}`
+		let body: unknown = null
 		try {
-			const body = (await res.json()) as { error?: string }
-			if (body.error) detail = body.error
+			body = await res.json()
 		} catch {
-			/* use status */
+			/* not JSON: the status line says what happened */
 		}
-		throw new Error(detail)
+		throw new Error(errorDetail(body, status))
 	}
 	return (await res.json()) as T
 }
