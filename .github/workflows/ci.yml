@@ -72,13 +72,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          # The packed tarballs contain a `dist/index.js` that is the
-          # same artifact produced by `pnpm build` and then linked
-          # into `node_modules/.bin/` by `pnpm link --global`. Verifying
-          # the linked binaries therefore probes the SAME code path
-          # the tarballs ship; this is the documented install method
-          # for end users, and it is hermetic (no separate registry
-          # resolution needed for workspace packages).
+          # Install both tarballs into a scratch prefix, as an end user
+          # would, and probe the binaries that install puts on the path.
           #
           # The pack step above also produced real tarballs in
           # `dist-tarballs/`; we verify those structurally (right name,
@@ -88,17 +83,22 @@ jobs:
           test -f dist-tarballs/baka-0.1.0.tgz
           test -f dist-tarballs/baka-mcp-server-0.1.0.tgz
           test -f dist-tarballs/baka-core-0.1.0.tgz
-          tar -tzf dist-tarballs/baka-0.1.0.tgz | grep -q '^package/dist/index.js$'
-          tar -tzf dist-tarballs/baka-mcp-server-0.1.0.tgz | grep -q '^package/dist/index.js$'
-          tar -tzf dist-tarballs/baka-core-0.1.0.tgz | grep -q '^package/dist/index.js$'
-          tar -tzf dist-tarballs/baka-core-0.1.0.tgz | grep -q '^package/dist/index.d.ts$'
+          # List first, grep after: `grep -q` quits at the first match, and under
+          # `pipefail` the SIGPIPE it sends `tar` fails the pipeline.
+          for t in baka-0.1.0 baka-mcp-server-0.1.0 baka-core-0.1.0; do
+            tar -tzf "dist-tarballs/${t}.tgz" > "${RUNNER_TEMP}/${t}.list"
+            grep -qx 'package/dist/index.js' "${RUNNER_TEMP}/${t}.list"
+          done
+          grep -qx 'package/dist/index.d.ts' "${RUNNER_TEMP}/baka-core-0.1.0.list"
 
-          echo "=== probe the binaries (link --global) ==="
-          pnpm link --global >/dev/null
-          trap 'pnpm unlink --global baka @baka/mcp-server >/dev/null 2>&1 || true' EXIT
+          echo "=== probe the binaries installed from the tarballs ==="
+          prefix="${RUNNER_TEMP}/smoke-prefix"
+          rm -rf "$prefix"
+          npm install --prefix "$prefix" --no-audit --no-fund --loglevel=error \
+            "$PWD/dist-tarballs/baka-0.1.0.tgz" "$PWD/dist-tarballs/baka-mcp-server-0.1.0.tgz"
 
-          CLI_BIN="$(pnpm root -g)/../baka"
-          MCP_BIN="$(pnpm root -g)/../baka-mcp"
+          CLI_BIN="$prefix/node_modules/.bin/baka"
+          MCP_BIN="$prefix/node_modules/.bin/baka-mcp"
           test -x "$CLI_BIN"
           test -x "$MCP_BIN"
 
