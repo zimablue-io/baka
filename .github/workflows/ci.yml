@@ -53,7 +53,7 @@ jobs:
         run: pnpm -r test
 
       - name: Pack (baka + @baka/mcp-server + @baka/core)
-        run: pnpm pack
+        run: pnpm run pack
 
       # Strict unused file, export, dependency, and unresolved-import gate.
       # Configuration hints are fatal through the root `pnpm knip` script.

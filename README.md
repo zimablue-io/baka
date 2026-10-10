@@ -316,7 +316,7 @@ baka pack create test-pack
 │   └── typescript-config/   # Shared TS presets
 ├── packs/                 # Empty on purpose. Packs live in a project, not here.
 ├── scripts/                 # pack.mjs, release.sh, setup.sh, unlink-global.sh
-├── dist-tarballs/           # Output of `pnpm pack` (baka + baka-mcp tarballs)
+├── dist-tarballs/           # Output of `pnpm run pack` (baka + baka-mcp tarballs)
 ├── SKILL.md                 # Declarative agent contract (Claude Code, Codex, Cursor, etc.)
 ├── docs/                    # Philosophy, agent guide, pack authoring, publishing
 ├── pnpm-workspace.yaml
@@ -365,7 +365,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full contribution guide. CI mus
 
 ## Release
 
-To cut a new version, run `scripts/release.sh <semver>` from a clean tree. The script bumps the version in `package.json`, `apps/cli/package.json`, and `apps/mcp/package.json` consistently; runs `pnpm pack` for both workspaces; and prints the global-install command. It refuses to run on a dirty tree and supports `--dry-run` for plan-only output. The script does not push to npm — the publish step is a separate manual flow documented in [docs/PUBLISHING.md](./docs/PUBLISHING.md).
+To cut a new version, run `scripts/release.sh <semver>` from a clean tree. The script bumps the version in `package.json`, `apps/cli/package.json`, and `apps/mcp/package.json` consistently; runs `pnpm run pack` for both workspaces; and prints the global-install command. It refuses to run on a dirty tree and supports `--dry-run` for plan-only output. The script does not push to npm — the publish step is a separate manual flow documented in [docs/PUBLISHING.md](./docs/PUBLISHING.md).
 
 ## License, paid options and privacy
 
