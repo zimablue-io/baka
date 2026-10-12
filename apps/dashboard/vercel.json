@@ -3,7 +3,7 @@
 	"framework": null,
 	"buildCommand": "cd ../.. && pnpm run site",
 	"outputDirectory": "dist/client",
-	"ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ../../apps ../../packages ../../workflows ../../packs ../../scripts ../../install.sh ../../pnpm-lock.yaml ../../package.json ../../.nvmrc",
+	"ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ../../apps ../../packages ../../workflows ../../packs ../../scripts ../../turbo.json ../../tsconfig.json ../../install.sh ../../pnpm-lock.yaml ../../package.json ../../.nvmrc",
 	"headers": [
 		{
 			"source": "/(install|install.sh)",
