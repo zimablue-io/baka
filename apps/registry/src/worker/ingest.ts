@@ -1,5 +1,5 @@
+import type { PackManifest } from "@baka/protocol"
 import type { PGlite } from "@electric-sql/pglite"
-import type { PackManifest } from "@repo/protocol"
 import { type DryRunResult, runDryRun } from "../screening/dry-run"
 import { runOutputValidation } from "../screening/output-validation"
 import { writeScreeningResult } from "../screening/screening-result"

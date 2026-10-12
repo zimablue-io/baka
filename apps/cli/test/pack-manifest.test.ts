@@ -22,7 +22,8 @@ afterEach(() => {
 })
 
 beforeAll(() => {
-	if (!existsSync(DIST_INDEX)) throw new Error(`built CLI not found at ${DIST_INDEX}; run \`pnpm --filter baka build\``)
+	if (!existsSync(DIST_INDEX))
+		throw new Error(`built CLI not found at ${DIST_INDEX}; run \`pnpm --filter @baka/cli build\``)
 })
 
 function baka(argv: string[], cwd: string) {

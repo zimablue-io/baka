@@ -33,7 +33,7 @@ In scope:
 
 - Code execution, path traversal, or other RCE-class issues in the `baka` CLI, the `baka-mcp` MCP server, the API, or any package in this repo
 - Credential or secret leakage in the engine's local config (`~/.baka/`)
-- Provider boundary violations: any code outside `packages/agent-engine/` that imports a provider, HTTP client, or model name
+- Provider boundary violations: any code outside `packages/agent/` that imports a provider, HTTP client, or model name
 - Unsafe handling of pack manifests, recipe templates, or validator inputs
 
 Out of scope:

@@ -216,7 +216,7 @@ describe("--packs-dir and BAKA_PACK_DIRS", () => {
 	})
 })
 
-describe("pack validate enforces the types-only baka-sdk rule", () => {
+describe("pack validate enforces the types-only @baka/sdk rule", () => {
 	function withRecipe(source: string) {
 		const catalog = tmp("baka-scope-sdk-")
 		writePack(catalog, "hello")
@@ -237,18 +237,18 @@ describe("pack validate enforces the types-only baka-sdk rule", () => {
 
 	it("accepts import type, including inline type specifiers", async () => {
 		const catalog = withRecipe(
-			`import { type RecipeStep } from "baka-sdk"\nimport type { OrchestrationState } from "baka-sdk"\n${STEP}`,
+			`import { type RecipeStep } from "@baka/sdk"\nimport type { OrchestrationState } from "@baka/sdk"\n${STEP}`,
 		)
 		const result = await cli(["--packs-dir", catalog, "pack", "validate", "hello", "--json"], catalog)
 		expect(result.code, result.stdout + result.stderr).toBe(0)
 		expect(JSON.parse(result.stdout).valid).toBe(true)
 	})
 
-	it("accepts a runtime import when the pack owns the install (baka-sdk in package.json dependencies)", async () => {
-		const catalog = withRecipe(`import { callLLMAsValidator } from "baka-sdk"\nvoid callLLMAsValidator\n${STEP}`)
+	it("accepts a runtime import when the pack owns the install (@baka/sdk in package.json dependencies)", async () => {
+		const catalog = withRecipe(`import { callLLMAsValidator } from "@baka/sdk"\nvoid callLLMAsValidator\n${STEP}`)
 		writeFileSync(
 			join(catalog, "hello", "package.json"),
-			JSON.stringify({ name: "hello", dependencies: { "baka-sdk": "*" } }),
+			JSON.stringify({ name: "hello", dependencies: { "@baka/sdk": "*" } }),
 		)
 		const result = await cli(["--packs-dir", catalog, "pack", "validate", "hello", "--json"], catalog)
 		// the static rule is satisfied; loading still needs the install the author promised
@@ -257,12 +257,12 @@ describe("pack validate enforces the types-only baka-sdk rule", () => {
 	})
 
 	it("rejects a runtime import with the file, the line and the fix", async () => {
-		const catalog = withRecipe(`import { AgentRole } from "baka-sdk"\n${STEP}`)
+		const catalog = withRecipe(`import { AgentRole } from "@baka/sdk"\n${STEP}`)
 		const result = await cli(["--packs-dir", catalog, "pack", "validate", "hello", "--json"], catalog)
 		expect(result.code).toBe(1)
 		const errors = JSON.parse(result.stdout).errors as string[]
 		expect(
-			errors.some((e) => e.startsWith('side/recipe.ts:1: runtime import of "baka-sdk"') && e.includes("import type")),
+			errors.some((e) => e.startsWith('side/recipe.ts:1: runtime import of "@baka/sdk"') && e.includes("import type")),
 		).toBe(true)
 	})
 })

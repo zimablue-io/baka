@@ -7,39 +7,6 @@
  */
 
 export type {
-	Catalog,
-	CatalogPack,
-	CatalogRecipe,
-	CompensateRecipeInput,
-	PackRegistryOptions,
-	RunRecipeInput,
-	SlotCacheRecord,
-	SlotStore,
-	ValidateResult,
-} from "@repo/ast-tooling"
-export {
-	compensateRecipe,
-	createDiskSlotStore,
-	createLock,
-	createMemorySlotStore,
-	describePacks,
-	findRecipePack,
-	PACK_DIRS_ENV,
-	PACK_DIRS_SETTING,
-	PACK_HASH_DOMAIN,
-	PackDirsError,
-	PackNotFoundError,
-	PackRegistry,
-	packDirsFromEnv,
-	packDirsFromSettings,
-	readLockfile,
-	resolvePackDirs,
-	runRecipe,
-	TREE_HASH_DOMAIN,
-	validateProject as validate,
-	writeLockfile,
-} from "@repo/ast-tooling"
-export type {
 	AddonRunRequest,
 	BakaAddon,
 	BakaCapability,
@@ -71,7 +38,7 @@ export type {
 	ValidationDiagnostic,
 	ValidationResult,
 	ValidatorRun,
-} from "@repo/protocol"
+} from "@baka/protocol"
 export {
 	BAKA_CAPABILITIES,
 	BAKA_CONTRACT_MAJOR,
@@ -81,6 +48,39 @@ export {
 	contractJsonSchema,
 	PARAM_FORMATS,
 	RECIPE_ERROR_CODES,
-} from "@repo/protocol"
+} from "@baka/protocol"
+export type {
+	Catalog,
+	CatalogPack,
+	CatalogRecipe,
+	CompensateRecipeInput,
+	PackRegistryOptions,
+	RunRecipeInput,
+	SlotCacheRecord,
+	SlotStore,
+	ValidateResult,
+} from "@baka/recipes"
+export {
+	compensateRecipe,
+	createDiskSlotStore,
+	createLock,
+	createMemorySlotStore,
+	describePacks,
+	findRecipePack,
+	PACK_DIRS_ENV,
+	PACK_DIRS_SETTING,
+	PACK_HASH_DOMAIN,
+	PackDirsError,
+	PackNotFoundError,
+	PackRegistry,
+	packDirsFromEnv,
+	packDirsFromSettings,
+	readLockfile,
+	resolvePackDirs,
+	runRecipe,
+	TREE_HASH_DOMAIN,
+	validateProject as validate,
+	writeLockfile,
+} from "@baka/recipes"
 export type { CreateRegistryOptions } from "./registry.js"
 export { createRegistry } from "./registry.js"

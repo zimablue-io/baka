@@ -330,7 +330,7 @@ let FIXTURE_CWD = ""
 
 beforeAll(() => {
 	if (!existsSync(DIST_INDEX)) {
-		throw new Error(`built MCP dist not found at ${DIST_INDEX}; run \`pnpm --filter @baka/mcp-server build\` first`)
+		throw new Error(`built MCP dist not found at ${DIST_INDEX}; run \`pnpm --filter @baka/mcp build\` first`)
 	}
 	if (!existsSync(EMPTY_CWD)) {
 		mkdirSync(EMPTY_CWD, { recursive: true })

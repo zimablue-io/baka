@@ -2,8 +2,8 @@
 	"files": [],
 	"references": [
 		{ "path": "packages/protocol" },
-		{ "path": "packages/agent-engine" },
-		{ "path": "packages/ast-tooling" },
+		{ "path": "packages/agent" },
+		{ "path": "packages/recipes" },
 		{ "path": "workflows/feature-planning" },
 		{ "path": "workflows/pack-management" },
 		{ "path": "apps/cli" }

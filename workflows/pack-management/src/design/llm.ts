@@ -1,4 +1,4 @@
-import type { LLMMessage, LLMProvider } from "@repo/protocol"
+import type { LLMMessage, LLMProvider } from "@baka/protocol"
 import { type DesignTurnPayload, DesignTurnPayloadSchema } from "./payload"
 import type { DesignSessionState } from "./state"
 

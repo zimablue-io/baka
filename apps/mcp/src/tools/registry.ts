@@ -4,7 +4,7 @@ import type {
 	RegistryPreviewEntry,
 	RegistryRecipePreview,
 	RegistryVersionDetail,
-} from "@repo/protocol"
+} from "@baka/protocol"
 import {
 	getCatalog,
 	getPackDetail,

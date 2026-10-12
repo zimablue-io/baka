@@ -33,7 +33,7 @@ const run = (cmd, args, cwd, env = {}) =>
 	})
 
 try {
-	run("node", [join(repoRoot, "scripts", "pack.mjs"), "baka", "--out", packDir], repoRoot)
+	run("node", [join(repoRoot, "scripts", "pack.mjs"), "@baka/cli", "--out", packDir], repoRoot)
 	const tarball = readdirSync(packDir).find((f) => f.endsWith(".tgz"))
 	if (!tarball) throw new Error("pack produced no tarball")
 

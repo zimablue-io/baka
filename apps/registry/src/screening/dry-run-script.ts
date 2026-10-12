@@ -161,8 +161,8 @@ async function main() {
 
   // Load the recipe via jiti. The cwd for resolution is the
   // jiti-root (the registry install root in production, the workspace
-  // root in dev/test) so that workspace imports like 'baka-sdk' and
-  // '@repo/protocol' resolve correctly. The recipe's own relative
+  // root in dev/test) so that workspace imports like '@baka/sdk' and
+  // '@baka/protocol' resolve correctly. The recipe's own relative
   // imports resolve from the pack dir regardless.
   process.stderr.write('[dryrun-script] before require jiti\n')
   let jiti
@@ -182,7 +182,7 @@ async function main() {
   // (matching what the non-reasoning recipe branch would call
   // step.execute with), write the rendered bytes to the sandbox.
   // Mirror the engine-side semantics
-  // (packages/ast-tooling/src/worker.ts:24):
+  // (packages/recipes/src/worker.ts:24):
   //   - key = templatesDir-relative path with .hbs /
   //     .handlebars extension stripped, forward-slashes only.
   //   - render = Handlebars.compile(content)(input.parameters),

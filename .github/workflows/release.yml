@@ -1,7 +1,8 @@
 name: Release
 
-# Pushing a tag `vX.Y.Z` builds the three tarballs from that commit, proves the CLI works from its
-# tarball alone, and attaches them to a GitHub release. `install.sh` and the README read them from there.
+# Pushing a tag `vX.Y.Z` builds the five tarballs from that commit, proves the CLI and the core work from
+# their tarballs alone, and attaches them to a GitHub release. The tarballs name each other by their release URL, so
+# `npm install <url of baka-core.tgz>` resolves @baka/protocol from the same release.
 #
 #   git tag v0.1.0 && git push origin v0.1.0
 #
@@ -40,7 +41,7 @@ jobs:
       - name: Build and pack
         run: |
           pnpm build
-          pnpm run pack
+          BAKA_DEP_BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}" pnpm run pack
 
       - name: The tarball runs on its own
         run: |
@@ -52,12 +53,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="${GITHUB_REF_NAME#v}"
-          # An unversioned name, so `releases/latest/download/baka.tgz` always means the newest release.
-          cp "dist-tarballs/baka-${version}.tgz" dist-tarballs/baka.tgz
-          gh release create "${GITHUB_REF_NAME}" --title "baka ${version}" --generate-notes \
-            "dist-tarballs/baka-${version}.tgz" \
-            dist-tarballs/baka.tgz \
-            "dist-tarballs/baka-mcp-server-${version}.tgz" \
-            "dist-tarballs/baka-core-${version}.tgz" \
+          # Unversioned names, so `releases/latest/download/baka-cli.tgz` always means the newest release.
+          assets=""
+          for name in baka-protocol baka-sdk baka-core baka-cli baka-mcp; do
+            cp "dist-tarballs/${name}-${version}.tgz" "dist-tarballs/${name}.tgz"
+            assets="$assets dist-tarballs/${name}-${version}.tgz dist-tarballs/${name}.tgz"
+          done
+          # shellcheck disable=SC2086
+          gh release create "${GITHUB_REF_NAME}" --title "baka ${version}" --generate-notes $assets \
             install.sh \
             moralo.module.json

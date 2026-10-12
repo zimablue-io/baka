@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import { extname, join, relative, resolve } from "node:path"
-import type { PackManifest } from "@repo/protocol"
+import type { PackManifest } from "@baka/protocol"
 import ts from "typescript"
 
 /**
@@ -15,7 +15,7 @@ import ts from "typescript"
  *   - `child_process` pack imports
  *   - `eval(...)` and `new Function(...)`
  *   - dynamic `import(<specifier>)` of non-allowlisted specifiers
- *     (allowlist: `baka-sdk`, `node:` builtins)
+ *     (allowlist: `@baka/sdk`, `node:` builtins)
  *   - writes outside the manifest's declared `filePatterns`
  *     (statically detectable string-literal arguments to
  *     `writeFile` / `writeFileSync` / `appendFile` / `appendFileSync`
@@ -61,7 +61,7 @@ const NETWORK_MODULES = new Set(["http", "https", "net", "dns"])
 const CHILD_PROCESS_MODULE = "child_process"
 
 /**
- * Dynamic-import allowlist (VAL-SCAN-016). `baka-sdk` is the
+ * Dynamic-import allowlist (VAL-SCAN-016). `@baka/sdk` is the
  * pack-author boundary (workflows import from it; packs
  * import from it too). `node:` builtins are pure computation
  * primitives — no network, no process spawn, no fs. Anything
@@ -70,7 +70,7 @@ const CHILD_PROCESS_MODULE = "child_process"
  * specifiers implicitly by matching the raw literal).
  */
 const DYNAMIC_IMPORT_ALLOWLIST: ReadonlySet<string> = new Set([
-	"baka-sdk",
+	"@baka/sdk",
 	"node:fs",
 	"node:fs/promises",
 	"node:path",

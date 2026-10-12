@@ -42,12 +42,12 @@ const BAKA_REPO = join(__dirname, "..", "..", "..")
 const DIST_INDEX = join(BAKA_REPO, "apps", "cli", "dist", "index.js")
 // Inline fixture: minimal manifest + a single non-reasoning `write` recipe.
 // Built into the scratch tree (no symlink to a separate fixture dir, no
-// `baka-sdk` import path required) so the loader sees the pack just like
+// `@baka/sdk` import path required) so the loader sees the pack just like
 // any other on-disk pack.
 const HONEST_MOD_NAME = "honest-mod"
 const HONEST_MOD_MANIFEST = `// Inline fixture: see apps/cli/test/plan-honesty.test.ts
 // for why this is inlined instead of loaded from a separate fixture file.
-import type { PackManifest } from "baka-sdk"
+import type { PackManifest } from "@baka/sdk"
 
 export const Manifest: PackManifest = {
 \tname: "${HONEST_MOD_NAME}",
@@ -70,7 +70,7 @@ export const Manifest: PackManifest = {
 `
 const HONEST_MOD_RECIPE = `import { rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { AgentRole, type StepResponse, type WorkflowStep } from "baka-sdk"
+import { AgentRole, type StepResponse, type WorkflowStep } from "@baka/sdk"
 
 export const writeRecipe: WorkflowStep<Record<string, never>, boolean, { targetDirectory: string }> = {
 \tname: "${HONEST_MOD_NAME}.write",
@@ -422,7 +422,7 @@ afterAll(() => {
 
 beforeAll(async () => {
 	if (!existsSync(DIST_INDEX)) {
-		throw new Error(`built CLI not found at ${DIST_INDEX}; run \`pnpm --filter baka build\` first`)
+		throw new Error(`built CLI not found at ${DIST_INDEX}; run \`pnpm --filter @baka/cli build\` first`)
 	}
 	outsideCliDist = await copyCliOutsideRepo()
 }, 120_000)

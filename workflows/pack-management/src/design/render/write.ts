@@ -79,7 +79,7 @@ export function writePackFiles(args: {
   "private": true,
   "main": "./manifest.ts",
   "dependencies": {
-    "baka-sdk": "workspace:*"
+    "@baka/sdk": "workspace:*"
   },
   "peerDependencies": {
     "baka": "*"
@@ -94,11 +94,11 @@ export function writePackFiles(args: {
 	writeFileSync(
 		join(packDir, "tsconfig.json"),
 		`{
-  "extends": "@repo/typescript-config/base.json",
+  "extends": "@baka/typescript-config/base.json",
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "baka-sdk": ["../../packages/baka-sdk/src/index.ts"]
+      "@baka/sdk": ["../../packages/sdk/src/index.ts"]
     }
   },
   "include": ["**/*.ts"]

@@ -100,14 +100,20 @@ Each receipt's `pins` is `[{ id, version, contentHash }]` for the pack the run u
 
 ## Install
 
-`@baka/core` is not on a registry yet. Build a tarball and install it into any project (ESM only, Node 24 or newer):
+`@baka/core` is not on npm yet. Install it from the release site, which also serves the `@baka/protocol` it depends on (ESM only, Node 24 or newer):
+
+```bash
+npm install https://baka.dashboard.zimablue.io/releases/latest/baka-core.tgz
+```
+
+Or build the tarballs yourself:
 
 ```bash
 # in the Baka repo
-pnpm build --filter @baka/core && pnpm run pack      # writes dist-tarballs/baka-core-<version>.tgz
+pnpm build && pnpm run pack      # writes dist-tarballs/baka-{protocol,core}-<version>.tgz
 
 # in your project, outside the workspace
-npm install /abs/path/to/baka/dist-tarballs/baka-core-<version>.tgz     # or: pnpm add file:/abs/path/...tgz
+npm install /abs/path/to/baka/dist-tarballs/baka-core-<version>.tgz
 ```
 
 ```ts
@@ -118,4 +124,4 @@ Its three runtime dependencies are declared and install normally: `handlebars`, 
 
 `node scripts/verify-core-pack.mjs` (`pnpm run verify:core`) proves the route end to end: it packs, installs the tarball with npm into a scratch project outside the repo, imports it, runs a pack from a catalog directory against another project directory, and type-checks a consumer file against `index.d.ts`. CI runs it after the pack step.
 
-Packs you run through it follow the same rule as with the CLI: they import `baka-sdk` for **types only** (`import type`), so a catalog needs no install of its own (see [docs/PACKS.md](../../docs/PACKS.md#public-boundary-baka-sdk)).
+Packs you run through it follow the same rule as with the CLI: they import `@baka/sdk` for **types only** (`import type`), so a catalog needs no install of its own (see [docs/PACKS.md](../../docs/PACKS.md#public-boundary-@baka/sdk)).

@@ -2,8 +2,9 @@
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { isolatedFromEnv, llmCallFromEnv } from "@baka/agent"
 import { findBundledPacks } from "@baka/engine"
-import { isolatedFromEnv, llmCallFromEnv } from "@repo/agent-engine"
+import { BAKA_EXIT_CODE, type BakaAddon, type LlmCall } from "@baka/protocol"
 import {
 	AddonLoadError,
 	addonSpecsFromEnv,
@@ -11,8 +12,7 @@ import {
 	PackDirsError,
 	packDirsFromEnv,
 	resolvePackDirs,
-} from "@repo/ast-tooling"
-import { BAKA_EXIT_CODE, type BakaAddon, type LlmCall } from "@repo/protocol"
+} from "@baka/recipes"
 import { Command } from "commander"
 import type { CallOptions } from "./call"
 import { runHealthCommand, runSchemaCommand, runVersionCommand } from "./commands/contract"

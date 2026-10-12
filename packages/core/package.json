@@ -32,14 +32,14 @@
 		"test:watch": "vitest"
 	},
 	"dependencies": {
+		"@baka/protocol": "workspace:*",
 		"handlebars": "^4.7.8",
 		"jiti": "^2.6.0",
 		"zod": "^4.6.5"
 	},
 	"devDependencies": {
-		"@repo/ast-tooling": "workspace:*",
-		"@repo/protocol": "workspace:*",
-		"@repo/typescript-config": "workspace:*",
+		"@baka/recipes": "workspace:*",
+		"@baka/typescript-config": "workspace:*",
 		"@types/node": "^24.0.0",
 		"tsup": "^8.3.5",
 		"typescript": "^5.9.2",

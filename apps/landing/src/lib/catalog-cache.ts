@@ -1,4 +1,4 @@
-import type { RegistryCatalogResponseSchema } from "@repo/protocol"
+import type { RegistryCatalogResponseSchema } from "@baka/protocol"
 import { useSyncExternalStore } from "react"
 import type { z } from "zod"
 

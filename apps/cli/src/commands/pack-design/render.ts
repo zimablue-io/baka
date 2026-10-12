@@ -4,7 +4,7 @@
 // compose to produce what the user sees.
 // ---------------------------------------------------------------------------
 
-import type { DesignSessionState, DesignTurnPayload } from "@repo/pack-management-workflow"
+import type { DesignSessionState, DesignTurnPayload } from "@baka/workflow-pack-management"
 
 export const SLASH_HELP = `[commands]
   /exit         quit the session (state is saved; resume with \`baka pack create <name>\`)

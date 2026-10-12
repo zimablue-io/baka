@@ -27,7 +27,7 @@ afterEach(() => {
 
 beforeAll(() => {
 	if (!existsSync(DIST_INDEX)) {
-		throw new Error(`built CLI not found at ${DIST_INDEX}; run \`pnpm --filter baka build\` first`)
+		throw new Error(`built CLI not found at ${DIST_INDEX}; run \`pnpm --filter @baka/cli build\` first`)
 	}
 })
 

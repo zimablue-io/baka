@@ -1,4 +1,4 @@
-import type { LLMMessage } from "@repo/protocol"
+import type { LLMMessage } from "@baka/protocol"
 
 // ---------------------------------------------------------------------------
 // Design session state — the only place that knows the shape of the chat

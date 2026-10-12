@@ -7,8 +7,8 @@
 // ---------------------------------------------------------------------------
 
 import { join } from "node:path"
-import { input as inquirerInput } from "@inquirer/prompts"
-import { createLLMProvider, loadLLMConfig, validateLLMConfig } from "@repo/agent-engine"
+import { createLLMProvider, loadLLMConfig, validateLLMConfig } from "@baka/agent"
+import { BAKA_EXIT_CODE, type LLMProvider } from "@baka/protocol"
 import {
 	type ChatLoopHooks,
 	type ChatLoopResult,
@@ -18,8 +18,8 @@ import {
 	loadSession,
 	runChatLoop,
 	saveSession,
-} from "@repo/pack-management-workflow"
-import { BAKA_EXIT_CODE, type LLMProvider } from "@repo/protocol"
+} from "@baka/workflow-pack-management"
+import { input as inquirerInput } from "@inquirer/prompts"
 import { die } from "../../die"
 import { createPackSandbox, runConsistencyInSandbox } from "./consistency"
 import { isE2EMode } from "./e2e-input"
@@ -132,7 +132,7 @@ export async function runPackConsistency(
 
 	const sandbox = createPackSandbox({ packName: name, packDir, cwd: opts.cwd })
 	try {
-		const { runConsistencyTest } = await import("@repo/ast-tooling")
+		const { runConsistencyTest } = await import("@baka/recipes")
 		const result = await runConsistencyTest({ cwd: sandbox.tempDir, packName: name, recipeId, intent, n })
 		console.log(renderConsistencyResult(result))
 		if (!result.passed) process.exit(BAKA_EXIT_CODE.FAILED)

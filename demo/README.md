@@ -14,7 +14,7 @@ The engine skips a file if it already exists. Delete the generated file to write
 
 ```bash
 # terminal 1 — engine bound to this folder
-pnpm --filter baka exec node dist/index.js serve --cwd demo --port 4311
+pnpm --filter @baka/cli exec node dist/index.js serve --cwd demo --port 4311
 
 # terminal 2 — dashboard
 pnpm --filter @baka/dashboard dev

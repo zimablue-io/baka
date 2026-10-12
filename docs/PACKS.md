@@ -49,8 +49,8 @@ Install a pack into the project marketplace with `baka install <source>` (links 
 
 ```
 packs/<my-pack>/
-  package.json         # self-contained; baka-sdk (types only) as a devDependency, peer-deps on baka
-  tsconfig.json        # extends your TS base; maps "baka-sdk" to a real path (types)
+  package.json         # self-contained; @baka/sdk (types only) as a devDependency, peer-deps on baka
+  tsconfig.json        # extends your TS base; maps "@baka/sdk" to a real path (types)
   README.md            # recommended; its absence is a `baka pack validate` warning
   manifest.ts          # exports `Manifest` (typed via PackManifestSchema)
   scaffold/
@@ -68,21 +68,21 @@ packs/<my-pack>/
 
 The engine enforces the layout. `recipe.ts` may be omitted when `templates/` is the output tree. Missing both produces a `recipe-missing` diagnostic.
 
-The pack must be **self-contained**: `baka pack test` copies the pack (including its `node_modules`) into a temp dir and runs the recipe from that copy, so anything the pack imports at run time must resolve from inside it. Types from `baka-sdk` are erased and need no install.
+The pack must be **self-contained**: `baka pack test` copies the pack (including its `node_modules`) into a temp dir and runs the recipe from that copy, so anything the pack imports at run time must resolve from inside it. Types from `@baka/sdk` are erased and need no install.
 
-## Public boundary: `baka-sdk`
+## Public boundary: `@baka/sdk`
 
-Packs import only from `baka-sdk` (not from `@repo/protocol` or the engine internals), and **only types**. `baka-sdk` is not installed next to a pack and the engine does not alias it at run time, so a runtime import (`import { AgentRole } from "baka-sdk"`, a bare `import "baka-sdk"`, `require("baka-sdk")`) fails to load in any catalog without its own `node_modules`. Write `import type { ... } from "baka-sdk"` everywhere: jiti erases it, and the pack type-checks against the SDK (or a copy of its `.d.ts`) without Baka being installed. `baka pack validate` scans a pack's TypeScript files (everything under the pack root except `node_modules`, test and `types` directories, `*.d.ts`, and `*.test.ts`) and fails on a runtime import of `baka-sdk`, naming the file and line; `import type { A } from "baka-sdk"` and `import { type A } from "baka-sdk"` are both accepted.
+Packs import only from `@baka/sdk` (not from `@baka/protocol` or the engine internals), and **only types**. `@baka/sdk` is not installed next to a pack and the engine does not alias it at run time, so a runtime import (`import { AgentRole } from "@baka/sdk"`, a bare `import "@baka/sdk"`, `require("@baka/sdk")`) fails to load in any catalog without its own `node_modules`. Write `import type { ... } from "@baka/sdk"` everywhere: jiti erases it, and the pack type-checks against the SDK (or a copy of its `.d.ts`) without Baka being installed. `baka pack validate` scans a pack's TypeScript files (everything under the pack root except `node_modules`, test and `types` directories, `*.d.ts`, and `*.test.ts`) and fails on a runtime import of `@baka/sdk`, naming the file and line; `import type { A } from "@baka/sdk"` and `import { type A } from "@baka/sdk"` are both accepted.
 
-The one opt-out is to own the install: a pack that really needs a runtime export (for example `callLLMAsValidator` in a validator) lists `baka-sdk` under `dependencies` in its `package.json` and installs it; `pack validate` then accepts runtime imports, and `baka pack test` copies the pack's `node_modules` along. A catalog that does this gives up running straight from a fresh clone.
+The one opt-out is to own the install: a pack that really needs a runtime export (for example `callLLMAsValidator` in a validator) lists `@baka/sdk` under `dependencies` in its `package.json` and installs it; `pack validate` then accepts runtime imports, and `baka pack test` copies the pack's `node_modules` along. A catalog that does this gives up running straight from a fresh clone.
 
 A `recipe.ts` therefore exports an `RecipeStep`, which has no `role` (the one runtime value a step used to need, `AgentRole.WORKER`, is gone):
 
 ```ts
-import type { RecipeStep } from "baka-sdk"
+import type { RecipeStep } from "@baka/sdk"
 ```
 
-`baka-sdk` exports the public types you need (`RecipeStep`, `RecipeContext`, `RecipeFiles`, `OrchestrationState`, `PackManifest`, `ValidationDiagnostic`, ...). If you need something that isn't there, it almost certainly shouldn't be in a pack - it should be in the engine.
+`@baka/sdk` exports the public types you need (`RecipeStep`, `RecipeContext`, `RecipeFiles`, `OrchestrationState`, `PackManifest`, `ValidationDiagnostic`, ...). If you need something that isn't there, it almost certainly shouldn't be in a pack - it should be in the engine.
 
 ## A complete example pack
 
@@ -93,7 +93,7 @@ Everything below is copy-pasteable: a pack built from these exact files passes `
 The manifest must export a `Manifest` value matching `PackManifestSchema`. Validator ids are camelCase here; the validator files on disk are the kebab-case form of the same id.
 
 ```ts
-import type { PackManifest } from "baka-sdk"
+import type { PackManifest } from "@baka/sdk"
 
 export const Manifest: PackManifest = {
 	name: "hello-mod",
@@ -136,7 +136,7 @@ A recipe is an `RecipeStep` object: `execute` writes files through `ctx.files` (
 The loader resolves the recipe by export name, in this order: `camelCase(id)`, `camelCase(id)` + `Recipe`, the exact id, id + `Recipe`, then the default export. For the id `say-hello`, the export `sayHello` or `sayHelloRecipe` resolves; the example uses `sayHelloRecipe`.
 
 ```ts
-import type { RecipeStep } from "baka-sdk"
+import type { RecipeStep } from "@baka/sdk"
 
 interface SayHelloInput {
 	name: string
@@ -234,7 +234,7 @@ Run once per validation pass. Inspect any file in the project. Use for cross-cut
 // _shared/validators/has-package-json.ts
 import { existsSync } from "node:fs"
 import { join } from "node:path"
-import type { OrchestrationState, ValidationDiagnostic } from "baka-sdk"
+import type { OrchestrationState, ValidationDiagnostic } from "@baka/sdk"
 
 export async function hasPackageJson(state: OrchestrationState): Promise<ValidationDiagnostic[]> {
 	const path = join(state.targetDirectory, "package.json")
@@ -254,7 +254,7 @@ Run when the recipe ran (or, under `baka validate`, when its marker matches). Us
 // say-hello/validators/has-greeting.ts
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
-import type { OrchestrationState, ValidationDiagnostic } from "baka-sdk"
+import type { OrchestrationState, ValidationDiagnostic } from "@baka/sdk"
 
 export async function hasGreeting(state: OrchestrationState): Promise<ValidationDiagnostic[]> {
 	const file = join(state.targetDirectory, "hello.txt")
@@ -269,7 +269,7 @@ export async function hasGreeting(state: OrchestrationState): Promise<Validation
 }
 ```
 
-Keep validators deterministic TypeScript. A validator that must judge semantic content can ask the validator-role model with `callLLMAsValidator`, a runtime export of `baka-sdk`: that needs the pack to own its `baka-sdk` install (see "Public boundary").
+Keep validators deterministic TypeScript. A validator that must judge semantic content can ask the validator-role model with `callLLMAsValidator`, a runtime export of `@baka/sdk`: that needs the pack to own its `@baka/sdk` install (see "Public boundary").
 
 ## Shared helpers
 

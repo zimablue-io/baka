@@ -1,13 +1,46 @@
 {
 	"$schema": "https://openapi.vercel.sh/vercel.json",
 	"framework": null,
-	"buildCommand": "pnpm build",
+	"buildCommand": "cd ../.. && pnpm run site",
 	"outputDirectory": "dist/client",
+	"ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ../../apps ../../packages ../../workflows ../../packs ../../scripts ../../install.sh ../../pnpm-lock.yaml ../../package.json ../../.nvmrc",
+	"headers": [
+		{
+			"source": "/(install|install.sh)",
+			"headers": [
+				{
+					"key": "Content-Type",
+					"value": "text/plain; charset=utf-8"
+				},
+				{
+					"key": "Cache-Control",
+					"value": "public, max-age=300"
+				}
+			]
+		},
+		{
+			"source": "/releases/latest/(.*)",
+			"headers": [
+				{
+					"key": "Cache-Control",
+					"value": "public, max-age=300"
+				}
+			]
+		},
+		{
+			"source": "/releases/(v[^/]+)/(.*)",
+			"headers": [
+				{
+					"key": "Cache-Control",
+					"value": "public, max-age=31536000, immutable"
+				}
+			]
+		}
+	],
 	"rewrites": [
 		{
 			"source": "/(.*)",
 			"destination": "/index.html"
 		}
-	],
-	"ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ../../packages/typescript-config ../../pnpm-lock.yaml ../../package.json ../../.nvmrc"
+	]
 }

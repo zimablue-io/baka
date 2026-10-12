@@ -4,7 +4,7 @@ import { mkdtemp } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import type { OrchestrationState, PackManifest, ValidationDiagnostic } from "@repo/protocol"
+import type { OrchestrationState, PackManifest, ValidationDiagnostic } from "@baka/protocol"
 import { createJiti } from "jiti"
 import type { StorageAdapter } from "../storage"
 import type { PerRecipeState } from "./dry-run"
@@ -61,7 +61,7 @@ import type { PerRecipeState } from "./dry-run"
  * / eval in the pack's own tree, so an in-process validator
  * cannot bypass the screening gates. The validator file is
  * trusted because the loadability gate
- * (`packages/ast-tooling/src/recipe-loader.ts:81-117` /
+ * (`packages/recipes/src/recipe-loader.ts:81-117` /
  * `apps/registry/src/worker/manifest.ts`) requires the file to
  * exist and to export a function.
  */
@@ -170,7 +170,7 @@ export async function runOutputValidation(opts: RunOutputValidationOptions): Pro
 		// The validator's contract is `async (state) => Diagnostic[]`
 		// where `state.targetDirectory` is the dir to scan — the
 		// same contract `runValidators` in
-		// `packages/ast-tooling/src/validator.ts` honors.
+		// `packages/recipes/src/validator.ts` honors.
 		const packValidatorIds = opts.manifest.packValidators ?? []
 		for (const validatorId of packValidatorIds) {
 			const summary = await invokePackValidator({
@@ -333,7 +333,7 @@ export async function runOutputValidation(opts: RunOutputValidationOptions): Pro
  * eval in the pack's own tree.
  *
  * Mirrors `loadPackValidator` in
- * `packages/ast-tooling/src/recipe-loader.ts:81-87`:
+ * `packages/recipes/src/recipe-loader.ts:81-87`:
  *   path = `<packRoot>/_shared/validators/<kebabId>.ts`
  *   export = `mod[validatorId] ?? mod.default`
  */
@@ -364,7 +364,7 @@ async function invokePackValidator(opts: {
 /**
  * Loads a recipe-level validator from the pack's own tree
  * and invokes it against `targetDirectory` with the run in `state.run`. Mirrors `loadRecipeValidator` in
- * `packages/ast-tooling/src/recipe-loader.ts:103-117`:
+ * `packages/recipes/src/recipe-loader.ts:103-117`:
  *   path = `<packRoot>/<recipeId>/validators/<kebabId>.ts`
  *   export = `mod[validatorId] ?? mod.default`
  */

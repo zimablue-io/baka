@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs"
+import { BAKA_EXIT_CODE } from "@baka/protocol"
 import {
 	listInstalledPackages,
 	projectPacksDir,
@@ -6,8 +7,7 @@ import {
 	removeSource,
 	userPacksDir,
 	userSettingsPath,
-} from "@repo/ast-tooling"
-import { BAKA_EXIT_CODE } from "@repo/protocol"
+} from "@baka/recipes"
 import { die } from "../die"
 
 /**

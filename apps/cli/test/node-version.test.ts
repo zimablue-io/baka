@@ -2,7 +2,7 @@
 
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { BAKA_NODE_MAJOR } from "@repo/protocol"
+import { BAKA_NODE_MAJOR } from "@baka/protocol"
 import { describe, expect, it } from "vitest"
 
 const repo = join(__dirname, "..", "..", "..")

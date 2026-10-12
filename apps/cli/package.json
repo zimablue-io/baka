@@ -1,5 +1,5 @@
 {
-	"name": "baka",
+	"name": "@baka/cli",
 	"version": "0.1.0",
 	"license": "Apache-2.0",
 	"private": true,
@@ -27,21 +27,21 @@
 		"test:real-llm": "RUN_REAL_LLM=1 vitest run test/baka-pack-create.test.ts"
 	},
 	"dependencies": {
-		"@baka/engine": "workspace:*",
 		"@inquirer/prompts": "^8.5.2",
-		"@repo/agent-engine": "workspace:*",
-		"@repo/ast-tooling": "workspace:*",
-		"@repo/feature-planning-workflow": "workspace:*",
-		"@repo/pack-management-workflow": "workspace:*",
-		"@repo/protocol": "workspace:*",
 		"commander": "^15.0.0",
 		"jiti": "^2.7.0"
 	},
 	"devDependencies": {
-		"@repo/typescript-config": "workspace:*",
+		"@baka/agent": "workspace:*",
+		"@baka/engine": "workspace:*",
+		"@baka/protocol": "workspace:*",
+		"@baka/recipes": "workspace:*",
+		"@baka/sdk": "workspace:*",
+		"@baka/typescript-config": "workspace:*",
+		"@baka/workflow-feature-planning": "workspace:*",
+		"@baka/workflow-pack-management": "workspace:*",
 		"@types/node": "^24.0.0",
 		"@vitest/coverage-v8": "4.1.8",
-		"baka-sdk": "workspace:*",
 		"tsup": "^8.3.5",
 		"tsx": "^4.19.2",
 		"typescript": "^5.9.2",

@@ -1,5 +1,5 @@
 {
-	"name": "baka",
+	"name": "@baka/workspace",
 	"private": true,
 	"version": "0.1.0",
 	"scripts": {
@@ -10,16 +10,17 @@
 		"check-types": "turbo run check-types",
 		"verify:core": "node scripts/verify-core-pack.mjs",
 		"verify:cli": "node scripts/verify-cli-pack.mjs",
-		"pack": "rm -rf dist-tarballs && mkdir -p dist-tarballs && node scripts/pack.mjs baka --out \"$PWD/dist-tarballs\" && node scripts/pack.mjs @baka/mcp-server --out \"$PWD/dist-tarballs\" && node scripts/pack.mjs @baka/core --out \"$PWD/dist-tarballs\"",
+		"pack": "node scripts/pack-all.mjs",
 		"knip": "node node_modules/knip/bin/knip.js --treat-config-hints-as-errors",
 		"format": "biome format --write .",
 		"format:check": "biome format .",
 		"clean": "find . -name 'dist' -type d -exec rm -rf {} +",
 		"setup": "./scripts/setup.sh",
-		"postinstall": "pnpm --filter baka run build",
+		"postinstall": "pnpm --filter @baka/cli run build",
 		"baka": "node scripts/baka.mjs",
-		"mcp": "pnpm --filter @baka/mcp-server dev",
-		"link:global": "pnpm --filter baka --filter @baka/mcp-server exec pnpm link --global"
+		"mcp": "pnpm --filter @baka/mcp dev",
+		"link:global": "pnpm --filter @baka/cli --filter @baka/mcp exec pnpm link --global",
+		"site": "pnpm build && node scripts/stage-site.mjs apps/dashboard/dist/client"
 	},
 	"license": "Apache-2.0",
 	"devDependencies": {

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { engineRequest } from "@baka/engine"
-import { createLock, PackRegistry, writeLockfile } from "@repo/ast-tooling"
-import { BAKA_EXIT_CODE, BAKA_LOCKFILE_NAME, exitCodeForRule, type OpenSlot } from "@repo/protocol"
+import { BAKA_EXIT_CODE, BAKA_LOCKFILE_NAME, exitCodeForRule, type OpenSlot } from "@baka/protocol"
+import { createLock, PackRegistry, writeLockfile } from "@baka/recipes"
 import { type CallOptions, dieOnApiError, engineInit, registryOptions } from "../call"
 import { die } from "../die"
 

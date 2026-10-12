@@ -1,4 +1,4 @@
-import { BAKA_EXIT_CODE } from "@repo/protocol"
+import { BAKA_EXIT_CODE } from "@baka/protocol"
 
 /** Whether the caller asked for machine-readable output; errors then follow the same rule as results. */
 function wantsJson(): boolean {

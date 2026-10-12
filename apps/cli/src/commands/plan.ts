@@ -1,17 +1,9 @@
+import { createLLMProvider, loadLLMConfig, validateLLMConfig } from "@baka/agent"
 import { engineRequest } from "@baka/engine"
-import { createLLMProvider, loadLLMConfig, validateLLMConfig } from "@repo/agent-engine"
-import {
-	listPlans,
-	loadPlan,
-	PackRegistry,
-	ranRecipes,
-	runValidators,
-	StructuredLog,
-	savePlan,
-} from "@repo/ast-tooling"
-import { featurePlanningWorkflow } from "@repo/feature-planning-workflow"
-import type { LLMProvider, OrchestrationState, PackManifest, ResolvedLLMConfig, WorkflowStep } from "@repo/protocol"
-import { BAKA_EXIT_CODE } from "@repo/protocol"
+import type { LLMProvider, OrchestrationState, PackManifest, ResolvedLLMConfig, WorkflowStep } from "@baka/protocol"
+import { BAKA_EXIT_CODE } from "@baka/protocol"
+import { listPlans, loadPlan, PackRegistry, ranRecipes, runValidators, StructuredLog, savePlan } from "@baka/recipes"
+import { featurePlanningWorkflow } from "@baka/workflow-feature-planning"
 import { createJiti } from "jiti"
 import { type CallOptions, dieOnApiError, engineInit } from "../call"
 
@@ -157,7 +149,7 @@ export async function runApplyCommand(
 	// in-tree packs/) still resolves whatever is installed for that
 	// project. The apply surface and the worker surface therefore
 	// resolve packs from any cwd identically.
-	const { runSaga: runSagaImpl, executeWorkerStep } = await import("@repo/ast-tooling")
+	const { runSaga: runSagaImpl, executeWorkerStep } = await import("@baka/recipes")
 	const registry = new PackRegistry(cwd, { packDirs })
 	const packNames = new Set<string>()
 	for (const planStep of plan.resolvedSteps) {

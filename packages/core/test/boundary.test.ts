@@ -7,10 +7,10 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO = join(HERE, "..", "..", "..")
 
 // The provider-sealing grep from docs/PHILOSOPHY.md, applied to the package that
-// embedders import: no provider SDK, API host, or agent-engine import may be
+// embedders import: no provider SDK, API host, or agent import may be
 // reachable from @baka/core's source or from the workspace packages it bundles.
 const PROVIDER_PATTERN =
-	/api\.openai|api\.anthropic|@anthropic-ai\/sdk|@earendil-works\/pi-coding-agent|from "openai"|from 'openai'|@repo\/agent-engine/
+	/api\.openai|api\.anthropic|@anthropic-ai\/sdk|@earendil-works\/pi-coding-agent|from "openai"|from 'openai'|@baka\/agent/
 
 function sourceFiles(dir: string): string[] {
 	const out: string[] = []
@@ -28,15 +28,15 @@ function sourceFiles(dir: string): string[] {
 describe("provider sealing for @baka/core", () => {
 	it.each([
 		"packages/core/src",
-		"packages/ast-tooling/src",
+		"packages/recipes/src",
 		"packages/protocol/src",
-	])("%s has no provider SDK, API host, or agent-engine import", (dir) => {
+	])("%s has no provider SDK, API host, or agent import", (dir) => {
 		const offenders = sourceFiles(join(REPO, dir)).filter((file) => PROVIDER_PATTERN.test(readFileSync(file, "utf-8")))
 		expect(offenders).toEqual([])
 	})
 
-	it("does not declare agent-engine as a dependency", () => {
+	it("does not declare agent as a dependency", () => {
 		const pkg = JSON.parse(readFileSync(join(HERE, "..", "package.json"), "utf-8")) as Record<string, unknown>
-		expect(JSON.stringify(pkg)).not.toContain("agent-engine")
+		expect(JSON.stringify(pkg)).not.toContain("agent")
 	})
 })

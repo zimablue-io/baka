@@ -140,10 +140,10 @@ Make sure the URL is **stable**: users pass it to `baka search` / `baka install 
 
 ## Validation
 
-To validate your catalog locally before publishing, point a small script at the schema in `@repo/protocol`:
+To validate your catalog locally before publishing, point a small script at the schema in `@baka/protocol`:
 
 ```ts
-import { CatalogSchema } from "@repo/protocol"
+import { CatalogSchema } from "@baka/protocol"
 import catalog from "./catalog.json"
 
 const result = CatalogSchema.safeParse(catalog)

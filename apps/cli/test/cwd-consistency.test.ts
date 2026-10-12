@@ -8,7 +8,7 @@
 // and pass it from `index.ts`.
 //
 // Bug (root script): `pnpm baka` runs the CLI via
-// `pnpm --filter baka exec tsx src/index.ts ...`, which sets the spawned
+// `pnpm --filter @baka/cli exec tsx src/index.ts ...`, which sets the spawned
 // process's cwd to `apps/cli`. From the repo root that means every
 // `baka pack ...` invocation resolves packs from `apps/cli` instead
 // of the user's invocation directory. The root `scripts/baka.mjs` wrapper
@@ -29,7 +29,7 @@
 //
 // The wrapper-script test uses Node directly (not pnpm) because the unit
 // under test is `scripts/baka.mjs`. The `baka` invocations inside that
-// probe use the built dist via `pnpm --filter baka exec node
+// probe use the built dist via `pnpm --filter @baka/cli exec node
 // apps/cli/dist/index.js` so the dist rebuild requirement (services.yaml
 // note) is honored.
 
@@ -60,7 +60,7 @@ afterEach(() => {
 
 beforeAll(() => {
 	if (!existsSync(DIST_INDEX)) {
-		throw new Error(`built CLI not found at ${DIST_INDEX}; run \`pnpm --filter baka build\` first`)
+		throw new Error(`built CLI not found at ${DIST_INDEX}; run \`pnpm --filter @baka/cli build\` first`)
 	}
 	if (!existsSync(BAKA_MJS)) {
 		throw new Error(`root script not found at ${BAKA_MJS}`)

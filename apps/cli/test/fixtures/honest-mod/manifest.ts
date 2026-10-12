@@ -1,4 +1,4 @@
-import type { PackManifest } from "baka-sdk"
+import type { PackManifest } from "@baka/sdk"
 
 export const Manifest: PackManifest = {
 	name: "honest-mod",

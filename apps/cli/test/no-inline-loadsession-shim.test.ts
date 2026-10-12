@@ -6,7 +6,7 @@
 //     declare a local `function loadSession(` shim that re-implements
 //     the workflow's session I/O.
 //   - It DOES import `loadSession` from the real workflow package via
-//     `import { ... loadSession ... } from "@repo/pack-management-workflow"`
+//     `import { ... loadSession ... } from "@baka/workflow-pack-management"`
 //     so the single source of truth is shared.
 //
 // Failure mode it covers:
@@ -15,7 +15,7 @@
 //     static-analysis issue when Node can't verify named exports from
 //     a .ts package entry". Once the workflow barrel is fixed
 //     (extensions added), that workaround becomes dead code: the real
-//     `loadSession` from `@repo/pack-management-workflow` is
+//     `loadSession` from `@baka/workflow-pack-management` is
 //     reachable. Leaving the shim in place means two implementations of
 //     session loading drift apart over time and a reader of the code
 //     can't tell which one runs.
@@ -55,19 +55,19 @@ describe("consistency.ts loadSession shim removal", () => {
 			hasShim,
 			"consistency.ts still declares an inline `function loadSession(...)` shim; " +
 				"once the workflow barrel is fixed, the real loadSession from " +
-				"@repo/pack-management-workflow is reachable and the shim should be removed.",
+				"@baka/workflow-pack-management is reachable and the shim should be removed.",
 		).toBe(false)
 	})
 
 	it("imports loadSession from the real workflow package", () => {
 		// After the fix, loadSession must come from the workflow package
 		// via a single, explicit named import. We match the shape:
-		//   import { ..., loadSession, ... } from "@repo/pack-management-workflow"
-		const importPattern = /import\s*\{[^}]*\bloadSession\b[^}]*\}\s*from\s*["']@repo\/pack-management-workflow["']/
+		//   import { ..., loadSession, ... } from "@baka/workflow-pack-management"
+		const importPattern = /import\s*\{[^}]*\bloadSession\b[^}]*\}\s*from\s*["']@baka\/workflow-pack-management["']/
 		const hasImport = importPattern.test(stripped)
 		expect(
 			hasImport,
-			'consistency.ts does not import loadSession from "@repo/pack-management-workflow"; ' +
+			'consistency.ts does not import loadSession from "@baka/workflow-pack-management"; ' +
 				"the real workflow loadSession should replace the inline shim.",
 		).toBe(true)
 	})

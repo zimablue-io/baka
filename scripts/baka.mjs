@@ -7,7 +7,7 @@
 // own defaults (`--cwd` is the current directory; relative `--cwd` and
 // `--packs-dir` resolve against it) mean what the caller expects, whichever
 // repo the caller is in. No pnpm workspace is involved: the old wrapper ran
-// `pnpm --filter baka exec`, which only finds the project inside the Baka repo.
+// `pnpm --filter @baka/cli exec`, which only finds the project inside the Baka repo.
 //
 // Strips one leading "--" that pnpm appends when the caller uses the documented
 // `pnpm baka -- <cmd>` form; commander would otherwise take it as the start of

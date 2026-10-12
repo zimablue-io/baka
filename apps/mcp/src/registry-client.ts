@@ -9,7 +9,7 @@ import {
 	RegistryRecipePreviewSchema,
 	type RegistryVersionDetail,
 	RegistryVersionDetailSchema,
-} from "@repo/protocol"
+} from "@baka/protocol"
 
 /**
  * Thin HTTP client for the baka registry (mirrors
@@ -25,7 +25,7 @@ import {
  * `baka install @scope/name`).
  *
  * Every response is parsed against a `Registry*Schema` from
- * `@repo/protocol` so the wire shape is guaranteed. A 404 on a
+ * `@baka/protocol` so the wire shape is guaranteed. A 404 on a
  * missing / private / tombstoned pack returns `null`
  * (existence-leak parity with the CLI's surfaces — VAL-AUTH-003 /
  * VAL-DISC-019). Transport failures raise `RegistryTransportError`,

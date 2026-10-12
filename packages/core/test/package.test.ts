@@ -27,8 +27,9 @@ describe("@baka/core packaging", () => {
 		expect(core.TREE_HASH_DOMAIN).toBe("workspace.tree.v1")
 	})
 
-	it("bundles the private workspace packages instead of depending on them", () => {
-		expect(Object.keys(pkg.dependencies).filter((d) => d.startsWith("@repo/") || d.startsWith("@baka/"))).toEqual([])
+	it("depends on the contract package and bundles every other workspace package", () => {
+		expect(Object.keys(pkg.dependencies).filter((d) => d.startsWith("@baka/"))).toEqual(["@baka/protocol"])
+		expect(Object.keys(pkg.devDependencies)).toContain("@baka/recipes")
 	})
 
 	// Needs `pnpm build`; the pack-and-install check (scripts/verify-core-pack.mjs) is the end-to-end proof.

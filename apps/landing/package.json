@@ -22,8 +22,8 @@
 		"zod": "^4.6.5"
 	},
 	"devDependencies": {
-		"@repo/typescript-config": "workspace:*",
-		"@repo/protocol": "workspace:*",
+		"@baka/typescript-config": "workspace:*",
+		"@baka/protocol": "workspace:*",
 		"@tailwindcss/vite": "^4.3.0",
 		"@types/node": "^24.0.0",
 		"@types/react": "^19.2.0",

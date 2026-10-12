@@ -6,16 +6,9 @@
 // is intentionally NOT configurable here; the user-facing surface is the
 // two roles.
 
+import { listRoles, type RoleConfig, type RoleName, readRoleConfig, userConfigPath, writeRoleConfig } from "@baka/agent"
+import { BAKA_DEFAULT_WORKER_MODEL, BAKA_EXIT_CODE } from "@baka/protocol"
 import { confirm, input, password } from "@inquirer/prompts"
-import {
-	listRoles,
-	type RoleConfig,
-	type RoleName,
-	readRoleConfig,
-	userConfigPath,
-	writeRoleConfig,
-} from "@repo/agent-engine"
-import { BAKA_DEFAULT_WORKER_MODEL, BAKA_EXIT_CODE } from "@repo/protocol"
 
 function die(code: number, msg: string): never {
 	process.stderr.write(`baka: ${msg}\n`)

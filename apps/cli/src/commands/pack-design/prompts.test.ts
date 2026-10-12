@@ -5,8 +5,8 @@
 // the prompt functions print + what decisions they return.
 // ---------------------------------------------------------------------------
 
-import type { DesignSessionState } from "@repo/pack-management-workflow"
-import { createInitialState } from "@repo/pack-management-workflow"
+import type { DesignSessionState } from "@baka/workflow-pack-management"
+import { createInitialState } from "@baka/workflow-pack-management"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { createE2EInputSource, resetDefaultE2EInputSource } from "./e2e-input"
 import {

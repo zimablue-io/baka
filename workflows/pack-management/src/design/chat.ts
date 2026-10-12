@@ -1,4 +1,4 @@
-import type { LLMProvider } from "@repo/protocol"
+import type { LLMProvider } from "@baka/protocol"
 import {
 	defineApprovalHook,
 	deliverApprovalHook,

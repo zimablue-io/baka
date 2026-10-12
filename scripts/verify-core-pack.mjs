@@ -28,12 +28,23 @@ const run = (cmd, args, cwd) =>
 	execFileSync(cmd, args, { cwd, stdio: ["ignore", "pipe", "inherit"], encoding: "utf-8" })
 
 try {
-	run("node", [join(repoRoot, "scripts", "pack.mjs"), "@baka/core", "--out", packDir], repoRoot)
-	const tarball = readdirSync(packDir).find((f) => f.endsWith(".tgz"))
-	if (!tarball) throw new Error("pack produced no tarball")
+	// @baka/core depends on @baka/protocol, and @baka/sdk does too: pack them together, so the dependency each
+	// manifest names (a file: reference into packDir) is there to be installed.
+	for (const name of ["@baka/protocol", "@baka/sdk", "@baka/core"]) {
+		run("node", [join(repoRoot, "scripts", "pack.mjs"), name, "--out", packDir], repoRoot)
+	}
+	const find = (prefix) => {
+		const file = readdirSync(packDir).find((f) => f.startsWith(prefix) && f.endsWith(".tgz"))
+		if (!file) throw new Error(`pack produced no ${prefix} tarball`)
+		return join(packDir, file)
+	}
 
 	writeFileSync(join(project, "package.json"), JSON.stringify({ name: "core-consumer", private: true, type: "module" }))
-	run("npm", ["install", "--no-audit", "--no-fund", join(packDir, tarball), "typescript@5", "@types/node@22"], project)
+	run(
+		"npm",
+		["install", "--no-audit", "--no-fund", find("baka-core-"), find("baka-sdk-"), "typescript@5", "@types/node@22"],
+		project,
+	)
 
 	// A pack in a catalog directory, run against a separate project directory.
 	const catalog = join(project, "catalog")
@@ -65,6 +76,11 @@ console.log("runtime ok:", ok.outputTreeHash)
 	writeFileSync(
 		join(project, "consumer.ts"),
 		`import { type RecipeContext, type RecipeResult, type RecipeStep, createRegistry, runRecipe } from "@baka/core"
+import { BAKA_CONTRACT_VERSION, type RecipeResult as ContractResult } from "@baka/protocol"
+import type { RecipeStep as SdkStep } from "@baka/sdk"
+export const version: string = BAKA_CONTRACT_VERSION
+export type Same = RecipeResult extends ContractResult ? true : never
+export type SdkStepOk = SdkStep<{ name: string }, null, null>
 export const registry = createRegistry({ root: ".", packDirs: [] })
 export const run: Promise<RecipeResult> = runRecipe({ registry, pack: "a", recipe: "b", params: {} })
 export type Step = RecipeStep<{ name: string }, null, null>
@@ -89,7 +105,7 @@ export type Ctx = RecipeContext
 	)
 	console.log("types ok")
 	console.log(
-		`@baka/core installs and runs outside the workspace (${existsSync(join(project, "node_modules", "@baka", "core")) ? "tarball" : "?"})`,
+		`@baka/core, @baka/sdk and @baka/protocol install and run outside the workspace (${existsSync(join(project, "node_modules", "@baka", "core")) ? "tarball" : "?"})`,
 	)
 } finally {
 	rmSync(scratch, { recursive: true, force: true })

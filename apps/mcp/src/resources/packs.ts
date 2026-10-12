@@ -1,4 +1,4 @@
-import { describePacks } from "@repo/ast-tooling"
+import { describePacks } from "@baka/recipes"
 import type { ServerContext } from "../context.js"
 import { getPacks } from "../context.js"
 

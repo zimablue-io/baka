@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { RecipeResultSchema } from "@repo/protocol"
+import { RecipeResultSchema } from "@baka/protocol"
 import { afterEach, describe, expect, it } from "vitest"
 import { compensateRecipe, createRegistry, runRecipe, TREE_HASH_DOMAIN } from "../src/index.js"
 import { cleanupTempDirs, fakeProvider, GREET_PACK, tempDir, writePack } from "./helpers.js"

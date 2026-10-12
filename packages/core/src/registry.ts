@@ -1,4 +1,4 @@
-import { PackRegistry } from "@repo/ast-tooling"
+import { PackRegistry } from "@baka/recipes"
 
 export interface CreateRegistryOptions {
 	/** The project directory recipes write into (a git checkout, a scratch dir, ...). */

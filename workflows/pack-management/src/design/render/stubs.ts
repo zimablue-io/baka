@@ -41,7 +41,7 @@ export function renderManifestSource(args: {
 		})),
 		packValidators: [],
 	}
-	return `import type { PackManifest } from "baka-sdk"
+	return `import type { PackManifest } from "@baka/sdk"
 
 export const Manifest: PackManifest = ${JSON.stringify(manifest, null, "\t")}
 `
@@ -77,7 +77,7 @@ export function renderRecipeStubSource(recipe: {
 	const inputType = `${cap}Input`
 	const compType = `${cap}CompensationData`
 	const paramFields = recipe.params.map((p) => `\t${p.name}${p.required ? "" : "?"}: ${tsType(p)}`).join("\n")
-	return `import type { RecipeFn, CompensationFn } from "baka-sdk"
+	return `import type { RecipeFn, CompensationFn } from "@baka/sdk"
 
 /**
  * ${recipe.description}
@@ -113,7 +113,7 @@ export const compensate: CompensationFn<${compType}> = async (data) => {
 }
 
 export function renderValidatorStubSource(_validatorId: string, purpose: string): string {
-	return `import type { RecipeValidatorFn } from "baka-sdk"
+	return `import type { RecipeValidatorFn } from "@baka/sdk"
 
 /**
  * ${purpose}

@@ -21,7 +21,7 @@
 		"@electric-sql/pglite": "^0.5.4",
 		"@electric-sql/pglite-socket": "^0.2.7",
 		"@hono/node-server": "^1.13.0",
-		"@repo/protocol": "workspace:*",
+		"@baka/protocol": "workspace:*",
 		"better-auth": "1.6.25",
 		"drizzle-orm": "^0.45.2",
 		"handlebars": "^4.7.8",
@@ -32,7 +32,7 @@
 		"zod": "^4.6.5"
 	},
 	"devDependencies": {
-		"@repo/typescript-config": "workspace:*",
+		"@baka/typescript-config": "workspace:*",
 		"@types/node": "^24.0.0",
 		"@types/pg": "^8.20.4",
 		"tsx": "^4.19.2",

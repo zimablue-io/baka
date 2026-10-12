@@ -128,7 +128,7 @@ function spawnBaka(args: {
 	return new Promise((resolve) => {
 		const cli = join(__dirname, "..", "dist", "index.js")
 		if (!existsSync(cli)) {
-			throw new Error(`built CLI not found at ${cli}; run \`pnpm --filter baka build\` first`)
+			throw new Error(`built CLI not found at ${cli}; run \`pnpm --filter @baka/cli build\` first`)
 		}
 		let env: Record<string, string> = { ...process.env, ...args.env }
 		if (args.bakaConfig) {

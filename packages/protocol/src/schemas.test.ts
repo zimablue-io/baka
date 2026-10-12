@@ -1,6 +1,6 @@
 // Contract tests for the protocol zod schemas. These schemas are the wire
 // contract between the orchestrator, the worker, the CLI, and pack authors
-// (via baka-sdk). The tests pin the shapes every consumer relies on:
+// (via @baka/sdk). The tests pin the shapes every consumer relies on:
 //   - which fields are required vs defaulted
 //   - which values enums accept and reject
 //   - that parsed output carries the documented defaults

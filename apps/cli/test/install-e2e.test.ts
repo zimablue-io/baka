@@ -76,7 +76,7 @@ function spawnCli(argv: string[], cwd: string, env: Record<string, string>, time
 
 beforeAll(() => {
 	if (!require("node:fs").existsSync(DIST_INDEX)) {
-		throw new Error(`built CLI not found at ${DIST_INDEX}; run \`pnpm --filter baka build\` first`)
+		throw new Error(`built CLI not found at ${DIST_INDEX}; run \`pnpm --filter @baka/cli build\` first`)
 	}
 }, 30_000)
 

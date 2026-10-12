@@ -5,10 +5,10 @@ Baka writes files from templates. A **recipe** is a named thing you run again an
 ## Install
 
 ```bash
-curl -fsSL https://github.com/zimablue-io/baka/releases/latest/download/install.sh | sh
+curl -fsSL https://baka.dashboard.zimablue.io/install.sh | sh
 ```
 
-That needs Node.js 24 or later and nothing else: no clone, no build, no link. It ends by asking the new install for its version, so you know it answers. To install a build you made yourself, `sh install.sh --tarball ./dist-tarballs/baka-0.1.0.tgz`; add `--prefix DIR` to keep it out of your global npm directory. The same tarball installs with `npm install --global <tarball>`.
+That needs Node.js 24 or later and nothing else: no clone, no build, no link. It checks the download against the release's sha256, and ends by asking the new install for its version, so you know it answers. Add `--mcp` to install the MCP server for agents too, `--prefix DIR` to keep it out of your global npm directory, or `--tarball ./dist-tarballs/baka-cli-0.1.0.tgz` to install a build you made yourself. The same tarball installs with `npm install --global <tarball>`. Until the repository is public, the site above is where releases are served from.
 
 ## First run
 
@@ -74,7 +74,7 @@ pnpm link:global
 ```
 
 `pnpm link:global` runs the canonical per-workspace pattern
-(`pnpm --filter baka --filter @baka/mcp-server exec pnpm link --global`)
+(`pnpm --filter @baka/cli --filter @baka/mcp exec pnpm link --global`)
 and puts both `baka` and `baka-mcp` on your `PATH`. This form works
 under pnpm 9 and pnpm 10 (bare `pnpm link --global` from the repo
 root can be a silent no-op when the workspace is registered as
@@ -91,10 +91,10 @@ The link is idempotent: re-running `pnpm link:global` is a no-op. `pnpm install`
 
 **Install from tarballs you built:**
 
-If you have a built tarball (e.g. from `dist-tarballs/baka-0.1.0.tgz` and `dist-tarballs/@baka-mcp-server-0.1.0.tgz`) and you do not want to clone the repo:
+If you have built tarballs (`pnpm run pack` writes `dist-tarballs/baka-cli-0.1.0.tgz` and `dist-tarballs/baka-mcp-0.1.0.tgz`) and you do not want to clone the repo:
 
 ```bash
-pnpm install -g ./baka-0.1.0.tgz ./@baka-mcp-server-0.1.0.tgz
+pnpm install -g ./baka-cli-0.1.0.tgz ./baka-mcp-0.1.0.tgz
 which baka
 which baka-mcp
 ```
@@ -172,7 +172,7 @@ BAKA_ENGINE_TOKEN=$(openssl rand -hex 24) baka serve --host 0.0.0.0   # reachabl
 The same-tree claim is enforced two ways. CI uses a recorded slot cache and asserts byte-identical output with no llama. An opt-in live e2e (`apps/cli/test/determinism-e2e.test.ts`) hashes apply output against local llama-server (`gemma4:e4b`, temperature 0, seed 42). Run the live suite with:
 
 ```bash
-BAKA_E2E_LLM=1 pnpm --filter baka exec vitest run test/determinism-e2e.test.ts
+BAKA_E2E_LLM=1 pnpm --filter @baka/cli exec vitest run test/determinism-e2e.test.ts
 ```
 
 The e2e only ever sends requests; it never starts, restarts, or kills the llama-server. The fixed seed is a normal role-config field: set it with `baka role worker --field seed --value 42` (or hand-edit `${BAKA_HOME:-$HOME/.baka}/config.json`).
@@ -180,7 +180,7 @@ The e2e only ever sends requests; it never starts, restarts, or kills the llama-
 ## Uninstall
 
 ```bash
-pnpm unlink --global baka @baka/mcp-server
+pnpm unlink --global baka @baka/mcp
 which baka       # empty
 which baka-mcp   # empty
 ```
@@ -244,7 +244,7 @@ Baka's CLI lazy-loads every subcommand recipe via dynamic `import()`. A bad impo
 3. Rebuild: `pnpm build`. The lazy-load invariant is preserved by `tsup` (dynamic imports survive bundling).
 4. If a subcommand still fails on import, report it as a regression — the engine should isolate the failure, not propagate it.
 
-The CI smoke step (`pnpm --filter baka build` + `baka --version` + JSON-RPC `initialize`) catches the obvious barrel bugs before they reach `main`.
+The CI smoke step (`pnpm --filter @baka/cli build` + `baka --version` + JSON-RPC `initialize`) catches the obvious barrel bugs before they reach `main`.
 
 ## Usage
 
@@ -302,27 +302,41 @@ baka pack create test-pack
 ├── apps/
 │   ├── cli/                 # The baka binary (user-facing CLI)
 │   ├── mcp/                 # The baka-mcp binary (MCP server over stdio for coding agents)
-│   ├── api/                 # The marketplace catalog API (read routes over hand-maintained data)
 │   └── landing/             # The landing site (pack catalog pages)
 ├── workflows/               # Engine orchestration for THIS project
 │   ├── feature-planning/    # Plan user intents into pack recipes
 │   └── pack-management/   # Scaffold new packs
-├── packages/                # Engine tools
-│   ├── protocol/            # SSOT: types, schemas, LLMProvider interface
-│   ├── agent-engine/        # The ONLY package that knows what an LLMProvider is
-│   ├── core/                # @baka/core: the published, embeddable library surface (no CLI, no ~/.baka)
-│   ├── ast-tooling/         # File/AST operations, PackRegistry (pack discovery)
-│   ├── baka-sdk/            # The public boundary pack authors import from
+├── packages/                # One package, one job (see "Packages" below)
+│   ├── protocol/            # @baka/protocol: the contract, depends on zod only (published)
+│   ├── sdk/                 # @baka/sdk: what pack authors import (published)
+│   ├── core/                # @baka/core: the embeddable library, no CLI, no ~/.baka (published)
+│   ├── recipes/             # @baka/recipes: runs recipes, discovers packs (bundled into core, cli, mcp)
+│   ├── agent/               # @baka/agent: the ONLY package that knows what an LLMProvider is
+│   ├── engine/              # @baka/engine: the HTTP service behind `baka serve`
 │   └── typescript-config/   # Shared TS presets
 ├── packs/                 # Empty on purpose. Packs live in a project, not here.
 ├── scripts/                 # pack.mjs, release.sh, setup.sh, unlink-global.sh
-├── dist-tarballs/           # Output of `pnpm run pack` (baka + baka-mcp tarballs)
+├── dist-tarballs/           # Output of `pnpm run pack` (one tarball per published package)
 ├── SKILL.md                 # Declarative agent contract (Claude Code, Codex, Cursor, etc.)
 ├── docs/                    # Philosophy, agent guide, pack authoring, publishing
 ├── pnpm-workspace.yaml
 ├── turbo.json
 └── package.json
 ```
+
+## Packages
+
+Baka is a set of small packages in one npm scope, `@baka`. Each does one job and exposes only what its users need; the dependencies only point downwards.
+
+| Package | Job | Depends on |
+| --- | --- | --- |
+| `@baka/protocol` | The contract: documents, JSON Schemas, constants, shared types | `zod` |
+| `@baka/sdk` | What pack authors import (types and a few helpers) | `@baka/protocol` |
+| `@baka/core` | Run recipes from your own code: no CLI, no `~/.baka`, the caller injects any model | `@baka/protocol` |
+| `@baka/cli` | The `baka` command | nothing it does not bundle |
+| `@baka/mcp` | The `baka-mcp` server for coding agents | nothing it does not bundle |
+
+Internal and not published on their own: `@baka/recipes` (the recipe runner and pack discovery), `@baka/agent` (model roles and the only code that talks to a model), `@baka/engine` (the HTTP service), the two workflows, the registry, the dashboard and the landing site. `@baka/core`, `@baka/cli` and `@baka/mcp` bundle the ones they need, so each tarball installs on its own. A host that only reads Baka's output installs `@baka/protocol` and nothing else. Versions move together. `pnpm run pack` writes one tarball per published package; none of them is on npm yet.
 
 ## Multi-Agent Architecture Specification (AGENTS.md)
 This document defines the roles, bounded recipes, stream constraints, and validation boundaries of the intelligent routing plane. See `docs/PHILOSOPHY.md` for the locked-in design philosophy.
@@ -357,7 +371,7 @@ The system operates on an isolated, deterministic execution loop. Agents do not 
 3. **Validator** (deterministic TypeScript) — runs the pack's `validators/*.ts` and `_shared/validators/*.ts` functions against the resulting file tree. No LLM is involved. Returns `Pass` or `Fail(diff[])` with structured diagnostics.
 
 ## Provider Boundary
-All provider knowledge (HTTP clients, API keys, model names) is sealed inside `packages/agent-engine/`. Workflows, the CLI, and `ast-tooling` only ever import the `LLMProvider` interface from `packages/protocol/`. The user picks the provider (llama.cpp, Ollama, vLLM, OpenAI, anything speaking the OpenAI chat-completions API) via `baka init`; the engine never dictates it.
+All provider knowledge (HTTP clients, API keys, model names) is sealed inside `packages/agent/`. Workflows, the CLI, and `recipes` only ever import the `LLMProvider` interface from `packages/protocol/`. The user picks the provider (llama.cpp, Ollama, vLLM, OpenAI, anything speaking the OpenAI chat-completions API) via `baka init`; the engine never dictates it.
 
 ## Contributing
 
@@ -365,7 +379,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full contribution guide. CI mus
 
 ## Release
 
-To cut a new version, run `scripts/release.sh <semver>` from a clean tree. The script bumps the version in `package.json`, `apps/cli/package.json`, and `apps/mcp/package.json` consistently; runs `pnpm run pack` for both workspaces; and prints the global-install command. It refuses to run on a dirty tree and supports `--dry-run` for plan-only output. The script does not push to npm — the publish step is a separate manual flow documented in [docs/PUBLISHING.md](./docs/PUBLISHING.md).
+To cut a new version, run `scripts/release.sh <semver>` from a clean tree. The script bumps the version in `package.json` and in every published package consistently; runs `pnpm run pack` for all of them; and prints the global-install command. It refuses to run on a dirty tree and supports `--dry-run` for plan-only output. The script does not push to npm — the publish step is a separate manual flow documented in [docs/PUBLISHING.md](./docs/PUBLISHING.md).
 
 ## License, paid options and privacy
 

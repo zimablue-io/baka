@@ -404,7 +404,7 @@ describe("version immutability + re-publish semantics + served manifest defaults
 		it("the served manifest re-parses cleanly through PackManifestSchema (round-trip)", async () => {
 			// Import the schema dynamically to avoid a hard
 			// workspace dependency from the test runner.
-			const { PackManifestSchema } = await import("@repo/protocol")
+			const { PackManifestSchema } = await import("@baka/protocol")
 
 			await git.commitManifest({
 				name: "@acme/widget",

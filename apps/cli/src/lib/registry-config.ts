@@ -4,7 +4,7 @@ import {
 	BAKA_PROJECT_PATHS,
 	resolveRegistryUrlList as resolveRegistryUrlListPure,
 	resolveSingleRegistryUrl as resolveSingleRegistryUrlPure,
-} from "@repo/protocol"
+} from "@baka/protocol"
 
 /**
  * Registry URL config resolution (architecture §8 decisions 4 + 27).
@@ -14,7 +14,7 @@ import {
  * thin wrapper around the protocol-level chain — it loads
  * `.baka/settings.json` from cwd and hands the raw list to the
  * protocol helper, so the chain semantics live in
- * `@repo/protocol/registry-config` (the single source of truth the
+ * `@baka/protocol/registry-config` (the single source of truth the
  * MCP registry tools also call into). A future fix lands in one
  * place; a future regression surfaces identically on both surfaces.
  *
@@ -62,7 +62,7 @@ interface ResolveOptions {
 /**
  * Resolves the single registry URL a single-registry command should
  * use. Precedence is flag > env > project-settings[0] > default.
- * The chain is implemented in `@repo/protocol` so MCP and CLI agree.
+ * The chain is implemented in `@baka/protocol` so MCP and CLI agree.
  */
 export function resolveSingleRegistryUrl(flagValue: string | undefined, opts: ResolveOptions = {}): string {
 	const projectRegistries = opts.projectRegistries ?? readProjectRegistries(opts.cwd)
@@ -75,7 +75,7 @@ export function resolveSingleRegistryUrl(flagValue: string | undefined, opts: Re
  * the search to that one registry); the env becomes a one-element
  * list; project settings contribute their full ordered list; the
  * default is `[http://localhost:4300]` only when nothing else is
- * configured. The chain is implemented in `@repo/protocol` so MCP
+ * configured. The chain is implemented in `@baka/protocol` so MCP
  * and CLI agree.
  */
 export function resolveRegistryList(flagValue: string | undefined, opts: ResolveOptions = {}): string[] {

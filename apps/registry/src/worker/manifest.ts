@@ -1,6 +1,6 @@
 import { readdir, stat } from "node:fs/promises"
 import { join, resolve } from "node:path"
-import { type PackManifest, PackManifestSchema } from "@repo/protocol"
+import { type PackManifest, PackManifestSchema } from "@baka/protocol"
 import { createJiti } from "jiti"
 
 /**
@@ -20,7 +20,7 @@ import { createJiti } from "jiti"
  * `manifest.recipes` to pack validators (`_shared/validators/<id>.ts`,
  * id in `manifest.packValidators`) and per-recipe validators
  * (`<recipeId>/validators/<id>.ts`, id in `recipe.validators`). The
- * engine's real resolution paths are at `packages/ast-tooling/src/
+ * engine's real resolution paths are at `packages/recipes/src/
  * recipe-loader.ts` (`loadPackValidator` and `loadRecipeValidator`);
  * the gate here mirrors them so a pack that declares a missing or
  * unloadable validator cannot reach `ready`.
@@ -63,7 +63,7 @@ export async function loadManifest(packDir: string): Promise<PackManifest> {
  * Walks the pack's `recipe.ts` exports and the validator files
  * the manifest declares, and verifies every id resolves through
  * the engine's real loader. Pinned by VAL-FOUND-021 for recipes
- * and by `packages/ast-tooling/src/recipe-loader.ts`'s
+ * and by `packages/recipes/src/recipe-loader.ts`'s
  * `loadPackValidator` / `loadRecipeValidator` for validators.
  *
  * Throws `IngestFailure` naming the first unloadable id. The row
@@ -227,7 +227,7 @@ function toCamelCase(id: string): string {
 /**
  * Convert a camelCase validator id (e.g. "hasPackageJson") to its
  * kebab-case filename stem (e.g. "has-package-json"). Mirrors
- * `validatorFilename` in `packages/ast-tooling/src/recipe-loader.ts`
+ * `validatorFilename` in `packages/recipes/src/recipe-loader.ts`
  * so the gate's path layout exactly matches the engine's.
  */
 function kebabCase(id: string): string {

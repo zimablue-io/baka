@@ -18,7 +18,7 @@
 //   VAL-ROLE-005 baka --help does not mention `providers` or `config`
 //              as legacy subcommands.
 //
-// The CLI must be built (via `pnpm --filter baka run build`) before this
+// The CLI must be built (via `pnpm --filter @baka/cli run build`) before this
 // suite runs. The `beforeAll` block fails loudly if the built artifact is
 // missing.
 // ---------------------------------------------------------------------------
@@ -145,7 +145,7 @@ function trackDir(path: string): string {
 
 beforeAll(() => {
 	if (!existsSync(DIST_INDEX)) {
-		throw new Error(`built CLI not found at ${DIST_INDEX}; run \`pnpm --filter baka build\` first`)
+		throw new Error(`built CLI not found at ${DIST_INDEX}; run \`pnpm --filter @baka/cli build\` first`)
 	}
 })
 

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process"
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { BAKA_DEFAULT_WORKER_MODEL, BAKA_EXIT_CODE, type PackManifest, PackManifestSchema } from "@baka/protocol"
 import {
 	findPackSdkImports,
 	loadPackValidator,
@@ -11,8 +12,7 @@ import {
 	parseRecipeTemplates,
 	runRecipe,
 	validatorFilename,
-} from "@repo/ast-tooling"
-import { BAKA_DEFAULT_WORKER_MODEL, BAKA_EXIT_CODE, type PackManifest, PackManifestSchema } from "@repo/protocol"
+} from "@baka/recipes"
 import { createJiti } from "jiti"
 import { type CallOptions, registryOptions } from "../call"
 import { die } from "../die"
@@ -21,13 +21,13 @@ import { die } from "../die"
 // `baka pack validate <name>`
 // ---------------------------------------------------------------------------
 
-/** True when the pack's package.json lists `baka-sdk` under `dependencies` (a runtime install the author owns). */
+/** True when the pack's package.json lists `@baka/sdk` under `dependencies` (a runtime install the author owns). */
 function declaresSdkDependency(packRoot: string): boolean {
 	try {
 		const pkg = JSON.parse(readFileSync(join(packRoot, "package.json"), "utf-8")) as {
 			dependencies?: Record<string, string>
 		}
-		return pkg.dependencies?.["baka-sdk"] !== undefined
+		return pkg.dependencies?.["@baka/sdk"] !== undefined
 	} catch {
 		return false
 	}
@@ -147,12 +147,12 @@ export function runPackValidate(name: string, opts: PackCallOptions & { json?: b
 		}
 	}
 
-	// baka-sdk is a types-only boundary unless the pack opts into installing it: a runtime import cannot load in
-	// a catalog without its own node_modules, so it is allowed only when package.json lists baka-sdk in `dependencies`.
+	// @baka/sdk is a types-only boundary unless the pack opts into installing it: a runtime import cannot load in
+	// a catalog without its own node_modules, so it is allowed only when package.json lists @baka/sdk in `dependencies`.
 	if (!declaresSdkDependency(root)) {
 		for (const finding of findPackSdkImports(root)) {
 			errors.push(
-				`${finding.file}:${finding.line}: runtime import of "baka-sdk" (\`${finding.statement}\`); baka-sdk is not installed next to a pack, so use \`import type\`, or list baka-sdk in the pack's package.json dependencies and install it (see docs/PACKS.md, "Public boundary")`,
+				`${finding.file}:${finding.line}: runtime import of "@baka/sdk" (\`${finding.statement}\`); @baka/sdk is not installed next to a pack, so use \`import type\`, or list @baka/sdk in the pack's package.json dependencies and install it (see docs/PACKS.md, "Public boundary")`,
 			)
 		}
 	}

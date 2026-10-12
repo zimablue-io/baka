@@ -6,8 +6,8 @@
 import { mkdirSync, rmSync, symlinkSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { type ConsistencyResult, runConsistencyTest } from "@repo/ast-tooling"
-import { loadSession } from "@repo/pack-management-workflow"
+import { type ConsistencyResult, runConsistencyTest } from "@baka/recipes"
+import { loadSession } from "@baka/workflow-pack-management"
 
 import { renderConsistencyResult } from "./render"
 

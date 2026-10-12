@@ -28,7 +28,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { extractRegistryTarball, type ManifestJsonShape, parseSource, verifyTarballIntegrity } from "@repo/ast-tooling"
+import { extractRegistryTarball, type ManifestJsonShape, parseSource, verifyTarballIntegrity } from "@baka/recipes"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { __test__, runInstallCommand, runUninstallCommand } from "../src/commands/install"
 

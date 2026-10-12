@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { LLMProvider, LLMResponse, ResolvedPlan } from "@repo/protocol"
-import { ENGINE_STATUS } from "@repo/protocol"
+import type { LLMProvider, LLMResponse, ResolvedPlan } from "@baka/protocol"
+import { ENGINE_STATUS } from "@baka/protocol"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { featurePlanningWorkflow } from "./plan-intent"
 
@@ -49,7 +49,7 @@ function writeFixturePack(root: string, name: string, recipeIds: string[]): void
 		.join(", ")
 	writeFileSync(
 		join(packDir, "manifest.ts"),
-		`import type { PackManifest } from "@repo/protocol"
+		`import type { PackManifest } from "@baka/protocol"
 export const Manifest: PackManifest = {
 	name: "${name}",
 	version: "0.1.0",
@@ -102,7 +102,7 @@ describe("featurePlanningWorkflow", () => {
 		mkdirSync(join(packDir, "act"), { recursive: true })
 		writeFileSync(
 			join(packDir, "manifest.ts"),
-			`import type { PackManifest } from "@repo/protocol"
+			`import type { PackManifest } from "@baka/protocol"
 export const Manifest: PackManifest = {
 	name: "market-mod",
 	version: "0.1.0",

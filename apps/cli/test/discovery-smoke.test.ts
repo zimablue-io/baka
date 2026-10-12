@@ -47,7 +47,7 @@ afterEach(() => {
 
 beforeAll(() => {
 	if (!existsSync(DIST_INDEX)) {
-		throw new Error(`built CLI not found at ${DIST_INDEX}; run \`pnpm --filter baka build\` first`)
+		throw new Error(`built CLI not found at ${DIST_INDEX}; run \`pnpm --filter @baka/cli build\` first`)
 	}
 })
 
@@ -184,7 +184,7 @@ function writeFixturePack(
 		.join(", ")
 	writeFileSync(
 		join(packDir, "manifest.ts"),
-		`import type { PackManifest } from "@repo/protocol"
+		`import type { PackManifest } from "@baka/protocol"
 export const Manifest: PackManifest = {
 	name: "${name}",
 	version: "${version}",

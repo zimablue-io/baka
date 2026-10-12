@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { LLMProvider, LLMRequest, LLMResponse } from "@repo/protocol"
+import type { LLMProvider, LLMRequest, LLMResponse } from "@baka/protocol"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { applyBack, applyPayload, loadSession, runChatLoop, runLLMTurn, saveSession } from "./chat"
 import { defineApprovalHook, deliverApprovalHook, developApprovalHook } from "./hooks"
@@ -905,7 +905,7 @@ describe("writePackFiles", () => {
 		const manifest = readFileSync(join(tmpDir, "manifest.ts"), "utf-8")
 		expect(manifest).toContain('"name": "test-mod"')
 		expect(manifest).toContain('"scaffold"')
-		expect(manifest).toContain("baka-sdk")
+		expect(manifest).toContain("@baka/sdk")
 
 		// Spot-check the recipe stub
 		const recipe = readFileSync(join(tmpDir, "scaffold/recipe.ts"), "utf-8")

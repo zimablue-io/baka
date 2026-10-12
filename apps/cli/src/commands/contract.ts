@@ -1,5 +1,4 @@
 import { findBundledPacks } from "@baka/engine"
-import { PackRegistry } from "@repo/ast-tooling"
 import {
 	BAKA_CAPABILITIES,
 	BAKA_CONTRACT_VERSION,
@@ -11,7 +10,8 @@ import {
 	type Health,
 	incompatibility,
 	isContractDocumentId,
-} from "@repo/protocol"
+} from "@baka/protocol"
+import { PackRegistry } from "@baka/recipes"
 import { die } from "../die"
 
 /**

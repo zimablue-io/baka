@@ -1,8 +1,8 @@
-# @repo/typescript-config
+# @baka/typescript-config
 
 ## Overview
 
-`@repo/typescript-config` provides the shared TypeScript presets used across South. It keeps compiler defaults aligned so each workspace only overrides behavior that is genuinely local.
+`@baka/typescript-config` provides the shared TypeScript presets used across South. It keeps compiler defaults aligned so each workspace only overrides behavior that is genuinely local.
 
 ## Directory Structure
 

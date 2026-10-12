@@ -1,5 +1,5 @@
 {
-	"name": "@baka/mcp-server",
+	"name": "@baka/mcp",
 	"version": "0.1.0",
 	"license": "Apache-2.0",
 	"private": true,
@@ -24,17 +24,17 @@
 		"test:watch": "vitest"
 	},
 	"dependencies": {
-		"@baka/engine": "workspace:*",
 		"@modelcontextprotocol/sdk": "^1.29.0",
-		"@repo/agent-engine": "workspace:*",
-		"@repo/ast-tooling": "workspace:*",
-		"@repo/feature-planning-workflow": "workspace:*",
-		"@repo/protocol": "workspace:*",
 		"jiti": "^2.7.0",
 		"zod": "^4.6.5"
 	},
 	"devDependencies": {
-		"@repo/typescript-config": "workspace:*",
+		"@baka/agent": "workspace:*",
+		"@baka/engine": "workspace:*",
+		"@baka/protocol": "workspace:*",
+		"@baka/recipes": "workspace:*",
+		"@baka/typescript-config": "workspace:*",
+		"@baka/workflow-feature-planning": "workspace:*",
 		"@types/node": "^24.0.0",
 		"tsup": "^8.3.5",
 		"tsx": "^4.19.2",

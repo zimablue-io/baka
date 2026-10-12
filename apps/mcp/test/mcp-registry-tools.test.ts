@@ -222,7 +222,7 @@ let server: SeedServer | null = null
 
 beforeAll(async () => {
 	if (!existsSync(DIST_INDEX)) {
-		throw new Error(`built MCP dist not found at ${DIST_INDEX}; run \`pnpm --filter @baka/mcp-server build\` first`)
+		throw new Error(`built MCP dist not found at ${DIST_INDEX}; run \`pnpm --filter @baka/mcp build\` first`)
 	}
 	server = await bootSeedServer()
 }, 120_000)

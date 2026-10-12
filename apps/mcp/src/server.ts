@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { engineRequest } from "@baka/engine"
+import { type BakaAddon, OnExistingSchema, SlotsInputSchema as RunSlotsInputSchema } from "@baka/protocol"
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js"
 import {
@@ -12,7 +13,6 @@ import {
 	McpError,
 	SUPPORTED_PROTOCOL_VERSIONS,
 } from "@modelcontextprotocol/sdk/types.js"
-import { type BakaAddon, OnExistingSchema, SlotsInputSchema as RunSlotsInputSchema } from "@repo/protocol"
 import { z } from "zod"
 import { createContext, engineOptions, type ServerContext } from "./context.js"
 import { DESIGN_PACK_DESCRIPTION, DESIGN_PACK_PROMPT_NAME, designPackMessages } from "./prompts/design-pack.js"
@@ -60,8 +60,8 @@ const SERVER_NAME = "baka-mcp"
 //   stale source.
 //
 // `__dirname` resolves to:
-// - `apps/mcp/dist` in built mode (`pnpm --filter @baka/mcp-server build`).
-// - `apps/mcp/src` in dev mode (`pnpm --filter @baka/mcp-server dev`).
+// - `apps/mcp/dist` in built mode (`pnpm --filter @baka/mcp build`).
+// - `apps/mcp/src` in dev mode (`pnpm --filter @baka/mcp dev`).
 // Either way, `../package.json` points at `apps/mcp/package.json`.
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const serverPkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8")) as { version: string }

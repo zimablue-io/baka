@@ -16,7 +16,7 @@ import { buildIngestTestStack, type IngestTestStack } from "./ingest-worker-fixt
  *   - `child_process` pack imports (VAL-SCAN-002)
  *   - `eval(...)` and `new Function(...)` (VAL-SCAN-002)
  *   - dynamic `import(<specifier>)` of non-allowlisted specifiers
- *     (VAL-SCAN-016) — allowlist: `baka-sdk`, `node:*` builtins
+ *     (VAL-SCAN-016) — allowlist: `@baka/sdk`, `node:*` builtins
  *   - writes outside declared `filePatterns` (statically detectable
  *     string-literal arguments to `writeFile*` / `appendFile*` /
  *     `mkdir` / `mkdirSync`)
@@ -297,12 +297,12 @@ describe("static capability scan (VAL-SCAN-002 / 015 / 016)", () => {
 			expect(finding?.snippet).toContain("evil-pkg")
 		})
 
-		it("allows dynamic import of `baka-sdk` and `node:` builtins (VAL-SCAN-016 positive control)", async () => {
+		it("allows dynamic import of `@baka/sdk` and `node:` builtins (VAL-SCAN-016 positive control)", async () => {
 			const packDir = await setupPack({
 				"recipe.ts": [
 					`export default {`,
 					`  execute: async () => {`,
-					`    await import("baka-sdk");`,
+					`    await import("@baka/sdk");`,
 					`    await import("node:fs");`,
 					`    await import("node:path");`,
 					`  },`,
@@ -678,7 +678,7 @@ async function setupPack(files: Record<string, string>): Promise<string> {
 	return dir
 }
 
-function manifestWithRecipe(id: string, filePatterns: string[]): import("@repo/protocol").PackManifest {
+function manifestWithRecipe(id: string, filePatterns: string[]): import("@baka/protocol").PackManifest {
 	return {
 		name: "@test/widget",
 		version: "1.0.0",
@@ -692,7 +692,7 @@ function manifestWithRecipe(id: string, filePatterns: string[]): import("@repo/p
 
 async function runScan(
 	packDir: string,
-	manifest: import("@repo/protocol").PackManifest,
+	manifest: import("@baka/protocol").PackManifest,
 ): Promise<import("../src/screening/static-scan").StaticScanResult> {
 	const { runStaticScan } = await import("../src/screening/static-scan")
 	return runStaticScan(packDir, manifest)

@@ -1,5 +1,5 @@
 {
-	"name": "@repo/feature-planning-workflow",
+	"name": "@baka/workflow-feature-planning",
 	"version": "1.0.0",
 	"private": true,
 	"main": "./src/index.ts",
@@ -13,12 +13,12 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
-		"@repo/protocol": "workspace:*",
-		"@repo/agent-engine": "workspace:*",
-		"@repo/ast-tooling": "workspace:*"
+		"@baka/protocol": "workspace:*",
+		"@baka/agent": "workspace:*",
+		"@baka/recipes": "workspace:*"
 	},
 	"devDependencies": {
-		"@repo/typescript-config": "workspace:*",
+		"@baka/typescript-config": "workspace:*",
 		"@types/node": "^24.0.0",
 		"typescript": "^5.9.2",
 		"vitest": "^4.1.8"

@@ -16,7 +16,7 @@
       // Inlined honest-mod fixtures are written to disk as runtime source
       // and loaded by the CLI's jiti loader; the workspace devDep is the
       // resolution target, not a static import surface.
-      "ignoreDependencies": ["baka-sdk"],
+      "ignoreDependencies": ["@baka/sdk"],
       "ignore": ["test/fixtures/**"]
     },
 
@@ -26,7 +26,7 @@
       "ignoreDependencies": ["jiti"]
     },
 
-    "apps/engine": {
+    "packages/engine": {
       "project": ["src/**/*.{ts,tsx}"]
     },
 
@@ -51,19 +51,19 @@
       "ignore": ["test/seed-server.ts"]
     },
 
-    "packages/agent-engine": {
+    "packages/agent": {
       "project": ["src/**/*.{ts,tsx}"]
     },
 
     "packages/core": {
       "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"],
-      // Runtime dependencies of the bundled `@repo/*` workspace code. The
+      // Runtime dependencies of the bundled `@baka/*` workspace code. The
       // published tarball keeps them external, so they must be declared
       // here even though core's own source never imports them.
       "ignoreDependencies": ["handlebars", "jiti", "zod"]
     },
 
-    "packages/ast-tooling": {
+    "packages/recipes": {
       "project": ["src/**/*.{ts,tsx}"]
     },
 

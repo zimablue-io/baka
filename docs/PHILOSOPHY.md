@@ -41,21 +41,21 @@ If any tier is tempted to invent, the tier boundary refuses to cooperate. The Va
 - **Input:** the post-execution file tree + the pack's `filePatterns` and `packValidators`
 - **Output:** `Pass` or `Fail(diff[])` with structured diagnostics (`{severity, rule, message, file, hint}`)
 - **Default mode:** deterministic TypeScript. Every structural check (file existence, placeholder detection, heading presence) runs without the LLM.
-- **Optional validator-role LLM:** a validator MAY call `baka-sdk.callLLMAsValidator(...)` (the pack then owns its `baka-sdk` install; see docs/PACKS.md, "Public boundary") to ask the validator-role model for a semantic review (e.g. "is this spec coherent?"). The structural checks still run first; the LLM call is for additional context. Hard-fail if the validator role is not configured; absorb transient LLM errors as warnings.
+- **Optional validator-role LLM:** a validator MAY call `@baka/sdk.callLLMAsValidator(...)` (the pack then owns its `@baka/sdk` install; see docs/PACKS.md, "Public boundary") to ask the validator-role model for a semantic review (e.g. "is this spec coherent?"). The structural checks still run first; the LLM call is for additional context. Hard-fail if the validator role is not configured; absorb transient LLM errors as warnings.
 - **Compensation:** none (read-only role)
 
 ## The provider boundary
 
-All provider knowledge is sealed inside `packages/agent-engine/`. Nothing else in the codebase may import a provider, an HTTP client, or know the user's model name. The boundary is enforced by:
+All provider knowledge is sealed inside `packages/agent/`. Nothing else in the codebase may import a provider, an HTTP client, or know the user's model name. The boundary is enforced by:
 
 1. `packages/protocol` defines the `LLMProvider` interface (pure types).
-2. `packages/agent-engine` owns the `createLLMProvider(config)` factory and all concrete implementations (e.g. `OpenAICompatibleProvider`).
-3. Workflows, `ast-tooling`, and the CLI import only the interface.
+2. `packages/agent` owns the `createLLMProvider(config)` factory and all concrete implementations (e.g. `OpenAICompatibleProvider`).
+3. Workflows, `recipes`, and the CLI import only the interface.
 
 **The grep test:**
 
 ```bash
-grep -rE "api\.openai|api\.anthropic|@anthropic-ai/sdk|@earendil-works/pi-coding-agent|from \"openai\"|from 'openai'" packages/ workflows/ apps/ --include="*.ts" --exclude="*.test.ts" | grep -v "agent-engine/"
+grep -rE "api\.openai|api\.anthropic|@anthropic-ai/sdk|@earendil-works/pi-coding-agent|from \"openai\"|from 'openai'" packages/ workflows/ apps/ --include="*.ts" --exclude="*.test.ts" | grep -v "agent/"
 ```
 
 must return zero matches. If it doesn't, the boundary is leaking and the provider-sealing invariant is broken. The pattern targets LLM provider SDKs and provider API hosts specifically: non-test source may legitimately contain other URLs (marketplace catalog config, fixture hosts), which are not boundary leaks. Test files may reference provider names when they assert the boundary itself.

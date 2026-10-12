@@ -1,24 +1,24 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
-import { userConfigPath } from "@repo/agent-engine"
-import { normalizeRegistryUrl, type RegistryConfigMap, type RegistryCredential } from "@repo/protocol"
+import { userConfigPath } from "@baka/agent"
+import { normalizeRegistryUrl, type RegistryConfigMap, type RegistryCredential } from "@baka/protocol"
 
 /**
  * Per-registry credential store (architecture §8 decision 4 + decision 33).
  *
  * Reads and writes the `registries` section of the user config file
  * `${BAKA_HOME:-$HOME/.baka}/config.json`. The file's other sections
- * (`worker`, `validator`) are read through agent-engine's role store
+ * (`worker`, `validator`) are read through agent's role store
  * and are preserved verbatim by every read-modify-write cycle here.
  *
  * Keys in the `registries` map are the normalized registry base URL
  * (see `normalizeRegistryUrl`). A malformed or corrupt user config
  * raises an honest, typed error naming the config path — the
  * underlying file is never silently treated as empty (the role store
- * follows the same contract, see `packages/agent-engine/src/config/store.ts`).
+ * follows the same contract, see `packages/agent/src/config/store.ts`).
  *
  * Note: this pack does NOT call zod schemas at runtime. The zod
- * schemas in `@repo/protocol` exist for the contract surface; the CLI
+ * schemas in `@baka/protocol` exist for the contract surface; the CLI
  * uses lightweight manual validation here because the bundled CLI does
  * not depend on zod (and the tsup bundler renames re-exported schemas
  * in a way that breaks runtime references). Manual checks below match

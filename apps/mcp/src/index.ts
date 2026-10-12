@@ -1,6 +1,6 @@
 #!/usr/bin/env node
+import { addonSpecsFromEnv, loadAddons } from "@baka/recipes"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
-import { addonSpecsFromEnv, loadAddons } from "@repo/ast-tooling"
 import { startServer } from "./server.js"
 
 async function main(): Promise<void> {

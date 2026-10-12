@@ -31,7 +31,7 @@
 - [ ] New and existing unit tests pass locally
 - [ ] I have updated relevant documentation (README, SKILL.md, docs/, etc.)
 - [ ] I have not introduced any new `any` types
-- [ ] I have not bypassed the provider boundary (only `packages/agent-engine` may import providers)
+- [ ] I have not bypassed the provider boundary (only `packages/agent` may import providers)
 - [ ] My commits follow Conventional Commits
 
 ## Screenshots / recordings

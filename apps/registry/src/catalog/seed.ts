@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto"
+import { BUILT_IN_CATALOG, type PackEntry } from "@baka/protocol"
 import type { PGlite } from "@electric-sql/pglite"
-import { BUILT_IN_CATALOG, type PackEntry } from "@repo/protocol"
 
 /**
  * Built-in catalog seeder (architecture §2 / §4.5, decision 17).
  *
  * The registry seeds its catalog from `BUILT_IN_CATALOG` in
- * `@repo/protocol`. That catalog is empty until a pack is
+ * `@baka/protocol`. That catalog is empty until a pack is
  * productized. Tests call `seedCatalogPacks` with a tiny fixture.
  * On boot, after the schema-version gate and Better-Auth bootstrap,
  * this helper inserts one `packs` row per entry and a matching

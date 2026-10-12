@@ -49,7 +49,7 @@ fi
 CLI_DIST="$REPO_ROOT/apps/cli/dist/index.js"
 if [ ! -f "$CLI_DIST" ]; then
 	log "building @baka/cli (bin target missing)"
-	pnpm --filter baka run build --silent
+	pnpm --filter @baka/cli run build --silent
 fi
 if [ ! -f "$CLI_DIST" ]; then
 	fail "build did not produce $CLI_DIST"
@@ -79,8 +79,8 @@ ok "node_modules/.bin/baka symlink present"
 # 5. MCP server bin target exists? Build if not.
 MCP_DIST="$REPO_ROOT/apps/mcp/dist/index.js"
 if [ ! -f "$MCP_DIST" ]; then
-	log "building @baka/mcp-server (bin target missing)"
-	pnpm --filter @baka/mcp-server build --silent
+	log "building @baka/mcp (bin target missing)"
+	pnpm --filter @baka/mcp build --silent
 fi
 if [ ! -f "$MCP_DIST" ]; then
 	fail "build did not produce $MCP_DIST"

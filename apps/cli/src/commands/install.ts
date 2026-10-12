@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
+import { BAKA_EXIT_CODE } from "@baka/protocol"
 import {
 	extractRegistryTarball,
 	type ManifestJsonShape,
@@ -9,8 +10,7 @@ import {
 	userPacksDir,
 	userSettingsPath,
 	verifyTarballIntegrity,
-} from "@repo/ast-tooling"
-import { BAKA_EXIT_CODE } from "@repo/protocol"
+} from "@baka/recipes"
 import {
 	downloadTarball,
 	getVersionDetailForInstall,
@@ -140,7 +140,7 @@ type ParsedInstallSpec =
  * like a registry identifier (no scheme prefix, no path prefix,
  * no `:` separator) and parses cleanly into scope + name +
  * optional pinned version. Anything else falls through to
- * `parseSource` from `@repo/ast-tooling`.
+ * `parseSource` from `@baka/recipes`.
  *
  * Malformed specs (e.g. `@acme` with no name, `@/widget` with no
  * scope, `@acme/widget@not-a-version`, `@acme/widget/extra`) fail
@@ -564,7 +564,7 @@ function readScopeFromManifest(packPath: string): string | null {
 
 /**
  * Reads a settings file defensively (parse failure → empty
- * packages; keys other than `packages` are kept so a rewrite never drops them). The settings reader in ast-tooling already handles
+ * packages; keys other than `packages` are kept so a rewrite never drops them). The settings reader in recipes already handles
  * missing files; we keep a local copy here so the install pack
  * does not need to import the settings writer into the collision
  * path.
@@ -870,7 +870,7 @@ function readInstalledVersion(packPath: string): string | null {
  * Legacy source-URI install path (npm:/git:/path/url). Behavior is
  * unchanged from the prior marketplace command: parses the source
  * string, registers it in the project or user settings, and lets
- * `@repo/ast-tooling#installSource` materialize the pack.
+ * `@baka/recipes#installSource` materialize the pack.
  *
  * The settings registration is preserved when materialization
  * fails — npm/git installs are NOT atomic in v1 (they always
@@ -879,7 +879,7 @@ function readInstalledVersion(packPath: string): string | null {
  * with atomic-write semantics.
  */
 async function runSourceInstall(spec: string, opts: InstallOptions): Promise<void> {
-	const { installSource, parseSource, removeSource } = await import("@repo/ast-tooling")
+	const { installSource, parseSource, removeSource } = await import("@baka/recipes")
 	type ParsedSource = ReturnType<typeof parseSource>
 	let parsed: ParsedSource
 	try {

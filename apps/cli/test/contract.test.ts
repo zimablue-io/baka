@@ -5,7 +5,7 @@ import { spawn } from "node:child_process"
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { CONTRACT_DOCUMENTS, HandshakeSchema, HealthSchema } from "@repo/protocol"
+import { CONTRACT_DOCUMENTS, HandshakeSchema, HealthSchema } from "@baka/protocol"
 import { afterEach, beforeAll, describe, expect, it } from "vitest"
 import { copyPlatformFixtures } from "./helpers/copy-fixtures"
 
@@ -27,7 +27,8 @@ afterEach(() => {
 })
 
 beforeAll(() => {
-	if (!existsSync(DIST_INDEX)) throw new Error(`built CLI not found at ${DIST_INDEX}; run \`pnpm --filter baka build\``)
+	if (!existsSync(DIST_INDEX))
+		throw new Error(`built CLI not found at ${DIST_INDEX}; run \`pnpm --filter @baka/cli build\``)
 })
 
 function baka(argv: string[], cwd = tempDir("baka-contract-proj-")) {

@@ -5,7 +5,7 @@ import type {
 	RegistryTier,
 	RegistryVersionDetailSchema,
 	RegistryVersionSummary,
-} from "@repo/protocol"
+} from "@baka/protocol"
 import { useEffect, useState } from "react"
 import type { z } from "zod"
 import { cn } from "@/lib/cn"

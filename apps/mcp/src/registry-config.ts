@@ -5,7 +5,7 @@ import {
 	normalizeRegistryUrl,
 	type RegistryConfigMap,
 	resolveRegistryUrlList,
-} from "@repo/protocol"
+} from "@baka/protocol"
 
 /**
  * MCP registry config resolution (architecture §8 decisions 4 + 27; VAL-DISC-029).
@@ -95,9 +95,9 @@ function readProjectRegistries(cwd: string | undefined): string[] {
 /**
  * Returns the resolved path to the user config file
  * `${BAKA_HOME:-$HOME/.baka}/config.json`. Mirrors
- * `@repo/agent-engine`'s `userConfigPath()` but stays inside the
+ * `@baka/agent`'s `userConfigPath()` but stays inside the
  * MCP package so the registry code can be reasoned about without
- * crossing the agent-engine boundary. The two paths always agree
+ * crossing the agent boundary. The two paths always agree
  * — same env handling, same fallback.
  */
 function userConfigPath(): string {

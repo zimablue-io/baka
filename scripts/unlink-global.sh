@@ -26,7 +26,7 @@ print_help() {
 usage: scripts/unlink-global.sh [pkg ...]
 
 Removes the global shim for each given package. Defaults to "baka" and
-"@baka/mcp-server". Tries \`pnpm unlink --global <pkg>\` first, then
+"@baka/mcp". Tries \`pnpm unlink --global <pkg>\` first, then
 \`pnpm uninstall -g <pkg>\`, then deletes the shim file as a last resort.
 
 Idempotent. Safe to run multiple times.
@@ -46,7 +46,7 @@ for arg in "$@"; do
 done
 
 if [ ${#PKGS[@]} -eq 0 ]; then
-  PKGS=("baka" "@baka/mcp-server")
+  PKGS=("baka" "@baka/mcp")
 fi
 
 # Resolve the global bin dir from `pnpm root -g`.
@@ -75,7 +75,7 @@ fi
 bin_name_for() {
   case "$1" in
     baka) echo "baka" ;;
-    @baka/mcp-server) echo "baka-mcp" ;;
+    @baka/mcp) echo "baka-mcp" ;;
     *) echo "${1#@}" ;;
   esac
 }

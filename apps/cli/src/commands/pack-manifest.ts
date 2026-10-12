@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process"
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { basename, join, resolve } from "node:path"
-import { BAKA_EXIT_CODE, type PackManifest, PackManifestSchema } from "@repo/protocol"
+import { BAKA_EXIT_CODE, type PackManifest, PackManifestSchema } from "@baka/protocol"
 import { createJiti } from "jiti"
 import { die } from "../die"
 

@@ -5,8 +5,8 @@
 // to know what to do next.
 // ---------------------------------------------------------------------------
 
-import type { DesignSessionState, DesignTurnPayload } from "@repo/pack-management-workflow"
-import { createInitialState, setPhase, withHistory } from "@repo/pack-management-workflow"
+import type { DesignSessionState, DesignTurnPayload } from "@baka/workflow-pack-management"
+import { createInitialState, setPhase, withHistory } from "@baka/workflow-pack-management"
 import { describe, expect, test } from "vitest"
 import {
 	renderBriefEcho,

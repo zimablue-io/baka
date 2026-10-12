@@ -1,4 +1,4 @@
-import { type PackEntry, PackEntrySchema } from "@repo/protocol"
+import { type PackEntry, PackEntrySchema } from "@baka/protocol"
 
 /**
  * One well-formed catalog entry for registry tests.

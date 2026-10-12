@@ -2,14 +2,19 @@
 
 // scripts/pack.mjs
 //
-// Build a clean, installable tarball for a baka workspace package.
+// Build a clean, installable tarball for one of Baka's published packages.
 //
-// The repo's package.json files list `workspace:*` deps for `@repo/*` and
-// `@baka/*` packages that are bundled into the dist by tsup. Those deps
-// resolve fine in the workspace, but `pnpm install -g <tarball>` from a
-// clean room would 404 on the npm registry. This script rewrites the
-// published package.json to drop the bundled workspace deps and run-away
-// devDeps so the resulting tarball is self-contained.
+//   node scripts/pack.mjs <@baka/protocol|@baka/sdk|@baka/core|@baka/cli|@baka/mcp>
+//        [--out <dir>] [--dep-base <prefix>|semver]
+//
+// The source manifests point at `src/` and at sibling packages as `workspace:*`; the tarball must stand on its own.
+// So the published manifest is rewritten:
+//   - `publishConfig` is applied over the top level (main, types, exports, type -> the built `dist`) and removed;
+//   - devDependencies are dropped: whatever the bundle inlines (the apps inline every @baka/* package) is listed
+//     there, never in `dependencies`;
+//   - a `workspace:*` dependency on another published package becomes a real reference to that package's tarball:
+//     `<prefix>/baka-<name>-<version>.tgz`. The default prefix is `file://<out>`, which is what the pack-and-install
+//     checks use; the site build passes the public URL; `--dep-base semver` writes `^<version>` for an npm publish.
 
 import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
@@ -21,24 +26,36 @@ const REPO_ROOT = resolve(__dirname, "..")
 
 const args = process.argv.slice(2)
 if (args.length < 1) {
-	console.error("usage: scripts/pack.mjs <baka|@baka/mcp-server|@baka/core> [--out <dir>]")
+	console.error("usage: scripts/pack.mjs <package> [--out <dir>] [--dep-base <prefix>|semver]")
 	process.exit(2)
 }
 
+const flag = (name) => {
+	const i = args.indexOf(name)
+	return i >= 0 ? args[i + 1] : undefined
+}
 const pkgName = args[0]
-const outIdx = args.indexOf("--out")
-const outDir = outIdx >= 0 ? resolve(args[outIdx + 1]) : join(REPO_ROOT, "dist-tarballs")
+const outDir = flag("--out") ? resolve(flag("--out")) : join(REPO_ROOT, "dist-tarballs")
+// biome-ignore lint/suspicious/noUndeclaredEnvVars: this script is not a turbo task
+const depBase = flag("--dep-base") ?? process.env.BAKA_DEP_BASE ?? `file://${outDir}`
 
-const pkgMap = {
-	baka: "apps/cli",
-	"@baka/mcp-server": "apps/mcp",
+/** The packages that are published, and where they live. */
+const PACKAGES = {
+	"@baka/protocol": "packages/protocol",
+	"@baka/sdk": "packages/sdk",
 	"@baka/core": "packages/core",
+	"@baka/cli": "apps/cli",
+	"@baka/mcp": "apps/mcp",
 }
-if (!(pkgName in pkgMap)) {
-	console.error(`unknown package: ${pkgName} (expected one of ${Object.keys(pkgMap).join(", ")})`)
+
+/** The file `pnpm pack` writes for a package: `@baka/core` at 0.1.0 is `baka-core-0.1.0.tgz`. */
+const tarballName = (name, version) => `${name.replace(/^@/, "").replace("/", "-")}-${version}.tgz`
+
+if (!(pkgName in PACKAGES)) {
+	console.error(`unknown package: ${pkgName} (expected one of ${Object.keys(PACKAGES).join(", ")})`)
 	process.exit(2)
 }
-const pkgDir = join(REPO_ROOT, pkgMap[pkgName])
+const pkgDir = join(REPO_ROOT, PACKAGES[pkgName])
 if (!existsSync(pkgDir)) {
 	console.error(`package directory missing: ${pkgDir}`)
 	process.exit(2)
@@ -51,36 +68,35 @@ if (!existsSync(distPath)) {
 	process.exit(2)
 }
 
-// Read the source package.json and the "published" form.
-// The published form drops bundled workspace deps and devDeps; keeps only
-// the external packages that the dist actually imports at runtime.
 const pkgJsonPath = join(pkgDir, "package.json")
 const src = JSON.parse(readFileSync(pkgJsonPath, "utf-8"))
 
-// Build the published manifest.
-const published = {
-	...src,
-}
+const published = { ...src, ...(src.publishConfig ?? {}) }
+delete published.publishConfig
 delete published.devDependencies
 delete published.optionalDependencies
 delete published.peerDependencies
-// Strip bundled workspace deps from the published deps.
-// tsup inlines @repo/*, @baka/*, and the unscoped baka-sdk. Anything else
-// stays as a runtime dep.
-const filteredDeps = {}
-if (published.dependencies) {
-	for (const [name, ver] of Object.entries(published.dependencies)) {
-		if (name.startsWith("@repo/") || name.startsWith("@baka/") || name === "baka-sdk") {
-			continue
-		}
-		filteredDeps[name] = ver
-	}
-}
-published.dependencies = filteredDeps
+delete published.scripts
 
-// Make the package public for the tarball. The repo keeps `private: true`
-// to prevent accidental `pnpm publish`, but the tarball must installable
-// globally, which requires public.
+const dependencies = {}
+for (const [name, range] of Object.entries(published.dependencies ?? {})) {
+	if (!name.startsWith("@baka/")) {
+		dependencies[name] = range
+		continue
+	}
+	if (!(name in PACKAGES)) {
+		console.error(
+			`${pkgName} depends on ${name}, which is not a published package: list it in devDependencies so the bundle inlines it`,
+		)
+		process.exit(2)
+	}
+	const dir = join(REPO_ROOT, PACKAGES[name])
+	const { version } = JSON.parse(readFileSync(join(dir, "package.json"), "utf-8"))
+	dependencies[name] = depBase === "semver" ? `^${version}` : `${depBase}/${tarballName(name, version)}`
+}
+published.dependencies = dependencies
+
+// The repo keeps `private: true` to prevent an accidental `pnpm publish`; the tarball must be installable.
 delete published.private
 
 // Write the temp package.json (atomic via tmp + rename) and run pack.

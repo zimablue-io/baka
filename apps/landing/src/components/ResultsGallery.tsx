@@ -1,4 +1,4 @@
-import type { RegistryCatalogEntry, RegistryPreviewEntry } from "@repo/protocol"
+import type { RegistryCatalogEntry, RegistryPreviewEntry } from "@baka/protocol"
 import { useEffect, useState } from "react"
 import { getCatalog, getPreviewList, REGISTRY_BASE_URL, RegistryError } from "@/lib/registry"
 

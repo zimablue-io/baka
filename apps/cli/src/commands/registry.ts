@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
-import { BAKA_EXIT_CODE } from "@repo/protocol"
+import { BAKA_EXIT_CODE } from "@baka/protocol"
 import { die } from "../die"
 import {
 	getPackDetail,

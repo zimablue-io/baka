@@ -12,7 +12,7 @@ import { PackManifestSchema } from "./schemas"
  *
  * Design notes:
  *
- * - `PackEntrySchema` reuses `PackManifestSchema` from `@repo/protocol`
+ * - `PackEntrySchema` reuses `PackManifestSchema` from `@baka/protocol`
  *   for the baka-specific fields (recipes, validators, filePatterns, ...).
  *   The marketplace schema does not duplicate them; it extends the baka
  *   schema with marketplace-specific and visual fields.

@@ -11,7 +11,7 @@ import { buildIngestTestStack, type IngestTestStack } from "./ingest-worker-fixt
  * completeness push).
  *
  * Sentinel semantics mirror the engine's `NO_LLM_SENTINEL` definition
- * (`packages/ast-tooling/src/worker.ts:24`,
+ * (`packages/recipes/src/worker.ts:24`,
  *  `/\{\{!--\s*no-llm\s*--\}\}/`). When a `.hbs` file under
  * `<packRoot>/<recipeId>/templates/` carries the sentinel, the
  * registry's dry-run renders it with Handlebars inside the same

@@ -1,4 +1,4 @@
-import type { PackManifest } from "baka-sdk"
+import type { PackManifest } from "@baka/sdk"
 
 /**
  * The starter pack: small, fully deterministic recipes that need no model.

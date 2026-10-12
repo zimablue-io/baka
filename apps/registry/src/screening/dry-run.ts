@@ -4,8 +4,8 @@ import { mkdtemp, readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import type { PackManifest } from "@baka/protocol"
 import type { PGlite } from "@electric-sql/pglite"
-import type { PackManifest } from "@repo/protocol"
 import type { StorageAdapter } from "../storage"
 import { DRY_RUN_SCRIPT } from "./dry-run-script"
 import { writePreviewRecord } from "./preview-record"
@@ -62,7 +62,7 @@ const DEFAULT_DRY_RUN_TIMEOUT_MS = 60_000
 
 /**
  * Handlebars comment sentinel that mirrors the engine-side
- * `NO_LLM_SENTINEL` (`packages/ast-tooling/src/worker.ts:24`). A
+ * `NO_LLM_SENTINEL` (`packages/recipes/src/worker.ts:24`). A
  * `.hbs` template carrying the comment anywhere in its source
  * opts out of LLM reasoning — the registry's dry-run renders it
  * with Handlebars inside the sandbox and surfaces the rendered
@@ -198,7 +198,7 @@ interface RunDryRunOptions {
 	timeoutMs?: number
 	/**
 	 * Directory jiti uses for resolving workspace imports
-	 * (baka-sdk, @repo/protocol, ...). Defaults to the closest
+	 * (@baka/sdk, @baka/protocol, ...). Defaults to the closest
 	 * node_modules/ parent walking up from packDir, falling
 	 * back to process.cwd().
 	 *

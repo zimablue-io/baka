@@ -1,7 +1,7 @@
+import { isolatedFromEnv, llmCallFromEnv } from "@baka/agent"
 import { findBundledPacks } from "@baka/engine"
-import { isolatedFromEnv, llmCallFromEnv } from "@repo/agent-engine"
-import { PackRegistry, resolvePackDirs } from "@repo/ast-tooling"
-import type { BakaAddon, LlmCall, PackManifest } from "@repo/protocol"
+import type { BakaAddon, LlmCall, PackManifest } from "@baka/protocol"
+import { PackRegistry, resolvePackDirs } from "@baka/recipes"
 
 /**
  * Per-process context for the MCP server. The server is launched once per

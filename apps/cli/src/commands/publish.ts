@@ -1,4 +1,4 @@
-import { BAKA_EXIT_CODE } from "@repo/protocol"
+import { BAKA_EXIT_CODE } from "@baka/protocol"
 import { die } from "../die"
 import {
 	maskApiKey,

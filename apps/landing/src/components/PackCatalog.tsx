@@ -1,5 +1,5 @@
+import type { RegistryCatalogEntry } from "@baka/protocol"
 import { Input } from "@base-ui-components/react/input"
-import type { RegistryCatalogEntry } from "@repo/protocol"
 import { useEffect, useMemo, useState } from "react"
 import { setCachedCatalog, useCachedCatalog } from "@/lib/catalog-cache"
 import { cn } from "@/lib/cn"

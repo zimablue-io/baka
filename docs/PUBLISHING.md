@@ -1,14 +1,18 @@
 # Publishing baka
 
-## GitHub release (the install people use today)
+## The install site (the install people use today)
 
-Pushing a tag `v<version>` runs `.github/workflows/release.yml`: it checks the tag equals the version in `package.json`, builds, packs, runs `verify:core` and `verify:cli`, and creates a GitHub release with `baka-<version>.tgz`, `baka.tgz` (always the latest), the MCP and core tarballs, `install.sh` and `moralo.module.json`. `curl -fsSL https://github.com/zimablue-io/baka/releases/latest/download/install.sh | sh` installs from it, with no clone and no build, and ends on the handshake. It needs the repository and its release assets to be reachable by whoever installs.
+The dashboard deployment (`apps/dashboard`, Vercel project `baka-dashboard`, https://baka.dashboard.zimablue.io) also serves the install: its build runs `pnpm run site`, which builds every package, packs one tarball per published package and stages them with `install.sh` and a sha256 manifest under `/releases/` (`scripts/stage-site.mjs`). `curl -fsSL https://baka.dashboard.zimablue.io/install.sh | sh` installs from it with no clone and no build, and ends on the handshake. A push that touches nothing the build uses is skipped (`ignoreCommand` in `apps/dashboard/vercel.json`). While the repository is private this is how anyone installs; the site is public, so it publishes the build.
+
+## GitHub release (for when the repository is public)
+
+Pushing a tag `v<version>` runs `.github/workflows/release.yml`: it checks the tag equals the version in `package.json`, builds, packs (the tarballs name each other by the release's download URL), runs `verify:core` and `verify:cli`, and creates a GitHub release with every package's tarball (versioned and unversioned names), `install.sh` and `moralo.module.json`. It needs the repository and its release assets to be reachable by whoever installs.
 
 The release workflow has not run on GitHub yet; the first tag is its first test. If the version in `docs/CONTRACT.md` (the contract version) changes, bump it in `packages/protocol/src/contract.ts` and add a changelog entry there in the same commit.
 
 ## npm
 
-The npm name `baka` is taken by another project, so publishing to npm needs a scope the owner chooses (for example `@zimablue/baka`); until then the tarballs above are the install. The rest of this page is the runbook for that switch.
+The packages are named under the `@baka` scope (`@baka/protocol`, `@baka/sdk`, `@baka/core`, `@baka/cli`, `@baka/mcp`). At the time of writing nothing is published under it, so claiming the scope is the owner's step: create the `baka` organization on npm (`npm org create baka`, or on npmjs.com) and invite the publishers. `pnpm run pack -- --dep-base semver` writes the tarballs with `^<version>` dependencies between them, which is what an npm publish needs. Until the scope is claimed and the legal review is done, the tarballs above are the install. The rest of this page is the runbook for that switch.
 
 This part is the runbook for the npm switch. It is intentionally NOT automated — `scripts/release.sh` builds tarballs but never pushes them. Publishing is a manual follow-up the maintainer does once per release, after the tarball review and the version sanity checks.
 
@@ -25,26 +29,24 @@ Before publishing anything, walk this list. If any step fails, stop and fix the 
 
 1. **Clean working tree.** `git status --porcelain` is empty. `scripts/release.sh` already refuses to run on a dirty tree, so reaching the publish step implies this passed.
 2. **Manifest sanity.** `pnpm install --frozen-lockfile` completes without `--frozen-lockfile` errors. The lockfile is in sync with `package.json` for every workspace.
-3. **Version match.** The version in root `package.json`, `apps/cli/package.json`, `apps/mcp/package.json`, and `packages/core/package.json` all read `<version>`. The release script enforces this — if any one drifted, the bump step would have failed. Spot-check with:
+3. **Version match.** The version in root `package.json` and in every published package (`apps/cli`, `apps/mcp`, `packages/core`, `packages/protocol`, `packages/sdk`) reads `<version>`; a test (`apps/cli/test/version-sync.test.ts`) fails if one drifts. The release script enforces this — if any one drifted, the bump step would have failed. Spot-check with:
    ```bash
-   jq -r .version package.json apps/cli/package.json apps/mcp/package.json packages/core/package.json
+   jq -r .version package.json apps/cli/package.json apps/mcp/package.json packages/core/package.json packages/protocol/package.json packages/sdk/package.json
    ```
-   The output must be four lines, all identical.
+   The output must be six lines, all identical.
 4. **CI green.** `gh pr checks --watch` (or the Recipes tab) shows lint, type-check, test, build, pack, and the smoke step all green on the release commit. The PR template and `CONTRIBUTING.md` agree that failing CI blocks merge; do not publish over a red build.
-5. **Tarball review.** `dist-tarballs/` contains `baka-<version>.tgz`, `baka-mcp-server-<version>.tgz`, and `baka-core-<version>.tgz` (the embeddable library; it also lists `package/dist/index.d.ts`). Inspect all three:
+5. **Tarball review.** `dist-tarballs/` contains `baka-cli-<version>.tgz`, `baka-mcp-<version>.tgz`, `baka-core-<version>.tgz`, `baka-sdk-<version>.tgz` and `baka-protocol-<version>.tgz` (the last three also list `package/dist/index.d.ts`). Inspect each:
    ```bash
-   tar -tzf dist-tarballs/baka-<version>.tgz | head -40
-   tar -tzf dist-tarballs/baka-mcp-server-<version>.tgz | head -40
-   tar -tzf dist-tarballs/baka-core-<version>.tgz | head -40
+   for t in cli mcp core sdk protocol; do tar -tzf dist-tarballs/baka-$t-<version>.tgz | head -40; done
    ```
    Each lists `package/`, `package/package.json`, `package/dist/index.js`, `package/README.md`, `package/LICENSE`. None of them lists `package/.env*`, `package/.git`, `package/node_modules`, `package/coverage`, `package/test`, or `package/src`. If anything leaks, fix `package.json` `files` field or `.npmignore` and rebuild the tarball.
-6. **Core tarball outside the workspace.** `node scripts/verify-core-pack.mjs` (`pnpm run verify:core`) packs `@baka/core`, installs the tarball with npm into a scratch project, runs a pack from a catalog against another directory, and type-checks a consumer. It must print `types ok`.
+6. **Core tarball outside the workspace.** `node scripts/verify-core-pack.mjs` (`pnpm run verify:core`) packs `@baka/protocol`, `@baka/sdk` and `@baka/core`, installs the tarballs with npm into a scratch project, runs a pack from a catalog against another directory, and type-checks a consumer. It must print `types ok`.
 7. **Local install smoke.** Install both tarballs into a fresh `mktemp -d` and run the documented smoke sequence:
    ```bash
    SCRATCH=$(mktemp -d)
    cd "$SCRATCH"
-   pnpm install -g /abs/path/to/baka-<version>.tgz
-   pnpm install -g /abs/path/to/baka-mcp-server-<version>.tgz
+   pnpm install -g /abs/path/to/baka-cli-<version>.tgz
+   pnpm install -g /abs/path/to/baka-mcp-<version>.tgz
    which baka; which baka-mcp
    baka --version
    baka list-packs --json | jq '.packs | length'   # expect 3
@@ -71,13 +73,13 @@ If you publish from CI, configure the `NPM_TOKEN` secret in the GitHub repositor
 Always dry-run the publish command before the real publish. `pnpm publish --dry-run` builds the tarball again, prints the manifest it would upload, and stops before the network round-trip. It catches tag and dependency surprises without leaving a published version behind.
 
 ```bash
-pnpm publish --filter baka --filter @baka/mcp-server --filter @baka/core --no-git-checks --dry-run
+pnpm publish --filter @baka/cli --filter @baka/mcp --filter @baka/core --no-git-checks --dry-run
 ```
 
 Read the manifest dump carefully. Confirm:
 
 - `name`, `version`, `description`, `license`, `repository`, and `bin` fields match the upstream `package.json`.
-- `dependencies` lists only external packages (no `@repo/*`, no `@baka/*`, no `baka-sdk` — those were bundled into the dist by tsup).
+- `dependencies` lists only external packages (no `@repo/*`, no `@baka/*`, no `@baka/sdk` — those were bundled into the dist by tsup).
 - `files` includes `dist`, `README.md`, `LICENSE` and nothing else.
 - The package is **not** marked `private: true`. `scripts/pack.mjs` strips the `private` flag from the published manifest for the duration of the pack; the dry-run confirms the strip succeeded.
 
@@ -88,14 +90,14 @@ A dry-run that shows the wrong manifest is a release-blocking bug. Do not push t
 When the dry-run output is exactly what the registry should receive, run the real publish. There is no `--dry-run` flag, no `--tag`, no `--access public` override; the workspace is configured for public access and the default tag is `latest`.
 
 ```bash
-pnpm publish --filter baka --filter @baka/mcp-server --filter @baka/core --no-git-checks
+pnpm publish --filter @baka/cli --filter @baka/mcp --filter @baka/core --no-git-checks
 ```
 
 `--no-git-checks` is intentional: `pnpm publish` would otherwise refuse if your working tree is not on the published git tag. We tag after publishing (see below), not before, so the working tree is one commit ahead of the tag. This is the same pattern npm uses for first-time publishes.
 
-The workspace filters run in dependency order. The CLI (`baka`), the MCP server (`@baka/mcp-server`), and the library (`@baka/core`) are independent — none depends on another — so the order does not matter, but `pnpm publish` still enforces a deterministic sequence.
+The workspace filters run in dependency order. The CLI (`baka`), the MCP server (`@baka/mcp`), and the library (`@baka/core`) are independent — none depends on another — so the order does not matter, but `pnpm publish` still enforces a deterministic sequence.
 
-Watch the output for any non-zero exit code or unexpected warning. A successful publish prints `+ baka@<version>`, `+ @baka/mcp-server@<version>`, and `+ @baka/core@<version>` and exits 0.
+Watch the output for any non-zero exit code or unexpected warning. A successful publish prints `+ baka@<version>`, `+ @baka/mcp@<version>`, and `+ @baka/core@<version>` and exits 0.
 
 ## Post-publish verification
 
@@ -110,7 +112,7 @@ Watch the output for any non-zero exit code or unexpected warning. A successful 
    SCRATCH=$(mktemp -d)
    cd "$SCRATCH"
    npm install -g baka@<version>
-   npm install -g @baka/mcp-server@<version>
+   npm install -g @baka/mcp@<version>
    npm install @baka/core@<version>   # library; import { runRecipe } from "@baka/core"
    which baka; which baka-mcp
    baka --version
@@ -125,7 +127,7 @@ If the publish is broken (wrong version, wrong dependency, corrupt tarball) and 
 
 ```bash
 npm deprecate baka@<bad-version> "broken release; use <good-version> instead"
-npm deprecate @baka/mcp-server@<bad-version> "broken release; use <good-version> instead"
+npm deprecate @baka/mcp@<bad-version> "broken release; use <good-version> instead"
 ```
 
 Then cut a patch release (e.g. `0.2.0` → `0.2.1`) that fixes the underlying cause. Do not try to overwrite the published version — npm does not allow republishing a version, even with `--force`.

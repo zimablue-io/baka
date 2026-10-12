@@ -4,7 +4,7 @@ import {
 	RegistryPreviewListResponseSchema,
 	RegistryRecipePreviewSchema,
 	RegistryVersionDetailSchema,
-} from "@repo/protocol"
+} from "@baka/protocol"
 import type { z } from "zod"
 
 /**
@@ -13,7 +13,7 @@ import type { z } from "zod"
  * The landing renders live data from the baka registry (architecture
  * §5.3). All fetches go through `fetch()` against `VITE_REGISTRY_URL`
  * (default `http://localhost:4300`); responses are validated against
- * the protocol schemas from `@repo/protocol` so a registry change
+ * the protocol schemas from `@baka/protocol` so a registry change
  * surfaces as a typed parse error rather than a silent UI drift.
  *
  * Every error path names the URL the client tried so the UI can render
@@ -111,7 +111,7 @@ async function fetchJson<T>(url: string, schema: z.ZodType<T>): Promise<T> {
 /**
  * Fetches `GET /v1/packs` (the catalog list) and returns the parsed
  * pack entries. The registry seeds this from
- * `BUILT_IN_CATALOG` in `@repo/protocol` plus any community
+ * `BUILT_IN_CATALOG` in `@baka/protocol` plus any community
  * publishes. Returns an empty array when the registry is reachable
  * but has no packs (VAL-WEB-008).
  */

@@ -6,8 +6,8 @@
 // the prompts can be unit-tested by swapping `input` for a mock.
 // ---------------------------------------------------------------------------
 
+import type { DesignSessionState } from "@baka/workflow-pack-management"
 import { input as inquirerInput } from "@inquirer/prompts"
-import type { DesignSessionState } from "@repo/pack-management-workflow"
 import { type E2EInputSource, getDefaultE2EInputSource, isE2EMode } from "./e2e-input"
 import {
 	type DefineApproval,

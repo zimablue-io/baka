@@ -77,7 +77,7 @@ const { values: VALUE_NAMES, types: TYPE_NAMES } = loadDesignBarrelExportNames()
 
 const PROBE_SOURCE = [
 	"// Probe script: enumerate every named export from the workflow barrel.",
-	'import * as m from "@repo/pack-management-workflow"',
+	'import * as m from "@baka/workflow-pack-management"',
 	`const values = [${VALUE_NAMES.map((n) => JSON.stringify(n)).join(",")}]`,
 	`const types = [${TYPE_NAMES.map((n) => JSON.stringify(n)).join(",")}]`,
 	// biome-ignore lint/suspicious/noTemplateCurlyInString: these are code strings embedded in a generated script, not template literals
@@ -87,7 +87,7 @@ const PROBE_SOURCE = [
 	"",
 ].join("\n")
 
-describe("@repo/pack-management-workflow barrel completeness", () => {
+describe("@baka/workflow-pack-management barrel completeness", () => {
 	beforeAll(() => {
 		if (!existsSync(PROBE_DIR)) mkdirSync(PROBE_DIR, { recursive: true })
 		writeFileSync(PROBE_PATH, PROBE_SOURCE, "utf-8")

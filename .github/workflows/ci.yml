@@ -52,7 +52,7 @@ jobs:
       - name: Test
         run: pnpm -r test
 
-      - name: Pack (baka + @baka/mcp-server + @baka/core)
+      - name: Pack (baka + @baka/mcp + @baka/core)
         run: pnpm run pack
 
       # Strict unused file, export, dependency, and unresolved-import gate.
@@ -79,23 +79,26 @@ jobs:
           # `dist-tarballs/`; we verify those structurally (right name,
           # contains `package/dist/index.js`).
 
+          version="$(node -p "require('./apps/cli/package.json').version")"
+          packages="baka-protocol baka-sdk baka-core baka-cli baka-mcp"
+
           echo "=== structural check on packed tarballs ==="
-          test -f dist-tarballs/baka-0.1.0.tgz
-          test -f dist-tarballs/baka-mcp-server-0.1.0.tgz
-          test -f dist-tarballs/baka-core-0.1.0.tgz
           # List first, grep after: `grep -q` quits at the first match, and under
           # `pipefail` the SIGPIPE it sends `tar` fails the pipeline.
-          for t in baka-0.1.0 baka-mcp-server-0.1.0 baka-core-0.1.0; do
-            tar -tzf "dist-tarballs/${t}.tgz" > "${RUNNER_TEMP}/${t}.list"
+          for t in $packages; do
+            test -f "dist-tarballs/${t}-${version}.tgz"
+            tar -tzf "dist-tarballs/${t}-${version}.tgz" > "${RUNNER_TEMP}/${t}.list"
             grep -qx 'package/dist/index.js' "${RUNNER_TEMP}/${t}.list"
           done
-          grep -qx 'package/dist/index.d.ts' "${RUNNER_TEMP}/baka-core-0.1.0.list"
+          for t in baka-protocol baka-sdk baka-core; do
+            grep -qx 'package/dist/index.d.ts' "${RUNNER_TEMP}/${t}.list"
+          done
 
           echo "=== probe the binaries installed from the tarballs ==="
           prefix="${RUNNER_TEMP}/smoke-prefix"
           rm -rf "$prefix"
           npm install --prefix "$prefix" --no-audit --no-fund --loglevel=error \
-            "$PWD/dist-tarballs/baka-0.1.0.tgz" "$PWD/dist-tarballs/baka-mcp-server-0.1.0.tgz"
+            "$PWD/dist-tarballs/baka-cli-${version}.tgz" "$PWD/dist-tarballs/baka-mcp-${version}.tgz"
 
           CLI_BIN="$prefix/node_modules/.bin/baka"
           MCP_BIN="$prefix/node_modules/.bin/baka-mcp"
@@ -116,3 +119,19 @@ jobs:
           rm -f "$INIT_RESP"
 
           echo "smoke OK"
+
+      # What a user does: fetch install.sh from the site and run it. The site is staged exactly as the dashboard build
+      # stages it, served locally, and the installer must download, check the sha256 and end on the handshake.
+      - name: Install from the staged site
+        run: |
+          set -euo pipefail
+          site="${RUNNER_TEMP}/site"
+          BAKA_SITE_URL=http://127.0.0.1:8765 node scripts/stage-site.mjs "$site"
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory "$site" >/dev/null 2>&1 &
+          server=$!
+          trap 'kill "$server"' EXIT
+          sleep 2
+          sh install.sh --base http://127.0.0.1:8765 --prefix "${RUNNER_TEMP}/site-install" --mcp --quiet
+          "${RUNNER_TEMP}/site-install/bin/baka" version --json >/dev/null
+          test -x "${RUNNER_TEMP}/site-install/bin/baka-mcp"
+          echo "site install OK"

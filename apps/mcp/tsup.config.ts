@@ -24,7 +24,7 @@ export default defineConfig({
 	clean: true,
 	sourcemap: true,
 	minify: false,
-	noExternal: [/^@repo\//, /^@baka\//],
+	noExternal: [/^@baka\//],
 	external: ["jiti"],
 	splitting: false,
 	// The starter pack ships inside the install, so the first run needs nothing but the install itself.

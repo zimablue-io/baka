@@ -35,7 +35,7 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import vm from "node:vm"
-import { PackManifestSchema } from "@repo/protocol"
+import { PackManifestSchema } from "@baka/protocol"
 
 interface ExtractedManifest {
 	name: string

@@ -14,11 +14,11 @@ Baka stands on its own and knows nothing about its hosts. Everything below is re
 ## Install and first run
 
 ```bash
-curl -fsSL https://github.com/zimablue-io/baka/releases/latest/download/install.sh | sh
+curl -fsSL https://baka.dashboard.zimablue.io/install.sh | sh
 baka run add-readme --name my-app        # in an empty directory: writes README.md; no model, no account
 ```
 
-`install.sh` needs Node.js 24 or later and nothing else, asks nothing, and ends on the handshake (exit `3` when the install does not answer). `--version X.Y.Z` picks a release, `--tarball` installs a build you made, `--prefix DIR` keeps it out of the global npm directory. The release assets are `baka-<version>.tgz` (and `baka.tgz`, always the latest), `baka-mcp-server-<version>.tgz`, `baka-core-<version>.tgz`, `install.sh` and `moralo.module.json`. The npm name `baka` is taken, so publishing to npm needs a scope the owner chooses (see `docs/PUBLISHING.md`); until then the tarballs are the install.
+`install.sh` needs Node.js 24 or later and nothing else, asks nothing, and ends on the handshake (exit `3` when the install does not answer). `--version X.Y.Z` picks a release, `--mcp` adds the MCP server, `--tarball` installs a build you made, `--prefix DIR` keeps it out of the global npm directory, `--base URL` reads releases from another host. A release download is checked against the sha256 in the `manifest.json` beside it. A release is one tarball per package: `baka-cli-<version>.tgz` (and `baka-cli.tgz`, always the latest), `baka-mcp`, `baka-core`, `baka-sdk` and `baka-protocol`, under `/releases/v<version>/` and `/releases/latest/` of the site. The packages are `@baka/cli`, `@baka/mcp`, `@baka/core`, `@baka/sdk` and `@baka/protocol`; none is on npm yet, and the tarballs name each other by URL, so `npm install https://baka.dashboard.zimablue.io/releases/latest/baka-core.tgz` pulls `@baka/protocol` from the same place. A host that only reads Baka's documents needs `@baka/protocol` alone.
 
 A fresh install has exactly one pack, `starter`, bundled inside it (see "Packs and where they come from").
 

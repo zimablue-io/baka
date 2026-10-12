@@ -73,8 +73,8 @@ baka scaffold test-pack
 │   └── pack-management/
 ├── packages/                # Engine tools
 │   ├── protocol/            # SSOT: types, schemas, LLMProvider interface
-│   ├── agent-engine/        # The ONLY package that knows what an LLMProvider is
-│   └── ast-tooling/         # File/AST operations, pack registry
+│   ├── agent/        # The ONLY package that knows what an LLMProvider is
+│   └── recipes/         # File/AST operations, pack registry
 ├── packs/                 # User-defined patterns (recipe-centric layout)
 │   └── README.md
 ├── SKILL.md                 # Declarative agent contract (Claude Code, Codex, Cursor, etc.)
@@ -117,7 +117,7 @@ The system operates on an isolated, deterministic execution loop. Agents do not 
 3. **Validator** (deterministic TypeScript) — runs the pack's `validators/*.ts` and `_shared/validators/*.ts` functions against the resulting file tree. No LLM is involved. Returns `Pass` or `Fail(diff[])` with structured diagnostics.
 
 ## Provider Boundary
-All provider knowledge (HTTP clients, API keys, model names) is sealed inside `packages/agent-engine/`. Workflows, the CLI, and `ast-tooling` only ever import the `LLMProvider` interface from `packages/protocol/`. The user picks the provider (llama.cpp, Ollama, vLLM, OpenAI, anything speaking the OpenAI chat-completions API) via `baka init`; the engine never dictates it.
+All provider knowledge (HTTP clients, API keys, model names) is sealed inside `packages/agent/`. Workflows, the CLI, and `recipes` only ever import the `LLMProvider` interface from `packages/protocol/`. The user picks the provider (llama.cpp, Ollama, vLLM, OpenAI, anything speaking the OpenAI chat-completions API) via `baka init`; the engine never dictates it.
 
 ## License
 

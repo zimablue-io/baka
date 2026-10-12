@@ -1,4 +1,4 @@
-import { ApiErrorSchema, BAKA_EXIT_CODE, type BakaAddon, type LlmCall } from "@repo/protocol"
+import { ApiErrorSchema, BAKA_EXIT_CODE, type BakaAddon, type LlmCall } from "@baka/protocol"
 import { die } from "./die"
 
 /** What every command that reaches the engine is called with: where, which packs, and what it may read. */

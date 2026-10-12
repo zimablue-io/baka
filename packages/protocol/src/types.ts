@@ -172,7 +172,7 @@ export interface RecipeContext extends StepContext {
  * `StepResponse`; `compensate` undoes whatever `execute` did by means the
  * engine cannot see (the files written through `ctx.files` and by templates
  * are undone by the engine itself). Unlike a `WorkflowStep` it has no
- * `role`, so a pack needs no runtime import from `baka-sdk` at all: use
+ * `role`, so a pack needs no runtime import from `@baka/sdk` at all: use
  * `import type`.
  */
 export interface RecipeStep<TInput, TOutput, TCompensationData> {
@@ -186,7 +186,7 @@ export interface RecipeStep<TInput, TOutput, TCompensationData> {
 }
 
 // ---------------------------------------------------------------------------
-// LLM provider abstraction (sealed boundary — implementations live in agent-engine)
+// LLM provider abstraction (sealed boundary — implementations live in agent)
 // ---------------------------------------------------------------------------
 
 export type LLMMessageRole = "system" | "user" | "assistant" | "tool"
@@ -232,7 +232,7 @@ export interface LLMProvider {
 }
 
 // ---------------------------------------------------------------------------
-// Resolved LLM config (output of agent-engine's config loader)
+// Resolved LLM config (output of agent's config loader)
 // ---------------------------------------------------------------------------
 
 export interface ResolvedLLMConfig {

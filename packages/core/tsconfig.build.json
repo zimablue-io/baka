@@ -2,8 +2,8 @@
 	"extends": "./tsconfig.json",
 	"compilerOptions": {
 		"paths": {
-			"@repo/ast-tooling": ["../ast-tooling/src/index.ts"],
-			"@repo/protocol": ["../protocol/src/index.ts"]
+			"@baka/recipes": ["../recipes/src/index.ts"],
+			"@baka/protocol": ["../protocol/src/index.ts"]
 		}
 	},
 	"include": ["src"],

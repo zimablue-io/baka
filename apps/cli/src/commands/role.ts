@@ -5,7 +5,6 @@
 // field accepts plain text; the values are NOT echoed back by `baka role
 // show` (which masks apiKey as `<set>`).
 
-import { input, password } from "@inquirer/prompts"
 import {
 	isRoleName,
 	type RoleConfig,
@@ -13,8 +12,9 @@ import {
 	SUPPORTED_ROLES,
 	userConfigPath,
 	writeRoleConfig,
-} from "@repo/agent-engine"
-import { BAKA_EXIT_CODE } from "@repo/protocol"
+} from "@baka/agent"
+import { BAKA_EXIT_CODE } from "@baka/protocol"
+import { input, password } from "@inquirer/prompts"
 
 function die(code: number, msg: string): never {
 	process.stderr.write(`baka: ${msg}\n`)

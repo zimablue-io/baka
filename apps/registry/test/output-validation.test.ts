@@ -281,7 +281,7 @@ export async function rejectsPlaceholder(state) {
 			// against the dry-run output for the recipe and
 			// receives the recipe's compensationData (the
 			// engine contract — pinned by the validator.ts
-			// implementation in ast-tooling).
+			// implementation in recipes).
 			await stack.git.commitManifest({
 				name: "@acme/actionval",
 				version: "1.0.0",

@@ -1,4 +1,4 @@
-import type { RegistryTier } from "@repo/protocol"
+import type { RegistryTier } from "@baka/protocol"
 import { cn } from "@/lib/cn"
 
 const STYLES: Record<RegistryTier, string> = {

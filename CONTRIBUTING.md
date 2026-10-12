@@ -58,7 +58,7 @@ The postinstall hook builds the `baka` CLI. After install you can invoke it with
 | `pnpm lint` | Run `biome check` across the repo |
 | `pnpm check-types` | Type-check every workspace |
 | `pnpm test` | Run the full Vitest suite |
-| `pnpm pack` | Build installable tarballs for `baka`, `@baka/mcp-server`, and `@baka/core` into `dist-tarballs/` |
+| `pnpm pack` | Build one installable tarball per published package (`@baka/protocol`, `@baka/sdk`, `@baka/core`, `@baka/cli`, `@baka/mcp`) into `dist-tarballs/` |
 | `pnpm format` | Run Biome's auto-formatter (`biome format --write .`) |
 | `pnpm knip` | Run the strict unused file, export, and dependency gate |
 | `pnpm baka plan "<intent>"` | Plan a feature using the engine |
@@ -71,15 +71,15 @@ The postinstall hook builds the `baka` CLI. After install you can invoke it with
 - `apps/registry` — the self-hostable OSS pack registry (the public hub)
 - `apps/landing` — the marketing site
 - `packages/protocol` — single source of truth for types and schemas
-- `packages/agent-engine` — the only package that knows what an `LLMProvider` is
-- `packages/ast-tooling` — file/AST operations
+- `packages/agent` — the only package that knows what an `LLMProvider` is
+- `packages/recipes` — file/AST operations
 - `packages/core` — `@baka/core`, the published embeddable library (runRecipe, validate, describePacks)
-- `packages/baka-sdk` — public SDK for pack authors
+- `packages/sdk` — public SDK for pack authors
 - `packages/typescript-config` — shared TypeScript configs
 - `workflows/` — engine orchestration for this project
 - `packs/` — user-defined patterns (recipe-centric layout)
 
-The provider boundary is enforced: only `packages/agent-engine` may import a provider, HTTP client, or model name. See `docs/PHILOSOPHY.md` for the full invariant.
+The provider boundary is enforced: only `packages/agent` may import a provider, HTTP client, or model name. See `docs/PHILOSOPHY.md` for the full invariant.
 
 ## Pull request process
 
@@ -116,7 +116,7 @@ Use [Conventional Commits](https://www.conventionalcommits.org/):
 <optional footer>
 ```
 
-Common types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `build`, `ci`. Scopes map to workspace names when relevant: `cli`, `mcp`, `api`, `protocol`, `agent-engine`, `ast-tooling`, `baka-sdk`.
+Common types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `build`, `ci`. Scopes map to workspace names when relevant: `cli`, `mcp`, `api`, `protocol`, `agent`, `recipes`, `@baka/sdk`.
 
 ## Coding standards
 

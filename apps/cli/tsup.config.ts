@@ -2,7 +2,7 @@ import { cpSync } from "node:fs"
 import { defineConfig } from "tsup"
 
 // Bundle the workspace packages into the CLI. Without this, tsup leaves
-// `@repo/*` imports external, and Node's strict ESM resolver cannot load
+// `@baka/*` imports external, and Node's strict ESM resolver cannot load
 // the workflows' `index.ts` re-exports (`./X` without extension) when the
 // user runs the built CLI in pure Node (no tsx).
 //
@@ -27,7 +27,7 @@ export default defineConfig({
 	clean: true,
 	sourcemap: true,
 	minify: false,
-	noExternal: [/^@repo\//, /^@baka\//, "baka-sdk"],
+	noExternal: [/^@baka\//],
 	external: ["jiti"],
 	splitting: false,
 	// The starter pack ships inside the install, so the first run needs nothing but the install itself.

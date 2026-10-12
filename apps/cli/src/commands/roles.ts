@@ -1,8 +1,8 @@
 // `baka roles` — list every configured role with its fields.
 // apiKey is masked as `<set>` (any non-empty value) or `(empty)` (none).
 
-import { listRoles, readRoleConfig, SUPPORTED_ROLES, userConfigPath } from "@repo/agent-engine"
-import { BAKA_EXIT_CODE } from "@repo/protocol"
+import { listRoles, readRoleConfig, SUPPORTED_ROLES, userConfigPath } from "@baka/agent"
+import { BAKA_EXIT_CODE } from "@baka/protocol"
 import { die } from "../die"
 
 export function runRoles(): void {
