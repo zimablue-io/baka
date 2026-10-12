@@ -10,6 +10,7 @@
 // The source manifests point at `src/` and at sibling packages as `workspace:*`; the tarball must stand on its own.
 // So the published manifest is rewritten:
 //   - `publishConfig` is applied over the top level (main, types, exports, type -> the built `dist`) and removed;
+//   - THIRD-PARTY-NOTICES.md lists the npm code the bundle inlines, with each license text (scripts/third-party-notices.mjs);
 //   - devDependencies are dropped: whatever the bundle inlines (the apps inline every @baka/* package) is listed
 //     there, never in `dependencies`;
 //   - a `workspace:*` dependency on another published package becomes a real reference to that package's tarball:
@@ -20,6 +21,7 @@ import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { bundledPackages, noticesText } from "./third-party-notices.mjs"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(__dirname, "..")
@@ -96,6 +98,11 @@ for (const [name, range] of Object.entries(published.dependencies ?? {})) {
 }
 published.dependencies = dependencies
 
+// Code from npm that the bundle inlines needs its license text next to it, so the tarball carries those texts.
+const notices = noticesText(pkgName, bundledPackages(join(pkgDir, "dist")))
+const noticesPath = join(pkgDir, "THIRD-PARTY-NOTICES.md")
+if (notices) published.files = [...(published.files ?? []), "THIRD-PARTY-NOTICES.md"]
+
 // The repo keeps `private: true` to prevent an accidental `pnpm publish`; the tarball must be installable.
 delete published.private
 
@@ -110,6 +117,7 @@ writeFileSync(tmpPkg, `${JSON.stringify(published, null, "\t")}\n`)
 // the rewritten version for the duration of the pack call.
 renameSync(pkgJsonPath, bakPkg)
 renameSync(tmpPkg, pkgJsonPath)
+if (notices) writeFileSync(noticesPath, notices)
 
 // Make sure dist has the sourcemap (build artifact requirement).
 // pnpm pack picks up the `files` field from the active package.json, which
@@ -124,6 +132,7 @@ try {
 	renameSync(pkgJsonPath, tmpPkg)
 	renameSync(bakPkg, pkgJsonPath)
 	rmSync(tmpPkg, { force: true })
+	rmSync(noticesPath, { force: true })
 }
 
 console.log(`packed ${pkgName} -> ${outDir}`)

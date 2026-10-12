@@ -326,7 +326,7 @@ baka pack create test-pack
 
 ## Packages
 
-Baka is a set of small packages in one npm scope, `@baka`. Each does one job and exposes only what its users need; the dependencies only point downwards.
+Baka is a set of small packages named under `@baka`; they are installed from this repository's releases and the install site, not from npm. Each does one job and exposes only what its users need; the dependencies only point downwards.
 
 | Package | Job | Depends on |
 | --- | --- | --- |

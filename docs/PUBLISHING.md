@@ -1,145 +1,36 @@
 # Publishing baka
 
-## The install site (the install people use today)
+Baka is distributed in two places and nowhere else: the install site and GitHub releases. It is not on npm, and nothing in this repository publishes there. The packages carry `@baka` names so they have one identity everywhere (`@baka/cli`, `@baka/core`, ...), but a name only matters to npm once something is published; installing from a tarball needs no registry and no scope.
 
-The dashboard deployment (`apps/dashboard`, Vercel project `baka-dashboard`, https://baka.dashboard.zimablue.io) also serves the install: its build runs `pnpm run site`, which builds every package, packs one tarball per published package and stages them with `install.sh` and a sha256 manifest under `/releases/` (`scripts/stage-site.mjs`). `curl -fsSL https://baka.dashboard.zimablue.io/install.sh | sh` installs from it with no clone and no build, and ends on the handshake. A push that touches nothing the build uses is skipped (`ignoreCommand` in `apps/dashboard/vercel.json`). While the repository is private this is how anyone installs; the site is public, so it publishes the build.
+## The install site
 
-## GitHub release (for when the repository is public)
+The dashboard deployment (`apps/dashboard`, Vercel project `baka-dashboard`, https://baka.dashboard.zimablue.io) also serves the install. Its build runs `pnpm run site`, which builds every package, packs one tarball per published package and stages them with `install.sh` and a sha256 manifest under `/releases/` (`scripts/stage-site.mjs`).
 
-Pushing a tag `v<version>` runs `.github/workflows/release.yml`: it checks the tag equals the version in `package.json`, builds, packs (the tarballs name each other by the release's download URL), runs `verify:core` and `verify:cli`, and creates a GitHub release with every package's tarball (versioned and unversioned names), `install.sh` and `moralo.module.json`. It needs the repository and its release assets to be reachable by whoever installs.
-
-The release workflow has not run on GitHub yet; the first tag is its first test. If the version in `docs/CONTRACT.md` (the contract version) changes, bump it in `packages/protocol/src/contract.ts` and add a changelog entry there in the same commit.
-
-## npm
-
-The packages are named under the `@baka` scope (`@baka/protocol`, `@baka/sdk`, `@baka/core`, `@baka/cli`, `@baka/mcp`). At the time of writing nothing is published under it, so claiming the scope is the owner's step: create the `baka` organization on npm (`npm org create baka`, or on npmjs.com) and invite the publishers. `pnpm run pack -- --dep-base semver` writes the tarballs with `^<version>` dependencies between them, which is what an npm publish needs. Until the scope is claimed and the legal review is done, the tarballs above are the install. The rest of this page is the runbook for that switch.
-
-This part is the runbook for the npm switch. It is intentionally NOT automated — `scripts/release.sh` builds tarballs but never pushes them. Publishing is a manual follow-up the maintainer does once per release, after the tarball review and the version sanity checks.
-
-The contract:
-
-- `scripts/release.sh <version>` produces the tarballs and prints the install command.
-- `scripts/release.sh` never calls `pnpm publish`.
-- `docs/PUBLISHING.md` documents the publish step. Following this runbook is a maintainer recipe, not part of CI.
-- The repo's `.github/workflows/ci.yml` has zero `pnpm publish` invocations. CI cannot accidentally publish.
-
-## Preflight
-
-Before publishing anything, walk this list. If any step fails, stop and fix the underlying cause. Do not push through a red light.
-
-1. **Clean working tree.** `git status --porcelain` is empty. `scripts/release.sh` already refuses to run on a dirty tree, so reaching the publish step implies this passed.
-2. **Manifest sanity.** `pnpm install --frozen-lockfile` completes without `--frozen-lockfile` errors. The lockfile is in sync with `package.json` for every workspace.
-3. **Version match.** The version in root `package.json` and in every published package (`apps/cli`, `apps/mcp`, `packages/core`, `packages/protocol`, `packages/sdk`) reads `<version>`; a test (`apps/cli/test/version-sync.test.ts`) fails if one drifts. The release script enforces this — if any one drifted, the bump step would have failed. Spot-check with:
-   ```bash
-   jq -r .version package.json apps/cli/package.json apps/mcp/package.json packages/core/package.json packages/protocol/package.json packages/sdk/package.json
-   ```
-   The output must be six lines, all identical.
-4. **CI green.** `gh pr checks --watch` (or the Recipes tab) shows lint, type-check, test, build, pack, and the smoke step all green on the release commit. The PR template and `CONTRIBUTING.md` agree that failing CI blocks merge; do not publish over a red build.
-5. **Tarball review.** `dist-tarballs/` contains `baka-cli-<version>.tgz`, `baka-mcp-<version>.tgz`, `baka-core-<version>.tgz`, `baka-sdk-<version>.tgz` and `baka-protocol-<version>.tgz` (the last three also list `package/dist/index.d.ts`). Inspect each:
-   ```bash
-   for t in cli mcp core sdk protocol; do tar -tzf dist-tarballs/baka-$t-<version>.tgz | head -40; done
-   ```
-   Each lists `package/`, `package/package.json`, `package/dist/index.js`, `package/README.md`, `package/LICENSE`. None of them lists `package/.env*`, `package/.git`, `package/node_modules`, `package/coverage`, `package/test`, or `package/src`. If anything leaks, fix `package.json` `files` field or `.npmignore` and rebuild the tarball.
-6. **Core tarball outside the workspace.** `node scripts/verify-core-pack.mjs` (`pnpm run verify:core`) packs `@baka/protocol`, `@baka/sdk` and `@baka/core`, installs the tarballs with npm into a scratch project, runs a pack from a catalog against another directory, and type-checks a consumer. It must print `types ok`.
-7. **Local install smoke.** Install both tarballs into a fresh `mktemp -d` and run the documented smoke sequence:
-   ```bash
-   SCRATCH=$(mktemp -d)
-   cd "$SCRATCH"
-   pnpm install -g /abs/path/to/baka-cli-<version>.tgz
-   pnpm install -g /abs/path/to/baka-mcp-<version>.tgz
-   which baka; which baka-mcp
-   baka --version
-   baka list-packs --json | jq '.packs | length'   # expect 3
-   ```
-   If `baka --version` does not print `<version>`, stop. The tarball was built wrong.
-
-## npm login
-
-Publishing requires an authenticated npm session. The maintainer who owns the `@baka` scope runs `npm login` interactively from a workstation with browser access.
-
-```bash
-npm login
-# Browser opens; complete 2FA. Verify with:
-npm whoami
-npm access ls-packages @baka   # confirms scope access
+```sh
+curl -fsSL https://baka.dashboard.zimablue.io/install.sh | sh
 ```
 
-Use a fresh login session for each release. Stale `~/.npmrc` tokens can leak across accounts.
+installs from it with no clone and no build, and ends on the handshake. `/releases/latest/` always holds the newest version and `/releases/v<version>/` keeps each one. For a library embed: `npm install https://baka.dashboard.zimablue.io/releases/latest/baka-core.tgz` (its `@baka/protocol` dependency resolves from the same release).
 
-If you publish from CI, configure the `NPM_TOKEN` secret in the GitHub repository settings and reuse it via `npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"`. **Do not** add a `pnpm publish` step to `.github/workflows/ci.yml` — that would flip the switch automatically, which this mission does not authorize.
+A push that touches nothing the build uses is skipped (`ignoreCommand` in `apps/dashboard/vercel.json`), so a path the site build starts reading belongs in that list. The site is public and has no gate: it serves the build, the licenses inside it, and nothing else.
 
-## Dry-run
+## GitHub releases
 
-Always dry-run the publish command before the real publish. `pnpm publish --dry-run` builds the tarball again, prints the manifest it would upload, and stops before the network round-trip. It catches tag and dependency surprises without leaving a published version behind.
+Pushing a tag `v<version>` runs `.github/workflows/release.yml`: it checks the tag equals the version in `package.json`, builds, packs (the tarballs name each other by the release's download URL), runs `verify:core` and `verify:cli`, and creates a GitHub release with every package's tarball (versioned and unversioned names), `install.sh` and `moralo.module.json`. Someone installing from a release needs the repository and its assets to be reachable, so while the repository is private the site is the install.
 
-```bash
-pnpm publish --filter @baka/cli --filter @baka/mcp --filter @baka/core --no-git-checks --dry-run
-```
+## Cutting a release
 
-Read the manifest dump carefully. Confirm:
+1. `scripts/release.sh <version>` (clean tree only; `--dry-run` shows the plan) bumps the root and the five published packages, builds, and packs into `dist-tarballs/`. It never publishes.
+2. `apps/cli/test/version-sync.test.ts` fails if a published package's version drifts from the root.
+3. Check the tarballs: `tar -tzf dist-tarballs/baka-<name>-<version>.tgz` lists `package/package.json`, `package/dist/index.js`, `package/README.md`, `package/LICENSE` and `package/NOTICE`, and, for the CLI and MCP bundles, `package/THIRD-PARTY-NOTICES.md`. It lists no `.env*`, `.git`, `node_modules`, `coverage`, `test` or `src`.
+4. `pnpm run verify:core` and `pnpm run verify:cli` install the tarballs into a scratch project outside the workspace and exercise them.
+5. Commit, push to `main` (the site redeploys), then tag: `git tag v<version> && git push origin v<version>`.
+6. Add the dated entry to `CHANGELOG.md`. If the contract changed, bump the version in `packages/protocol/src/contract.ts` and add its changelog entry in the same commit.
 
-- `name`, `version`, `description`, `license`, `repository`, and `bin` fields match the upstream `package.json`.
-- `dependencies` lists only external packages (no `@repo/*`, no `@baka/*`, no `@baka/sdk` — those were bundled into the dist by tsup).
-- `files` includes `dist`, `README.md`, `LICENSE` and nothing else.
-- The package is **not** marked `private: true`. `scripts/pack.mjs` strips the `private` flag from the published manifest for the duration of the pack; the dry-run confirms the strip succeeded.
+`pnpm run pack -- --dep-base semver` writes `^<version>` dependencies between the tarballs instead of URLs. Nothing uses it today; it is there for the day Baka goes to a registry.
 
-A dry-run that shows the wrong manifest is a release-blocking bug. Do not push to the registry; fix the pack wrapper or the source `package.json` and start over.
+## Licenses in the tarballs
 
-## Publish
+Every published package carries `LICENSE` (Apache-2.0) and `NOTICE`. A package whose bundle inlines npm code (today the CLI and MCP bundles: hono, handlebars, zod and their kin) also carries `THIRD-PARTY-NOTICES.md`, written at pack time by `scripts/third-party-notices.mjs` from the sourcemaps, with each project's own license text. Dependencies that npm installs next to the package keep their own license files. The dependency tree is permissive licenses only (MIT, ISC, BSD, Apache-2.0, 0BSD); a new dependency under a copyleft license needs a decision before it lands.
 
-When the dry-run output is exactly what the registry should receive, run the real publish. There is no `--dry-run` flag, no `--tag`, no `--access public` override; the workspace is configured for public access and the default tag is `latest`.
-
-```bash
-pnpm publish --filter @baka/cli --filter @baka/mcp --filter @baka/core --no-git-checks
-```
-
-`--no-git-checks` is intentional: `pnpm publish` would otherwise refuse if your working tree is not on the published git tag. We tag after publishing (see below), not before, so the working tree is one commit ahead of the tag. This is the same pattern npm uses for first-time publishes.
-
-The workspace filters run in dependency order. The CLI (`baka`), the MCP server (`@baka/mcp`), and the library (`@baka/core`) are independent — none depends on another — so the order does not matter, but `pnpm publish` still enforces a deterministic sequence.
-
-Watch the output for any non-zero exit code or unexpected warning. A successful publish prints `+ baka@<version>`, `+ @baka/mcp@<version>`, and `+ @baka/core@<version>` and exits 0.
-
-## Post-publish verification
-
-1. **Tag the commit.** The release bump and pack happened on `main`; the publish is the last step. Tag the commit that contains the bumped versions:
-   ```bash
-   git tag -a v<version> -m "release: baka v<version>"
-   git push origin v<version>
-   ```
-   `--no-git-checks` on the publish step means the tag is post-hoc; that is by design.
-2. **Install from the registry.** In a clean `mktemp -d`, install from npm instead of the local tarballs:
-   ```bash
-   SCRATCH=$(mktemp -d)
-   cd "$SCRATCH"
-   npm install -g baka@<version>
-   npm install -g @baka/mcp@<version>
-   npm install @baka/core@<version>   # library; import { runRecipe } from "@baka/core"
-   which baka; which baka-mcp
-   baka --version
-   ```
-   `baka --version` must print `<version>`. If it prints anything else, the published manifest has the wrong version — yank with `npm unpublish` and start over.
-3. **Update CHANGELOG.md.** Add a dated entry under `## [<version>] - <date>` summarizing the release. Keep entries short (one line per change); the git log is the canonical history.
-4. **Announce.** Push the tag and let CI pick it up for the GitHub release notes. If you maintain a Discord or Slack channel for the project, drop a one-liner with the install command.
-
-## Rollback
-
-If the publish is broken (wrong version, wrong dependency, corrupt tarball) and was published within the last 72 hours, npm allows `npm unpublish`. After 72 hours, deprecate instead:
-
-```bash
-npm deprecate baka@<bad-version> "broken release; use <good-version> instead"
-npm deprecate @baka/mcp@<bad-version> "broken release; use <good-version> instead"
-```
-
-Then cut a patch release (e.g. `0.2.0` → `0.2.1`) that fixes the underlying cause. Do not try to overwrite the published version — npm does not allow republishing a version, even with `--force`.
-
-## Why this is a separate step
-
-`scripts/release.sh` is the canonical release tool. It runs every step that should be automated: the version bump across the three package.json files, the dist rebuild, the pack, the install-command print. What it does NOT do is push to a registry. The reason is safety:
-
-- Publishing is irreversible on the order of minutes-to-hours (`npm unpublish` is rate-limited and disabled for packages with dependents).
-- It requires human judgment (version sanity, manifest review, dependency sanity) that does not belong in a script.
-- It requires an authenticated npm session that does not belong in CI.
-
-The split keeps the automated path hermetic and the manual path observable. The CI workflow cannot accidentally publish because there is no `pnpm publish` step anywhere in `.github/workflows/`.
-
-If a future maintainer wants to flip the switch and add a CI-driven publish step, that is a deliberate, reviewable change to `.github/workflows/ci.yml` and `scripts/release.sh`. It is not done in this mission.
+What is not settled by code: the legal entity and contact address in `TRADEMARKS.md` and `COMMERCIAL.md`, and counsel's reading of the contributor agreement. Those texts say so on their first line.

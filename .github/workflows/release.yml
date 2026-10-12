@@ -6,7 +6,7 @@ name: Release
 #
 #   git tag v0.1.0 && git push origin v0.1.0
 #
-# Publishing to npm is a separate step that needs the owner's scope (docs/PUBLISHING.md).
+# Baka is distributed from GitHub releases and the install site; it is not published to npm (docs/PUBLISHING.md).
 
 on:
   push:

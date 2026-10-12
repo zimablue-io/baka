@@ -3,7 +3,7 @@
 #
 # Bump the project version, build the dist artifacts, and pack the published
 # installable tarballs (baka, @baka/mcp, @baka/core). The script
-# does NOT publish. Publishing is a separate manual step documented in
+# does NOT publish anywhere. Distribution (the install site and GitHub releases) is documented in
 # docs/PUBLISHING.md.
 #
 # Validation contract pins:
@@ -38,8 +38,8 @@ Exit codes:
   1  invalid arguments, dirty tree, or pack failure
   2  invalid version format
 
-This script does not publish. The npm switch is documented in
-docs/PUBLISHING.md and is intentionally a separate manual step.
+This script does not publish. Distribution is documented in
+docs/PUBLISHING.md; the tag that triggers a GitHub release is a separate manual step.
 EOF
 }
 

@@ -42,6 +42,11 @@ try {
 	const baka = join(install, "node_modules", ".bin", "baka")
 	if (!existsSync(baka)) throw new Error("the install has no baka binary")
 
+	// The licenses travel with the code: ours, and the third-party texts for what the bundle inlines.
+	for (const file of ["LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.md"]) {
+		if (!existsSync(join(install, "node_modules", "@baka", "cli", file))) throw new Error(`the install has no ${file}`)
+	}
+
 	// A clean environment: a fresh home, and none of the machine's own BAKA_* settings.
 	const env = { HOME: home, XDG_CONFIG_HOME: home, XDG_DATA_HOME: home }
 	for (const key of Object.keys(process.env)) if (key.startsWith("BAKA_")) env[key] = ""

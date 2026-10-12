@@ -136,4 +136,4 @@ if ! handshake=$("$bin" version --json 2>&1); then
 	die "installed, but \`$bin version --json\` did not answer: $handshake" 3
 fi
 say "$handshake"
-say "baka is installed. Try: baka run add-readme --name my-app"
+say "baka is installed (Apache-2.0, no telemetry). Try: baka run add-readme --name my-app"
