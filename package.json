@@ -34,5 +34,34 @@
 	"engines": {
 		"node": ">=24.0.0",
 		"pnpm": ">=9.0.0"
+	},
+	"pnpm": {
+		"overrides": {
+			"handlebars": "4.7.10",
+			"@modelcontextprotocol/sdk": "1.32.2",
+			"hono": "4.13.18",
+			"@hono/node-server": "1.19.19",
+			"body-parser@2": "2.4.0",
+			"undici@7": "7.30.2",
+			"zod@4": "4.6.7",
+			"esbuild@<0.28.1": "0.28.2",
+			"ip-address@10": "10.7.6",
+			"fast-uri@3": "3.1.9",
+			"qs@6": "6.17.1",
+			"postcss@8": "8.5.33",
+			"nanoid@3": "3.3.20",
+			"brace-expansion@5": "5.0.13",
+			"smol-toml@1": "1.9.1",
+			"source-map-js@1": "1.2.2",
+			"proxy-addr@2": "2.0.8",
+			"systeminformation@5": "5.33.23",
+			"postcss-selector-parser@7": "7.2.1",
+			"js-yaml@4": "4.3.2",
+			"seroval": "1.6.12",
+			"seroval-plugins": "1.6.12",
+			"vite@8": "8.3.8",
+			"vitest": "4.1.12",
+			"@vitest/coverage-v8": "4.1.12"
+		}
 	}
 }
