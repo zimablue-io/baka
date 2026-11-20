@@ -1,4 +1,4 @@
 {
 	"$schema": "https://openapi.vercel.sh/vercel.json",
-	"ignoreCommand": "npx -y turbo-ignore@2.9.18 --task=build"
+	"ignoreCommand": "node ../../scripts/ignore-build.mjs landing"
 }
