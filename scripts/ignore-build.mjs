@@ -43,4 +43,4 @@ if (project !== "landing" && project !== "dashboard") {
 if (changed(EVERYTHING)) build()
 if (project === "dashboard") (changed(SITE) ? build : skip)()
 // The landing builds when it or a package it depends on changed: turbo-ignore reads the workspace graph.
-process.exit(spawnSync("npx", ["-y", "turbo-ignore@2.9.18", "--task=build"], { stdio: "inherit" }).status ?? 1)
+process.exit(spawnSync("npx", ["-y", "turbo-ignore@2.9.18", "--task=build"], { stdio: "inherit" }).status === 0 ? 0 : 1)
