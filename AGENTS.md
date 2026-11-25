@@ -27,3 +27,5 @@ The agent drives capture proactively. It must:
 
 Frustration is the FAILURE signal, not the trigger: capture during the
 session, not after the user complains.
+
+NO BACKWARDS COMPATIBILITY, EVER: never keep legacy code, old versions, compatibility shims, fallbacks for old clients or migration paths for old installs. Delete legacy code instead of preserving it.
